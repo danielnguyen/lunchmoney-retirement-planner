@@ -5,5 +5,6 @@ export async function GET() {
     status: "ok",
     service: "lunchmoney-retirement-planner",
     apiVersion: "v1",
+    projectionSchemaVersion: "2.0",
   });
 }
