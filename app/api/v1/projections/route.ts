@@ -1,20 +1,17 @@
-import { ZodError } from "zod";
 import { calculateProjection } from "@/src/domain/projection/calculate";
-import { projectionInputsSchema } from "@/src/domain/projection/types";
+import { validateProjectionInputs } from "@/src/domain/projection/types";
 
 export async function POST(request: Request) {
   try {
     const payload: unknown = await request.json();
-    const inputs = projectionInputsSchema.parse(payload);
-    return Response.json(calculateProjection(inputs));
+    return Response.json(calculateProjection(validateProjectionInputs(payload)));
   } catch (error) {
-    if (error instanceof ZodError) {
-      return Response.json(
-        { error: "invalid_projection_inputs", issues: error.issues },
-        { status: 400 },
-      );
-    }
-
-    return Response.json({ error: "projection_failed" }, { status: 500 });
+    return Response.json(
+      {
+        error: "invalid_projection_inputs",
+        message: error instanceof Error ? error.message : "Projection failed",
+      },
+      { status: 400 },
+    );
   }
 }
