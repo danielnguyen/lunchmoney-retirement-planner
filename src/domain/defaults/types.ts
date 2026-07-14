@@ -16,6 +16,7 @@ export type BaselineValue<T> = {
   sourceDescription: string;
   effectiveDate: string;
   referenceKind?: CanadianReferenceKind;
+  referenceUrl?: string;
 };
 
 export type BaselineCandidateSet<T> = {
