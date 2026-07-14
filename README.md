@@ -76,6 +76,8 @@ npm run lint
 npm run build
 ```
 
+The pull-request workflow runs the same checks on a fresh Node.js 22 environment.
+
 ## API
 
 ### Health
@@ -130,7 +132,7 @@ Canadian reference values identify whether they are population statistics, statu
 
 ## Lunch Money boundary
 
-The Lunch Money integration is intentionally read-only. The application client exposes retrieval operations for transactions, categories, accounts, and recurring items. Imported transactions will be used to derive income, spending, contributions, and account snapshots without giving the application mutation authority over Lunch Money.
+The Lunch Money integration is intentionally read-only. The application client exposes retrieval operations for transactions, categories, accounts, and recurring items. The synchronization and persistence workflow is not connected in this release.
 
 Lunch Money API v2 is currently in open alpha. The adapter is isolated so API changes do not affect the projection engine.
 
@@ -139,6 +141,13 @@ Lunch Money API v2 is currently in open alpha. The adapter is isolated so API ch
 The current tax model uses explicit effective-rate and OAS recovery-tax assumptions. It is designed for transparent scenario comparison, not tax filing or individualized financial advice. A later rules engine can replace it without changing the report contract.
 
 RRSP/RRIF conversion is represented as a milestone. Statutory minimum-withdrawal enforcement is not implemented yet.
+
+## Current integration boundaries
+
+- Live Lunch Money synchronization and database persistence are not connected.
+- Canadian reference provenance is supported, but automated reference-data ingestion is not connected.
+- External API authentication is reserved in configuration but is not enforced yet.
+- Tax calculations are simplified and do not implement complete federal and provincial tax rules.
 
 ## Security
 
