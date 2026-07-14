@@ -67,6 +67,19 @@ docker compose up --build
 
 The application is available at `http://localhost:3000`.
 
+## Published container image
+
+Pushes to `main` and manual workflow runs publish the application image to GitHub Container Registry with two tags:
+
+- `ghcr.io/danielnguyen/lunchmoney-retirement-planner:latest`
+- `ghcr.io/danielnguyen/lunchmoney-retirement-planner:<short-commit-sha>`
+
+```bash
+docker pull ghcr.io/danielnguyen/lunchmoney-retirement-planner:latest
+```
+
+The immutable short-SHA tag is preferred when a deployment must remain pinned to a specific build.
+
 ## Validation
 
 ```bash
