@@ -1,10 +1,11 @@
-import { demoBaseline } from "@/src/demo/baseline";
+import { demoInputs, demoSources } from "@/src/demo/baseline";
 
 export const dynamic = "force-dynamic";
 
 export async function GET() {
   return Response.json({
-    schemaVersion: "1.0",
-    values: demoBaseline,
+    schemaVersion: "2.0",
+    inputs: demoInputs,
+    sources: demoSources,
   });
 }
