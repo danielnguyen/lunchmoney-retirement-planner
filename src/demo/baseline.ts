@@ -1,78 +1,263 @@
 import type { BaselineValue } from "@/src/domain/defaults/types";
-import { resolveBaselineRecord } from "@/src/domain/defaults/resolve";
 import type { ProjectionInputs } from "@/src/domain/projection/types";
 
 const effectiveDate = "2026-01-01";
 
-function fallback(value: number, description: string): BaselineValue<number> {
+function fallback(value: number, sourceDescription: string): BaselineValue<number> {
   return {
     value,
     sourceType: "application_fallback",
-    sourceDescription: description,
+    sourceDescription,
     effectiveDate,
   };
 }
 
-function canadianReference(
+function reference(
   value: number,
-  description: string,
+  sourceDescription: string,
   referenceKind: NonNullable<BaselineValue<number>["referenceKind"]>,
+  referenceUrl?: string,
 ): BaselineValue<number> {
   return {
     value,
     sourceType: "canadian_reference",
-    sourceDescription: description,
+    sourceDescription,
     effectiveDate,
     referenceKind,
+    referenceUrl,
   };
 }
 
-export const demoBaseline = resolveBaselineRecord<ProjectionInputs>({
-  currentAge: {
-    applicationFallback: fallback(40, "Demonstration age"),
+export const demoInputs: ProjectionInputs = {
+  startYear: 2026,
+  primaryMemberId: "member-a",
+  endAge: 95,
+  annualInflation: 0.02,
+  monthlyEssentialSpendingToday: 4500,
+  monthlyDiscretionarySpendingToday: 1500,
+  retirementGoalToday: 1500000,
+  tax: {
+    effectiveTaxRate: 0.22,
+    oasRecoveryThresholdToday: 90000,
+    oasRecoveryRate: 0.15,
   },
-  retirementAge: {
-    canadianReference: canadianReference(
-      65,
-      "Standard Canadian public-pension reference age",
-      "statutory_program_default",
-    ),
-    applicationFallback: fallback(65, "Application retirement-age fallback"),
-  },
-  endAge: {
-    applicationFallback: fallback(95, "Demonstration projection end age"),
-  },
-  currentSavings: {
-    applicationFallback: fallback(150000, "Demonstration starting balance"),
-  },
-  monthlyContribution: {
-    applicationFallback: fallback(2000, "Demonstration monthly contribution"),
-  },
-  annualReturnBeforeRetirement: {
-    applicationFallback: fallback(0.05, "Demonstration pre-retirement return"),
-  },
-  annualReturnAfterRetirement: {
-    applicationFallback: fallback(0.04, "Demonstration post-retirement return"),
-  },
-  annualInflation: {
-    canadianReference: canadianReference(
-      0.02,
-      "Bank of Canada inflation-control target midpoint",
-      "published_planning_assumption",
-    ),
-    applicationFallback: fallback(0.02, "Application inflation fallback"),
-  },
-  monthlyRetirementSpendingToday: {
-    applicationFallback: fallback(4500, "Demonstration retirement spending"),
-  },
-  monthlyGovernmentBenefitsToday: {
-    applicationFallback: fallback(1600, "Demonstration public benefits"),
-  },
-  retirementGoalToday: {
-    applicationFallback: fallback(1000000, "Demonstration retirement goal"),
-  },
-});
+  members: [
+    {
+      id: "member-a",
+      label: "Member A",
+      currentAge: 45,
+      retirementAge: 65,
+      expenseShare: 0.55,
+      annualEmploymentIncomeToday: 105000,
+      annualIncomeGrowth: 0.02,
+      annualPensionToday: 0,
+      pensionStartAge: 65,
+      pensionIndexingRate: 0.02,
+      cpp: {
+        startAge: 65,
+        monthlyAmountAt65Today: 1450,
+        percentOfMaximum: 0.8,
+        indexingRate: 0.02,
+      },
+      oas: {
+        startAge: 65,
+        monthlyAmountAt65Today: 730,
+        percentOfMaximum: 1,
+        indexingRate: 0.02,
+      },
+      rrifConversionAge: 71,
+    },
+    {
+      id: "member-b",
+      label: "Member B",
+      currentAge: 43,
+      retirementAge: 65,
+      expenseShare: 0.45,
+      annualEmploymentIncomeToday: 75000,
+      annualIncomeGrowth: 0.02,
+      annualPensionToday: 6000,
+      pensionStartAge: 65,
+      pensionIndexingRate: 0.02,
+      cpp: {
+        startAge: 65,
+        monthlyAmountAt65Today: 1450,
+        percentOfMaximum: 0.7,
+        indexingRate: 0.02,
+      },
+      oas: {
+        startAge: 65,
+        monthlyAmountAt65Today: 730,
+        percentOfMaximum: 1,
+        indexingRate: 0.02,
+      },
+      rrifConversionAge: 71,
+    },
+  ],
+  accounts: [
+    {
+      id: "cash-a",
+      label: "Cash",
+      ownerId: "member-a",
+      type: "cash",
+      openingBalance: 35000,
+      annualReturn: 0.01,
+      monthlyContributionToday: 0,
+      contributionIndexingRate: 0,
+      withdrawalPriority: 1,
+      allocation: { cash: 1, fixedIncome: 0, equity: 0 },
+    },
+    {
+      id: "cash-b",
+      label: "Cash",
+      ownerId: "member-b",
+      type: "cash",
+      openingBalance: 15000,
+      annualReturn: 0.01,
+      monthlyContributionToday: 0,
+      contributionIndexingRate: 0,
+      withdrawalPriority: 2,
+      allocation: { cash: 1, fixedIncome: 0, equity: 0 },
+    },
+    {
+      id: "tfsa-a",
+      label: "TFSA",
+      ownerId: "member-a",
+      type: "tfsa",
+      openingBalance: 90000,
+      annualReturn: 0.052,
+      monthlyContributionToday: 650,
+      contributionIndexingRate: 0.02,
+      withdrawalPriority: 5,
+      allocation: { cash: 0, fixedIncome: 0.2, equity: 0.8 },
+    },
+    {
+      id: "tfsa-b",
+      label: "TFSA",
+      ownerId: "member-b",
+      type: "tfsa",
+      openingBalance: 60000,
+      annualReturn: 0.052,
+      monthlyContributionToday: 500,
+      contributionIndexingRate: 0.02,
+      withdrawalPriority: 6,
+      allocation: { cash: 0, fixedIncome: 0.2, equity: 0.8 },
+    },
+    {
+      id: "rrsp-a",
+      label: "RRSP / RRIF",
+      ownerId: "member-a",
+      type: "rrsp_rrif",
+      openingBalance: 210000,
+      annualReturn: 0.048,
+      monthlyContributionToday: 1200,
+      contributionIndexingRate: 0.02,
+      withdrawalPriority: 4,
+      allocation: { cash: 0, fixedIncome: 0.35, equity: 0.65 },
+    },
+    {
+      id: "rrsp-b",
+      label: "RRSP / RRIF",
+      ownerId: "member-b",
+      type: "rrsp_rrif",
+      openingBalance: 90000,
+      annualReturn: 0.048,
+      monthlyContributionToday: 650,
+      contributionIndexingRate: 0.02,
+      withdrawalPriority: 3,
+      allocation: { cash: 0, fixedIncome: 0.35, equity: 0.65 },
+    },
+    {
+      id: "nonregistered-a",
+      label: "Non-registered",
+      ownerId: "member-a",
+      type: "non_registered",
+      openingBalance: 80000,
+      annualReturn: 0.05,
+      monthlyContributionToday: 0,
+      contributionIndexingRate: 0,
+      withdrawalPriority: 2,
+      allocation: { cash: 0.05, fixedIncome: 0.25, equity: 0.7 },
+    },
+    {
+      id: "home-a",
+      label: "Real asset",
+      ownerId: "member-a",
+      type: "real_asset",
+      openingBalance: 600000,
+      annualReturn: 0.02,
+      monthlyContributionToday: 0,
+      contributionIndexingRate: 0,
+      withdrawalPriority: 99,
+      allocation: { cash: 0, fixedIncome: 0, equity: 0 },
+    },
+    {
+      id: "mortgage-a",
+      label: "Debt",
+      ownerId: "member-a",
+      type: "debt",
+      openingBalance: 250000,
+      annualReturn: -0.035,
+      monthlyContributionToday: 0,
+      contributionIndexingRate: 0,
+      withdrawalPriority: 99,
+      allocation: { cash: 0, fixedIncome: 0, equity: 0 },
+    },
+  ],
+  events: [
+    {
+      id: "major-purchase",
+      label: "Major purchase",
+      calendarYear: 2038,
+      month: 6,
+      amountToday: 25000,
+      direction: "outflow",
+    },
+    {
+      id: "asset-sale",
+      label: "Asset sale",
+      calendarYear: 2061,
+      month: 1,
+      amountToday: 350000,
+      direction: "inflow",
+      ownerId: "member-a",
+      targetAccountId: "nonregistered-a",
+    },
+  ],
+};
 
-export const demoInputs: ProjectionInputs = Object.fromEntries(
-  Object.entries(demoBaseline).map(([key, baseline]) => [key, baseline.value]),
-) as ProjectionInputs;
+export const demoSources: Record<string, BaselineValue<number>> = {
+  annualInflation: reference(
+    0.02,
+    "Bank of Canada inflation-control target midpoint",
+    "published_planning_assumption",
+    "https://www.bankofcanada.ca/core-functions/monetary-policy/inflation/",
+  ),
+  monthlyEssentialSpendingToday: fallback(4500, "Generic demonstration spending"),
+  monthlyDiscretionarySpendingToday: fallback(1500, "Generic demonstration spending"),
+  retirementGoalToday: fallback(1500000, "Generic demonstration goal"),
+  effectiveTaxRate: fallback(0.22, "Simplified effective-tax assumption"),
+  "member-a.retirementAge": fallback(65, "Generic demonstration retirement age"),
+  "member-a.cpp.startAge": reference(
+    65,
+    "Standard CPP reference age",
+    "statutory_program_default",
+    "https://www.canada.ca/en/services/benefits/publicpensions/cpp/cpp-benefit/when-start.html",
+  ),
+  "member-a.oas.startAge": reference(
+    65,
+    "Standard OAS eligibility age",
+    "statutory_program_default",
+    "https://www.canada.ca/en/services/benefits/publicpensions/cpp/old-age-security/when-start.html",
+  ),
+  "member-b.retirementAge": fallback(65, "Generic demonstration retirement age"),
+  "member-b.cpp.startAge": reference(
+    65,
+    "Standard CPP reference age",
+    "statutory_program_default",
+  ),
+  "member-b.oas.startAge": reference(
+    65,
+    "Standard OAS eligibility age",
+    "statutory_program_default",
+  ),
+};
