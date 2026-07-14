@@ -1,14 +1,13 @@
-import { ZodError } from "zod";
+import { demoSources } from "@/src/demo/baseline";
 import { calculateProjection } from "@/src/domain/projection/calculate";
 import { createProjectionSnapshot } from "@/src/domain/projection/export";
-import { projectionInputsSchema } from "@/src/domain/projection/types";
+import { validateProjectionInputs } from "@/src/domain/projection/types";
 
 export async function POST(request: Request) {
   try {
     const payload: unknown = await request.json();
-    const inputs = projectionInputsSchema.parse(payload);
-    const snapshot = createProjectionSnapshot(calculateProjection(inputs));
-
+    const projection = calculateProjection(validateProjectionInputs(payload));
+    const snapshot = createProjectionSnapshot(projection, demoSources);
     return new Response(JSON.stringify(snapshot, null, 2), {
       headers: {
         "Content-Type": "application/json",
@@ -16,13 +15,12 @@ export async function POST(request: Request) {
       },
     });
   } catch (error) {
-    if (error instanceof ZodError) {
-      return Response.json(
-        { error: "invalid_projection_inputs", issues: error.issues },
-        { status: 400 },
-      );
-    }
-
-    return Response.json({ error: "export_failed" }, { status: 500 });
+    return Response.json(
+      {
+        error: "export_failed",
+        message: error instanceof Error ? error.message : "Export failed",
+      },
+      { status: 400 },
+    );
   }
 }
