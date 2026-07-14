@@ -38,17 +38,20 @@ export function calculateProjection(rawInputs: ProjectionInputs): ProjectionResu
   const yearly: ProjectionPoint[] = [];
 
   for (let month = 0; month <= totalMonths; month += 1) {
-    const phase = month < retirementMonth ? "accumulation" : "retirement";
+    const pointPhase = month < retirementMonth ? "accumulation" : "retirement";
+    const intervalPhase = month <= retirementMonth ? "accumulation" : "retirement";
     const inflationFactor = Math.pow(1 + monthlyInflationRate, month);
     const returnRate =
-      phase === "accumulation" ? preRetirementMonthlyReturn : postRetirementMonthlyReturn;
+      intervalPhase === "accumulation"
+        ? preRetirementMonthlyReturn
+        : postRetirementMonthlyReturn;
 
     if (month > 0) {
       const investmentGrowth = nominalBalance * returnRate;
       nominalBalance += investmentGrowth;
       annualInvestmentGrowth += investmentGrowth;
 
-      if (phase === "accumulation") {
+      if (intervalPhase === "accumulation") {
         nominalBalance += inputs.monthlyContribution;
         annualContributions += inputs.monthlyContribution;
       } else {
@@ -82,7 +85,7 @@ export function calculateProjection(rawInputs: ProjectionInputs): ProjectionResu
         annualContributions: roundCurrency(annualContributions),
         annualWithdrawals: roundCurrency(annualWithdrawals),
         annualInvestmentGrowth: roundCurrency(annualInvestmentGrowth),
-        phase,
+        phase: pointPhase,
       });
       annualContributions = 0;
       annualWithdrawals = 0;

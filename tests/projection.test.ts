@@ -36,6 +36,24 @@ describe("calculateProjection", () => {
     );
   });
 
+  it("includes the final accumulation-month contribution in the retirement balance", () => {
+    const result = calculateProjection({
+      ...inputs,
+      currentAge: 40,
+      retirementAge: 41,
+      endAge: 42,
+      currentSavings: 0,
+      monthlyContribution: 100,
+      annualReturnBeforeRetirement: 0,
+      annualReturnAfterRetirement: 0,
+      annualInflation: 0,
+      monthlyRetirementSpendingToday: 0,
+      monthlyGovernmentBenefitsToday: 0,
+    });
+
+    expect(result.summary.balanceAtRetirementToday).toBe(1200);
+  });
+
   it("rejects an end age before retirement", () => {
     expect(() => calculateProjection({ ...inputs, endAge: 60 })).toThrow();
   });
