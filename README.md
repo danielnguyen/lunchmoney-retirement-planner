@@ -121,7 +121,7 @@ Export requests use the current baseline response, active inputs, and browser ov
 }
 ```
 
-Both exports are anonymized and share-safe by default. The JSON export is the complete analysis document and includes an explicit share-safe marker plus deterministic planner-type aliases such as `Cash 1` / `cash_1`. The CSV export is a conventional flat annual table with one header and one row per projection period, including partial-period labels and optional `account_cash_1`-style balance columns. Neither format contains raw Lunch Money account identifiers, numeric account IDs, real account names, account numbers, or credentials.
+Both exports are anonymized and share-safe by default. The JSON export is the complete analysis document and uses a typed allowlist plus deterministic aliases such as `Cash 1` / `cash_1`, `Future event 1` / `event_1`, and `Recurring expense 1` / `recurring_expense_1`. It does not copy source objects recursively. All source-system record IDs and user-controlled free text—including names, account descriptions, event labels, recurring payees or merchants, addresses, notes, warning prose, and connection messages—are omitted or genericized. The CSV export is a conventional flat annual table with one header and one row per projection period, including partial-period labels and optional `account_cash_1`-style balance columns. Neither format contains raw Lunch Money identifiers, account names or numbers, credentials, or private free text.
 
 ## Docker Compose
 
@@ -151,7 +151,7 @@ Tests use synthetic fixtures under `tests/`. Production modules do not import th
 
 - The Lunch Money token remains server-side.
 - The token is never logged, returned by an API, or included in an export.
-- JSON and CSV exports replace account names and Lunch Money identifiers with deterministic, planner-type aliases before serialization.
+- JSON and CSV exports use deterministic export-local aliases and exclude all source-system IDs and user-controlled free text before serialization.
 - The application-facing Lunch Money service exposes retrieval methods only.
 - `config/planner.local.json`, `.env`, and the private config in the Docker build context are ignored.
 - No baseline, scenario, transaction, or account data is persisted by the application.

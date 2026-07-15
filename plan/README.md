@@ -371,6 +371,10 @@ They must not attach demonstration provenance.
 
 Both export formats are share-safe and anonymized by default. A deterministic per-export account map replaces every included account with a planner-type alias such as `Cash 1`, `TFSA 1`, or `RRSP 1` and a safe cross-reference key such as `cash_1`, `tfsa_1`, or `rrsp_1`. Raw Lunch Money account identifiers, numeric account IDs, account names, account numbers, credential values, and identifiers embedded in provenance, overrides, warnings, events, contribution targets, unmapped records, or annual account-balance maps must not appear.
 
+The share-safe JSON transformation is typed and allowlisted. It must not copy arbitrary source objects recursively. Every source-system record identifier—including recurring-item IDs—is replaced by a deterministic export-local alias such as `recurring_expense_1`, `event_1`, or `category_1`. No raw numeric or string source record ID is retained.
+
+User-controlled free text is not exported. Future-event labels, recurring-item descriptions, warning names and messages, connection messages, payees, merchants, addresses, notes, account descriptions, and other user-entered labels are replaced by deterministic generic labels such as `Future event 1`, `Recurring expense 1`, or `Warning 1`. The export preserves analytical amounts, dates, classifications, directions, warning codes and severities, safe target references, provenance source types, effective dates, and safe field references.
+
 JSON remains the complete analysis export and includes explicit metadata confirming that it is share-safe and anonymized. CSV is one conventional flat annual table with exactly one header and one row per projection period. It includes the partial-period label, annual flows, withdrawals, spending, tax, contributions, aggregate balances, financial assets, net worth, milestones, and optional anonymized per-account balance columns. CSV must not contain metadata preambles, blank section separators, embedded JSON, or multiple table schemas.
 
 ## Docker runtime
@@ -456,6 +460,8 @@ The MVP is complete only when all criteria below pass.
 - [ ] Exports include provenance, warnings, and data-through date.
 - [ ] No export contains the Lunch Money token.
 - [ ] Neither export contains raw Lunch Money identifiers, numeric account IDs, real account names, account numbers, or raw identifiers embedded in export keys or descriptions.
+- [ ] Neither export contains any source-system record ID or user-controlled free text; recurring items, events, warnings, connection details, and other text-bearing records use deterministic generic labels.
+- [ ] The JSON share-safe boundary uses an explicit typed allowlist rather than recursively copying arbitrary source objects.
 - [ ] JSON identifies itself as share-safe and uses one consistent deterministic account alias map throughout the document.
 - [ ] CSV contains exactly one header and one consistently shaped row per annual projection period, using only anonymized per-account keys.
 - [ ] The application-facing Lunch Money integration exposes read operations only.

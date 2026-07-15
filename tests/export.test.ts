@@ -15,8 +15,20 @@ const RAW_IDS = {
   rrsp: "manual:919192",
   unmapped: "plaid:919193",
   category: "919194",
+  recurring: 818181,
+  event: "private-future-event-id",
+  warning: "727272",
 };
-const RAW_NAMES = {
+const PRIVATE_TEXT = {
+  personalName: "Alexandra Privacy-Test",
+  streetAddress: "742 Evergreen Privacy Avenue, Toronto",
+  merchant: "Confidential Health Merchant",
+  payee: "Private Therapy Payee",
+  eventLabel: "Purchase a home for Alexandra at 742 Evergreen Privacy Avenue",
+  warningMessage: "Alexandra must call the private adviser about account 727272 immediately.",
+  note: "Personal note: transfer funds after the confidential appointment.",
+};
+const RAW_ACCOUNT_NAMES = {
   cash: "Everyday Chequing •••• 1234",
   rrsp: "Employer RRSP ending in 9876",
   unmapped: "Private Card ending in 4321",
@@ -24,6 +36,8 @@ const RAW_NAMES = {
 };
 
 type ExportFixture = {
+  inputs: ProjectionInputs;
+  baseline: BaselineExportContext;
   projection: ProjectionResult;
   snapshot: ProjectionSnapshot;
 };
@@ -33,35 +47,50 @@ function buildExportFixture(): ExportFixture {
   inputs.accounts[0] = {
     ...inputs.accounts[0]!,
     id: RAW_IDS.cash,
-    label: RAW_NAMES.cash,
+    label: RAW_ACCOUNT_NAMES.cash,
   };
   inputs.accounts[1] = {
     ...inputs.accounts[1]!,
     id: RAW_IDS.rrsp,
-    label: RAW_NAMES.rrsp,
+    label: RAW_ACCOUNT_NAMES.rrsp,
   };
   inputs.events[0] = {
     ...inputs.events[0]!,
-    id: "private-future-event-id",
-    label: `Transfer to ${RAW_NAMES.rrsp}`,
+    id: RAW_IDS.event,
+    label: PRIVATE_TEXT.eventLabel,
     targetAccountId: RAW_IDS.rrsp,
   };
 
   const baseline: BaselineExportContext = structuredClone(baselineContextFixture);
-  baseline.connection.message = `Lunch Money connected with ${EXPORT_TOKEN}`;
+  baseline.connection.message =
+    `${PRIVATE_TEXT.personalName} connected from ${PRIVATE_TEXT.streetAddress} using ${EXPORT_TOKEN}`;
   baseline.projectionInputs = inputs;
   baseline.provenance = {
     [`accounts.${RAW_IDS.cash}.openingBalance`]: {
       value: inputs.accounts[0]!.openingBalance,
       sourceType: "lunchmoney_derived",
-      sourceDescription: `Lunch Money account 919191 (${RAW_IDS.cash}) balance for ${RAW_NAMES.cash}`,
+      sourceDescription:
+        `Lunch Money account 919191 (${RAW_IDS.cash}) balance for ${RAW_ACCOUNT_NAMES.cash}`,
       effectiveDate: baseline.dataThrough,
     },
     [`accounts.${RAW_IDS.rrsp}.monthlyContributionToday`]: {
       value: inputs.accounts[1]!.monthlyContributionToday,
       sourceType: "local_configuration",
-      sourceDescription: `Manual contribution for ${RAW_NAMES.rrsp}`,
+      sourceDescription: `Manual contribution for ${RAW_ACCOUNT_NAMES.rrsp}`,
       effectiveDate: baseline.dataThrough,
+    },
+    events: {
+      value: inputs.events,
+      sourceType: "local_configuration",
+      sourceDescription: `${PRIVATE_TEXT.eventLabel}; ${PRIVATE_TEXT.note}`,
+      effectiveDate: baseline.dataThrough,
+    },
+    [`notes.${PRIVATE_TEXT.personalName}`]: {
+      value: `${PRIVATE_TEXT.note} ${PRIVATE_TEXT.streetAddress}`,
+      sourceType: "local_configuration",
+      sourceDescription: `${PRIVATE_TEXT.merchant} / ${PRIVATE_TEXT.payee}`,
+      effectiveDate: baseline.dataThrough,
+      referenceUrl: `https://example.invalid/${encodeURIComponent(PRIVATE_TEXT.personalName)}`,
     },
   };
   baseline.derived.accountBalances = [
@@ -69,7 +98,7 @@ function buildExportFixture(): ExportFixture {
       id: RAW_IDS.cash,
       lunchMoneyId: 919191,
       source: "manual",
-      name: RAW_NAMES.cash,
+      name: RAW_ACCOUNT_NAMES.cash,
       plannerType: "cash",
       balance: inputs.accounts[0]!.openingBalance,
       balanceAsOf: baseline.dataThrough,
@@ -81,7 +110,7 @@ function buildExportFixture(): ExportFixture {
       id: RAW_IDS.rrsp,
       lunchMoneyId: 919192,
       source: "manual",
-      name: RAW_NAMES.rrsp,
+      name: RAW_ACCOUNT_NAMES.rrsp,
       plannerType: "rrsp_rrif",
       balance: inputs.accounts[1]!.openingBalance,
       balanceAsOf: baseline.dataThrough,
@@ -98,30 +127,35 @@ function buildExportFixture(): ExportFixture {
       funding: "cash",
     },
   ];
-  baseline.derived.recurringExpenses.items = [
-    {
-      id: 818181,
-      description: `Subscription paid from account no 1234 (${RAW_NAMES.cash})`,
-      classification: "essential",
-      monthlyAmount: 100,
-      accountId: RAW_IDS.cash,
-      categoryId: RAW_IDS.category,
-    },
-  ];
+  baseline.derived.recurringExpenses = {
+    monthlyTotal: 137.45,
+    count: 1,
+    items: [
+      {
+        id: RAW_IDS.recurring,
+        description:
+          `${PRIVATE_TEXT.merchant} paid to ${PRIVATE_TEXT.payee} for ${PRIVATE_TEXT.personalName} at ${PRIVATE_TEXT.streetAddress}`,
+        classification: "essential",
+        monthlyAmount: 137.45,
+        accountId: RAW_IDS.cash,
+        categoryId: RAW_IDS.category,
+      },
+    ],
+  };
   baseline.warnings = [
     {
-      code: "fixture_warning",
+      code: "negative_asset_balance",
       severity: "warning",
       identifier: RAW_IDS.rrsp,
-      name: RAW_NAMES.rrsp,
-      message: `Review account ${RAW_IDS.rrsp}: ${RAW_NAMES.rrsp}`,
+      name: PRIVATE_TEXT.personalName,
+      message: PRIVATE_TEXT.warningMessage,
     },
     {
       code: "unused_account_mapping",
       severity: "warning",
-      identifier: "727272",
-      name: "Old private account label",
-      message: "Account mapping 727272 for Old private account label did not match.",
+      identifier: RAW_IDS.warning,
+      name: `${PRIVATE_TEXT.merchant} account`,
+      message: `${PRIVATE_TEXT.note} ${PRIVATE_TEXT.payee}`,
     },
   ];
   baseline.unmappedAccounts = [
@@ -129,7 +163,7 @@ function buildExportFixture(): ExportFixture {
       id: RAW_IDS.unmapped,
       lunchMoneyId: 919193,
       source: "plaid",
-      name: RAW_NAMES.unmapped,
+      name: RAW_ACCOUNT_NAMES.unmapped,
       status: "active",
     },
   ];
@@ -137,7 +171,7 @@ function buildExportFixture(): ExportFixture {
     {
       id: RAW_IDS.category,
       lunchMoneyId: 919194,
-      name: RAW_NAMES.category,
+      name: RAW_ACCOUNT_NAMES.category,
       transactionCount: 3,
     },
   ];
@@ -147,6 +181,8 @@ function buildExportFixture(): ExportFixture {
   process.env.LUNCHMONEY_API_TOKEN = EXPORT_TOKEN;
   try {
     return {
+      inputs,
+      baseline,
       projection,
       snapshot: createProjectionSnapshot(
         projection,
@@ -186,154 +222,149 @@ function parseCsvLine(line: string): string[] {
   return cells;
 }
 
-function expectNoPrivateAccountData(exported: string): void {
+function collectIdValues(value: unknown): unknown[] {
+  if (Array.isArray(value)) return value.flatMap(collectIdValues);
+  if (!value || typeof value !== "object") return [];
+  return Object.entries(value as Record<string, unknown>).flatMap(([key, entry]) => [
+    ...(key === "id" ? [entry] : []),
+    ...collectIdValues(entry),
+  ]);
+}
+
+function expectNoPrivateData(exported: string): void {
   expect(exported).not.toMatch(/\b(?:plaid|manual):/i);
-  for (const raw of [RAW_IDS.cash, RAW_IDS.rrsp, RAW_IDS.unmapped, ...Object.values(RAW_NAMES)]) {
+  for (const raw of [
+    RAW_IDS.cash,
+    RAW_IDS.rrsp,
+    RAW_IDS.unmapped,
+    RAW_IDS.event,
+    ...Object.values(RAW_ACCOUNT_NAMES),
+    ...Object.values(PRIVATE_TEXT),
+  ]) {
     expect(exported).not.toContain(raw);
   }
-  for (const numericId of ["919191", "919192", "919193"]) {
-    expect(exported).not.toContain(numericId);
+  for (const rawId of [
+    "919191",
+    "919192",
+    "919193",
+    "919194",
+    String(RAW_IDS.recurring),
+    RAW_IDS.warning,
+  ]) {
+    expect(exported).not.toContain(rawId);
   }
   expect(exported).not.toContain(EXPORT_TOKEN);
 }
 
-describe("share-safe projection exports", () => {
-  it("anonymizes the synthetic cash account in provenance and override keys", () => {
-    const inputs: ProjectionInputs = structuredClone(projectionFixture);
-    inputs.accounts[0] = { ...inputs.accounts[0]!, id: "cash", label: "Cash transactions" };
-    const baseline: BaselineExportContext = structuredClone(baselineContextFixture);
-    baseline.projectionInputs = inputs;
-    baseline.derived.accountBalances[0] = {
-      ...baseline.derived.accountBalances[0]!,
-      id: "cash",
-      lunchMoneyId: null,
-      source: "cash",
-      name: "Cash transactions",
-    };
-    baseline.provenance = {
-      "accounts.cash.openingBalance": {
-        value: inputs.accounts[0]!.openingBalance,
-        sourceType: "lunchmoney_derived",
-        sourceDescription: "Lunch Money cash account balance and return assumption for cash",
-        effectiveDate: baseline.dataThrough,
-      },
-    };
-    const projection = calculateProjection(inputs);
-    const snapshot = createProjectionSnapshot(projection, baseline, {
-      "accounts.cash.openingBalance": inputs.accounts[0]!.openingBalance,
-    });
-
-    expect(snapshot.provenance["accounts.cash_1.openingBalance"]?.sourceDescription).toBe(
-      "Lunch Money cash_1 account balance and return assumption for cash_1",
-    );
-    expect(snapshot.activeOverrides).toEqual({
-      "accounts.cash_1.openingBalance": inputs.accounts[0]!.openingBalance,
-    });
-    expect(Object.keys(snapshot.projection.annual[0]!.real.accountBalances)).toContain("cash_1");
-  });
-
-  it("keeps aliases distinct when included accounts have duplicate display names", () => {
-    const inputs: ProjectionInputs = structuredClone(projectionFixture);
-    inputs.accounts[0] = { ...inputs.accounts[0]!, label: "Duplicate account name" };
-    inputs.accounts[1] = { ...inputs.accounts[1]!, label: "Duplicate account name" };
-    inputs.events[0] = {
-      ...inputs.events[0]!,
-      label: "Contribution to Duplicate account name",
-      targetAccountId: inputs.accounts[1]!.id,
-    };
-    const baseline: BaselineExportContext = structuredClone(baselineContextFixture);
-    baseline.projectionInputs = inputs;
-    baseline.derived.accountBalances[0] = {
-      ...baseline.derived.accountBalances[0]!,
-      name: "Duplicate account name",
-    };
-    const projection = calculateProjection(inputs);
-    const snapshot = createProjectionSnapshot(projection, baseline, {});
-
-    expect(snapshot.projection.inputs.accounts.map(({ label }) => label)).toEqual([
-      "Cash 1",
-      "RRSP 1",
-    ]);
-    expect(snapshot.projection.inputs.events[0]!.label).toBe("Contribution to RRSP 1");
-  });
-
-  it("uses one consistent deterministic account alias map throughout JSON", () => {
+describe("allowlisted share-safe projection exports", () => {
+  it("aliases every exported id and genericizes all user-controlled free text", () => {
     const { snapshot } = buildExportFixture();
     const serialized = JSON.stringify(snapshot);
 
     expect(snapshot.exportMetadata).toEqual({
       shareSafe: true,
       anonymized: true,
+      transformation: "typed_allowlist",
       rawLunchMoneyIdentifiersIncluded: false,
+      sourceSystemRecordIdsIncluded: false,
+      userControlledFreeTextIncluded: false,
       credentialsIncluded: false,
       accountAliases: [
         { key: "cash_1", label: "Cash 1", plannerType: "cash" },
         { key: "rrsp_1", label: "RRSP 1", plannerType: "rrsp_rrif" },
       ],
     });
-    expect(snapshot.resolvedBaseline.accounts.map(({ id, label }) => ({ id, label }))).toEqual([
-      { id: "cash_1", label: "Cash 1" },
-      { id: "rrsp_1", label: "RRSP 1" },
-    ]);
-    expect(snapshot.activeInputs.accounts.map(({ id, label }) => ({ id, label }))).toEqual([
-      { id: "cash_1", label: "Cash 1" },
-      { id: "rrsp_1", label: "RRSP 1" },
-    ]);
-    expect(snapshot.projection.inputs.accounts.map(({ id, label }) => ({ id, label }))).toEqual([
-      { id: "cash_1", label: "Cash 1" },
-      { id: "rrsp_1", label: "RRSP 1" },
-    ]);
-    expect(Object.keys(snapshot.projection.annual[0]!.real.accountBalances)).toEqual([
-      "cash_1",
-      "rrsp_1",
-    ]);
-    expect(snapshot.derivedBaseline.accountBalances.map(({ id, name, lunchMoneyId }) => ({
-      id,
-      name,
-      lunchMoneyId,
-    }))).toEqual([
-      { id: "cash_1", name: "Cash 1", lunchMoneyId: null },
-      { id: "rrsp_1", name: "RRSP 1", lunchMoneyId: null },
-    ]);
-    expect(snapshot.derivedBaseline.investmentContributions.accounts[0]!.accountId).toBe("rrsp_1");
-    expect(snapshot.projection.inputs.events[0]).toMatchObject({
+    expect(snapshot.connection).toEqual({
+      status: "connected",
+      checkedAt: "2026-07-14T00:00:00.000Z",
+      message: "Lunch Money connection verified.",
+    });
+    expect(snapshot.resolvedBaseline.events[0]).toEqual({
       id: "event_1",
-      label: "Transfer to RRSP 1",
+      label: "Future event 1",
+      calendarYear: 2038,
+      month: 6,
+      amountToday: 10000,
+      direction: "outflow",
       targetAccountId: "rrsp_1",
     });
-    expect(snapshot.provenance["accounts.cash_1.openingBalance"]?.sourceDescription).toContain(
-      "Cash 1",
-    );
-    expect(snapshot.provenance["accounts.rrsp_1.monthlyContributionToday"]?.sourceDescription).toContain(
-      "RRSP 1",
-    );
-    expect(snapshot.activeOverrides).toEqual({
-      retirementAge: 64,
-      "accounts.rrsp_1.monthlyContributionToday": 1500,
-    });
-    expect(snapshot.warnings[0]).toMatchObject({ identifier: "rrsp_1", name: "RRSP 1" });
-    expect(snapshot.warnings[0]!.message).toContain("rrsp_1");
-    expect(snapshot.warnings[1]).toMatchObject({
-      identifier: "warning_identifier_1",
-      name: "Warning record 1",
-    });
-    expect(snapshot.unmappedAccounts[0]).toMatchObject({
-      id: "unmapped_account_1",
-      lunchMoneyId: null,
-      name: "Unmapped account 1",
-    });
-    expect(snapshot.unmappedCategories[0]).toMatchObject({
-      id: "category_1",
-      lunchMoneyId: null,
-      name: "Category 1",
-    });
-    expectNoPrivateAccountData(serialized);
-    expect(serialized).not.toContain("727272");
-    expect(serialized).not.toContain("Old private account label");
+    expect(snapshot.activeInputs.events[0]).toEqual(snapshot.resolvedBaseline.events[0]);
+    expect(snapshot.projection.inputs.events[0]).toEqual(snapshot.resolvedBaseline.events[0]);
+    expect(snapshot.derivedBaseline.recurringExpenses.items).toEqual([
+      {
+        id: "recurring_expense_1",
+        description: "Recurring expense 1",
+        classification: "essential",
+        monthlyAmount: 137.45,
+        accountId: "cash_1",
+        categoryId: "category_1",
+      },
+    ]);
+    expect(snapshot.warnings).toEqual([
+      {
+        code: "negative_asset_balance",
+        severity: "warning",
+        identifier: "rrsp_1",
+        name: "Warning 1",
+        message: "Warning 1",
+      },
+      {
+        code: "unused_account_mapping",
+        severity: "warning",
+        identifier: "warning_identifier_1",
+        name: "Warning 2",
+        message: "Warning 2",
+      },
+    ]);
+    expect(snapshot.unmappedAccounts).toEqual([
+      { id: "unmapped_account_1", source: "plaid", name: "Unmapped account 1" },
+    ]);
+    expect(snapshot.unmappedCategories).toEqual([
+      { id: "category_1", name: "Category 1", transactionCount: 3 },
+    ]);
+
+    const idValues = collectIdValues(snapshot);
+    expect(idValues.length).toBeGreaterThan(0);
+    expect(idValues.every((id) => typeof id === "string")).toBe(true);
+    expect(idValues.every((id) =>
+      /^(?:cash|tfsa|rrsp|non_registered|debt|event|recurring_expense|category|unmapped_account)_\d+$/.test(
+        String(id),
+      ),
+    )).toBe(true);
+    expectNoPrivateData(serialized);
   });
 
-  it("preserves financial values and projection totals while removing credentials", () => {
-    const { projection, snapshot } = buildExportFixture();
+  it("exports only safe provenance field references and override keys", () => {
+    const { snapshot } = buildExportFixture();
+
+    expect(snapshot.provenance["accounts.cash_1.openingBalance"]).toEqual({
+      fieldReference: "accounts.cash_1.openingBalance",
+      value: 20000,
+      sourceType: "lunchmoney_derived",
+      sourceDescription:
+        "lunchmoney derived value for accounts.cash_1.openingBalance.",
+      effectiveDate: "2026-07-14",
+    });
+    expect(snapshot.provenance.events?.value).toEqual(snapshot.resolvedBaseline.events);
+    expect(snapshot.provenance.events?.sourceDescription).toBe(
+      "local configuration value for events.",
+    );
+    expect(snapshot.provenance.field_1).toMatchObject({
+      fieldReference: "field_1",
+      value: "anonymized",
+      sourceType: "local_configuration",
+      sourceDescription: "local configuration value for field_1.",
+    });
+    expect(snapshot.activeOverrides).toEqual({
+      "accounts.rrsp_1.monthlyContributionToday": 1500,
+      retirementAge: 64,
+    });
+    expectNoPrivateData(JSON.stringify(snapshot.provenance));
+    expectNoPrivateData(JSON.stringify(snapshot.activeOverrides));
+  });
+
+  it("preserves analytical values, event timing, classifications, and projection totals", () => {
+    const { inputs, baseline, projection, snapshot } = buildExportFixture();
 
     expect(snapshot.projection.summary).toEqual(projection.summary);
     expect(snapshot.projection.annual.map((point) => point.real.income)).toEqual(
@@ -350,10 +381,85 @@ describe("share-safe projection exports", () => {
     ).toEqual(
       Object.values(projection.annual[0]!.real.accountBalances).sort((a, b) => a - b),
     );
-    expectNoPrivateAccountData(JSON.stringify(snapshot));
+    expect(snapshot.resolvedBaseline.events[0]).toMatchObject({
+      calendarYear: inputs.events[0]!.calendarYear,
+      month: inputs.events[0]!.month,
+      amountToday: inputs.events[0]!.amountToday,
+      direction: inputs.events[0]!.direction,
+    });
+    expect(snapshot.derivedBaseline.recurringExpenses).toMatchObject({
+      monthlyTotal: baseline.derived.recurringExpenses.monthlyTotal,
+      count: baseline.derived.recurringExpenses.count,
+    });
+    expect(snapshot.derivedBaseline.recurringExpenses.items[0]).toMatchObject({
+      monthlyAmount: baseline.derived.recurringExpenses.items[0]!.monthlyAmount,
+      classification: baseline.derived.recurringExpenses.items[0]!.classification,
+    });
+    expectNoPrivateData(JSON.stringify(snapshot));
   });
 
-  it("emits one consistently shaped, conventional annual CSV table", () => {
+  it("keeps aliases distinct when included accounts have duplicate display names", () => {
+    const inputs: ProjectionInputs = structuredClone(projectionFixture);
+    inputs.accounts[0] = { ...inputs.accounts[0]!, label: PRIVATE_TEXT.personalName };
+    inputs.accounts[1] = { ...inputs.accounts[1]!, label: PRIVATE_TEXT.personalName };
+    inputs.events[0] = {
+      ...inputs.events[0]!,
+      label: `${PRIVATE_TEXT.personalName} at ${PRIVATE_TEXT.streetAddress}`,
+      targetAccountId: inputs.accounts[1]!.id,
+    };
+    const baseline: BaselineExportContext = structuredClone(baselineContextFixture);
+    baseline.projectionInputs = inputs;
+    baseline.derived.accountBalances[0] = {
+      ...baseline.derived.accountBalances[0]!,
+      name: PRIVATE_TEXT.personalName,
+    };
+    const projection = calculateProjection(inputs);
+    const snapshot = createProjectionSnapshot(projection, baseline, {});
+
+    expect(snapshot.projection.inputs.accounts.map(({ label }) => label)).toEqual([
+      "Cash 1",
+      "RRSP 1",
+    ]);
+    expect(snapshot.projection.inputs.events[0]!.label).toBe("Future event 1");
+    expectNoPrivateData(JSON.stringify(snapshot));
+  });
+
+  it("anonymizes the synthetic cash account in provenance and override keys", () => {
+    const inputs: ProjectionInputs = structuredClone(projectionFixture);
+    inputs.accounts[0] = { ...inputs.accounts[0]!, id: "cash", label: PRIVATE_TEXT.personalName };
+    const baseline: BaselineExportContext = structuredClone(baselineContextFixture);
+    baseline.projectionInputs = inputs;
+    baseline.derived.accountBalances[0] = {
+      ...baseline.derived.accountBalances[0]!,
+      id: "cash",
+      lunchMoneyId: null,
+      source: "cash",
+      name: PRIVATE_TEXT.personalName,
+    };
+    baseline.provenance = {
+      "accounts.cash.openingBalance": {
+        value: inputs.accounts[0]!.openingBalance,
+        sourceType: "lunchmoney_derived",
+        sourceDescription: `${PRIVATE_TEXT.personalName} at ${PRIVATE_TEXT.streetAddress}`,
+        effectiveDate: baseline.dataThrough,
+      },
+    };
+    const projection = calculateProjection(inputs);
+    const snapshot = createProjectionSnapshot(projection, baseline, {
+      "accounts.cash.openingBalance": inputs.accounts[0]!.openingBalance,
+    });
+
+    expect(snapshot.provenance["accounts.cash_1.openingBalance"]?.fieldReference).toBe(
+      "accounts.cash_1.openingBalance",
+    );
+    expect(snapshot.activeOverrides).toEqual({
+      "accounts.cash_1.openingBalance": inputs.accounts[0]!.openingBalance,
+    });
+    expect(Object.keys(snapshot.projection.annual[0]!.real.accountBalances)).toContain("cash_1");
+    expectNoPrivateData(JSON.stringify(snapshot));
+  });
+
+  it("emits one consistently shaped flat CSV without private text or source ids", () => {
     const { snapshot } = buildExportFixture();
     const csv = projectionSnapshotToCsv(snapshot, "real");
     const lines = csv.split("\n");
@@ -376,6 +482,6 @@ describe("share-safe projection exports", () => {
     expect(Number(parsed[1]![financialAssetsColumn])).toBe(
       snapshot.projection.annual[0]!.real.balances.financialAssets,
     );
-    expectNoPrivateAccountData(csv);
+    expectNoPrivateData(csv);
   });
 });
