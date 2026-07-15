@@ -31,6 +31,8 @@ The Lunch Money token is read only while constructing the server-side SDK client
 
 Private assumptions and mappings are loaded from `PLANNER_CONFIG_PATH`, which defaults to `config/planner.local.json`. The local file is ignored by Git and the Docker build context.
 
+Both export routes create one deterministic anonymization map per request. Included accounts receive planner-type aliases and safe keys, and the same mapping is applied to baseline inputs, active inputs, projection inputs, account-balance maps, provenance, overrides, warnings, contributions, events, and unmapped records before serialization. Raw Lunch Money account identifiers, numeric account IDs, account names, account numbers, and credentials do not cross the export boundary.
+
 ## Baseline derivation
 
 Account mappings are explicit and source-scoped. Category mappings classify only transactions and reviewed recurring items associated with included accounts. Transfers, excluded mappings, Lunch Money categories excluded from totals, pending transactions, deletion-pending transactions, split parents, and group parents are not counted.

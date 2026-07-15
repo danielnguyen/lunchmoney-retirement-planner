@@ -489,10 +489,10 @@ export function PlannerDashboard() {
             className="button"
             onClick={() => void download(
               "/api/v1/exports/projection",
-              `retirement-projection-${new Date().toISOString().slice(0, 10)}.json`,
+              `share-safe-retirement-projection-${new Date().toISOString().slice(0, 10)}.json`,
             )}
           >
-            Export JSON
+            Export share-safe JSON
           </button>
         </div>
       </header>
@@ -748,7 +748,7 @@ export function PlannerDashboard() {
               <article className="report-card">
                 <div className="section-heading">
                   <div><span className="section-kicker">Annual details</span><h2>Inspectable projection ledger</h2></div>
-                  <button className="button secondary no-print" onClick={() => void download(`/api/v1/exports/projection-csv?mode=${mode}`, `retirement-projection-${mode}-${new Date().toISOString().slice(0, 10)}.csv`)}>Export CSV</button>
+                  <button className="button secondary no-print" onClick={() => void download(`/api/v1/exports/projection-csv?mode=${mode}`, `share-safe-retirement-projection-${mode}-${new Date().toISOString().slice(0, 10)}.csv`)}>Export share-safe CSV</button>
                 </div>
                 <div className="table-shell">
                   <table>

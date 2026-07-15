@@ -12,7 +12,7 @@ export async function POST(request: Request) {
     return new Response(JSON.stringify(snapshot, null, 2), {
       headers: {
         "Content-Type": "application/json; charset=utf-8",
-        "Content-Disposition": `attachment; filename="retirement-projection-${snapshot.generatedAt.slice(0, 10)}.json"`,
+        "Content-Disposition": `attachment; filename="share-safe-retirement-projection-${snapshot.generatedAt.slice(0, 10)}.json"`,
       },
     });
   } catch (error) {

@@ -369,6 +369,10 @@ Exports must include:
 
 They must not attach demonstration provenance.
 
+Both export formats are share-safe and anonymized by default. A deterministic per-export account map replaces every included account with a planner-type alias such as `Cash 1`, `TFSA 1`, or `RRSP 1` and a safe cross-reference key such as `cash_1`, `tfsa_1`, or `rrsp_1`. Raw Lunch Money account identifiers, numeric account IDs, account names, account numbers, credential values, and identifiers embedded in provenance, overrides, warnings, events, contribution targets, unmapped records, or annual account-balance maps must not appear.
+
+JSON remains the complete analysis export and includes explicit metadata confirming that it is share-safe and anonymized. CSV is one conventional flat annual table with exactly one header and one row per projection period. It includes the partial-period label, annual flows, withdrawals, spending, tax, contributions, aggregate balances, financial assets, net worth, milestones, and optional anonymized per-account balance columns. CSV must not contain metadata preambles, blank section separators, embedded JSON, or multiple table schemas.
+
 ## Docker runtime
 
 The MVP runs as one application container.
@@ -451,6 +455,9 @@ The MVP is complete only when all criteria below pass.
 - [ ] JSON and CSV exports use the same live baseline and active overrides shown in the interface.
 - [ ] Exports include provenance, warnings, and data-through date.
 - [ ] No export contains the Lunch Money token.
+- [ ] Neither export contains raw Lunch Money identifiers, numeric account IDs, real account names, account numbers, or raw identifiers embedded in export keys or descriptions.
+- [ ] JSON identifies itself as share-safe and uses one consistent deterministic account alias map throughout the document.
+- [ ] CSV contains exactly one header and one consistently shaped row per annual projection period, using only anonymized per-account keys.
 - [ ] The application-facing Lunch Money integration exposes read operations only.
 - [ ] No Lunch Money mutation request is issued in tests or runtime code.
 

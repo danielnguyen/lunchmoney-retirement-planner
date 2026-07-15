@@ -28,4 +28,8 @@ The retirement goal and goal gap use financial assets. They do not include debt 
 
 Lunch Money-derived employment income is net cash after payroll deductions, so the simplified effective tax rate is not applied to it again. The rate applies to gross CPP, OAS, pension income, and taxable RRSP/RRIF withdrawals. Contributions always increase their target investment balance; only contributions configured as cash-funded appear as cash outflows.
 
-JSON is the canonical export and includes the resolved baseline, derived baseline, provenance, warnings, active inputs, overrides, and complete projection. CSV begins with equivalent metadata sections and then includes the flattened annual ledger with dynamic account columns.
+JSON is the canonical, complete export and includes the resolved baseline, derived baseline, provenance, warnings, active inputs, overrides, and complete projection. It declares that it is share-safe and anonymized. Account references are replaced consistently with deterministic planner-type aliases such as `TFSA 1` and safe keys such as `tfsa_1`.
+
+CSV is a conventional flat annual analysis table: exactly one header and one row per projection period. It includes the partial-period label, income streams, withdrawals, spending, tax, contributions, aggregate balances, financial assets, net worth, milestones, and optional `account_tfsa_1`-style balance columns. It has no metadata preamble, blank section, embedded JSON, or second schema.
+
+Both formats are anonymized by default and contain no raw Lunch Money account identifiers, numeric account IDs, real account names, account numbers, or credentials.
