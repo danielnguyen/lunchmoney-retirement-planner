@@ -132,52 +132,72 @@ function snapshotAccountBalances(
   return Object.fromEntries(accounts.map((account) => [account.id, balances.get(account.id) ?? 0]));
 }
 
-function deflateView(view: ProjectionView, factor: number): ProjectionView {
+function snapshotView(
+  flow: ProjectionView,
+  accounts: FinancialAccountInput[],
+  balances: Map<string, number>,
+  factor: number,
+): ProjectionView {
   const divide = (value: number) => round(value / factor);
+  const balancesAtSnapshot = accountBalances(accounts, balances);
+  const accountBalancesAtSnapshot = snapshotAccountBalances(accounts, balances);
+  const allocationAtSnapshot = accountAllocation(accounts, balances);
   return {
     income: {
-      employment: divide(view.income.employment),
-      cpp: divide(view.income.cpp),
-      oas: divide(view.income.oas),
-      pension: divide(view.income.pension),
-      other: divide(view.income.other),
-      total: divide(view.income.total),
+      employment: round(flow.income.employment),
+      cpp: round(flow.income.cpp),
+      oas: round(flow.income.oas),
+      pension: round(flow.income.pension),
+      other: round(flow.income.other),
+      total: round(flow.income.total),
     },
     withdrawals: {
-      cash: divide(view.withdrawals.cash),
-      tfsa: divide(view.withdrawals.tfsa),
-      rrspRrif: divide(view.withdrawals.rrspRrif),
-      nonRegistered: divide(view.withdrawals.nonRegistered),
-      total: divide(view.withdrawals.total),
+      cash: round(flow.withdrawals.cash),
+      tfsa: round(flow.withdrawals.tfsa),
+      rrspRrif: round(flow.withdrawals.rrspRrif),
+      nonRegistered: round(flow.withdrawals.nonRegistered),
+      total: round(flow.withdrawals.total),
     },
     outflows: {
-      essential: divide(view.outflows.essential),
-      discretionary: divide(view.outflows.discretionary),
-      oneTime: divide(view.outflows.oneTime),
-      tax: divide(view.outflows.tax),
-      oasRecoveryTax: divide(view.outflows.oasRecoveryTax),
-      contributions: divide(view.outflows.contributions),
-      unmetSpending: divide(view.outflows.unmetSpending),
-      total: divide(view.outflows.total),
+      essential: round(flow.outflows.essential),
+      discretionary: round(flow.outflows.discretionary),
+      oneTime: round(flow.outflows.oneTime),
+      tax: round(flow.outflows.tax),
+      oasRecoveryTax: round(flow.outflows.oasRecoveryTax),
+      contributions: round(flow.outflows.contributions),
+      unmetSpending: round(flow.outflows.unmetSpending),
+      total: round(flow.outflows.total),
     },
     balances: {
-      cash: divide(view.balances.cash),
-      tfsa: divide(view.balances.tfsa),
-      rrspRrif: divide(view.balances.rrspRrif),
-      nonRegistered: divide(view.balances.nonRegistered),
-      debts: divide(view.balances.debts),
-      financialAssets: divide(view.balances.financialAssets),
-      netWorth: divide(view.balances.netWorth),
+      cash: divide(balancesAtSnapshot.cash),
+      tfsa: divide(balancesAtSnapshot.tfsa),
+      rrspRrif: divide(balancesAtSnapshot.rrspRrif),
+      nonRegistered: divide(balancesAtSnapshot.nonRegistered),
+      debts: divide(balancesAtSnapshot.debts),
+      financialAssets: divide(balancesAtSnapshot.financialAssets),
+      netWorth: divide(balancesAtSnapshot.netWorth),
     },
     accountBalances: Object.fromEntries(
-      Object.entries(view.accountBalances).map(([id, balance]) => [id, divide(balance)]),
+      Object.entries(accountBalancesAtSnapshot).map(([id, balance]) => [id, divide(balance)]),
     ),
     allocation: {
-      cash: divide(view.allocation.cash),
-      fixedIncome: divide(view.allocation.fixedIncome),
-      equity: divide(view.allocation.equity),
+      cash: divide(allocationAtSnapshot.cash),
+      fixedIncome: divide(allocationAtSnapshot.fixedIncome),
+      equity: divide(allocationAtSnapshot.equity),
     },
   };
+}
+
+function addMonthlyFlow(target: ProjectionView, monthly: ProjectionView, factor: number): void {
+  for (const key of Object.keys(monthly.income) as Array<keyof IncomeBreakdown>) {
+    target.income[key] += monthly.income[key] / factor;
+  }
+  for (const key of Object.keys(monthly.withdrawals) as Array<keyof WithdrawalBreakdown>) {
+    target.withdrawals[key] += monthly.withdrawals[key] / factor;
+  }
+  for (const key of Object.keys(monthly.outflows) as Array<keyof OutflowBreakdown>) {
+    target.outflows[key] += monthly.outflows[key] / factor;
+  }
 }
 
 function milestoneLabels(inputs: ProjectionInputs, previousMonth: number, month: number): string[] {
@@ -200,25 +220,24 @@ export function calculateProjection(rawInputs: ProjectionInputs): ProjectionResu
   const balances = new Map(inputs.accounts.map((account) => [account.id, account.openingBalance]));
   const annual: AnnualProjection[] = [];
   const observations: ProjectionObservation[] = [];
-  let annualFlow = emptyView();
+  let annualNominalFlow = emptyView();
+  let annualRealFlow = emptyView();
   let financialAssetsDepletionAge: number | null = null;
   let previousSnapshotMonth = 0;
 
   function snapshot(month: number, previousMonth: number, calendarYear: number): void {
     const factor = indexedFactor(inputs.annualInflation, month);
-    annualFlow.balances = accountBalances(inputs.accounts, balances);
-    annualFlow.accountBalances = snapshotAccountBalances(inputs.accounts, balances);
-    annualFlow.allocation = accountAllocation(inputs.accounts, balances);
     const age = inputs.person.currentAge + month / MONTHS_PER_YEAR;
     annual.push({
       calendarYear,
       age: round(age),
       phase: age < inputs.person.retirementAge ? "accumulation" : "retirement",
-      nominal: deflateView(annualFlow, 1),
-      real: deflateView(annualFlow, factor),
+      nominal: snapshotView(annualNominalFlow, inputs.accounts, balances, 1),
+      real: snapshotView(annualRealFlow, inputs.accounts, balances, factor),
       milestones: milestoneLabels(inputs, previousMonth, month),
     });
-    annualFlow = emptyView();
+    annualNominalFlow = emptyView();
+    annualRealFlow = emptyView();
     previousSnapshotMonth = month;
   }
 
@@ -228,6 +247,7 @@ export function calculateProjection(rawInputs: ProjectionInputs): ProjectionResu
     const calendarMonthIndex = startMonth - 1 + month - 1;
     const calendarYear = startYear + Math.floor(calendarMonthIndex / MONTHS_PER_YEAR);
     const calendarMonth = (calendarMonthIndex % MONTHS_PER_YEAR) + 1;
+    const monthlyFlow = emptyView();
 
     for (const account of inputs.accounts) {
       const current = balances.get(account.id) ?? 0;
@@ -261,7 +281,7 @@ export function calculateProjection(rawInputs: ProjectionInputs): ProjectionResu
     }
     income.total = income.employment + income.cpp + income.oas + income.pension;
     for (const key of Object.keys(income) as Array<keyof IncomeBreakdown>) {
-      annualFlow.income[key] += income[key];
+      monthlyFlow.income[key] += income[key];
     }
 
     const grossRetirementIncome = income.cpp + income.oas + income.pension;
@@ -271,13 +291,13 @@ export function calculateProjection(rawInputs: ProjectionInputs): ProjectionResu
       Math.max(0, grossRetirementIncome - threshold) * inputs.tax.oasRecoveryRate,
     );
     const regularTax = grossRetirementIncome * inputs.tax.effectiveTaxRate;
-    annualFlow.outflows.tax += regularTax + recoveryTax;
-    annualFlow.outflows.oasRecoveryTax += recoveryTax;
+    monthlyFlow.outflows.tax += regularTax + recoveryTax;
+    monthlyFlow.outflows.oasRecoveryTax += recoveryTax;
 
     const essential = inputs.monthlyEssentialSpendingToday * factor;
     const discretionary = inputs.monthlyDiscretionarySpendingToday * factor;
-    annualFlow.outflows.essential += essential;
-    annualFlow.outflows.discretionary += discretionary;
+    monthlyFlow.outflows.essential += essential;
+    monthlyFlow.outflows.discretionary += discretionary;
 
     let totalContributions = 0;
     for (const account of inputs.accounts) {
@@ -287,7 +307,7 @@ export function calculateProjection(rawInputs: ProjectionInputs): ProjectionResu
       if (contribution <= 0) continue;
       balances.set(account.id, (balances.get(account.id) ?? 0) + contribution);
       if (account.contributionFunding === "cash") {
-        annualFlow.outflows.contributions += contribution;
+        monthlyFlow.outflows.contributions += contribution;
         totalContributions += contribution;
       }
     }
@@ -301,11 +321,11 @@ export function calculateProjection(rawInputs: ProjectionInputs): ProjectionResu
       const amount = event.amountToday * factor;
       if (event.direction === "inflow") {
         eventInflows += amount;
-        annualFlow.income.other += amount;
-        annualFlow.income.total += amount;
+        monthlyFlow.income.other += amount;
+        monthlyFlow.income.total += amount;
       } else {
         eventOutflows += amount;
-        annualFlow.outflows.oneTime += amount;
+        monthlyFlow.outflows.oneTime += amount;
       }
     }
 
@@ -346,21 +366,24 @@ export function calculateProjection(rawInputs: ProjectionInputs): ProjectionResu
         grossWithdrawal = Math.min(balance, gap / netRate);
         const withdrawalTax = grossWithdrawal * inputs.tax.effectiveTaxRate;
         netCash = grossWithdrawal - withdrawalTax;
-        annualFlow.outflows.tax += withdrawalTax;
+        monthlyFlow.outflows.tax += withdrawalTax;
       }
       balances.set(account.id, balance - grossWithdrawal);
-      addWithdrawal(annualFlow.withdrawals, account.type, grossWithdrawal);
+      addWithdrawal(monthlyFlow.withdrawals, account.type, grossWithdrawal);
       gap -= netCash;
     }
 
-    if (gap > 0) annualFlow.outflows.unmetSpending += gap;
-    annualFlow.outflows.total =
-      annualFlow.outflows.essential +
-      annualFlow.outflows.discretionary +
-      annualFlow.outflows.oneTime +
-      annualFlow.outflows.tax +
-      annualFlow.outflows.contributions +
-      annualFlow.outflows.unmetSpending;
+    if (gap > 0) monthlyFlow.outflows.unmetSpending += gap;
+    monthlyFlow.outflows.total =
+      monthlyFlow.outflows.essential +
+      monthlyFlow.outflows.discretionary +
+      monthlyFlow.outflows.oneTime +
+      monthlyFlow.outflows.tax +
+      monthlyFlow.outflows.contributions +
+      monthlyFlow.outflows.unmetSpending;
+
+    addMonthlyFlow(annualNominalFlow, monthlyFlow, 1);
+    addMonthlyFlow(annualRealFlow, monthlyFlow, factor);
 
     const currentBalances = accountBalances(inputs.accounts, balances);
     if (financialAssetsDepletionAge === null && currentBalances.financialAssets <= 0.01) {

@@ -188,3 +188,109 @@ describe("single-person projection", () => {
     expect(result.annual[1]?.age).toBe(66);
   });
 });
+
+function annualRollupFixture(startDate = "2026-01-15") {
+  const input = structuredClone(projectionFixture);
+  input.startDate = startDate;
+  input.person.currentAge = 40;
+  input.person.retirementAge = 42;
+  input.endAge = 42;
+  input.annualInflation = 0.12;
+  input.person.annualEmploymentNetCashToday = 12000;
+  input.person.annualIncomeGrowth = input.annualInflation;
+  input.monthlyEssentialSpendingToday = 800;
+  input.monthlyDiscretionarySpendingToday = 400;
+  input.events = [
+    {
+      id: "rollup-event",
+      label: "Rollup event",
+      calendarYear: 2026,
+      month: 6,
+      amountToday: 600,
+      direction: "outflow",
+    },
+  ];
+  for (const account of input.accounts) account.annualReturn = 0;
+  input.accounts[0]!.openingBalance = 120000;
+  input.accounts[1]!.openingBalance = 0;
+  input.accounts[1]!.monthlyContributionToday = 100;
+  input.accounts[1]!.contributionIndexingRate = input.annualInflation;
+  return input;
+}
+
+describe("annual today-dollar rollups", () => {
+  it("sums a full year of constant real monthly flows before rounding the annual view", () => {
+    const row = calculateProjection(annualRollupFixture()).annual[0]!;
+
+    expect(row.real.income.employment).toBe(12000);
+    expect(row.real.outflows.essential).toBe(9600);
+    expect(row.real.outflows.discretionary).toBe(4800);
+    expect(row.real.outflows.contributions).toBe(1200);
+    expect(row.real.outflows.oneTime).toBe(600);
+    expect(row.real.withdrawals.cash).toBe(4200);
+  });
+
+  it("keeps positive-inflation nominal annual flows above their today-dollar values", () => {
+    const row = calculateProjection(annualRollupFixture()).annual[0]!;
+
+    expect(row.nominal.income.employment).toBeGreaterThan(row.real.income.employment);
+    expect(row.nominal.outflows.essential).toBeGreaterThan(row.real.outflows.essential);
+    expect(row.nominal.outflows.discretionary).toBeGreaterThan(
+      row.real.outflows.discretionary,
+    );
+    expect(row.nominal.outflows.contributions).toBeGreaterThan(
+      row.real.outflows.contributions,
+    );
+    expect(row.nominal.outflows.oneTime).toBeGreaterThan(row.real.outflows.oneTime);
+    expect(row.nominal.withdrawals.cash).toBeGreaterThan(row.real.withdrawals.cash);
+  });
+
+  it("sums exactly six real months in the first row of a July-start projection", () => {
+    const row = calculateProjection(annualRollupFixture("2026-07-15")).annual[0]!;
+
+    expect(row.calendarYear).toBe(2026);
+    expect(row.real.income.employment).toBe(6000);
+    expect(row.real.outflows.essential).toBe(4800);
+    expect(row.real.outflows.discretionary).toBe(2400);
+    expect(row.real.outflows.essential + row.real.outflows.discretionary).toBe(7200);
+  });
+
+  it("deflates balances and allocation at the snapshot month", () => {
+    const input = annualRollupFixture();
+    input.person.retirementAge = 41;
+    input.endAge = 41;
+    input.person.annualEmploymentNetCashToday = 0;
+    input.monthlyEssentialSpendingToday = 0;
+    input.monthlyDiscretionarySpendingToday = 0;
+    input.events = [];
+    input.accounts = [input.accounts[0]!];
+    const result = calculateProjection(input);
+    const row = result.annual[0]!;
+    const expectedTodayBalance = 107142.86;
+
+    expect(row.nominal.balances.financialAssets).toBe(120000);
+    expect(row.real.balances.financialAssets).toBe(expectedTodayBalance);
+    expect(row.real.accountBalances["manual:1"]).toBe(expectedTodayBalance);
+    expect(row.real.allocation.cash).toBe(expectedTodayBalance);
+  });
+
+  it("uses the corrected real snapshot balance in the retirement summary", () => {
+    const input = annualRollupFixture();
+    input.person.retirementAge = 41;
+    input.endAge = 41;
+    input.person.annualEmploymentNetCashToday = 0;
+    input.monthlyEssentialSpendingToday = 0;
+    input.monthlyDiscretionarySpendingToday = 0;
+    input.events = [];
+    input.accounts = [input.accounts[0]!];
+    const result = calculateProjection(input);
+
+    expect(result.summary.financialAssetsAtRetirementToday).toBe(107142.86);
+    expect(result.summary.financialAssetsAtRetirementToday).toBe(
+      result.annual[0]!.real.balances.financialAssets,
+    );
+    expect(result.summary.financialAssetsAtRetirementToday).not.toBe(
+      result.annual[0]!.nominal.balances.financialAssets,
+    );
+  });
+});
