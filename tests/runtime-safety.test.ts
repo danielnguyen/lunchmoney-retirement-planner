@@ -30,4 +30,13 @@ describe("runtime safety regressions", () => {
     const service = await readFile("src/integrations/lunchmoney/read-service.ts", "utf8");
     expect(service).not.toMatch(/\.create\(|\.update\(|\.delete\(|\.split\(|\.group\(|triggerFetch/);
   });
+
+  it("uses ordinary export button labels without privacy marketing copy", async () => {
+    const dashboard = await readFile("components/planner-dashboard.tsx", "utf8");
+    const routes = `${await readFile("app/api/v1/exports/projection/route.ts", "utf8")}\n${await readFile("app/api/v1/exports/projection-csv/route.ts", "utf8")}`;
+
+    expect(dashboard).toMatch(/>\s*Export JSON\s*</);
+    expect(dashboard).toMatch(/>Export CSV<\/button>/);
+    expect(`${dashboard}\n${routes}`).not.toMatch(/share-safe|anonymized/i);
+  });
 });

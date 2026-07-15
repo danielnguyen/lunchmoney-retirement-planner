@@ -84,12 +84,10 @@ export type ProjectionSnapshot = {
   schemaVersion: "3.0";
   generatedAt: string;
   exportMetadata: {
-    shareSafe: true;
-    anonymized: true;
     transformation: "typed_allowlist";
     rawLunchMoneyIdentifiersIncluded: false;
     sourceSystemRecordIdsIncluded: false;
-    userControlledFreeTextIncluded: false;
+    descriptiveFinancialTextIncluded: true;
     credentialsIncluded: false;
     accountAliases: ShareSafeAccountAlias[];
   };
@@ -149,6 +147,7 @@ type ShareSafeContext = {
   unmappedAccountsByRawId: Map<string, RecordAlias>;
   categoriesByRawId: Map<string, RecordAlias>;
   warningIdentifiers: Map<string, string>;
+  sourceIdentifiers: string[];
 };
 
 type ProvenanceField = {
@@ -157,12 +156,12 @@ type ProvenanceField = {
   accountField?: string;
 };
 
-const ACCOUNT_ALIAS_BASE: Record<AccountType, { key: string; label: string }> = {
-  cash: { key: "cash", label: "Cash" },
-  tfsa: { key: "tfsa", label: "TFSA" },
-  rrsp_rrif: { key: "rrsp", label: "RRSP" },
-  non_registered: { key: "non_registered", label: "Non-registered" },
-  debt: { key: "debt", label: "Debt" },
+const ACCOUNT_ALIAS_BASE: Record<AccountType, string> = {
+  cash: "cash",
+  tfsa: "tfsa",
+  rrsp_rrif: "rrsp",
+  non_registered: "non_registered",
+  debt: "debt",
 };
 
 const ACCOUNT_TYPE_ORDER: AccountType[] = [
@@ -230,19 +229,6 @@ const SIMPLE_OVERRIDE_KEYS = new Set([
   "monthlyDiscretionarySpendingToday",
   "annualInflation",
   "endAge",
-]);
-
-const SAFE_STRING_VALUES = new Set([
-  "cash",
-  "tfsa",
-  "rrsp_rrif",
-  "non_registered",
-  "debt",
-  "income_withheld",
-  "lunchmoney_derived",
-  "local_configuration",
-  "canadian_reference",
-  "net_deposited_cash",
 ]);
 
 const SAFE_MILESTONES = new Set([
@@ -322,7 +308,7 @@ function allowedValue<const T extends readonly string[]>(
   allowed: T,
   field: string,
 ): T[number] {
-  if (!allowed.includes(value)) throw new Error(`${field} is not allowed in the share-safe export`);
+  if (!allowed.includes(value)) throw new Error(`${field} is not allowed in the export`);
   return value as T[number];
 }
 
@@ -338,13 +324,17 @@ function createShareSafeContext(
   projection: ProjectionResult,
   baseline: BaselineExportContext,
 ): ShareSafeContext {
-  const descriptors = new Map<string, { id: string; type: AccountType }>();
+  const descriptors = new Map<string, { id: string; type: AccountType; label: string }>();
   for (const account of [...baseline.projectionInputs.accounts, ...projection.inputs.accounts]) {
-    descriptors.set(account.id, { id: account.id, type: account.type });
+    descriptors.set(account.id, { id: account.id, type: account.type, label: account.label });
   }
   for (const account of baseline.derived.accountBalances) {
     if (!descriptors.has(account.id)) {
-      descriptors.set(account.id, { id: account.id, type: account.plannerType });
+      descriptors.set(account.id, {
+        id: account.id,
+        type: account.plannerType,
+        label: account.name,
+      });
     }
   }
 
@@ -363,8 +353,8 @@ function createShareSafeContext(
       const base = ACCOUNT_ALIAS_BASE[account.type];
       return {
         rawId: account.id,
-        key: `${base.key}_${sequence}`,
-        label: `${base.label} ${sequence}`,
+        key: `${base}_${sequence}`,
+        label: account.label,
         plannerType: account.type,
       };
     });
@@ -383,7 +373,7 @@ function createShareSafeContext(
     .forEach((account, index) => {
       const alias = {
         key: `unmapped_account_${index + 1}`,
-        label: `Unmapped account ${index + 1}`,
+        label: account.name,
       };
       unmappedAccountsByRawId.set(account.id, alias);
       if (account.lunchMoneyId !== null && !accountByNumericId.has(String(account.lunchMoneyId))) {
@@ -391,41 +381,49 @@ function createShareSafeContext(
       }
     });
 
-  const eventIds = new Set([
-    ...baseline.projectionInputs.events.map((event) => event.id),
-    ...projection.inputs.events.map((event) => event.id),
-  ]);
+  const eventDescriptions = new Map<string, string>();
+  for (const event of [...baseline.projectionInputs.events, ...projection.inputs.events]) {
+    eventDescriptions.set(event.id, event.label);
+  }
   const eventsByRawId = new Map<string, RecordAlias>();
-  [...eventIds]
-    .sort((left, right) => left.localeCompare(right))
-    .forEach((id, index) => {
+  [...eventDescriptions]
+    .sort(([left], [right]) => left.localeCompare(right))
+    .forEach(([id, label], index) => {
       eventsByRawId.set(id, {
         key: `event_${index + 1}`,
-        label: `Future event ${index + 1}`,
+        label,
       });
     });
 
+  const recurringDescriptions = new Map(
+    baseline.derived.recurringExpenses.items.map((item) => [String(item.id), item.description]),
+  );
   const recurringByRawId = new Map<string, RecordAlias>();
-  [...new Set(baseline.derived.recurringExpenses.items.map((item) => String(item.id)))]
-    .sort((left, right) => left.localeCompare(right))
-    .forEach((id, index) => {
+  [...recurringDescriptions]
+    .sort(([left], [right]) => left.localeCompare(right))
+    .forEach(([id, label], index) => {
       recurringByRawId.set(id, {
         key: `recurring_expense_${index + 1}`,
-        label: `Recurring expense ${index + 1}`,
+        label,
       });
     });
 
-  const categoryIds = new Set([
-    ...baseline.unmappedCategories.map((category) => category.id),
-    ...baseline.derived.recurringExpenses.items.map((item) => item.categoryId),
-  ]);
+  const categoryDescriptions = new Map<string, string>();
+  for (const category of baseline.unmappedCategories) {
+    categoryDescriptions.set(category.id, category.name);
+  }
+  for (const item of baseline.derived.recurringExpenses.items) {
+    if (!categoryDescriptions.has(item.categoryId)) {
+      categoryDescriptions.set(item.categoryId, "Mapped category");
+    }
+  }
   const categoriesByRawId = new Map<string, RecordAlias>();
-  [...categoryIds]
-    .sort((left, right) => left.localeCompare(right))
-    .forEach((id, index) => {
+  [...categoryDescriptions]
+    .sort(([left], [right]) => left.localeCompare(right))
+    .forEach(([id, label], index) => {
       categoriesByRawId.set(id, {
         key: `category_${index + 1}`,
-        label: `Category ${index + 1}`,
+        label,
       });
     });
 
@@ -446,6 +444,18 @@ function createShareSafeContext(
       warningIdentifiers.set(identifier, `warning_identifier_${index + 1}`);
     });
 
+  const sourceIdentifiers = [...new Set([
+    ...accounts.map((account) => account.rawId),
+    ...accountByNumericId.keys(),
+    ...eventsByRawId.keys(),
+    ...recurringByRawId.keys(),
+    ...unmappedAccountsByRawId.keys(),
+    ...categoriesByRawId.keys(),
+    ...warningIdentifiers.keys(),
+  ])]
+    .filter((identifier) => identifier !== "cash" && identifier !== "uncategorized")
+    .sort((left, right) => right.length - left.length || left.localeCompare(right));
+
   return {
     accounts,
     accountByRawId,
@@ -455,12 +465,13 @@ function createShareSafeContext(
     unmappedAccountsByRawId,
     categoriesByRawId,
     warningIdentifiers,
+    sourceIdentifiers,
   };
 }
 
 function requiredAccountAlias(rawId: string, context: ShareSafeContext): AccountAlias {
   const alias = context.accountByRawId.get(rawId);
-  if (!alias) throw new Error("Share-safe export encountered an unknown account reference");
+  if (!alias) throw new Error("Export encountered an unknown account reference");
   return alias;
 }
 
@@ -470,8 +481,39 @@ function requiredRecordAlias(
   recordType: string,
 ): RecordAlias {
   const alias = aliases.get(rawId);
-  if (!alias) throw new Error(`Share-safe export encountered an unknown ${recordType} reference`);
+  if (!alias) throw new Error(`Export encountered an unknown ${recordType} reference`);
   return alias;
+}
+
+function escapeRegExp(value: string): string {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
+function safeDescriptiveText(value: string, context: ShareSafeContext): string {
+  let result = value;
+  for (const identifier of context.sourceIdentifiers) {
+    if (!identifier) continue;
+    result = /^\d+$/.test(identifier)
+      ? result.replace(
+          new RegExp(`(?<![A-Za-z0-9])${escapeRegExp(identifier)}(?![A-Za-z0-9])`, "g"),
+          "[source ID removed]",
+        )
+      : result.replaceAll(identifier, "[source ID removed]");
+  }
+
+  result = result
+    .replace(/\bBearer\s+[^\s,;]+/gi, "Bearer [credential removed]")
+    .replace(
+      /\b(authorization)\b(\s*[:=]\s*)(?:"[^"]*"|'[^']*'|[^,;\n]+)/gi,
+      "$1$2[credential removed]",
+    )
+    .replace(
+      /\b(api[-_ ]?key|token|password|credential|secret)\b(\s*[:=]\s*)(?:"[^"]*"|'[^']*'|[^\s,;]+)/gi,
+      "$1$2[credential removed]",
+    );
+  const configuredToken = process.env.LUNCHMONEY_API_TOKEN;
+  if (configuredToken) result = result.replaceAll(configuredToken, "[credential removed]");
+  return result;
 }
 
 function safeAllocation(value: AssetAllocation): AssetAllocation {
@@ -489,7 +531,7 @@ function safeAccountInput(
   const alias = requiredAccountAlias(account.id, context);
   return {
     id: alias.key,
-    label: alias.label,
+    label: safeDescriptiveText(alias.label, context),
     type: account.type,
     openingBalance: account.openingBalance,
     annualReturn: account.annualReturn,
@@ -508,7 +550,7 @@ function safeEventInput(
   const alias = requiredRecordAlias(event.id, context.eventsByRawId, "event");
   return {
     id: alias.key,
-    label: alias.label,
+    label: safeDescriptiveText(alias.label, context),
     calendarYear: event.calendarYear,
     month: event.month,
     amountToday: event.amountToday,
@@ -677,7 +719,7 @@ function safeDerivedBaseline(
       return {
         id: alias.key,
         source: allowedValue(account.source, ACCOUNT_SOURCES, "account source"),
-        name: alias.label,
+        name: safeDescriptiveText(alias.label, context),
         plannerType: allowedValue(account.plannerType, ACCOUNT_TYPE_ORDER, "planner account type"),
         balance: finiteNumber(account.balance, "account balance"),
         balanceAsOf: safeDateLike(account.balanceAsOf, dataThrough),
@@ -722,7 +764,7 @@ function safeDerivedBaseline(
         );
         return {
           id: alias.key,
-          description: alias.label,
+          description: safeDescriptiveText(alias.label, context),
           classification: allowedValue(
             item.classification,
             RECURRING_CLASSIFICATIONS,
@@ -758,15 +800,14 @@ function safeWarnings(
   context: ShareSafeContext,
 ): ProjectionSnapshot["warnings"] {
   return warnings.map((warning, index) => {
-    const label = `Warning ${index + 1}`;
     return {
       code: BASELINE_WARNING_CODES.has(warning.code) ? warning.code : `warning_code_${index + 1}`,
       severity: allowedValue(warning.severity, WARNING_SEVERITIES, "warning severity"),
       ...(warning.identifier
         ? { identifier: safeWarningIdentifier(warning.identifier, context) }
         : {}),
-      name: label,
-      message: label,
+      name: safeDescriptiveText(warning.name ?? `Warning ${index + 1}`, context),
+      message: safeDescriptiveText(warning.message, context),
     };
   });
 }
@@ -805,15 +846,15 @@ function safeProvenanceValue(
   value: unknown,
   field: ProvenanceField,
   safeEvents: ProjectionEventInput[],
+  context: ShareSafeContext,
 ): unknown {
   if (field.reference === "events") return safeEvents;
-  if (field.accountField === "label" && field.account) return field.account.label;
+  if (field.accountField === "label" && field.account) {
+    return safeDescriptiveText(field.account.label, context);
+  }
   if (typeof value === "number") return finiteNumber(value, `provenance ${field.reference}`);
   if (typeof value === "boolean" || value === null) return value;
-  if (typeof value === "string") {
-    if (/^\d{4}-\d{2}-\d{2}$/.test(value) || SAFE_STRING_VALUES.has(value)) return value;
-    return "anonymized";
-  }
+  if (typeof value === "string") return safeDescriptiveText(value, context);
   if (field.accountField === "allocation" && value && typeof value === "object") {
     const allocation = value as Partial<AssetAllocation>;
     if (
@@ -824,7 +865,7 @@ function safeProvenanceValue(
       return safeAllocation(allocation as AssetAllocation);
     }
   }
-  return "anonymized";
+  return "unsupported_value_omitted";
 }
 
 function safeProvenance(
@@ -842,13 +883,12 @@ function safeProvenance(
       reference: `field_${(unknownIndex += 1)}`,
     };
     const sourceType = safeSourceType(source.sourceType);
-    const sourceDescription = `${sourceType.replaceAll("_", " ")} value for ${field.reference}.`;
     const referenceKind = safeReferenceKind(source.referenceKind);
     result[field.reference] = {
       fieldReference: field.reference,
-      value: safeProvenanceValue(source.value, field, safeEvents),
+      value: safeProvenanceValue(source.value, field, safeEvents, context),
       sourceType,
-      sourceDescription,
+      sourceDescription: safeDescriptiveText(source.sourceDescription, context),
       effectiveDate: safeDateLike(source.effectiveDate, dataThrough),
       ...(referenceKind ? { referenceKind } : {}),
     };
@@ -951,16 +991,14 @@ export function createProjectionSnapshot(
     schemaVersion: "3.0",
     generatedAt: safeGeneratedAt,
     exportMetadata: {
-      shareSafe: true,
-      anonymized: true,
       transformation: "typed_allowlist",
       rawLunchMoneyIdentifiersIncluded: false,
       sourceSystemRecordIdsIncluded: false,
-      userControlledFreeTextIncluded: false,
+      descriptiveFinancialTextIncluded: true,
       credentialsIncluded: false,
       accountAliases: context.accounts.map(({ key, label, plannerType }) => ({
         key,
-        label,
+        label: safeDescriptiveText(label, context),
         plannerType,
       })),
     },
@@ -1018,7 +1056,7 @@ export function createProjectionSnapshot(
       return {
         id: alias.key,
         source: allowedValue(account.source, ACCOUNT_SOURCES, "unmapped account source"),
-        name: alias.label,
+        name: safeDescriptiveText(alias.label, context),
       };
     }),
     unmappedCategories: baseline.unmappedCategories.map((category) => {
@@ -1029,7 +1067,7 @@ export function createProjectionSnapshot(
       );
       return {
         id: alias.key,
-        name: alias.label,
+        name: safeDescriptiveText(alias.label, context),
         transactionCount: finiteNumber(category.transactionCount, "unmapped category count"),
       };
     }),
@@ -1047,8 +1085,13 @@ export function projectionSnapshotToCsv(
   snapshot: ProjectionSnapshot,
   mode: "real" | "nominal" = "real",
 ): string {
-  if (!snapshot.exportMetadata.shareSafe || !snapshot.exportMetadata.anonymized) {
-    throw new Error("CSV export requires a share-safe anonymized projection snapshot");
+  if (
+    snapshot.exportMetadata.transformation !== "typed_allowlist" ||
+    snapshot.exportMetadata.rawLunchMoneyIdentifiersIncluded ||
+    snapshot.exportMetadata.sourceSystemRecordIdsIncluded ||
+    snapshot.exportMetadata.credentialsIncluded
+  ) {
+    throw new Error("CSV export requires an identifier-scrubbed projection snapshot");
   }
   const accountAliases = snapshot.exportMetadata.accountAliases;
   const headers = [

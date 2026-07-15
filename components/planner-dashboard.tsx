@@ -23,6 +23,10 @@ import {
   annualPeriodLabel,
   startingFinancialAssets,
 } from "@/src/domain/projection/presentation";
+import {
+  projectionCsvFilename,
+  projectionJsonFilename,
+} from "@/src/domain/projection/filenames";
 import type {
   AccountType,
   ProjectionInputs,
@@ -489,10 +493,10 @@ export function PlannerDashboard() {
             className="button"
             onClick={() => void download(
               "/api/v1/exports/projection",
-              `share-safe-retirement-projection-${new Date().toISOString().slice(0, 10)}.json`,
+              projectionJsonFilename(new Date().toISOString()),
             )}
           >
-            Export share-safe JSON
+            Export JSON
           </button>
         </div>
       </header>
@@ -748,7 +752,7 @@ export function PlannerDashboard() {
               <article className="report-card">
                 <div className="section-heading">
                   <div><span className="section-kicker">Annual details</span><h2>Inspectable projection ledger</h2></div>
-                  <button className="button secondary no-print" onClick={() => void download(`/api/v1/exports/projection-csv?mode=${mode}`, `share-safe-retirement-projection-${mode}-${new Date().toISOString().slice(0, 10)}.csv`)}>Export share-safe CSV</button>
+                  <button className="button secondary no-print" onClick={() => void download(`/api/v1/exports/projection-csv?mode=${mode}`, projectionCsvFilename(new Date().toISOString(), mode))}>Export CSV</button>
                 </div>
                 <div className="table-shell">
                   <table>
