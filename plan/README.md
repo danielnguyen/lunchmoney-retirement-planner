@@ -102,7 +102,9 @@ Example shape:
   "accountMappings": {
     "lunch-money-account-id": {
       "include": true,
-      "type": "rrsp"
+      "type": "rrsp",
+      "monthlyContribution": 500,
+      "contributionFunding": "income_withheld"
     }
   },
   "categoryMappings": {
@@ -184,6 +186,8 @@ The MVP may use a straightforward trailing monthly average. More advanced season
 
 Calculate monthly income from categories mapped as income.
 
+Lunch Money-derived employment income is net cash already deposited after payroll deductions. The projection must not apply the simplified effective tax rate to this employment cash flow a second time. The interface, provenance, and exports must identify it as net deposited cash.
+
 The result must show:
 
 - trailing-period income total
@@ -195,7 +199,9 @@ The result must show:
 
 Calculate monthly contributions from transactions mapped as investment contributions.
 
-If a reliable contribution value cannot be derived, the local configuration may provide an explicit monthly contribution for the mapped account. The source must be shown as manual rather than Lunch Money-derived.
+If a reliable contribution value cannot be derived, the local configuration may provide an explicit `monthlyContribution` for the mapped account. That account mapping must also set `contributionFunding` to `cash` or `income_withheld`; the runtime must reject a manual contribution without this choice. The source must be shown as manual rather than Lunch Money-derived.
+
+Every contribution increases its investment account balance. A `cash` contribution also reduces available projected cash. An `income_withheld` contribution does not reduce projected cash because it was withheld before the net employment deposit reached Lunch Money. Transaction-derived contributions are cash-funded unless their account mapping explicitly identifies them as `income_withheld`.
 
 ## Default resolution
 
@@ -231,7 +237,7 @@ Required account pools:
 
 Required income streams:
 
-- employment income before retirement
+- net deposited employment cash before retirement
 - CPP beginning at the configured age
 - OAS beginning at the configured age
 - optional manually configured pension income
@@ -251,7 +257,9 @@ Required milestones:
 - OAS start
 - RRIF conversion age
 
-The existing simplified tax model may remain for the MVP, but the interface and exports must identify it as a simplified assumption.
+The existing simplified tax model may remain for the MVP, but the interface and exports must identify it as a simplified assumption. It applies to gross retirement income such as CPP, OAS, pension income, and taxable RRSP/RRIF withdrawals, not to Lunch Money-derived net employment cash.
+
+The first projected month is the calendar month containing the live baseline data-through date. Future events, retirement, CPP, OAS, RRIF milestones, calendar years, and annual ledger rows must use that real calendar anchor. The first and last annual rows may therefore represent partial calendar years.
 
 ## Dashboard
 
@@ -422,6 +430,7 @@ The MVP is complete only when all criteria below pass.
 - [ ] Essential and discretionary spending are derived from the configured transaction window.
 - [ ] Income is derived from mapped income transactions.
 - [ ] Investment contributions are derived from mapped transactions or explicitly labelled manual configuration.
+- [ ] Manual contributions require an explicit cash-funded or income-withheld choice, always increase the investment balance, and reduce available cash only when cash-funded.
 - [ ] Transfers and excluded transactions are not counted as spending or income.
 
 ### Projection and interface
@@ -431,6 +440,8 @@ The MVP is complete only when all criteria below pass.
 - [ ] The displayed starting balances match the baseline endpoint.
 - [ ] The charts, summary cards, and annual ledger all derive from the same projection result.
 - [ ] CPP and OAS appear as separate income streams at their configured start ages.
+- [ ] Lunch Money-derived employment income is identified as net deposited cash and is not taxed a second time.
+- [ ] Projection calendar years, future events, milestones, and annual rows align with the live data-through month.
 - [ ] The main goal comparison uses financial assets rather than total net worth including real assets.
 - [ ] Calculator reset returns to the currently loaded live baseline.
 - [ ] Refreshing after Lunch Money data changes produces a changed baseline.

@@ -21,6 +21,11 @@ export type ProjectionSnapshot = {
   recordsAnalyzed: BaselineExportContext["recordsAnalyzed"];
   resolvedBaseline: ProjectionInputs;
   activeInputs: ProjectionInputs;
+  calculationBasis: {
+    employmentIncome: "net_deposited_cash_no_additional_tax";
+    simplifiedTax: "gross_retirement_income_and_taxable_rrsp_rrif_withdrawals";
+    contributions: "cash_funded_reduce_cash_income_withheld_do_not";
+  };
   provenance: Record<string, BaselineValue<unknown>>;
   derivedBaseline: DerivedBaseline;
   warnings: BaselineWarning[];
@@ -108,6 +113,11 @@ export function createProjectionSnapshot(
     recordsAnalyzed: baseline.recordsAnalyzed,
     resolvedBaseline: baseline.projectionInputs,
     activeInputs: projection.inputs,
+    calculationBasis: {
+      employmentIncome: "net_deposited_cash_no_additional_tax",
+      simplifiedTax: "gross_retirement_income_and_taxable_rrsp_rrif_withdrawals",
+      contributions: "cash_funded_reduce_cash_income_withheld_do_not",
+    },
     provenance: baseline.provenance,
     derivedBaseline: baseline.derived,
     warnings: baseline.warnings,
@@ -133,7 +143,7 @@ export function projectionToCsv(
     "calendarYear",
     "age",
     "phase",
-    "employmentIncome",
+    "employmentNetCash",
     "cppIncome",
     "oasIncome",
     "pensionIncome",
@@ -146,7 +156,7 @@ export function projectionToCsv(
     "discretionarySpending",
     "oneTimeOutflows",
     "tax",
-    "contributions",
+    "cashFundedContributions",
     "unmetSpending",
     "cashBalance",
     "tfsaBalance",
@@ -209,6 +219,7 @@ export function projectionSnapshotToCsv(
     ["metadata", "displayMode", mode],
     ["metadata", "transactionWindow", JSON.stringify(snapshot.transactionWindow)],
     ["metadata", "recordsAnalyzed", JSON.stringify(snapshot.recordsAnalyzed)],
+    ["metadata", "calculationBasis", JSON.stringify(snapshot.calculationBasis)],
     ["resolvedBaseline", "projectionInputs", JSON.stringify(snapshot.resolvedBaseline)],
     ["derivedBaseline", "values", JSON.stringify(snapshot.derivedBaseline)],
     ["warnings", "all", JSON.stringify(snapshot.warnings)],

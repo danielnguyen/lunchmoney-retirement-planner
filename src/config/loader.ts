@@ -1,6 +1,10 @@
 import { access, readFile } from "node:fs/promises";
 import { constants } from "node:fs";
-import type { AssetAllocation, ProjectionEventInput } from "@/src/domain/projection/types";
+import {
+  contributionFundingTypes,
+  type AssetAllocation,
+  type ProjectionEventInput,
+} from "@/src/domain/projection/types";
 import { PlannerRuntimeError } from "@/src/runtime/errors";
 import {
   plannerAccountTypes,
@@ -93,6 +97,39 @@ function accountMapping(value: unknown, field: string): AccountMapping {
       422,
     );
   }
+  const investmentTypes = ["tfsa", "rrsp", "non_registered"];
+  if (item.monthlyContribution !== undefined && !investmentTypes.includes(item.type)) {
+    throw new PlannerRuntimeError(
+      "invalid_planner_config",
+      `${field}.monthlyContribution may only be configured for an investment account.`,
+      422,
+    );
+  }
+  if (item.monthlyContribution !== undefined && item.contributionFunding === undefined) {
+    throw new PlannerRuntimeError(
+      "invalid_planner_config",
+      `${field}.contributionFunding must be cash or income_withheld when monthlyContribution is configured.`,
+      422,
+    );
+  }
+  if (
+    item.contributionFunding !== undefined &&
+    (typeof item.contributionFunding !== "string" ||
+      !contributionFundingTypes.includes(item.contributionFunding as never))
+  ) {
+    throw new PlannerRuntimeError(
+      "invalid_planner_config",
+      `${field}.contributionFunding must be cash or income_withheld.`,
+      422,
+    );
+  }
+  if (item.contributionFunding !== undefined && !investmentTypes.includes(item.type)) {
+    throw new PlannerRuntimeError(
+      "invalid_planner_config",
+      `${field}.contributionFunding may only be configured for an investment account.`,
+      422,
+    );
+  }
   return {
     include: item.include,
     type: item.type as AccountMapping["type"],
@@ -103,6 +140,9 @@ function accountMapping(value: unknown, field: string): AccountMapping {
             min: 0,
           }),
         }),
+    ...(item.contributionFunding === undefined
+      ? {}
+      : { contributionFunding: item.contributionFunding as AccountMapping["contributionFunding"] }),
     ...(item.annualReturn === undefined
       ? {}
       : { annualReturn: number(item.annualReturn, `${field}.annualReturn`, { min: -0.99, max: 1 }) }),

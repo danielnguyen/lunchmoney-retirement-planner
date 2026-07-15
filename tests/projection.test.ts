@@ -74,4 +74,117 @@ describe("single-person projection", () => {
     expect(milestones).toContain("OAS begins");
     expect(milestones).toContain("RRIF conversion age");
   });
+
+  it("does not tax net deposited employment cash but still taxes gross retirement income and RRSP withdrawals", () => {
+    const employment = structuredClone(projectionFixture);
+    employment.startDate = "2026-01-15";
+    employment.endAge = 41;
+    employment.person.retirementAge = 41;
+    employment.person.annualIncomeGrowth = 0;
+    employment.person.annualPensionToday = 0;
+    employment.monthlyEssentialSpendingToday = 0;
+    employment.monthlyDiscretionarySpendingToday = 0;
+    employment.events = [];
+    for (const account of employment.accounts) {
+      account.annualReturn = 0;
+      account.monthlyContributionToday = 0;
+    }
+    const employmentResult = calculateProjection(employment);
+    expect(employmentResult.annual[0]?.nominal.income.employment).toBe(77000);
+    expect(employmentResult.annual[0]?.nominal.outflows.tax).toBe(0);
+
+    const retirement = structuredClone(projectionFixture);
+    retirement.startDate = "2026-07-14";
+    retirement.person.currentAge = 64.5;
+    retirement.person.retirementAge = 65;
+    retirement.endAge = 66;
+    retirement.person.annualEmploymentNetCashToday = 0;
+    retirement.person.annualPensionToday = 12000;
+    retirement.person.pensionStartAge = 65;
+    retirement.monthlyEssentialSpendingToday = 20000;
+    retirement.monthlyDiscretionarySpendingToday = 0;
+    retirement.events = [];
+    for (const account of retirement.accounts) {
+      account.annualReturn = 0;
+      account.monthlyContributionToday = 0;
+    }
+    const retirementResult = calculateProjection(retirement);
+    expect(retirementResult.annual.some((point) => point.nominal.income.pension > 0)).toBe(true);
+    expect(retirementResult.annual.some((point) => point.nominal.withdrawals.rrspRrif > 0)).toBe(true);
+    expect(retirementResult.annual.some((point) => point.nominal.outflows.tax > 0)).toBe(true);
+  });
+
+  it("always invests contributions and reduces cash only for cash-funded contributions", () => {
+    const cashFunded = structuredClone(projectionFixture);
+    cashFunded.startDate = "2026-01-15";
+    cashFunded.endAge = 41;
+    cashFunded.person.retirementAge = 41;
+    cashFunded.person.annualEmploymentNetCashToday = 0;
+    cashFunded.monthlyEssentialSpendingToday = 0;
+    cashFunded.monthlyDiscretionarySpendingToday = 0;
+    cashFunded.events = [];
+    for (const account of cashFunded.accounts) account.annualReturn = 0;
+    cashFunded.accounts[0]!.openingBalance = 100000;
+    cashFunded.accounts[1]!.openingBalance = 0;
+    cashFunded.accounts[1]!.monthlyContributionToday = 1200;
+    cashFunded.accounts[1]!.contributionIndexingRate = 0;
+    cashFunded.accounts[1]!.contributionFunding = "cash";
+
+    const incomeWithheld = structuredClone(cashFunded);
+    incomeWithheld.accounts[1]!.contributionFunding = "income_withheld";
+    const cashResult = calculateProjection(cashFunded);
+    const withheldResult = calculateProjection(incomeWithheld);
+
+    expect(cashResult.annual[0]?.nominal.accountBalances["manual:2"]).toBe(13200);
+    expect(withheldResult.annual[0]?.nominal.accountBalances["manual:2"]).toBe(13200);
+    expect(cashResult.annual[0]?.nominal.outflows.contributions).toBe(13200);
+    expect(withheldResult.annual[0]?.nominal.outflows.contributions).toBe(0);
+    expect(withheldResult.annual[0]!.nominal.balances.cash).toBe(
+      cashResult.annual[0]!.nominal.balances.cash + 13200,
+    );
+
+    const missingChoice = structuredClone(cashFunded);
+    delete missingChoice.accounts[1]!.contributionFunding;
+    expect(() => calculateProjection(missingChoice)).toThrow(
+      "contributionFunding is required for manual:2",
+    );
+  });
+
+  it("anchors partial annual rows, events, benefits, and milestones to the live start month", () => {
+    const calendar = structuredClone(projectionFixture);
+    calendar.startDate = "2026-07-14";
+    calendar.person.currentAge = 64.5;
+    calendar.person.retirementAge = 65;
+    calendar.person.rrifConversionAge = 65;
+    calendar.person.cpp.startAge = 65;
+    calendar.person.oas.startAge = 65;
+    calendar.person.annualIncomeGrowth = 0;
+    calendar.endAge = 66;
+    calendar.annualInflation = 0;
+    calendar.monthlyEssentialSpendingToday = 0;
+    calendar.monthlyDiscretionarySpendingToday = 0;
+    calendar.accounts[1]!.monthlyContributionToday = 0;
+    calendar.events = [
+      {
+        id: "august-event",
+        label: "August event",
+        calendarYear: 2026,
+        month: 8,
+        amountToday: 1234,
+        direction: "inflow",
+      },
+    ];
+
+    const result = calculateProjection(calendar);
+    expect(result.annual.map((point) => point.calendarYear)).toEqual([2026, 2027]);
+    expect(result.annual[0]?.age).toBe(65);
+    expect(result.annual[0]?.nominal.income.employment).toBe(35000);
+    expect(result.annual[0]?.nominal.income.other).toBe(1234);
+    expect(result.annual[0]?.nominal.income.cpp).toBeGreaterThan(0);
+    expect(result.annual[0]?.milestones).toEqual(
+      expect.arrayContaining(["Retirement", "CPP begins", "OAS begins", "RRIF conversion age"]),
+    );
+    expect(result.summary.retirementYear).toBe(2026);
+    expect(result.annual[1]?.age).toBe(66);
+  });
 });

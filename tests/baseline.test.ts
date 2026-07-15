@@ -218,9 +218,13 @@ describe("live baseline derivation", () => {
     });
     expect(baseline.derived.discretionarySpending.trailingTotal).toBe(600);
     expect(baseline.derived.monthlyIncome.trailingTotal).toBe(3000);
+    expect(baseline.derived.monthlyIncome.basis).toBe("net_deposited_cash");
     expect(baseline.derived.investmentContributions.monthlyAverage).toBe(20);
+    expect(baseline.derived.investmentContributions.accounts[0]?.funding).toBe("cash");
     expect(baseline.derived.recurringExpenses.monthlyTotal).toBe(100);
     expect(baseline.dataThrough).toBe("2026-07-08");
+    expect(baseline.projectionInputs.startDate).toBe("2026-07-08");
+    expect(baseline.projectionInputs.person.annualEmploymentNetCashToday).toBe(3000);
     expect(baseline.recordsAnalyzed.transactions).toBe(8);
   });
 

@@ -8,7 +8,7 @@ The end-to-end MVP is defined in [plan/README.md](plan/README.md). The runtime n
 
 - Connects to Lunch Money API v2 with retrieval methods only
 - Fetches manual accounts, Plaid accounts, categories, recurring items, and paginated trailing transactions on demand
-- Derives account balances, monthly income, essential and discretionary spending, investment contributions, recurring expenses, and a data-through date
+- Derives account balances, net deposited employment cash, essential and discretionary spending, investment contributions, recurring expenses, and a data-through date
 - Requires explicit account and category mappings; unmapped live records are shown with the identifiers needed to configure them
 - Runs a deterministic monthly, single-person retirement projection
 - Shows annual spending, cash inflow, cash outflow, account-level financial assets, allocation, milestones, and an annual ledger
@@ -68,7 +68,19 @@ An investment-contribution category can identify its target account and transact
 }
 ```
 
-Alternatively, an investment account mapping may provide an explicit `monthlyContribution`. The baseline and exports label that value as local configuration rather than Lunch Money-derived.
+Alternatively, an investment account mapping may provide an explicit `monthlyContribution`. It must also set `contributionFunding` to `cash` when the contribution reduces available cash or `income_withheld` when it was withheld before the Lunch Money income deposit:
+
+```json
+{
+  "include": true,
+  "type": "rrsp",
+  "monthlyContribution": 500,
+  "contributionFunding": "income_withheld",
+  "withdrawalPriority": 2
+}
+```
+
+Every contribution increases the investment balance. Only cash-funded contributions are projected as cash outflows. Transaction-derived contributions default to cash-funded unless their account mapping explicitly identifies them as income-withheld. The baseline and exports identify both the contribution source and funding mode.
 
 ## Refresh and reset behavior
 
@@ -143,7 +155,7 @@ Tests use synthetic fixtures under `tests/`. Production modules do not import th
 
 ## Projection scope
 
-The tax calculation is a simplified effective-rate assumption, not a tax filing model. CPP and OAS claim timing factors are deterministic. RRIF conversion is a milestone; statutory minimum withdrawals are not enforced. Monte Carlo simulation, optimized withdrawals, real estate, households, saved scenarios, background synchronization, and server-generated PDFs are outside the MVP.
+Lunch Money income transactions are modelled as net deposited employment cash and are not taxed again. The simplified effective tax rate applies to gross retirement income and taxable RRSP/RRIF withdrawals; it is not a tax filing model. The projection calendar starts in the baseline data-through month, so the first and last annual rows may be partial calendar years. CPP and OAS claim timing factors are deterministic. RRIF conversion is a milestone; statutory minimum withdrawals are not enforced. Monte Carlo simulation, optimized withdrawals, real estate, households, saved scenarios, background synchronization, and server-generated PDFs are outside the MVP.
 
 See [docs/architecture.md](docs/architecture.md) and [docs/report-model.md](docs/report-model.md) for implementation details.
 

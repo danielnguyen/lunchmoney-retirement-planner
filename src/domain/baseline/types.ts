@@ -40,6 +40,7 @@ export type AccountBaseline = {
   balanceAsOf: string;
   monthlyContribution: number;
   contributionSource: "lunchmoney_derived" | "local_configuration";
+  contributionFunding: ProjectionInputs["accounts"][number]["contributionFunding"];
 };
 
 export type DerivedMetric = {
@@ -59,7 +60,7 @@ export type RecurringExpense = {
 
 export type DerivedBaseline = {
   accountBalances: AccountBaseline[];
-  monthlyIncome: DerivedMetric;
+  monthlyIncome: DerivedMetric & { basis: "net_deposited_cash" };
   essentialSpending: DerivedMetric;
   discretionarySpending: DerivedMetric;
   investmentContributions: DerivedMetric & {
@@ -67,6 +68,7 @@ export type DerivedBaseline = {
       accountId: string;
       monthlyAverage: number;
       source: "lunchmoney_derived" | "local_configuration";
+      funding: NonNullable<ProjectionInputs["accounts"][number]["contributionFunding"]>;
     }>;
   };
   recurringExpenses: {

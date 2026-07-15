@@ -1,4 +1,8 @@
-import type { AssetAllocation, ProjectionEventInput } from "@/src/domain/projection/types";
+import type {
+  AssetAllocation,
+  ContributionFunding,
+  ProjectionEventInput,
+} from "@/src/domain/projection/types";
 
 export const plannerAccountTypes = [
   "cash",
@@ -26,6 +30,7 @@ export type AccountMapping = {
   include: boolean;
   type: PlannerAccountType;
   monthlyContribution?: number;
+  contributionFunding?: ContributionFunding;
   annualReturn?: number;
   withdrawalPriority?: number;
   allocation?: AssetAllocation;

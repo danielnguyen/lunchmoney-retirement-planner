@@ -194,12 +194,15 @@ function milestoneLabels(inputs: ProjectionInputs, previousMonth: number, month:
 
 export function calculateProjection(rawInputs: ProjectionInputs): ProjectionResult {
   const inputs = validateProjectionInputs(rawInputs);
+  const startYear = Number(inputs.startDate.slice(0, 4));
+  const startMonth = Number(inputs.startDate.slice(5, 7));
   const totalMonths = Math.round((inputs.endAge - inputs.person.currentAge) * MONTHS_PER_YEAR);
   const balances = new Map(inputs.accounts.map((account) => [account.id, account.openingBalance]));
   const annual: AnnualProjection[] = [];
   const observations: ProjectionObservation[] = [];
   let annualFlow = emptyView();
   let financialAssetsDepletionAge: number | null = null;
+  let previousSnapshotMonth = 0;
 
   function snapshot(month: number, previousMonth: number, calendarYear: number): void {
     const factor = indexedFactor(inputs.annualInflation, month);
@@ -216,13 +219,15 @@ export function calculateProjection(rawInputs: ProjectionInputs): ProjectionResu
       milestones: milestoneLabels(inputs, previousMonth, month),
     });
     annualFlow = emptyView();
+    previousSnapshotMonth = month;
   }
 
   for (let month = 1; month <= totalMonths; month += 1) {
     const factor = indexedFactor(inputs.annualInflation, month);
     const age = inputs.person.currentAge + month / MONTHS_PER_YEAR;
-    const calendarYear = inputs.startYear + Math.floor((month - 1) / MONTHS_PER_YEAR);
-    const calendarMonth = ((month - 1) % MONTHS_PER_YEAR) + 1;
+    const calendarMonthIndex = startMonth - 1 + month - 1;
+    const calendarYear = startYear + Math.floor(calendarMonthIndex / MONTHS_PER_YEAR);
+    const calendarMonth = (calendarMonthIndex % MONTHS_PER_YEAR) + 1;
 
     for (const account of inputs.accounts) {
       const current = balances.get(account.id) ?? 0;
@@ -232,7 +237,7 @@ export function calculateProjection(rawInputs: ProjectionInputs): ProjectionResu
     const income = emptyIncome();
     if (age < inputs.person.retirementAge) {
       income.employment =
-        (inputs.person.annualEmploymentIncomeToday *
+        (inputs.person.annualEmploymentNetCashToday *
           indexedFactor(inputs.person.annualIncomeGrowth, month)) /
         MONTHS_PER_YEAR;
     }
@@ -259,13 +264,13 @@ export function calculateProjection(rawInputs: ProjectionInputs): ProjectionResu
       annualFlow.income[key] += income[key];
     }
 
-    const taxableIncome = income.employment + income.cpp + income.oas + income.pension;
+    const grossRetirementIncome = income.cpp + income.oas + income.pension;
     const threshold = inputs.tax.oasRecoveryThresholdToday * factor / MONTHS_PER_YEAR;
     const recoveryTax = Math.min(
       income.oas,
-      Math.max(0, taxableIncome - threshold) * inputs.tax.oasRecoveryRate,
+      Math.max(0, grossRetirementIncome - threshold) * inputs.tax.oasRecoveryRate,
     );
-    const regularTax = taxableIncome * inputs.tax.effectiveTaxRate;
+    const regularTax = grossRetirementIncome * inputs.tax.effectiveTaxRate;
     annualFlow.outflows.tax += regularTax + recoveryTax;
     annualFlow.outflows.oasRecoveryTax += recoveryTax;
 
@@ -281,8 +286,10 @@ export function calculateProjection(rawInputs: ProjectionInputs): ProjectionResu
         account.monthlyContributionToday * indexedFactor(account.contributionIndexingRate, month);
       if (contribution <= 0) continue;
       balances.set(account.id, (balances.get(account.id) ?? 0) + contribution);
-      annualFlow.outflows.contributions += contribution;
-      totalContributions += contribution;
+      if (account.contributionFunding === "cash") {
+        annualFlow.outflows.contributions += contribution;
+        totalContributions += contribution;
+      }
     }
 
     let eventInflows = 0;
@@ -359,8 +366,8 @@ export function calculateProjection(rawInputs: ProjectionInputs): ProjectionResu
     if (financialAssetsDepletionAge === null && currentBalances.financialAssets <= 0.01) {
       financialAssetsDepletionAge = age;
     }
-    if (month % MONTHS_PER_YEAR === 0 || month === totalMonths) {
-      snapshot(month, Math.max(0, month - MONTHS_PER_YEAR), calendarYear);
+    if (calendarMonth === MONTHS_PER_YEAR || month === totalMonths) {
+      snapshot(month, previousSnapshotMonth, calendarYear);
     }
   }
 

@@ -2,7 +2,7 @@ import type { BaselineExportContext } from "@/src/domain/baseline/types";
 import type { ProjectionInputs } from "@/src/domain/projection/types";
 
 export const projectionFixture: ProjectionInputs = {
-  startYear: 2026,
+  startDate: "2026-07-14",
   endAge: 95,
   annualInflation: 0.02,
   monthlyEssentialSpendingToday: 3200,
@@ -16,7 +16,7 @@ export const projectionFixture: ProjectionInputs = {
   person: {
     currentAge: 40,
     retirementAge: 65,
-    annualEmploymentIncomeToday: 84000,
+    annualEmploymentNetCashToday: 84000,
     annualIncomeGrowth: 0.02,
     annualPensionToday: 0,
     pensionStartAge: 65,
@@ -44,6 +44,7 @@ export const projectionFixture: ProjectionInputs = {
       openingBalance: 180000,
       annualReturn: 0.05,
       monthlyContributionToday: 1000,
+      contributionFunding: "cash",
       contributionIndexingRate: 0.02,
       withdrawalPriority: 2,
       allocation: { cash: 0, fixedIncome: 0.3, equity: 0.7 },
@@ -88,9 +89,15 @@ export const baselineContextFixture: BaselineExportContext = {
         balanceAsOf: "2026-07-14",
         monthlyContribution: 0,
         contributionSource: "lunchmoney_derived",
+        contributionFunding: "cash",
       },
     ],
-    monthlyIncome: { trailingTotal: 84000, monthlyAverage: 7000, transactionCount: 12 },
+    monthlyIncome: {
+      trailingTotal: 84000,
+      monthlyAverage: 7000,
+      transactionCount: 12,
+      basis: "net_deposited_cash",
+    },
     essentialSpending: { trailingTotal: 38400, monthlyAverage: 3200, transactionCount: 40 },
     discretionarySpending: { trailingTotal: 9600, monthlyAverage: 800, transactionCount: 20 },
     investmentContributions: {
@@ -98,7 +105,12 @@ export const baselineContextFixture: BaselineExportContext = {
       monthlyAverage: 1000,
       transactionCount: 12,
       accounts: [
-        { accountId: "manual:2", monthlyAverage: 1000, source: "lunchmoney_derived" },
+        {
+          accountId: "manual:2",
+          monthlyAverage: 1000,
+          source: "lunchmoney_derived",
+          funding: "cash",
+        },
       ],
     },
     recurringExpenses: { monthlyTotal: 100, count: 1, items: [] },

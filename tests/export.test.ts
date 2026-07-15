@@ -23,6 +23,9 @@ describe("live projection exports", () => {
     expect(snapshot.provenance.monthlyEssentialSpendingToday).toBeDefined();
     expect(snapshot.warnings).toHaveLength(1);
     expect(snapshot.activeOverrides.retirementAge).toBe(64);
+    expect(snapshot.calculationBasis.employmentIncome).toBe(
+      "net_deposited_cash_no_additional_tax",
+    );
     expect(serialized).not.toContain("LUNCHMONEY_API_TOKEN");
     expect(serialized).not.toContain("authorization");
   });
@@ -31,6 +34,8 @@ describe("live projection exports", () => {
     const csv = projectionToCsv(calculateProjection(projectionFixture), "real");
     expect(csv).toContain("calendarYear,age,phase");
     expect(csv).toContain("cppIncome");
+    expect(csv).toContain("employmentNetCash");
+    expect(csv).toContain("cashFundedContributions");
     expect(csv).toContain("account:manual:1");
     expect(csv.split("\n").length).toBeGreaterThan(40);
   });
@@ -44,6 +49,7 @@ describe("live projection exports", () => {
     );
     const csv = projectionSnapshotToCsv(snapshot);
     expect(csv).toContain("metadata,dataThrough,2026-07-14");
+    expect(csv).toContain("metadata,calculationBasis");
     expect(csv).toContain("resolvedBaseline,projectionInputs");
     expect(csv).toContain("provenance,monthlyEssentialSpendingToday");
     expect(csv).toContain("warning,0");

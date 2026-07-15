@@ -169,7 +169,7 @@ function buildControls(baseline: ProjectionInputs): ControlDefinition[] {
     controls.push({
       key: `contribution.${account.id}`,
       sourceKey: `accounts.${account.id}.monthlyContributionToday`,
-      label: `${account.label} monthly contribution`,
+      label: `${account.label} monthly contribution (${account.contributionFunding === "income_withheld" ? "income-withheld" : "cash-funded"})`,
       min: fixed(0),
       max: fixed(Math.max(5000, account.monthlyContributionToday * 3)),
       step: 25,
@@ -322,7 +322,7 @@ export function PlannerDashboard() {
         }
         const current = body as CurrentBaseline;
         setBaselineResult({ generation: refreshGeneration, baseline: current });
-        setAllocationYear(current.projectionInputs.startYear + 20);
+        setAllocationYear(Number(current.projectionInputs.startDate.slice(0, 4)) + 20);
       })
       .catch((error: unknown) => {
         if (error instanceof DOMException && error.name === "AbortError") return;
@@ -426,7 +426,7 @@ export function PlannerDashboard() {
       oneTime: view.outflows.oneTime,
       tax: view.outflows.tax,
       contributions: view.outflows.contributions,
-      employment: view.income.employment,
+      employmentNetCash: view.income.employment,
       cpp: view.income.cpp,
       oas: view.income.oas,
       pension: view.income.pension,
@@ -440,7 +440,7 @@ export function PlannerDashboard() {
         mode === "real"
           ? inputs.retirementGoalToday
           : inputs.retirementGoalToday *
-            Math.pow(1 + inputs.annualInflation, point.calendarYear - inputs.startYear + 1),
+            Math.pow(1 + inputs.annualInflation, point.age - inputs.person.currentAge),
       milestones: point.milestones.join(" · "),
       ...Object.fromEntries(
         Object.entries(view.accountBalances).map(([id, value]) => [`account:${id}`, value]),
@@ -599,7 +599,7 @@ export function PlannerDashboard() {
                       <YAxis stroke="#9eb0c4" tickFormatter={compactCurrency} width={72} />
                       <Tooltip formatter={(value) => currency.format(Number(value))} />
                       <Legend />
-                      <Bar dataKey="employment" name="Employment" stackId="inflow" fill="#3f78c5" />
+                      <Bar dataKey="employmentNetCash" name="Employment (net deposited cash)" stackId="inflow" fill="#3f78c5" />
                       <Bar dataKey="cpp" name="CPP" stackId="inflow" fill="#4eb5d2" />
                       <Bar dataKey="oas" name="OAS" stackId="inflow" fill="#77d2b2" />
                       <Bar dataKey="pension" name="Pension" stackId="inflow" fill="#a9cf6c" />
@@ -607,7 +607,7 @@ export function PlannerDashboard() {
                       <Bar dataKey="nonRegisteredWithdrawal" name="Non-registered" stackId="inflow" fill="#d99269" />
                       <Bar dataKey="rrspWithdrawal" name="RRSP / RRIF" stackId="inflow" fill="#b978b8" />
                       <Bar dataKey="tfsaWithdrawal" name="TFSA" stackId="inflow" fill="#8072d7" />
-                      <Line dataKey="tax" name="Tax" stroke="#ef7d86" strokeWidth={2} dot={false} />
+                      <Line dataKey="tax" name="Simplified retirement tax" stroke="#ef7d86" strokeWidth={2} dot={false} />
                     </ComposedChart>
                   </ResponsiveContainer>
                 </div>
@@ -628,8 +628,8 @@ export function PlannerDashboard() {
                       <Bar dataKey="essential" name="Essential" stackId="outflow" fill="#55b8d8" />
                       <Bar dataKey="discretionary" name="Discretionary" stackId="outflow" fill="#8c78dd" />
                       <Bar dataKey="oneTime" name="One-time events" stackId="outflow" fill="#d99269" />
-                      <Bar dataKey="tax" name="Simplified tax" stackId="outflow" fill="#ef7d86" />
-                      <Bar dataKey="contributions" name="Contributions" stackId="outflow" fill="#70d6b2" />
+                      <Bar dataKey="tax" name="Simplified retirement tax" stackId="outflow" fill="#ef7d86" />
+                      <Bar dataKey="contributions" name="Cash-funded contributions" stackId="outflow" fill="#70d6b2" />
                     </BarChart>
                   </ResponsiveContainer>
                 </div>
@@ -768,10 +768,10 @@ export function PlannerDashboard() {
               <div>
                 <h3>Cash flow</h3>
                 <dl>
-                  <div><dt>Monthly income</dt><dd>{currency.format(baseline.derived.monthlyIncome.monthlyAverage)}</dd></div>
+                  <div><dt>Monthly employment income (net deposited cash)</dt><dd>{currency.format(baseline.derived.monthlyIncome.monthlyAverage)}</dd></div>
                   <div><dt>Essential spending</dt><dd>{currency.format(baseline.derived.essentialSpending.monthlyAverage)}</dd></div>
                   <div><dt>Discretionary spending</dt><dd>{currency.format(baseline.derived.discretionarySpending.monthlyAverage)}</dd></div>
-                  <div><dt>Investment contributions</dt><dd>{currency.format(baseline.derived.investmentContributions.monthlyAverage)}</dd></div>
+                  <div><dt>Investment contributions (balance additions)</dt><dd>{currency.format(baseline.derived.investmentContributions.monthlyAverage)}</dd></div>
                   <div><dt>Recurring expenses</dt><dd>{currency.format(baseline.derived.recurringExpenses.monthlyTotal)}</dd></div>
                 </dl>
               </div>
@@ -788,9 +788,10 @@ export function PlannerDashboard() {
               <div>
                 <h3>Assumptions</h3>
                 <dl>
-                  <div><dt>Projection period</dt><dd>{inputs.startYear}–{projection.annual.at(-1)?.calendarYear}</dd></div>
+                  <div><dt>Projection period</dt><dd>{inputs.startDate}–{projection.annual.at(-1)?.calendarYear}</dd></div>
                   <div><dt>Inflation</dt><dd>{percent.format(inputs.annualInflation)}</dd></div>
-                  <div><dt>Simplified effective tax</dt><dd>{percent.format(inputs.tax.effectiveTaxRate)}</dd></div>
+                  <div><dt>Simplified retirement tax rate</dt><dd>{percent.format(inputs.tax.effectiveTaxRate)}</dd></div>
+                  <div><dt>Employment tax basis</dt><dd>Net cash; no second tax</dd></div>
                   <div><dt>Data through</dt><dd>{baseline.dataThrough}</dd></div>
                 </dl>
               </div>

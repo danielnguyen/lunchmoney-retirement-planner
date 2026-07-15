@@ -1,6 +1,8 @@
 export const accountTypes = ["cash", "tfsa", "rrsp_rrif", "non_registered", "debt"] as const;
+export const contributionFundingTypes = ["cash", "income_withheld"] as const;
 
 export type AccountType = (typeof accountTypes)[number];
+export type ContributionFunding = (typeof contributionFundingTypes)[number];
 
 export type AssetAllocation = {
   cash: number;
@@ -17,7 +19,7 @@ export type PublicBenefitInput = {
 export type PersonInput = {
   currentAge: number;
   retirementAge: number;
-  annualEmploymentIncomeToday: number;
+  annualEmploymentNetCashToday: number;
   annualIncomeGrowth: number;
   annualPensionToday: number;
   pensionStartAge: number;
@@ -34,6 +36,7 @@ export type FinancialAccountInput = {
   openingBalance: number;
   annualReturn: number;
   monthlyContributionToday: number;
+  contributionFunding?: ContributionFunding;
   contributionIndexingRate: number;
   withdrawalPriority: number;
   allocation: AssetAllocation;
@@ -56,7 +59,7 @@ export type TaxAssumptions = {
 };
 
 export type ProjectionInputs = {
-  startYear: number;
+  startDate: string;
   endAge: number;
   annualInflation: number;
   monthlyEssentialSpendingToday: number;
@@ -162,14 +165,20 @@ function assertRate(name: string, value: number, min = -0.99, max = 1): void {
   }
 }
 
+function isIsoCalendarDate(value: unknown): value is string {
+  if (typeof value !== "string" || !/^\d{4}-\d{2}-\d{2}$/.test(value)) return false;
+  const date = new Date(`${value}T00:00:00.000Z`);
+  return !Number.isNaN(date.valueOf()) && date.toISOString().slice(0, 10) === value;
+}
+
 export function validateProjectionInputs(value: unknown): ProjectionInputs {
   if (!value || typeof value !== "object") {
     throw new Error("Projection inputs must be an object");
   }
 
   const input = value as ProjectionInputs;
-  if (!Number.isInteger(input.startYear) || input.startYear < 1900 || input.startYear > 2300) {
-    throw new Error("startYear must be a valid calendar year");
+  if (!isIsoCalendarDate(input.startDate)) {
+    throw new Error("startDate must be a valid ISO calendar date");
   }
   if (!input.person || typeof input.person !== "object") {
     throw new Error("A person projection input is required");
@@ -203,7 +212,7 @@ export function validateProjectionInputs(value: unknown): ProjectionInputs {
   assertNonNegative("monthlyEssentialSpendingToday", input.monthlyEssentialSpendingToday);
   assertNonNegative("monthlyDiscretionarySpendingToday", input.monthlyDiscretionarySpendingToday);
   assertNonNegative("retirementGoalToday", input.retirementGoalToday);
-  assertNonNegative("annualEmploymentIncomeToday", input.person.annualEmploymentIncomeToday);
+  assertNonNegative("annualEmploymentNetCashToday", input.person.annualEmploymentNetCashToday);
   assertNonNegative("annualPensionToday", input.person.annualPensionToday);
   assertNonNegative("CPP monthlyAmountAt65Today", input.person.cpp.monthlyAmountAt65Today);
   assertNonNegative("OAS monthlyAmountAt65Today", input.person.oas.monthlyAmountAt65Today);
@@ -221,6 +230,21 @@ export function validateProjectionInputs(value: unknown): ProjectionInputs {
     if (account.type === "cash") hasCashAccount = true;
     assertNonNegative(`openingBalance for ${account.id}`, account.openingBalance);
     assertNonNegative(`monthlyContributionToday for ${account.id}`, account.monthlyContributionToday);
+    if (
+      account.contributionFunding !== undefined &&
+      !contributionFundingTypes.includes(account.contributionFunding)
+    ) {
+      throw new Error(`Unsupported contribution funding for ${account.id}`);
+    }
+    if (account.monthlyContributionToday > 0 && !account.contributionFunding) {
+      throw new Error(`contributionFunding is required for ${account.id}`);
+    }
+    if (
+      account.monthlyContributionToday > 0 &&
+      !["tfsa", "rrsp_rrif", "non_registered"].includes(account.type)
+    ) {
+      throw new Error(`Contributions may only be configured for investment account ${account.id}`);
+    }
     assertRate(`annualReturn for ${account.id}`, account.annualReturn);
     assertRate(`contributionIndexingRate for ${account.id}`, account.contributionIndexingRate, -0.2, 0.5);
     const allocationTotal =

@@ -450,6 +450,10 @@ export function deriveCurrentBaseline(
     const monthlyContribution = round(contributionFromConfig ?? contributionFromTransactions);
     const contributionSource =
       contributionFromConfig === undefined ? "lunchmoney_derived" : "local_configuration";
+    const isInvestmentAccount = ["tfsa", "rrsp_rrif", "non_registered"].includes(type);
+    const contributionFunding = isInvestmentAccount
+      ? mapping.contributionFunding ?? (contributionFromConfig === undefined ? "cash" : undefined)
+      : undefined;
     const balance = round(Math.max(0, rawBalance));
     const annualReturn = projectionReturn(config, mapping);
     const allocation = projectionAllocation(config, mapping);
@@ -464,6 +468,7 @@ export function deriveCurrentBaseline(
       balanceAsOf: account.balanceAsOf,
       monthlyContribution,
       contributionSource,
+      contributionFunding,
     });
     projectionAccounts.push({
       id: account.canonicalId,
@@ -472,6 +477,7 @@ export function deriveCurrentBaseline(
       openingBalance: balance,
       annualReturn,
       monthlyContributionToday: monthlyContribution,
+      contributionFunding,
       contributionIndexingRate: config.assumptions.contributionIndexing,
       withdrawalPriority: mapping.withdrawalPriority ?? 999,
       allocation,
@@ -494,6 +500,20 @@ export function deriveCurrentBaseline(
             `Trailing ${window.trailingMonths}-month average contribution for ${account.canonicalId}`,
             window.endDate,
           );
+    if (contributionFunding) {
+      provenance[`accounts.${account.canonicalId}.contributionFunding`] =
+        mapping.contributionFunding === undefined
+          ? derivedValue(
+              contributionFunding,
+              `Transaction-derived contributions for ${account.canonicalId} are cash-funded`,
+              window.endDate,
+            )
+          : localValue(
+              contributionFunding,
+              `Contribution funding for ${account.canonicalId}`,
+              window.endDate,
+            );
+    }
     provenance[`accounts.${account.canonicalId}.label`] = derivedValue(
       account.name,
       `Lunch Money display name for ${account.canonicalId}`,
@@ -567,6 +587,7 @@ export function deriveCurrentBaseline(
       accountId: account.id,
       monthlyAverage: account.monthlyContribution,
       source: account.contributionSource,
+      funding: account.contributionFunding ?? "cash",
     }));
   const resolvedMonthlyContributions = round(
     contributionAccounts.reduce((total, account) => total + account.monthlyAverage, 0),
@@ -582,9 +603,9 @@ export function deriveCurrentBaseline(
     `Trailing ${window.trailingMonths}-month average of discretionary transactions`,
     dataThrough,
   );
-  provenance.annualEmploymentIncomeToday = derivedValue(
+  provenance["person.annualEmploymentNetCashToday"] = derivedValue(
     round(monthlyIncome * 12),
-    `Annualized trailing ${window.trailingMonths}-month average of income transactions`,
+    `Annualized trailing ${window.trailingMonths}-month average of net deposited income transactions; no additional employment tax is applied`,
     dataThrough,
   );
 
@@ -622,9 +643,9 @@ export function deriveCurrentBaseline(
   for (const [field, value] of Object.entries(localFields)) {
     provenance[field] = localValue(value, `${field} from private planner configuration`, window.endDate);
   }
-  provenance.startYear = derivedValue(
-    Number(window.endDate.slice(0, 4)),
-    "Calendar year containing the Lunch Money data-through date",
+  provenance.startDate = derivedValue(
+    dataThrough,
+    "Lunch Money data-through date used as the projection calendar anchor",
     dataThrough,
   );
   provenance.events = localValue(
@@ -634,7 +655,7 @@ export function deriveCurrentBaseline(
   );
 
   const projectionInputs = validateProjectionInputs({
-    startYear: Number(window.endDate.slice(0, 4)),
+    startDate: dataThrough,
     endAge: config.projectionEndAge,
     annualInflation: config.assumptions.inflation,
     monthlyEssentialSpendingToday: monthlyEssential,
@@ -648,7 +669,7 @@ export function deriveCurrentBaseline(
     person: {
       currentAge: config.currentAge,
       retirementAge: config.retirementAge,
-      annualEmploymentIncomeToday: round(monthlyIncome * 12),
+      annualEmploymentNetCashToday: round(monthlyIncome * 12),
       annualIncomeGrowth: config.assumptions.incomeGrowth,
       annualPensionToday: config.assumptions.pensionAnnualIncome,
       pensionStartAge: config.assumptions.pensionStartAge,
@@ -680,6 +701,7 @@ export function deriveCurrentBaseline(
         trailingTotal: round(incomeTotal),
         monthlyAverage: monthlyIncome,
         transactionCount: incomeCount,
+        basis: "net_deposited_cash",
       },
       essentialSpending: {
         trailingTotal: round(essentialTotal),
