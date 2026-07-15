@@ -19,6 +19,10 @@ import {
   YAxis,
 } from "recharts";
 import type { CurrentBaseline } from "@/src/domain/baseline/types";
+import {
+  annualPeriodLabel,
+  startingFinancialAssets,
+} from "@/src/domain/projection/presentation";
 import type {
   AccountType,
   ProjectionInputs,
@@ -420,6 +424,7 @@ export function PlannerDashboard() {
     const view = point[mode];
     return {
       year: point.calendarYear,
+      periodLabel: annualPeriodLabel(inputs, point.calendarYear),
       age: point.age,
       essential: view.outflows.essential,
       discretionary: view.outflows.discretionary,
@@ -464,6 +469,9 @@ export function PlannerDashboard() {
       ].filter((item) => item.value > 0)
     : [];
   const financialAccounts = inputs.accounts.filter((account) => account.type !== "debt");
+  const importedStartingFinancialAssets = startingFinancialAssets(
+    baseline.projectionInputs.accounts,
+  );
 
   return (
     <main>
@@ -540,6 +548,11 @@ export function PlannerDashboard() {
         <>
           <section className="summary-grid" aria-label="Projection summary">
             <article className="metric-card">
+              <span>Starting financial assets</span>
+              <strong>{currency.format(importedStartingFinancialAssets)}</strong>
+              <small>Imported balances as of {baseline.dataThrough} · debt excluded</small>
+            </article>
+            <article className="metric-card">
               <span>Assets at retirement</span>
               <strong>{currency.format(projection.summary.financialAssetsAtRetirementToday)}</strong>
               <small>{projection.summary.retirementYear} · financial assets only</small>
@@ -578,7 +591,12 @@ export function PlannerDashboard() {
                       <CartesianGrid stroke="#24364d" strokeDasharray="3 3" vertical={false} />
                       <XAxis dataKey="year" stroke="#9eb0c4" minTickGap={28} />
                       <YAxis stroke="#9eb0c4" tickFormatter={compactCurrency} width={72} />
-                      <Tooltip formatter={(value) => currency.format(Number(value))} />
+                      <Tooltip
+                        formatter={(value) => currency.format(Number(value))}
+                        labelFormatter={(label, payload) =>
+                          payload[0]?.payload?.periodLabel ?? label
+                        }
+                      />
                       <Legend />
                       <Bar dataKey="essential" name="Essential" stackId="expenses" fill="#55b8d8" />
                       <Bar dataKey="discretionary" name="Discretionary" stackId="expenses" fill="#8c78dd" />
@@ -597,7 +615,12 @@ export function PlannerDashboard() {
                       <CartesianGrid stroke="#24364d" strokeDasharray="3 3" vertical={false} />
                       <XAxis dataKey="year" stroke="#9eb0c4" minTickGap={28} />
                       <YAxis stroke="#9eb0c4" tickFormatter={compactCurrency} width={72} />
-                      <Tooltip formatter={(value) => currency.format(Number(value))} />
+                      <Tooltip
+                        formatter={(value) => currency.format(Number(value))}
+                        labelFormatter={(label, payload) =>
+                          payload[0]?.payload?.periodLabel ?? label
+                        }
+                      />
                       <Legend />
                       <Bar dataKey="employmentNetCash" name="Employment (net deposited cash)" stackId="inflow" fill="#3f78c5" />
                       <Bar dataKey="cpp" name="CPP" stackId="inflow" fill="#4eb5d2" />
@@ -623,7 +646,12 @@ export function PlannerDashboard() {
                       <CartesianGrid stroke="#24364d" strokeDasharray="3 3" vertical={false} />
                       <XAxis dataKey="year" stroke="#9eb0c4" minTickGap={28} />
                       <YAxis stroke="#9eb0c4" tickFormatter={compactCurrency} width={72} />
-                      <Tooltip formatter={(value) => currency.format(Number(value))} />
+                      <Tooltip
+                        formatter={(value) => currency.format(Number(value))}
+                        labelFormatter={(label, payload) =>
+                          payload[0]?.payload?.periodLabel ?? label
+                        }
+                      />
                       <Legend />
                       <Bar dataKey="essential" name="Essential" stackId="outflow" fill="#55b8d8" />
                       <Bar dataKey="discretionary" name="Discretionary" stackId="outflow" fill="#8c78dd" />
@@ -645,7 +673,12 @@ export function PlannerDashboard() {
                       <CartesianGrid stroke="#24364d" strokeDasharray="3 3" vertical={false} />
                       <XAxis dataKey="year" stroke="#9eb0c4" minTickGap={28} />
                       <YAxis stroke="#9eb0c4" tickFormatter={compactCurrency} width={72} />
-                      <Tooltip formatter={(value) => currency.format(Number(value))} />
+                      <Tooltip
+                        formatter={(value) => currency.format(Number(value))}
+                        labelFormatter={(label, payload) =>
+                          payload[0]?.payload?.periodLabel ?? label
+                        }
+                      />
                       <Legend />
                       {financialAccounts.map((account, index) => (
                         <Area
@@ -725,7 +758,7 @@ export function PlannerDashboard() {
                         const view = point[mode];
                         return (
                           <tr key={point.calendarYear}>
-                            <td>{point.calendarYear}</td><td>{point.age}</td><td>{currency.format(view.income.total)}</td><td>{currency.format(view.withdrawals.total)}</td><td>{currency.format(view.outflows.tax)}</td>
+                            <td>{annualPeriodLabel(inputs, point.calendarYear)}</td><td>{point.age}</td><td>{currency.format(view.income.total)}</td><td>{currency.format(view.withdrawals.total)}</td><td>{currency.format(view.outflows.tax)}</td>
                             <td>{currency.format(view.outflows.essential + view.outflows.discretionary + view.outflows.oneTime)}</td><td>{currency.format(view.balances.financialAssets)}</td><td>{point.milestones.join(" · ") || "—"}</td>
                           </tr>
                         );

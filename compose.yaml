@@ -9,7 +9,7 @@ services:
       PLANNER_CONFIG_PATH: /app/config/planner.local.json
       NEXT_PUBLIC_APP_NAME: ${NEXT_PUBLIC_APP_NAME:-Retirement Planner}
     volumes:
-      - ./config/planner.local.json:/app/config/planner.local.json:ro
+      - ./config/planner.local.json:/app/config/planner.local.json:ro,Z
     healthcheck:
       test: ["CMD", "wget", "-qO-", "http://127.0.0.1:3000/api/v1/health"]
       interval: 30s
