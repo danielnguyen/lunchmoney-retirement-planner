@@ -247,8 +247,8 @@ const SAFE_STRING_VALUES = new Set([
 
 const SAFE_MILESTONES = new Set([
   "Retirement",
-  "CPP start",
-  "OAS start",
+  "CPP begins",
+  "OAS begins",
   "RRIF conversion age",
 ]);
 

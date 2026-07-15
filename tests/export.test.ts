@@ -459,6 +459,36 @@ describe("allowlisted share-safe projection exports", () => {
     expectNoPrivateData(JSON.stringify(snapshot));
   });
 
+  it("preserves CPP and OAS milestone labels in share-safe JSON and flat CSV", () => {
+    const inputs: ProjectionInputs = structuredClone(projectionFixture);
+    inputs.person.currentAge = 64;
+    inputs.person.retirementAge = 65;
+    inputs.person.cpp.startAge = 65;
+    inputs.person.oas.startAge = 65;
+    inputs.endAge = 66;
+
+    const baseline: BaselineExportContext = structuredClone(baselineContextFixture);
+    baseline.projectionInputs = inputs;
+    const projection = calculateProjection(inputs);
+    const snapshot = createProjectionSnapshot(projection, baseline, {});
+    const milestonePeriod = snapshot.projection.annual.find((point) =>
+      point.milestones.includes("CPP begins"),
+    );
+
+    expect(milestonePeriod?.milestones).toEqual([
+      "Retirement",
+      "CPP begins",
+      "OAS begins",
+    ]);
+    expect(JSON.stringify(snapshot)).toContain('"CPP begins"');
+    expect(JSON.stringify(snapshot)).toContain('"OAS begins"');
+
+    const csv = projectionSnapshotToCsv(snapshot, "real");
+    const milestoneRow = csv.split("\n").find((row) => row.includes("CPP begins"));
+    expect(milestoneRow).toContain("CPP begins");
+    expect(milestoneRow).toContain("OAS begins");
+  });
+
   it("emits one consistently shaped flat CSV without private text or source ids", () => {
     const { snapshot } = buildExportFixture();
     const csv = projectionSnapshotToCsv(snapshot, "real");
