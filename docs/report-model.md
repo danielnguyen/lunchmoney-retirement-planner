@@ -1,26 +1,29 @@
 # Report model
 
-A projection produces one annual row for every simulated calendar year.
+A projection simulates monthly intervals for one person and produces one annual row through the configured projection end age.
 
-Each row contains:
+Each annual row contains:
 
-- income by employment, CPP, OAS, pension, and other sources
-- withdrawals by cash, TFSA, RRSP/RRIF, and non-registered account
-- outflows for essential spending, discretionary spending, one-time events, tax, contributions, and unmet spending
-- ending balances by account category
-- asset allocation across cash, fixed income, and equity
-- combined-household and per-member views
-- milestone labels for retirement, benefit start dates, and RRIF conversion age
+- employment, CPP, OAS, pension, and one-time income
+- withdrawals from cash, TFSA, RRSP/RRIF, and non-registered accounts
+- essential spending, discretionary spending, one-time outflows, simplified tax, contributions, and unmet spending
+- pooled balances and each included account’s balance
+- financial assets, debt, and net worth
+- cash, fixed-income, and equity allocation
+- retirement, CPP, OAS, and RRIF milestone labels
+- nominal and inflation-adjusted views
 
-The interface renders the following reports from that output:
+The dashboard retains these live-data-backed reports:
 
-- annual expense projection
-- stacked cash-inflow chart
-- stacked cash-outflow chart
-- account-level net-worth burndown
-- allocation at a selected year
-- assumptions and provenance
+- annual spending projection
+- stacked annual cash inflow
+- stacked annual cash outflow
+- account-level financial-asset burndown
+- asset allocation at a selected year
 - deterministic observations
 - annual projection ledger
+- resolved baseline and provenance details
 
-JSON is the canonical export. CSV is a flattened annual ledger. The printable report can be saved as PDF through the browser print flow.
+The retirement goal and goal gap use financial assets. They do not include debt offsets or non-liquid real assets.
+
+JSON is the canonical export and includes the resolved baseline, derived baseline, provenance, warnings, active inputs, overrides, and complete projection. CSV begins with equivalent metadata sections and then includes the flattened annual ledger with dynamic account columns.

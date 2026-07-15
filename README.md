@@ -1,84 +1,125 @@
 # Lunch Money Retirement Planner
 
-A self-hosted retirement lifecycle report that combines imported Lunch Money data, source-aware defaults, explicit assumptions, and deterministic calculations.
+A self-hosted, single-person retirement projection built from current Lunch Money balances and trailing transaction data.
 
-## Current capabilities
+The end-to-end MVP is defined in [plan/README.md](plan/README.md). The runtime never substitutes demonstration data. If the Lunch Money token, private configuration, or required mappings are missing, the dashboard shows a blocking error and no charts.
 
-- Combined-household and per-member projections
-- Independent retirement, CPP, OAS, pension, and RRIF milestone ages
-- Separate cash, TFSA, RRSP/RRIF, non-registered, real-asset, and debt balances
-- Configurable account returns, contributions, allocation, and withdrawal priority
-- Essential and discretionary expense projection
-- Stacked annual cash-inflow and cash-outflow charts
-- Account-level net-worth burndown with milestone markers
-- Asset allocation at a selected year
-- Today’s-dollar and future-dollar views
-- Reversible calculator overrides with per-field and full reset
-- Assumption and provenance report
-- Inspectable annual projection ledger
-- JSON and CSV exports plus printable HTML/PDF output
-- Versioned projection APIs
-- Read-only Lunch Money client boundary
-- PostgreSQL persistence schema
-- Docker and Docker Compose deployment
+## What the MVP does
 
-The included interface uses generic demonstration values. It contains no account data, credentials, or individualized assumptions.
+- Connects to Lunch Money API v2 with retrieval methods only
+- Fetches manual accounts, Plaid accounts, categories, recurring items, and paginated trailing transactions on demand
+- Derives account balances, monthly income, essential and discretionary spending, investment contributions, recurring expenses, and a data-through date
+- Requires explicit account and category mappings; unmapped live records are shown with the identifiers needed to configure them
+- Runs a deterministic monthly, single-person retirement projection
+- Shows annual spending, cash inflow, cash outflow, account-level financial assets, allocation, milestones, and an annual ledger
+- Supports temporary browser overrides, per-field reset, reset all, and explicit refresh
+- Exports the resolved live baseline, provenance, warnings, active overrides, and projection as JSON or CSV
+- Runs without a database, persistence, jobs, or caching
 
-## Architecture
-
-The application is a TypeScript modular monolith:
-
-```text
-Next.js interface and route handlers
-        |
-        +-- baseline and reference resolver
-        +-- deterministic monthly projection engine
-        +-- Lunch Money read adapter
-        +-- report and export services
-        +-- PostgreSQL persistence boundary
-```
-
-The engine emits a detailed annual ledger. Every chart, table, API response, observation, and export derives from that same output.
-
-See [docs/architecture.md](docs/architecture.md) and [docs/report-model.md](docs/report-model.md).
-
-## Run locally
-
-Requirements:
+## Requirements
 
 - Node.js 22 or later
 - npm
+- A Lunch Money API v2 token
+- A private planner configuration file
+
+## Local setup
 
 ```bash
 cp .env.example .env
+cp config/planner.example.json config/planner.local.json
 npm install
 npm run dev
 ```
 
+Set `LUNCHMONEY_API_TOKEN` in `.env`. Replace every placeholder in `config/planner.local.json`; that file is Git-ignored and must remain private.
+
 Open `http://localhost:3000`.
 
-## Run with Docker Compose
+### Mapping Lunch Money records
+
+Account keys should be source-scoped so manual and Plaid IDs cannot collide:
+
+```text
+manual:<lunch-money-account-id>
+plaid:<lunch-money-account-id>
+```
+
+Numeric account keys are accepted only when that ID is unique across both account sources. Use the source-scoped form for durable configuration. Cash transactions with no associated account use the special key `cash`.
+
+The easiest configuration workflow is:
+
+1. Copy the example config and start the app.
+2. Refresh. The blocking state lists every unmapped account ID and name.
+3. Map every account to `cash`, `tfsa`, `rrsp`, `non_registered`, `debt`, or `exclude`.
+4. Refresh again. The blocking state lists categories used by included accounts in the trailing window and reviewed recurring items.
+5. Map each listed category to `essential`, `discretionary`, `income`, `investment_contribution`, `transfer`, or `exclude`.
+6. Replace the generic ages, benefit amounts, goal, returns, allocation, tax, pension, and milestone assumptions.
+
+Credit-card payments and internal movements must be mapped as `transfer` or `exclude`; the planner does not infer them from a payee or account name. Categories marked “exclude from totals” in Lunch Money are ignored automatically.
+
+An investment-contribution category can identify its target account and transaction direction:
+
+```json
+{
+  "classification": "investment_contribution",
+  "contributionAccountId": "plaid:123456",
+  "contributionDirection": "debit"
+}
+```
+
+Alternatively, an investment account mapping may provide an explicit `monthlyContribution`. The baseline and exports label that value as local configuration rather than Lunch Money-derived.
+
+## Refresh and reset behavior
+
+The baseline endpoint fetches Lunch Money again on every request. The dashboard’s refresh action rebuilds the baseline and clears all browser overrides. Resetting a field or using Reset all restores values from the most recently refreshed baseline, never compiled constants.
+
+## API
+
+```http
+GET  /api/v1/health
+GET  /api/v1/lunchmoney/status
+GET  /api/v1/baseline/current
+POST /api/v1/projections
+POST /api/v1/exports/projection
+POST /api/v1/exports/projection-csv
+```
+
+`GET /api/v1/health` reports whether the token and planner file are configured. It deliberately reports Lunch Money as `not_checked` until a read request succeeds.
+
+`GET /api/v1/lunchmoney/status` validates the token with a read-only categories request and returns a sanitized result.
+
+`GET /api/v1/baseline/current` returns projection inputs, provenance, derived values, transaction window, records analysed, warnings, and mapping details. Missing mappings return HTTP 422. An invalid token returns a sanitized HTTP 401 response.
+
+Projection requests use this shape:
+
+```json
+{
+  "inputs": {}
+}
+```
+
+Export requests use the current baseline response, active inputs, and browser overrides:
+
+```json
+{
+  "baseline": {},
+  "inputs": {},
+  "overrides": {}
+}
+```
+
+## Docker Compose
+
+Create the private files before starting Compose:
 
 ```bash
 cp .env.example .env
-# Replace placeholder credentials in .env
+cp config/planner.example.json config/planner.local.json
 docker compose up --build
 ```
 
-The application is available at `http://localhost:3000`.
-
-## Published container image
-
-Pushes to `main` and manual workflow runs publish the application image to GitHub Container Registry with two tags:
-
-- `ghcr.io/danielnguyen/lunchmoney-retirement-planner:latest`
-- `ghcr.io/danielnguyen/lunchmoney-retirement-planner:<short-commit-sha>`
-
-```bash
-docker pull ghcr.io/danielnguyen/lunchmoney-retirement-planner:latest
-```
-
-The immutable short-SHA tag is preferred when a deployment must remain pinned to a specific build.
+Compose starts one planner container, passes the token through the environment, and mounts `config/planner.local.json` read-only at `/app/config/planner.local.json`. PostgreSQL is not used.
 
 ## Validation
 
@@ -87,88 +128,31 @@ npm run typecheck
 npm test
 npm run lint
 npm run build
+docker build -t lunchmoney-retirement-planner .
 ```
 
-The pull-request workflow runs the same checks on a fresh Node.js 22 environment.
+Tests use synthetic fixtures under `tests/`. Production modules do not import them.
 
-## API
+## Security and data handling
 
-### Health
+- The Lunch Money token remains server-side.
+- The token is never logged, returned by an API, or included in an export.
+- The application-facing Lunch Money service exposes retrieval methods only.
+- `config/planner.local.json`, `.env`, and the private config in the Docker build context are ignored.
+- No baseline, scenario, transaction, or account data is persisted by the application.
 
-```http
-GET /api/v1/health
-```
+## Projection scope
 
-### Resolved defaults and provenance
+The tax calculation is a simplified effective-rate assumption, not a tax filing model. CPP and OAS claim timing factors are deterministic. RRIF conversion is a milestone; statutory minimum withdrawals are not enforced. Monte Carlo simulation, optimized withdrawals, real estate, households, saved scenarios, background synchronization, and server-generated PDFs are outside the MVP.
 
-```http
-GET /api/v1/defaults/current
-```
+See [docs/architecture.md](docs/architecture.md) and [docs/report-model.md](docs/report-model.md) for implementation details.
 
-### Read the current resolved report
+## Published container image
 
-```http
-GET /api/v1/projections/current
-```
+Pushes to `main` and manual workflow runs publish:
 
-### Calculate a report
-
-```http
-POST /api/v1/projections
-Content-Type: application/json
-```
-
-### Export a versioned JSON snapshot
-
-```http
-POST /api/v1/exports/projection
-Content-Type: application/json
-```
-
-### Export the annual ledger as CSV
-
-```http
-POST /api/v1/exports/projection-csv
-Content-Type: application/json
-```
-
-## Baseline sources
-
-Every supported field records one source:
-
-- Lunch Money-derived observation
-- saved baseline
-- Canadian reference
-- application fallback
-
-Canadian reference values identify whether they are population statistics, statutory defaults, or published assumptions. Values are not labelled as medians unless the underlying source is actually a median.
-
-## Lunch Money boundary
-
-The Lunch Money integration is intentionally read-only. The application client exposes retrieval operations for transactions, categories, accounts, and recurring items. The synchronization and persistence workflow is not connected in this release.
-
-Lunch Money API v2 is currently in open alpha. The adapter is isolated so API changes do not affect the projection engine.
-
-## Calculation scope
-
-The current tax model uses explicit effective-rate and OAS recovery-tax assumptions. It is designed for transparent scenario comparison, not tax filing or individualized financial advice. A later rules engine can replace it without changing the report contract.
-
-RRSP/RRIF conversion is represented as a milestone. Statutory minimum-withdrawal enforcement is not implemented yet.
-
-## Current integration boundaries
-
-- Live Lunch Money synchronization and database persistence are not connected.
-- Canadian reference provenance is supported, but automated reference-data ingestion is not connected.
-- External API authentication is reserved in configuration but is not enforced yet.
-- Tax calculations are simplified and do not implement complete federal and provincial tax rules.
-
-## Security
-
-- Secrets are read from environment variables.
-- Lunch Money credentials never enter browser state.
-- Exports omit credentials and raw authentication metadata.
-- External integrations use a separate application API token.
-- Saved projections are immutable snapshots of their inputs, provenance, and results.
+- `ghcr.io/danielnguyen/lunchmoney-retirement-planner:latest`
+- `ghcr.io/danielnguyen/lunchmoney-retirement-planner:<short-commit-sha>`
 
 ## License
 

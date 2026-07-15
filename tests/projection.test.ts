@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { calculateProjection, cppClaimFactor, oasClaimFactor } from "@/src/domain/projection/calculate";
-import { demoInputs } from "@/src/demo/baseline";
+import { projectionFixture } from "./fixtures/projection";
 
 describe("public benefit timing", () => {
   it("applies current CPP early and delayed-claim factors", () => {
@@ -15,60 +15,63 @@ describe("public benefit timing", () => {
   });
 });
 
-describe("household projection", () => {
-  it("produces annual combined and per-member report views", () => {
-    const result = calculateProjection(demoInputs);
-
-    expect(result.schemaVersion).toBe("2.0");
+describe("single-person projection", () => {
+  it("produces one annual report and account-level balances", () => {
+    const result = calculateProjection(projectionFixture);
+    expect(result.schemaVersion).toBe("3.0");
     expect(result.annual.length).toBeGreaterThan(40);
-    expect(result.annual[0]?.members["member-a"]?.label).toBe("Member A");
-    expect(result.annual[0]?.nominal.balances.netWorth).toBeGreaterThan(0);
-    expect(result.annual.at(-1)?.primaryAge).toBe(demoInputs.endAge);
+    expect(result.annual[0]?.nominal.accountBalances["manual:1"]).toBeDefined();
+    expect(result.annual.at(-1)?.age).toBe(projectionFixture.endAge);
   });
 
   it("shows CPP and OAS as separate income streams after their start ages", () => {
-    const result = calculateProjection(demoInputs);
+    const result = calculateProjection(projectionFixture);
     const afterBenefits = result.annual.find(
       (point) => point.nominal.income.cpp > 0 && point.nominal.income.oas > 0,
     );
-
-    expect(afterBenefits).toBeDefined();
     expect(afterBenefits?.nominal.income.cpp).toBeGreaterThan(0);
     expect(afterBenefits?.nominal.income.oas).toBeGreaterThan(0);
   });
 
-  it("keeps account balances non-negative and records withdrawals by account type", () => {
-    const stressed = structuredClone(demoInputs);
+  it("uses financial assets rather than net worth for the retirement goal comparison", () => {
+    const withDebt = structuredClone(projectionFixture);
+    withDebt.accounts.push({
+      id: "manual:3",
+      label: "Debt",
+      type: "debt",
+      openingBalance: 50000,
+      annualReturn: 0,
+      monthlyContributionToday: 0,
+      contributionIndexingRate: 0,
+      withdrawalPriority: 999,
+      allocation: { cash: 0, fixedIncome: 0, equity: 0 },
+    });
+    const result = calculateProjection(withDebt);
+    const retirement = result.annual.find((point) => point.calendarYear === result.summary.retirementYear)!;
+    expect(result.summary.financialAssetsAtRetirementToday).toBe(
+      retirement.real.balances.financialAssets,
+    );
+    expect(retirement.real.balances.netWorth).toBeLessThan(retirement.real.balances.financialAssets);
+  });
+
+  it("keeps financial account balances non-negative and records withdrawals", () => {
+    const stressed = structuredClone(projectionFixture);
     stressed.monthlyEssentialSpendingToday = 12000;
     stressed.monthlyDiscretionarySpendingToday = 3000;
     const result = calculateProjection(stressed);
-
     expect(result.annual.some((point) => point.nominal.withdrawals.total > 0)).toBe(true);
     expect(
-      result.annual.every(
-        (point) =>
-          point.nominal.balances.cash >= 0 &&
-          point.nominal.balances.tfsa >= 0 &&
-          point.nominal.balances.rrspRrif >= 0 &&
-          point.nominal.balances.nonRegistered >= 0,
+      result.annual.every((point) =>
+        Object.values(point.nominal.accountBalances).every((balance) => balance >= 0),
       ),
     ).toBe(true);
   });
 
-  it("records dated one-time events in the matching annual outflow", () => {
-    const result = calculateProjection(demoInputs);
-    const eventYear = result.annual.find((point) => point.calendarYear === 2038);
-
-    expect(eventYear?.nominal.outflows.oneTime).toBeGreaterThan(0);
-  });
-
-  it("retains milestone markers for retirement, CPP, OAS, and RRIF conversion", () => {
-    const result = calculateProjection(demoInputs);
-    const milestones = result.annual.flatMap((point) => point.milestones);
-
-    expect(milestones.some((label) => label.includes("retires"))).toBe(true);
-    expect(milestones.some((label) => label.includes("CPP begins"))).toBe(true);
-    expect(milestones.some((label) => label.includes("OAS begins"))).toBe(true);
-    expect(milestones.some((label) => label.includes("RRIF conversion age"))).toBe(true);
+  it("retains retirement, CPP, OAS, and RRIF milestone markers", () => {
+    const milestones = calculateProjection(projectionFixture).annual.flatMap((point) => point.milestones);
+    expect(milestones).toContain("Retirement");
+    expect(milestones).toContain("CPP begins");
+    expect(milestones).toContain("OAS begins");
+    expect(milestones).toContain("RRIF conversion age");
   });
 });

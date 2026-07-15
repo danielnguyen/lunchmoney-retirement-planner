@@ -1,29 +1,122 @@
 import type { BaselineValue } from "@/src/domain/defaults/types";
-import type { ProjectionInputs, ProjectionResult } from "./types";
+import type {
+  BaselineExportContext,
+  BaselineWarning,
+  DerivedBaseline,
+} from "@/src/domain/baseline/types";
+import { validateProjectionInputs, type ProjectionInputs, type ProjectionResult } from "./types";
+
+export type ProjectionExportRequest = {
+  inputs: ProjectionInputs;
+  baseline: BaselineExportContext;
+  overrides: Record<string, number>;
+};
 
 export type ProjectionSnapshot = {
-  schemaVersion: "2.0";
+  schemaVersion: "3.0";
   generatedAt: string;
-  dataThrough?: string;
-  inputs: ProjectionInputs;
-  inputSources: Record<string, BaselineValue<number>>;
+  connection: BaselineExportContext["connection"];
+  dataThrough: string;
+  transactionWindow: BaselineExportContext["transactionWindow"];
+  recordsAnalyzed: BaselineExportContext["recordsAnalyzed"];
+  resolvedBaseline: ProjectionInputs;
+  activeInputs: ProjectionInputs;
+  provenance: Record<string, BaselineValue<unknown>>;
+  derivedBaseline: DerivedBaseline;
+  warnings: BaselineWarning[];
+  unmappedAccounts: BaselineExportContext["unmappedAccounts"];
+  unmappedCategories: BaselineExportContext["unmappedCategories"];
+  activeOverrides: Record<string, number>;
   projection: ProjectionResult;
 };
 
+function record(value: unknown, name: string): Record<string, unknown> {
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    throw new Error(`${name} must be an object`);
+  }
+  return value as Record<string, unknown>;
+}
+
+function redactSecrets(value: unknown): unknown {
+  const configuredToken = process.env.LUNCHMONEY_API_TOKEN;
+  if (typeof value === "string") {
+    return configuredToken ? value.replaceAll(configuredToken, "[redacted]") : value;
+  }
+  if (Array.isArray(value)) return value.map(redactSecrets);
+  if (!value || typeof value !== "object") return value;
+  return Object.fromEntries(
+    Object.entries(value as Record<string, unknown>).map(([key, entry]) => [
+      key,
+      /(token|authorization|api[_-]?key|secret)/i.test(key) ? "[redacted]" : redactSecrets(entry),
+    ]),
+  );
+}
+
+export function validateProjectionExportRequest(value: unknown): ProjectionExportRequest {
+  const payload = record(value, "Export payload");
+  const baseline = record(payload.baseline, "baseline");
+  const overrides = record(payload.overrides ?? {}, "overrides");
+  const numericOverrides = Object.fromEntries(
+    Object.entries(overrides).map(([key, entry]) => {
+      if (typeof entry !== "number" || !Number.isFinite(entry)) {
+        throw new Error(`Override ${key} must be a finite number`);
+      }
+      return [key, entry];
+    }),
+  );
+  if (typeof baseline.dataThrough !== "string") throw new Error("baseline.dataThrough is required");
+  if (!Array.isArray(baseline.warnings)) throw new Error("baseline.warnings must be an array");
+  record(baseline.provenance, "baseline.provenance");
+  record(baseline.derived, "baseline.derived");
+  record(baseline.transactionWindow, "baseline.transactionWindow");
+  record(baseline.recordsAnalyzed, "baseline.recordsAnalyzed");
+  return {
+    inputs: validateProjectionInputs(payload.inputs),
+    baseline: {
+      connection: record(baseline.connection, "baseline.connection") as BaselineExportContext["connection"],
+      projectionInputs: validateProjectionInputs(baseline.projectionInputs),
+      provenance: baseline.provenance as BaselineExportContext["provenance"],
+      derived: baseline.derived as DerivedBaseline,
+      dataThrough: baseline.dataThrough,
+      transactionWindow:
+        baseline.transactionWindow as BaselineExportContext["transactionWindow"],
+      recordsAnalyzed: baseline.recordsAnalyzed as BaselineExportContext["recordsAnalyzed"],
+      warnings: baseline.warnings as BaselineWarning[],
+      unmappedAccounts: Array.isArray(baseline.unmappedAccounts)
+        ? (baseline.unmappedAccounts as BaselineExportContext["unmappedAccounts"])
+        : [],
+      unmappedCategories: Array.isArray(baseline.unmappedCategories)
+        ? (baseline.unmappedCategories as BaselineExportContext["unmappedCategories"])
+        : [],
+    },
+    overrides: numericOverrides,
+  };
+}
+
 export function createProjectionSnapshot(
   projection: ProjectionResult,
-  inputSources: Record<string, BaselineValue<number>> = {},
+  baseline: BaselineExportContext,
+  activeOverrides: Record<string, number>,
   generatedAt = new Date().toISOString(),
-  dataThrough?: string,
 ): ProjectionSnapshot {
-  return {
-    schemaVersion: "2.0",
+  const snapshot: ProjectionSnapshot = {
+    schemaVersion: "3.0",
     generatedAt,
-    dataThrough,
-    inputs: projection.inputs,
-    inputSources,
+    connection: baseline.connection,
+    dataThrough: baseline.dataThrough,
+    transactionWindow: baseline.transactionWindow,
+    recordsAnalyzed: baseline.recordsAnalyzed,
+    resolvedBaseline: baseline.projectionInputs,
+    activeInputs: projection.inputs,
+    provenance: baseline.provenance,
+    derivedBaseline: baseline.derived,
+    warnings: baseline.warnings,
+    unmappedAccounts: baseline.unmappedAccounts,
+    unmappedCategories: baseline.unmappedCategories,
+    activeOverrides,
     projection,
   };
+  return redactSecrets(snapshot) as ProjectionSnapshot;
 }
 
 function csvCell(value: string | number): string {
@@ -31,10 +124,14 @@ function csvCell(value: string | number): string {
   return /[",\n]/.test(text) ? `"${text.replaceAll('"', '""')}"` : text;
 }
 
-export function projectionToCsv(projection: ProjectionResult, mode: "real" | "nominal" = "real"): string {
+export function projectionToCsv(
+  projection: ProjectionResult,
+  mode: "real" | "nominal" = "real",
+): string {
+  const accountIds = projection.inputs.accounts.map((account) => account.id);
   const headers = [
     "calendarYear",
-    "primaryAge",
+    "age",
     "phase",
     "employmentIncome",
     "cppIncome",
@@ -55,9 +152,10 @@ export function projectionToCsv(projection: ProjectionResult, mode: "real" | "no
     "tfsaBalance",
     "rrspRrifBalance",
     "nonRegisteredBalance",
-    "realAssets",
     "debts",
+    "financialAssets",
     "netWorth",
+    ...accountIds.map((id) => `account:${id}`),
     "milestones",
   ];
 
@@ -65,7 +163,7 @@ export function projectionToCsv(projection: ProjectionResult, mode: "real" | "no
     const view = point[mode];
     return [
       point.calendarYear,
-      point.primaryAge,
+      point.age,
       point.phase,
       view.income.employment,
       view.income.cpp,
@@ -86,12 +184,54 @@ export function projectionToCsv(projection: ProjectionResult, mode: "real" | "no
       view.balances.tfsa,
       view.balances.rrspRrif,
       view.balances.nonRegistered,
-      view.balances.realAssets,
       view.balances.debts,
+      view.balances.financialAssets,
       view.balances.netWorth,
+      ...accountIds.map((id) => view.accountBalances[id] ?? 0),
       point.milestones.join("; "),
-    ].map(csvCell).join(",");
+    ]
+      .map(csvCell)
+      .join(",");
   });
 
   return [headers.join(","), ...rows].join("\n");
+}
+
+export function projectionSnapshotToCsv(
+  snapshot: ProjectionSnapshot,
+  mode: "real" | "nominal" = "real",
+): string {
+  const metadata: string[][] = [
+    ["metadata", "schemaVersion", snapshot.schemaVersion],
+    ["metadata", "generatedAt", snapshot.generatedAt],
+    ["metadata", "dataThrough", snapshot.dataThrough],
+    ["metadata", "connection", JSON.stringify(snapshot.connection)],
+    ["metadata", "displayMode", mode],
+    ["metadata", "transactionWindow", JSON.stringify(snapshot.transactionWindow)],
+    ["metadata", "recordsAnalyzed", JSON.stringify(snapshot.recordsAnalyzed)],
+    ["resolvedBaseline", "projectionInputs", JSON.stringify(snapshot.resolvedBaseline)],
+    ["derivedBaseline", "values", JSON.stringify(snapshot.derivedBaseline)],
+    ["warnings", "all", JSON.stringify(snapshot.warnings)],
+    ["unmappedAccounts", "all", JSON.stringify(snapshot.unmappedAccounts)],
+    ["unmappedCategories", "all", JSON.stringify(snapshot.unmappedCategories)],
+    ["activeOverrides", "all", JSON.stringify(snapshot.activeOverrides)],
+    ...Object.entries(snapshot.provenance).map(([key, value]) => [
+      "provenance",
+      key,
+      JSON.stringify(value),
+    ]),
+    ...snapshot.warnings.map((warning, index) => ["warning", String(index), JSON.stringify(warning)]),
+    ...Object.entries(snapshot.activeOverrides).map(([key, value]) => [
+      "override",
+      key,
+      String(value),
+    ]),
+  ];
+  return [
+    "section,key,value",
+    ...metadata.map((row) => row.map(csvCell).join(",")),
+    "",
+    `projection_${mode}`,
+    projectionToCsv(snapshot.projection, mode),
+  ].join("\n");
 }

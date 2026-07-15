@@ -1,62 +1,56 @@
 # Architecture
 
-The application is a TypeScript modular monolith. The browser interface, versioned HTTP API, data import boundary, deterministic projection engine, and export services live in one deployable application.
+The MVP is one Next.js application container with no database or background process.
 
-## Runtime boundaries
+## Runtime path
 
 ```text
-Lunch Money API          Canadian reference sources
-       |                           |
-       v                           v
-read-only adapter            reference adapters
-       |                           |
-       +------------+--------------+
-                    v
-             baseline resolver
-                    |
-                    v
-          deterministic projection engine
-                    |
-       +------------+-------------+
-       |                          |
-       v                          v
- report interface            versioned API
-       |                          |
-       +------------+-------------+
-                    v
-          immutable snapshot exports
+LUNCHMONEY_API_TOKEN
+        |
+        v
+read-only Lunch Money service ---- config/planner.local.json
+        |                                      |
+        +------------------+-------------------+
+                           v
+                 live baseline derivation
+                           |
+                           v
+               single-person projection API
+                           |
+             +-------------+-------------+
+             |                           |
+             v                           v
+       report dashboard             JSON / CSV export
 ```
 
-External data sources do not call the projection engine directly. They are normalized into explicit baseline values with provenance.
+Every baseline request fetches current manual accounts, Plaid accounts, categories, recurring items, and all pages of the configured trailing transaction window. There is no cache or persisted copy.
 
-## Projection model
+## Trust boundaries
 
-The engine simulates monthly intervals and emits annual report rows. It models:
+The Lunch Money token is read only while constructing the server-side SDK client. The application-facing `LunchMoneyReadService` exposes five retrieval methods and no mutation method. API errors are translated to sanitized runtime errors before they reach a route response.
 
-- household members with independent retirement, CPP, OAS, pension, and income dates
-- cash, TFSA, RRSP/RRIF, non-registered, real-asset, and debt balances
-- account-level returns, contributions, ownership, allocation, and withdrawal priority
-- essential and discretionary spending
-- one-time inflows and outflows
-- simplified income tax and OAS recovery-tax assumptions
-- nominal and inflation-adjusted views
-- combined-household and per-member report views
+Private assumptions and mappings are loaded from `PLANNER_CONFIG_PATH`, which defaults to `config/planner.local.json`. The local file is ignored by Git and the Docker build context.
 
-The annual output is the single source used by charts, tables, APIs, observations, and exports.
+## Baseline derivation
 
-## Baseline resolution
+Account mappings are explicit and source-scoped. Category mappings classify only transactions and reviewed recurring items associated with included accounts. Transfers, excluded mappings, Lunch Money categories excluded from totals, pending transactions, deletion-pending transactions, split parents, and group parents are not counted.
 
-Each field resolves in this order:
+The transaction endpoint is requested with group children included, then group parents are discarded. Split parents remain excluded by the API default, so child transactions are counted once.
 
-1. saved baseline
-2. Lunch Money-derived observation
-3. dated Canadian reference
-4. application fallback
+Positive Lunch Money amounts are debits and negative amounts are credits. Spending uses signed debit totals so refunds reduce spending. Income reverses the sign so credits are positive. Contribution mappings explicitly select debit or credit direction and identify a target investment account.
 
-Scenario changes are stored separately as overrides. Resetting a control removes its override and restores the resolved baseline.
+Missing account mappings, required category mappings, contribution targets, cash accounts, or account assumptions create a configuration-required response. No projection input is returned from an incomplete baseline.
 
-## Calculation boundaries
+## Projection boundary
 
-The current tax calculation is intentionally an explicit effective-rate model. It is suitable for scenario visualization but is not a substitute for a complete provincial and federal tax engine. The data model leaves room for a later rules-based implementation.
+The projection input models one person, financial accounts, optional future events, and simplified tax assumptions. The monthly engine emits one annual ledger used by every chart, summary metric, observation, and export.
 
-RRSP/RRIF balances share one account category. The engine marks the configured conversion age but does not yet enforce statutory RRIF minimum withdrawals.
+The retirement goal comparison uses financial assets—cash, TFSA, RRSP/RRIF, and non-registered accounts—not real assets or total net worth. Debt remains visible in the ledger but is not added to the goal asset total.
+
+Browser controls materialize temporary inputs from the current baseline and call the projection API. A field reset removes one override. Reset all removes every override. Refresh requests a new baseline and clears overrides.
+
+## Runtime states
+
+- Connected: a complete live baseline and projection are displayed.
+- Configuration required: Lunch Money responded, but private configuration is incomplete; mapping details are displayed and charts are hidden.
+- Connection failed: the token is missing, invalid, or an API request failed; the sanitized error is displayed and charts are hidden.

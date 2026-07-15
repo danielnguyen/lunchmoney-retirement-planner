@@ -32,12 +32,36 @@ main { width: min(1540px, calc(100% - 32px)); margin: 0 auto; padding: 42px 0 72
 .hero { display: flex; justify-content: space-between; gap: 28px; align-items: flex-end; margin-bottom: 24px; }
 .hero h1 { margin: 8px 0 0; max-width: 930px; font-size: clamp(2.4rem, 5.4vw, 5.4rem); line-height: 0.97; letter-spacing: -0.055em; }
 .hero p { max-width: 720px; margin: 18px 0 0; color: var(--muted); font-size: 1.08rem; line-height: 1.65; }
+.compact-hero h1 { font-size: clamp(2.4rem, 5vw, 4.6rem); }
 .eyebrow, .section-kicker { color: var(--accent); font-size: 0.76rem; font-weight: 800; letter-spacing: 0.12em; text-transform: uppercase; }
 .hero-actions { display: flex; gap: 10px; flex-shrink: 0; }
 .button { border: 0; border-radius: 12px; padding: 11px 15px; background: var(--accent); color: #062117; font-weight: 800; }
 .button.secondary { background: #20364f; color: var(--text); }
 .text-button { border: 0; padding: 0; background: transparent; color: var(--accent); font-size: 0.8rem; }
 .text-button:disabled { color: #62758a; cursor: default; }
+
+.connection-panel { display: grid; grid-template-columns: minmax(220px, 1fr) auto auto; align-items: center; gap: 22px; padding: 16px 18px; margin-bottom: 18px; border: 1px solid var(--border); border-radius: 18px; background: rgba(13, 26, 43, 0.92); }
+.connection-panel > div:first-child { display: grid; gap: 6px; }
+.connection-panel strong { font-size: 1rem; }
+.connection-panel small { color: var(--muted); }
+.connection-badge { display: inline-flex; width: fit-content; padding: 6px 9px; border: 1px solid var(--border); border-radius: 999px; color: var(--muted); background: rgba(7, 17, 31, 0.55); font-size: 0.72rem; font-weight: 800; letter-spacing: 0.05em; text-transform: uppercase; }
+.connection-badge.connected { color: var(--accent); border-color: rgba(112, 214, 178, 0.45); }
+.connection-badge.failed { color: var(--danger); border-color: rgba(239, 125, 134, 0.45); }
+.connection-stats { display: flex; gap: 18px; }
+.connection-stats div { display: grid; gap: 4px; padding: 0; border: 0; }
+.connection-stats dt, .connection-stats dd { text-align: center; }
+.connection-stats dd { font-size: 1.05rem; font-weight: 800; }
+.warning-panel { display: grid; gap: 6px; padding: 13px 16px; margin-bottom: 18px; border: 1px solid rgba(242, 189, 99, 0.5); border-radius: 16px; background: rgba(242, 189, 99, 0.08); }
+.warning-panel p { margin: 0; color: #f5d79f; font-size: 0.82rem; line-height: 1.45; }
+.blocking-card { max-width: 980px; padding: 28px; margin: 8vh auto 0; border: 1px solid rgba(239, 125, 134, 0.5); border-radius: 22px; background: rgba(13, 26, 43, 0.94); box-shadow: 0 18px 48px rgba(0, 0, 0, 0.2); }
+.blocking-card h1, .blocking-card h2 { margin: 16px 0 8px; }
+.blocking-card > p { color: var(--muted); line-height: 1.55; }
+.loading-card { border-color: var(--border); }
+.error-code { color: var(--danger) !important; font-family: monospace; }
+.mapping-list { display: grid; gap: 8px; padding-top: 18px; margin-top: 18px; border-top: 1px solid var(--border); }
+.mapping-list h3, .mapping-list p { margin: 0; }
+.mapping-list p { color: var(--muted); font-size: 0.84rem; line-height: 1.5; }
+.mapping-list code { display: block; padding: 9px 11px; border-radius: 9px; color: var(--text); background: #07111f; overflow-wrap: anywhere; }
 
 .toolbar { display: flex; align-items: center; gap: 14px; padding: 12px; margin-bottom: 18px; border: 1px solid var(--border); border-radius: 16px; background: rgba(13, 26, 43, 0.88); }
 .toolbar label { display: flex; gap: 8px; align-items: center; color: var(--muted); font-size: 0.82rem; }
@@ -107,12 +131,17 @@ dd { margin: 0; text-align: right; font-size: 0.78rem; }
   .report-layout { grid-template-columns: 1fr; }
   .controls-panel { position: static; max-height: none; }
   .assumption-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .connection-panel { grid-template-columns: 1fr auto; }
+  .connection-stats { grid-column: 1 / -1; justify-content: space-between; order: 3; }
 }
 @media (max-width: 900px) {
   .summary-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .hero { display: block; }
   .hero-actions { margin-top: 18px; }
   .two-column { grid-template-columns: 1fr; }
+  .connection-panel { grid-template-columns: 1fr; }
+  .connection-panel > .button { width: 100%; }
+  .connection-stats { grid-column: auto; flex-wrap: wrap; }
 }
 @media (max-width: 620px) {
   main { width: min(100% - 18px, 1540px); padding-top: 22px; }
