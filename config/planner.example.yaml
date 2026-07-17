@@ -3,8 +3,8 @@
 # source-scoped IDs such as "manual:123" and "plaid:456". Add a nearby YAML
 # comment with the human-readable name so each opaque ID remains maintainable.
 
-currentAge: 40
-retirementAge: 65
+currentAge: 38
+retirementAge: 62
 projectionEndAge: 95
 cppStartAge: 65
 oasStartAge: 65
@@ -12,6 +12,29 @@ cppMonthlyAmountAt65: 0
 oasMonthlyAmountAt65: 0
 retirementGoal: 0
 transactionTrailingMonths: 12
+
+# Employment phases must cover every projection month from currentAge through
+# retirementAge. startAge is inclusive and endAge is exclusive, so these two
+# phases meet at age 41 without a gap or overlap.
+employmentIncomePhases:
+  - id: current-income
+    label: Current income
+    startAge: 38
+    endAge: 41
+    # live_baseline resolves to annualized net employment cash derived from the
+    # configured Lunch Money transaction window.
+    annualNetCashToday: live_baseline
+    # Growth starts at the beginning of this phase.
+    annualGrowth: 0
+
+  - id: future-income
+    label: Expected future income
+    startAge: 41
+    endAge: 62
+    # Future income must be configured explicitly; the planner does not assume
+    # that today’s income continues indefinitely or forecast a future salary.
+    annualNetCashToday: 72000
+    annualGrowth: 0.02
 
 accountMappings:
   # Set include: true and choose a financial type for every account used by the
@@ -28,11 +51,27 @@ accountMappings:
     include: true
     type: tfsa
     withdrawalPriority: 2
-    monthlyContribution: 0
-    # cash: contribution leaves available cash as an outflow.
-    # income_withheld: contribution was deducted before income reached Lunch Money,
-    # so it grows the investment without reducing the deposited cash a second time.
-    contributionFunding: cash
+    contributionPhases:
+      - id: current-saving
+        label: Current saving
+        startAge: 38
+        endAge: 41
+        # live_baseline resolves from mapped contribution transactions or the
+        # legacy configured monthly contribution for this account.
+        monthlyAmountToday: live_baseline
+        # cash: contribution leaves available cash as an outflow.
+        funding: cash
+        # Indexing starts at the beginning of this phase.
+        indexingRate: 0
+      - id: future-saving
+        label: Future saving
+        startAge: 41
+        endAge: 62
+        monthlyAmountToday: 500
+        # income_withheld grows the investment without reducing deposited cash
+        # a second time because it was withheld before cash reached Lunch Money.
+        funding: income_withheld
+        indexingRate: 0.02
 
   "manual:replace-with-excluded-account-id":
     # Closed or otherwise out-of-scope account
@@ -63,8 +102,6 @@ assumptions:
   rrspReturn: 0.05
   nonRegisteredReturn: 0.05
   debtReturn: 0
-  incomeGrowth: 0.02
-  contributionIndexing: 0.02
   cppIndexing: 0.02
   oasIndexing: 0.02
   effectiveTaxRate: 0.22

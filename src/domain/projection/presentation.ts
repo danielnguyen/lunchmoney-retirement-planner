@@ -36,14 +36,26 @@ export function startingFinancialAssets(accounts: FinancialAccountInput[]): numb
 }
 
 export function monthlyEmploymentNetCash(inputs: ProjectionInputs): number {
-  return roundCurrency(inputs.person.annualEmploymentNetCashToday / 12);
+  const phase = inputs.person.employmentIncomePhases.find(
+    (item) =>
+      inputs.person.currentAge >= item.startAge &&
+      inputs.person.currentAge < item.endAge,
+  );
+  return roundCurrency((phase?.annualNetCashToday ?? 0) / 12);
 }
 
 export function monthlyInvestmentContributions(inputs: ProjectionInputs): number {
   return roundCurrency(
     inputs.accounts
       .filter((account) => ["tfsa", "rrsp_rrif", "non_registered"].includes(account.type))
-      .reduce((total, account) => total + account.monthlyContributionToday, 0),
+      .reduce((total, account) => {
+        const phase = account.contributionPhases.find(
+          (item) =>
+            inputs.person.currentAge >= item.startAge &&
+            inputs.person.currentAge < item.endAge,
+        );
+        return total + (phase?.monthlyAmountToday ?? 0);
+      }, 0),
   );
 }
 
@@ -76,7 +88,11 @@ export type AnnualChartRow = {
   oneTime: number;
   tax: number;
   contributions: number;
+  cashFundedContributions: number;
+  incomeWithheldContributions: number;
   employmentNetCash: number;
+  employmentPhase: string;
+  contributionPhases: string;
   cpp: number;
   oas: number;
   pension: number;
@@ -118,7 +134,13 @@ export function buildAnnualChartData(
       oneTime: view.outflows.oneTime,
       tax: view.outflows.tax,
       contributions: view.outflows.contributions,
+      cashFundedContributions: view.contributions.cashFunded,
+      incomeWithheldContributions: view.contributions.incomeWithheld,
       employmentNetCash: view.income.employment,
+      employmentPhase: point.employmentPhaseLabels.join(" → "),
+      contributionPhases: Object.values(point.contributionPhaseLabels)
+        .flat()
+        .join(" · "),
       cpp: view.income.cpp,
       oas: view.income.oas,
       pension: view.income.pension,
@@ -136,6 +158,12 @@ export function buildAnnualChartData(
       milestones: point.milestones.join(" · "),
       ...Object.fromEntries(
         Object.entries(view.accountBalances).map(([id, value]) => [`account:${id}`, value]),
+      ),
+      ...Object.fromEntries(
+        Object.entries(view.accountContributions).map(([id, value]) => [
+          `contribution:${id}`,
+          value,
+        ]),
       ),
     };
   });

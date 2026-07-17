@@ -16,11 +16,19 @@ export type PublicBenefitInput = {
   indexingRate: number;
 };
 
+export type EmploymentIncomePhase = {
+  id: string;
+  label: string;
+  startAge: number;
+  endAge: number;
+  annualNetCashToday: number;
+  annualGrowth: number;
+};
+
 export type PersonInput = {
   currentAge: number;
   retirementAge: number;
-  annualEmploymentNetCashToday: number;
-  annualIncomeGrowth: number;
+  employmentIncomePhases: EmploymentIncomePhase[];
   annualPensionToday: number;
   pensionStartAge: number;
   pensionIndexingRate: number;
@@ -29,15 +37,23 @@ export type PersonInput = {
   rrifConversionAge: number;
 };
 
+export type ContributionPhase = {
+  id: string;
+  label: string;
+  startAge: number;
+  endAge: number;
+  monthlyAmountToday: number;
+  funding: ContributionFunding;
+  indexingRate: number;
+};
+
 export type FinancialAccountInput = {
   id: string;
   label: string;
   type: AccountType;
   openingBalance: number;
   annualReturn: number;
-  monthlyContributionToday: number;
-  contributionFunding?: ContributionFunding;
-  contributionIndexingRate: number;
+  contributionPhases: ContributionPhase[];
   withdrawalPriority: number;
   allocation: AssetAllocation;
 };
@@ -99,6 +115,12 @@ export type OutflowBreakdown = {
   total: number;
 };
 
+export type ContributionBreakdown = {
+  cashFunded: number;
+  incomeWithheld: number;
+  total: number;
+};
+
 export type BalanceBreakdown = {
   cash: number;
   tfsa: number;
@@ -113,8 +135,10 @@ export type ProjectionView = {
   income: IncomeBreakdown;
   withdrawals: WithdrawalBreakdown;
   outflows: OutflowBreakdown;
+  contributions: ContributionBreakdown;
   balances: BalanceBreakdown;
   accountBalances: Record<string, number>;
+  accountContributions: Record<string, number>;
   allocation: AssetAllocation;
 };
 
@@ -125,10 +149,13 @@ export type AnnualProjection = {
   nominal: ProjectionView;
   real: ProjectionView;
   milestones: string[];
+  employmentPhaseLabels: string[];
+  contributionPhaseLabels: Record<string, string[]>;
 };
 
 export type ProjectionSummary = {
   retirementYear: number;
+  retirementDate: string;
   financialAssetsAtRetirementToday: number;
   retirementGoalToday: number;
   goalGapToday: number;
@@ -143,10 +170,36 @@ export type ProjectionObservation = {
   age?: number;
 };
 
+export type RetirementSnapshot = {
+  calendarDate: string;
+  age: number;
+  nominal: ProjectionView;
+  real: ProjectionView;
+};
+
+export type FinancialAssetsBridge = {
+  startingFinancialAssets: number;
+  employmentNetCash: number;
+  publicBenefitsAndPension: number;
+  otherInflows: number;
+  incomeWithheldContributions: number;
+  investmentReturns: number;
+  essentialSpending: number;
+  discretionarySpending: number;
+  oneTimeOutflows: number;
+  taxes: number;
+  endingFinancialAssets: number;
+};
+
 export type ProjectionResult = {
-  schemaVersion: "3.0";
+  schemaVersion: "4.0";
   inputs: ProjectionInputs;
   summary: ProjectionSummary;
+  retirementSnapshot: RetirementSnapshot;
+  financialAssetsBridge: {
+    nominal: FinancialAssetsBridge;
+    real: FinancialAssetsBridge;
+  };
   annual: AnnualProjection[];
   observations: ProjectionObservation[];
 };
@@ -163,6 +216,26 @@ function assertRate(name: string, value: number, min = -0.99, max = 1): void {
   if (!isFiniteNumber(value) || value < min || value > max) {
     throw new Error(`${name} must be between ${min} and ${max}`);
   }
+}
+
+const PHASE_AGE_TOLERANCE = 1e-6;
+
+function assertNonEmptyString(name: string, value: unknown): asserts value is string {
+  if (typeof value !== "string" || value.trim().length === 0) {
+    throw new Error(`${name} must be a non-empty string`);
+  }
+}
+
+function assertMonthAligned(name: string, age: number, currentAge: number): void {
+  if (!isFiniteNumber(age)) throw new Error(`${name} must be a finite age`);
+  const months = (age - currentAge) * 12;
+  if (Math.abs(months - Math.round(months)) > PHASE_AGE_TOLERANCE) {
+    throw new Error(`${name} must align to a projection month`);
+  }
+}
+
+function sameAge(left: number, right: number): boolean {
+  return Math.abs(left - right) <= PHASE_AGE_TOLERANCE;
 }
 
 function isIsoCalendarDate(value: unknown): value is string {
@@ -195,6 +268,8 @@ export function validateProjectionInputs(value: unknown): ProjectionInputs {
   if (input.person.retirementAge <= input.person.currentAge || input.person.retirementAge > input.endAge) {
     throw new Error("retirementAge must be after currentAge and no later than endAge");
   }
+  assertMonthAligned("retirementAge", input.person.retirementAge, input.person.currentAge);
+  assertMonthAligned("endAge", input.endAge, input.person.currentAge);
   if (input.person.cpp.startAge < 60 || input.person.cpp.startAge > 70) {
     throw new Error("CPP start age must be between 60 and 70");
   }
@@ -205,17 +280,86 @@ export function validateProjectionInputs(value: unknown): ProjectionInputs {
   assertRate("annualInflation", input.annualInflation, -0.2, 0.5);
   assertRate("effectiveTaxRate", input.tax?.effectiveTaxRate, 0, 0.8);
   assertRate("oasRecoveryRate", input.tax?.oasRecoveryRate, 0, 1);
-  assertRate("annualIncomeGrowth", input.person.annualIncomeGrowth, -0.2, 0.5);
   assertRate("pensionIndexingRate", input.person.pensionIndexingRate, -0.2, 0.5);
   assertRate("CPP indexingRate", input.person.cpp.indexingRate, -0.2, 0.5);
   assertRate("OAS indexingRate", input.person.oas.indexingRate, -0.2, 0.5);
   assertNonNegative("monthlyEssentialSpendingToday", input.monthlyEssentialSpendingToday);
   assertNonNegative("monthlyDiscretionarySpendingToday", input.monthlyDiscretionarySpendingToday);
   assertNonNegative("retirementGoalToday", input.retirementGoalToday);
-  assertNonNegative("annualEmploymentNetCashToday", input.person.annualEmploymentNetCashToday);
   assertNonNegative("annualPensionToday", input.person.annualPensionToday);
   assertNonNegative("CPP monthlyAmountAt65Today", input.person.cpp.monthlyAmountAt65Today);
   assertNonNegative("OAS monthlyAmountAt65Today", input.person.oas.monthlyAmountAt65Today);
+
+  const personRecord = input.person as unknown as Record<string, unknown>;
+  if (
+    "annualEmploymentNetCashToday" in personRecord ||
+    "annualIncomeGrowth" in personRecord
+  ) {
+    throw new Error(
+      "Projection inputs must use employmentIncomePhases instead of scalar employment income fields",
+    );
+  }
+  if (
+    !Array.isArray(input.person.employmentIncomePhases) ||
+    input.person.employmentIncomePhases.length === 0
+  ) {
+    throw new Error("At least one resolved employment income phase is required");
+  }
+  const employmentIds = new Set<string>();
+  for (const [index, phase] of input.person.employmentIncomePhases.entries()) {
+    const field = `employmentIncomePhases[${index}]`;
+    assertNonEmptyString(`${field}.id`, phase.id);
+    assertNonEmptyString(`${field}.label`, phase.label);
+    if (employmentIds.has(phase.id)) {
+      throw new Error(`Employment income phase ids must be unique: ${phase.id}`);
+    }
+    employmentIds.add(phase.id);
+    if ((phase as unknown as Record<string, unknown>).annualNetCashToday === "live_baseline") {
+      throw new Error(`${field}.annualNetCashToday must be resolved before projection`);
+    }
+    assertNonNegative(`${field}.annualNetCashToday`, phase.annualNetCashToday);
+    assertRate(`${field}.annualGrowth`, phase.annualGrowth, -0.2, 0.5);
+    assertMonthAligned(`${field}.startAge`, phase.startAge, input.person.currentAge);
+    assertMonthAligned(`${field}.endAge`, phase.endAge, input.person.currentAge);
+    if (
+      phase.startAge < input.person.currentAge - PHASE_AGE_TOLERANCE ||
+      phase.endAge > input.person.retirementAge + PHASE_AGE_TOLERANCE
+    ) {
+      throw new Error(`${field} must stay within currentAge and retirementAge`);
+    }
+    if (phase.endAge <= phase.startAge + PHASE_AGE_TOLERANCE) {
+      throw new Error(`${field}.endAge must be greater than startAge`);
+    }
+    const previous = input.person.employmentIncomePhases[index - 1];
+    if (previous) {
+      if (phase.startAge < previous.endAge - PHASE_AGE_TOLERANCE) {
+        throw new Error(
+          `Employment income phases overlap between ${previous.id} and ${phase.id}`,
+        );
+      }
+      if (phase.startAge > previous.endAge + PHASE_AGE_TOLERANCE) {
+        throw new Error(
+          `Employment income phases have a gap between ${previous.id} and ${phase.id}`,
+        );
+      }
+    }
+  }
+  if (
+    !sameAge(
+      input.person.employmentIncomePhases[0]!.startAge,
+      input.person.currentAge,
+    )
+  ) {
+    throw new Error("The first employment income phase must begin at currentAge");
+  }
+  if (
+    !sameAge(
+      input.person.employmentIncomePhases.at(-1)!.endAge,
+      input.person.retirementAge,
+    )
+  ) {
+    throw new Error("The final employment income phase must end at retirementAge");
+  }
 
   const accountIds = new Set<string>();
   let hasCashAccount = false;
@@ -229,24 +373,63 @@ export function validateProjectionInputs(value: unknown): ProjectionInputs {
     }
     if (account.type === "cash") hasCashAccount = true;
     assertNonNegative(`openingBalance for ${account.id}`, account.openingBalance);
-    assertNonNegative(`monthlyContributionToday for ${account.id}`, account.monthlyContributionToday);
+    const accountRecord = account as unknown as Record<string, unknown>;
     if (
-      account.contributionFunding !== undefined &&
-      !contributionFundingTypes.includes(account.contributionFunding)
+      "monthlyContributionToday" in accountRecord ||
+      "contributionFunding" in accountRecord ||
+      "contributionIndexingRate" in accountRecord
     ) {
-      throw new Error(`Unsupported contribution funding for ${account.id}`);
+      throw new Error(
+        `Projection account ${account.id} must use contributionPhases instead of scalar contribution fields`,
+      );
     }
-    if (account.monthlyContributionToday > 0 && !account.contributionFunding) {
-      throw new Error(`contributionFunding is required for ${account.id}`);
+    if (!Array.isArray(account.contributionPhases)) {
+      throw new Error(`contributionPhases must be an array for ${account.id}`);
     }
     if (
-      account.monthlyContributionToday > 0 &&
+      account.contributionPhases.length > 0 &&
       !["tfsa", "rrsp_rrif", "non_registered"].includes(account.type)
     ) {
-      throw new Error(`Contributions may only be configured for investment account ${account.id}`);
+      throw new Error(
+        `Contribution phases may only be configured for investment account ${account.id}`,
+      );
+    }
+    const contributionIds = new Set<string>();
+    for (const [index, phase] of account.contributionPhases.entries()) {
+      const field = `contributionPhases[${index}] for ${account.id}`;
+      assertNonEmptyString(`${field}.id`, phase.id);
+      assertNonEmptyString(`${field}.label`, phase.label);
+      if (contributionIds.has(phase.id)) {
+        throw new Error(`Contribution phase ids must be unique for ${account.id}: ${phase.id}`);
+      }
+      contributionIds.add(phase.id);
+      if ((phase as unknown as Record<string, unknown>).monthlyAmountToday === "live_baseline") {
+        throw new Error(`${field}.monthlyAmountToday must be resolved before projection`);
+      }
+      assertNonNegative(`${field}.monthlyAmountToday`, phase.monthlyAmountToday);
+      assertRate(`${field}.indexingRate`, phase.indexingRate, -0.2, 0.5);
+      if (!contributionFundingTypes.includes(phase.funding)) {
+        throw new Error(`Unsupported contribution funding for ${account.id}`);
+      }
+      assertMonthAligned(`${field}.startAge`, phase.startAge, input.person.currentAge);
+      assertMonthAligned(`${field}.endAge`, phase.endAge, input.person.currentAge);
+      if (
+        phase.startAge < input.person.currentAge - PHASE_AGE_TOLERANCE ||
+        phase.endAge > input.person.retirementAge + PHASE_AGE_TOLERANCE
+      ) {
+        throw new Error(`${field} must stay within currentAge and retirementAge`);
+      }
+      if (phase.endAge <= phase.startAge + PHASE_AGE_TOLERANCE) {
+        throw new Error(`${field}.endAge must be greater than startAge`);
+      }
+      const previous = account.contributionPhases[index - 1];
+      if (previous && phase.startAge < previous.endAge - PHASE_AGE_TOLERANCE) {
+        throw new Error(
+          `Contribution phases overlap between ${previous.id} and ${phase.id} for ${account.id}`,
+        );
+      }
     }
     assertRate(`annualReturn for ${account.id}`, account.annualReturn);
-    assertRate(`contributionIndexingRate for ${account.id}`, account.contributionIndexingRate, -0.2, 0.5);
     const allocationTotal =
       account.allocation.cash + account.allocation.fixedIncome + account.allocation.equity;
     if (account.type !== "debt" && Math.abs(allocationTotal - 1) > 0.001) {

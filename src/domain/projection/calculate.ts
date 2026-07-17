@@ -3,18 +3,24 @@ import type {
   AnnualProjection,
   AssetAllocation,
   BalanceBreakdown,
+  ContributionBreakdown,
+  ContributionPhase,
+  EmploymentIncomePhase,
   FinancialAccountInput,
+  FinancialAssetsBridge,
   IncomeBreakdown,
   OutflowBreakdown,
   ProjectionInputs,
   ProjectionObservation,
   ProjectionResult,
   ProjectionView,
+  RetirementSnapshot,
   WithdrawalBreakdown,
 } from "./types";
 import { validateProjectionInputs } from "./types";
 
 const MONTHS_PER_YEAR = 12;
+const AGE_TOLERANCE = 1e-6;
 const ZERO_ALLOCATION: AssetAllocation = { cash: 0, fixedIncome: 0, equity: 0 };
 
 function round(value: number): number {
@@ -27,6 +33,36 @@ function monthlyRate(annualRate: number): number {
 
 function indexedFactor(annualRate: number, month: number): number {
   return Math.pow(1 + annualRate, month / MONTHS_PER_YEAR);
+}
+
+function phaseMonth(endAge: number, startAge: number): number {
+  return Math.max(0, Math.round((endAge - startAge) * MONTHS_PER_YEAR));
+}
+
+function activeEmploymentPhase(
+  phases: EmploymentIncomePhase[],
+  workingAge: number,
+): EmploymentIncomePhase | undefined {
+  return phases.find(
+    (phase) =>
+      workingAge >= phase.startAge - AGE_TOLERANCE &&
+      workingAge < phase.endAge - AGE_TOLERANCE,
+  );
+}
+
+function activeContributionPhase(
+  phases: ContributionPhase[],
+  workingAge: number,
+): ContributionPhase | undefined {
+  return phases.find(
+    (phase) =>
+      workingAge >= phase.startAge - AGE_TOLERANCE &&
+      workingAge < phase.endAge - AGE_TOLERANCE,
+  );
+}
+
+function lastDayOfMonth(calendarYear: number, calendarMonth: number): string {
+  return new Date(Date.UTC(calendarYear, calendarMonth, 0)).toISOString().slice(0, 10);
 }
 
 export function cppClaimFactor(startAge: number): number {
@@ -61,6 +97,10 @@ function emptyOutflows(): OutflowBreakdown {
   };
 }
 
+function emptyContributions(): ContributionBreakdown {
+  return { cashFunded: 0, incomeWithheld: 0, total: 0 };
+}
+
 function emptyBalances(): BalanceBreakdown {
   return {
     cash: 0,
@@ -78,10 +118,43 @@ function emptyView(): ProjectionView {
     income: emptyIncome(),
     withdrawals: emptyWithdrawals(),
     outflows: emptyOutflows(),
+    contributions: emptyContributions(),
     balances: emptyBalances(),
     accountBalances: {},
+    accountContributions: {},
     allocation: { ...ZERO_ALLOCATION },
   };
+}
+
+function emptyBridge(startingFinancialAssets: number): FinancialAssetsBridge {
+  return {
+    startingFinancialAssets,
+    employmentNetCash: 0,
+    publicBenefitsAndPension: 0,
+    otherInflows: 0,
+    incomeWithheldContributions: 0,
+    investmentReturns: 0,
+    essentialSpending: 0,
+    discretionarySpending: 0,
+    oneTimeOutflows: 0,
+    taxes: 0,
+    endingFinancialAssets: 0,
+  };
+}
+
+function bridgeCalculatedEnding(bridge: FinancialAssetsBridge): number {
+  return (
+    bridge.startingFinancialAssets +
+    bridge.employmentNetCash +
+    bridge.publicBenefitsAndPension +
+    bridge.otherInflows +
+    bridge.incomeWithheldContributions +
+    bridge.investmentReturns -
+    bridge.essentialSpending -
+    bridge.discretionarySpending -
+    bridge.oneTimeOutflows -
+    bridge.taxes
+  );
 }
 
 function addWithdrawal(target: WithdrawalBreakdown, accountType: AccountType, amount: number): void {
@@ -168,6 +241,11 @@ function snapshotView(
       unmetSpending: round(flow.outflows.unmetSpending),
       total: round(flow.outflows.total),
     },
+    contributions: {
+      cashFunded: round(flow.contributions.cashFunded),
+      incomeWithheld: round(flow.contributions.incomeWithheld),
+      total: round(flow.contributions.total),
+    },
     balances: {
       cash: divide(balancesAtSnapshot.cash),
       tfsa: divide(balancesAtSnapshot.tfsa),
@@ -179,6 +257,9 @@ function snapshotView(
     },
     accountBalances: Object.fromEntries(
       Object.entries(accountBalancesAtSnapshot).map(([id, balance]) => [id, divide(balance)]),
+    ),
+    accountContributions: Object.fromEntries(
+      Object.entries(flow.accountContributions).map(([id, amount]) => [id, round(amount)]),
     ),
     allocation: {
       cash: divide(allocationAtSnapshot.cash),
@@ -197,6 +278,13 @@ function addMonthlyFlow(target: ProjectionView, monthly: ProjectionView, factor:
   }
   for (const key of Object.keys(monthly.outflows) as Array<keyof OutflowBreakdown>) {
     target.outflows[key] += monthly.outflows[key] / factor;
+  }
+  for (const key of Object.keys(monthly.contributions) as Array<keyof ContributionBreakdown>) {
+    target.contributions[key] += monthly.contributions[key] / factor;
+  }
+  for (const [accountId, amount] of Object.entries(monthly.accountContributions)) {
+    target.accountContributions[accountId] =
+      (target.accountContributions[accountId] ?? 0) + amount / factor;
   }
 }
 
@@ -217,13 +305,24 @@ export function calculateProjection(rawInputs: ProjectionInputs): ProjectionResu
   const startYear = Number(inputs.startDate.slice(0, 4));
   const startMonth = Number(inputs.startDate.slice(5, 7));
   const totalMonths = Math.round((inputs.endAge - inputs.person.currentAge) * MONTHS_PER_YEAR);
+  const retirementMonth = Math.round(
+    (inputs.person.retirementAge - inputs.person.currentAge) * MONTHS_PER_YEAR,
+  );
   const balances = new Map(inputs.accounts.map((account) => [account.id, account.openingBalance]));
   const annual: AnnualProjection[] = [];
   const observations: ProjectionObservation[] = [];
+  const startingFinancialAssets = accountBalances(inputs.accounts, balances).financialAssets;
+  const nominalBridge = emptyBridge(startingFinancialAssets);
+  const realBridge = emptyBridge(startingFinancialAssets);
   let annualNominalFlow = emptyView();
   let annualRealFlow = emptyView();
+  const retirementNominalFlow = emptyView();
+  const retirementRealFlow = emptyView();
+  let annualEmploymentPhaseLabels = new Set<string>();
+  let annualContributionPhaseLabels = new Map<string, Set<string>>();
   let financialAssetsDepletionAge: number | null = null;
   let previousSnapshotMonth = 0;
+  let retirementSnapshot: RetirementSnapshot | undefined;
 
   function snapshot(month: number, previousMonth: number, calendarYear: number): void {
     const factor = indexedFactor(inputs.annualInflation, month);
@@ -235,31 +334,57 @@ export function calculateProjection(rawInputs: ProjectionInputs): ProjectionResu
       nominal: snapshotView(annualNominalFlow, inputs.accounts, balances, 1),
       real: snapshotView(annualRealFlow, inputs.accounts, balances, factor),
       milestones: milestoneLabels(inputs, previousMonth, month),
+      employmentPhaseLabels: [...annualEmploymentPhaseLabels],
+      contributionPhaseLabels: Object.fromEntries(
+        [...annualContributionPhaseLabels.entries()].map(([accountId, labels]) => [
+          accountId,
+          [...labels],
+        ]),
+      ),
     });
     annualNominalFlow = emptyView();
     annualRealFlow = emptyView();
+    annualEmploymentPhaseLabels = new Set<string>();
+    annualContributionPhaseLabels = new Map<string, Set<string>>();
     previousSnapshotMonth = month;
   }
 
   for (let month = 1; month <= totalMonths; month += 1) {
+    const previousFactor = indexedFactor(inputs.annualInflation, month - 1);
     const factor = indexedFactor(inputs.annualInflation, month);
+    const workingAge = inputs.person.currentAge + (month - 1) / MONTHS_PER_YEAR;
     const age = inputs.person.currentAge + month / MONTHS_PER_YEAR;
     const calendarMonthIndex = startMonth - 1 + month - 1;
     const calendarYear = startYear + Math.floor(calendarMonthIndex / MONTHS_PER_YEAR);
     const calendarMonth = (calendarMonthIndex % MONTHS_PER_YEAR) + 1;
     const monthlyFlow = emptyView();
 
+    const balancesBeforeReturn = accountBalances(inputs.accounts, balances).financialAssets;
     for (const account of inputs.accounts) {
       const current = balances.get(account.id) ?? 0;
       balances.set(account.id, Math.max(0, current * (1 + monthlyRate(account.annualReturn))));
     }
+    const balancesAfterReturn = accountBalances(inputs.accounts, balances).financialAssets;
+    if (month <= retirementMonth) {
+      nominalBridge.investmentReturns += balancesAfterReturn - balancesBeforeReturn;
+      realBridge.investmentReturns +=
+        balancesAfterReturn / factor - balancesBeforeReturn / previousFactor;
+    }
 
     const income = emptyIncome();
-    if (age < inputs.person.retirementAge) {
+    const employmentPhase =
+      workingAge < inputs.person.retirementAge - AGE_TOLERANCE
+        ? activeEmploymentPhase(inputs.person.employmentIncomePhases, workingAge)
+        : undefined;
+    if (employmentPhase) {
       income.employment =
-        (inputs.person.annualEmploymentNetCashToday *
-          indexedFactor(inputs.person.annualIncomeGrowth, month)) /
+        (employmentPhase.annualNetCashToday *
+          indexedFactor(
+            employmentPhase.annualGrowth,
+            phaseMonth(age, employmentPhase.startAge),
+          )) /
         MONTHS_PER_YEAR;
+      annualEmploymentPhaseLabels.add(employmentPhase.label);
     }
     if (age >= inputs.person.cpp.startAge) {
       income.cpp =
@@ -299,17 +424,45 @@ export function calculateProjection(rawInputs: ProjectionInputs): ProjectionResu
     monthlyFlow.outflows.essential += essential;
     monthlyFlow.outflows.discretionary += discretionary;
 
-    let totalContributions = 0;
+    let cashFundedContributions = 0;
+    let incomeWithheldContributions = 0;
     for (const account of inputs.accounts) {
-      if (age >= inputs.person.retirementAge || account.type === "debt") continue;
+      if (
+        workingAge >= inputs.person.retirementAge - AGE_TOLERANCE ||
+        account.type === "debt"
+      ) {
+        continue;
+      }
+      const contributionPhase = activeContributionPhase(
+        account.contributionPhases,
+        workingAge,
+      );
+      if (!contributionPhase) continue;
       const contribution =
-        account.monthlyContributionToday * indexedFactor(account.contributionIndexingRate, month);
+        contributionPhase.monthlyAmountToday *
+        indexedFactor(
+          contributionPhase.indexingRate,
+          phaseMonth(age, contributionPhase.startAge),
+        );
+      annualContributionPhaseLabels.set(
+        account.id,
+        (annualContributionPhaseLabels.get(account.id) ?? new Set<string>()).add(
+          contributionPhase.label,
+        ),
+      );
       if (contribution <= 0) continue;
       balances.set(account.id, (balances.get(account.id) ?? 0) + contribution);
-      if (account.contributionFunding === "cash") {
+      monthlyFlow.accountContributions[account.id] =
+        (monthlyFlow.accountContributions[account.id] ?? 0) + contribution;
+      if (contributionPhase.funding === "cash") {
         monthlyFlow.outflows.contributions += contribution;
-        totalContributions += contribution;
+        monthlyFlow.contributions.cashFunded += contribution;
+        cashFundedContributions += contribution;
+      } else {
+        monthlyFlow.contributions.incomeWithheld += contribution;
+        incomeWithheldContributions += contribution;
       }
+      monthlyFlow.contributions.total += contribution;
     }
 
     let eventInflows = 0;
@@ -336,7 +489,7 @@ export function calculateProjection(rawInputs: ProjectionInputs): ProjectionResu
       discretionary -
       regularTax -
       recoveryTax -
-      totalContributions -
+      cashFundedContributions -
       eventOutflows;
 
     if (cashPosition > 0) {
@@ -384,26 +537,92 @@ export function calculateProjection(rawInputs: ProjectionInputs): ProjectionResu
 
     addMonthlyFlow(annualNominalFlow, monthlyFlow, 1);
     addMonthlyFlow(annualRealFlow, monthlyFlow, factor);
+    if (month <= retirementMonth) {
+      addMonthlyFlow(retirementNominalFlow, monthlyFlow, 1);
+      addMonthlyFlow(retirementRealFlow, monthlyFlow, factor);
+
+      const requestedExternalOutflows =
+        monthlyFlow.outflows.essential +
+        monthlyFlow.outflows.discretionary +
+        monthlyFlow.outflows.oneTime +
+        monthlyFlow.outflows.tax;
+      const fundedExternalOutflows = Math.max(
+        0,
+        requestedExternalOutflows - monthlyFlow.outflows.unmetSpending,
+      );
+      const fundedRatio =
+        requestedExternalOutflows > 0
+          ? Math.min(1, fundedExternalOutflows / requestedExternalOutflows)
+          : 1;
+      const publicBenefitsAndPension = income.cpp + income.oas + income.pension;
+      nominalBridge.employmentNetCash += income.employment;
+      nominalBridge.publicBenefitsAndPension += publicBenefitsAndPension;
+      nominalBridge.otherInflows += eventInflows;
+      nominalBridge.incomeWithheldContributions += incomeWithheldContributions;
+      nominalBridge.essentialSpending += monthlyFlow.outflows.essential * fundedRatio;
+      nominalBridge.discretionarySpending +=
+        monthlyFlow.outflows.discretionary * fundedRatio;
+      nominalBridge.oneTimeOutflows += monthlyFlow.outflows.oneTime * fundedRatio;
+      nominalBridge.taxes += monthlyFlow.outflows.tax * fundedRatio;
+
+      realBridge.employmentNetCash += income.employment / factor;
+      realBridge.publicBenefitsAndPension += publicBenefitsAndPension / factor;
+      realBridge.otherInflows += eventInflows / factor;
+      realBridge.incomeWithheldContributions += incomeWithheldContributions / factor;
+      realBridge.essentialSpending +=
+        (monthlyFlow.outflows.essential * fundedRatio) / factor;
+      realBridge.discretionarySpending +=
+        (monthlyFlow.outflows.discretionary * fundedRatio) / factor;
+      realBridge.oneTimeOutflows +=
+        (monthlyFlow.outflows.oneTime * fundedRatio) / factor;
+      realBridge.taxes += (monthlyFlow.outflows.tax * fundedRatio) / factor;
+    }
 
     const currentBalances = accountBalances(inputs.accounts, balances);
     if (financialAssetsDepletionAge === null && currentBalances.financialAssets <= 0.01) {
       financialAssetsDepletionAge = age;
+    }
+    if (month === retirementMonth) {
+      retirementSnapshot = {
+        calendarDate: lastDayOfMonth(calendarYear, calendarMonth),
+        age: round(inputs.person.retirementAge),
+        nominal: snapshotView(retirementNominalFlow, inputs.accounts, balances, 1),
+        real: snapshotView(retirementRealFlow, inputs.accounts, balances, factor),
+      };
+      nominalBridge.endingFinancialAssets =
+        retirementSnapshot.nominal.balances.financialAssets;
+      realBridge.endingFinancialAssets = retirementSnapshot.real.balances.financialAssets;
     }
     if (calendarMonth === MONTHS_PER_YEAR || month === totalMonths) {
       snapshot(month, previousSnapshotMonth, calendarYear);
     }
   }
 
-  const retirement =
-    annual.find((point) => point.age >= inputs.person.retirementAge) ?? annual.at(-1)!;
+  if (!retirementSnapshot) {
+    throw new Error("The exact retirement snapshot could not be captured");
+  }
+  const nominalBridgeDifference =
+    bridgeCalculatedEnding(nominalBridge) - nominalBridge.endingFinancialAssets;
+  const realBridgeDifference =
+    bridgeCalculatedEnding(realBridge) - realBridge.endingFinancialAssets;
+  if (
+    Math.abs(nominalBridgeDifference) > 0.01 ||
+    Math.abs(realBridgeDifference) > 0.01
+  ) {
+    throw new Error(
+      `Financial assets bridge failed to reconcile (nominal ${nominalBridgeDifference.toFixed(2)}, real ${realBridgeDifference.toFixed(2)})`,
+    );
+  }
+
   const ending = annual.at(-1)!;
-  const assetsAtRetirement = retirement.real.balances.financialAssets;
+  const assetsAtRetirement = retirementSnapshot.real.balances.financialAssets;
+  const retirementYear = Number(retirementSnapshot.calendarDate.slice(0, 4));
 
   observations.push({
     code: "retirement",
-    message: `Retirement begins in ${retirement.calendarYear}.`,
-    calendarYear: retirement.calendarYear,
-    age: retirement.age,
+    message: `Retirement begins after ${retirementSnapshot.calendarDate}.`,
+    calendarYear: retirementYear,
+    age: retirementSnapshot.age,
   });
   observations.push({
     code: "cpp_start",
@@ -425,16 +644,22 @@ export function calculateProjection(rawInputs: ProjectionInputs): ProjectionResu
   });
 
   return {
-    schemaVersion: "3.0",
+    schemaVersion: "4.0",
     inputs,
     summary: {
-      retirementYear: retirement.calendarYear,
+      retirementYear,
+      retirementDate: retirementSnapshot.calendarDate,
       financialAssetsAtRetirementToday: round(assetsAtRetirement),
       retirementGoalToday: round(inputs.retirementGoalToday),
       goalGapToday: round(assetsAtRetirement - inputs.retirementGoalToday),
       financialAssetsDepletionAge:
         financialAssetsDepletionAge === null ? null : round(financialAssetsDepletionAge),
       endingFinancialAssetsToday: round(ending.real.balances.financialAssets),
+    },
+    retirementSnapshot,
+    financialAssetsBridge: {
+      nominal: nominalBridge,
+      real: realBridge,
     },
     annual,
     observations,

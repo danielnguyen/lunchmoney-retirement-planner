@@ -54,8 +54,7 @@ describe("calculation explanations", () => {
         type: "debt",
         openingBalance: 50000,
         annualReturn: 0,
-        monthlyContributionToday: 0,
-        contributionIndexingRate: 0,
+        contributionPhases: [],
         withdrawalPriority: 999,
         allocation: { cash: 0, fixedIncome: 0, equity: 0 },
       });
@@ -167,6 +166,7 @@ describe("calculation explanations", () => {
 
     expect(funding).toEqual(plotted.map((row) => ({
       periodLabel: row.periodLabel,
+      employmentPhase: row.employmentPhase || "Retired",
       employmentNetCash: row.employmentNetCash,
       cpp: row.cpp,
       oas: row.oas,
@@ -179,6 +179,7 @@ describe("calculation explanations", () => {
     })));
     expect(outflows).toEqual(plotted.map((row) => ({
       periodLabel: row.periodLabel,
+      contributionPhases: row.contributionPhases || "No active contribution phase",
       essential: row.essential,
       discretionary: row.discretionary,
       oneTime: row.oneTime,
@@ -211,27 +212,100 @@ describe("calculation explanations", () => {
     expect(document.reconciliation?.matched).toBe(true);
   });
 
+  it("shows the exact retirement bridge and resolved employment and contribution paths", () => {
+    const value = context();
+    const document = buildExplanation("assets-at-retirement", value);
+    const bridge = section(document, "How assets grew from today to retirement");
+    const employment = section(document, "Employment income path");
+    const contributions = section(document, "Contribution path");
+
+    expect(bridge.rows.at(-1)).toMatchObject({
+      component: "Reconciles to displayed value",
+    });
+    expect(employment.rows).toEqual([
+      expect.objectContaining({
+        phase: "Current income",
+        startAge: 40,
+        endAge: 65,
+        annualNetCashToday: 84000,
+      }),
+    ]);
+    expect(contributions.rows).toEqual([
+      expect.objectContaining({
+        account: "Investment account",
+        phase: "Current saving",
+        monthlyAmount: 1000,
+        funding: "Cash-funded",
+      }),
+    ]);
+  });
+
+  it("labels phase overrides and reset values in explanation paths", () => {
+    const active = context((draft) => {
+      draft.inputs.person.employmentIncomePhases[0]!.annualNetCashToday = 70000;
+      draft.inputs.accounts[1]!.contributionPhases[0]!.monthlyAmountToday = 750;
+      draft.overrides = {
+        "employmentPhase.current-income.annualNetCashToday": 70000,
+        "contributionPhase.manual:2.current-saving.monthlyAmountToday": 750,
+      };
+      draft.projection = calculateProjection(draft.inputs);
+    });
+    const activeDocument = buildExplanation("assets-at-retirement", active);
+    const resetDocument = buildExplanation("assets-at-retirement", context());
+
+    expect(section(activeDocument, "Employment income path").rows[0]?.source).toBe(
+      "Temporary override",
+    );
+    expect(section(activeDocument, "Contribution path").rows[0]?.source).toBe(
+      "Temporary override",
+    );
+    expect(section(resetDocument, "Employment income path").rows[0]?.source).not.toBe(
+      "Temporary override",
+    );
+  });
+
+  it("surfaces a long live-baseline income warning in relevant explanations", () => {
+    const value = context((draft) => {
+      draft.baseline.warnings.push({
+        code: "long_live_baseline_income",
+        severity: "warning",
+        message:
+          "Current Lunch Money employment income is assumed to continue for 25 years. Consider configuring future employment-income phases.",
+      });
+    });
+
+    for (const target of [
+      "assets-at-retirement",
+      "financial-assets-duration",
+      "baseline-income",
+    ] as const) {
+      expect(
+        buildExplanation(target, value).caveats.some((caveat) =>
+          caveat.includes("assumed to continue for 25 years"),
+        ),
+      ).toBe(true);
+    }
+  });
+
   it("reconciles multiple financial and debt accounts to the total included-account count", () => {
     const debtAccounts: FinancialAccountInput[] = [
       {
         id: "manual:debt-1",
         label: "Synthetic debt one",
-        type: "debt",
-        openingBalance: 10000,
-        annualReturn: 0,
-        monthlyContributionToday: 0,
-        contributionIndexingRate: 0,
+      type: "debt",
+      openingBalance: 10000,
+      annualReturn: 0,
+      contributionPhases: [],
         withdrawalPriority: 98,
         allocation: { cash: 0, fixedIncome: 0, equity: 0 },
       },
       {
         id: "manual:debt-2",
         label: "Synthetic debt two",
-        type: "debt",
-        openingBalance: 20000,
-        annualReturn: 0,
-        monthlyContributionToday: 0,
-        contributionIndexingRate: 0,
+      type: "debt",
+      openingBalance: 20000,
+      annualReturn: 0,
+      contributionPhases: [],
         withdrawalPriority: 99,
         allocation: { cash: 0, fixedIncome: 0, equity: 0 },
       },
@@ -280,9 +354,15 @@ describe("calculation explanations", () => {
         type: "tfsa",
         openingBalance: 0,
         annualReturn: 0.05,
-        monthlyContributionToday: 0,
-        contributionFunding: "cash",
-        contributionIndexingRate: 0.02,
+        contributionPhases: [{
+          id: "zero",
+          label: "Zero",
+          startAge: 40,
+          endAge: 65,
+          monthlyAmountToday: 0,
+          funding: "cash",
+          indexingRate: 0.02,
+        }],
         withdrawalPriority: 3,
         allocation: { cash: 0, fixedIncome: 0.2, equity: 0.8 },
       },
@@ -292,9 +372,15 @@ describe("calculation explanations", () => {
         type: "non_registered",
         openingBalance: 0,
         annualReturn: 0.05,
-        monthlyContributionToday: 0,
-        contributionFunding: "income_withheld",
-        contributionIndexingRate: 0.02,
+        contributionPhases: [{
+          id: "zero",
+          label: "Zero",
+          startAge: 40,
+          endAge: 65,
+          monthlyAmountToday: 0,
+          funding: "income_withheld",
+          indexingRate: 0.02,
+        }],
         withdrawalPriority: 4,
         allocation: { cash: 0.05, fixedIncome: 0.25, equity: 0.7 },
       },
@@ -307,7 +393,7 @@ describe("calculation explanations", () => {
       draft.projection = calculateProjection(draft.inputs);
     });
     const document = buildExplanation("annual-outflows", value);
-    const rows = section(document, "Contribution funding").rows;
+    const rows = section(document, "Active contribution funding").rows;
 
     expect(
       document.steps.find((step) => step.label === "Cash-funded contribution accounts")
@@ -328,9 +414,15 @@ describe("calculation explanations", () => {
       type: "tfsa",
       openingBalance: 0,
       annualReturn: 0.05,
-      monthlyContributionToday: 0,
-      contributionFunding: "income_withheld",
-      contributionIndexingRate: 0.02,
+      contributionPhases: [{
+        id: "override-phase",
+        label: "Override phase",
+        startAge: 40,
+        endAge: 65,
+        monthlyAmountToday: 0,
+        funding: "income_withheld",
+        indexingRate: 0.02,
+      }],
       withdrawalPriority: 3,
       allocation: { cash: 0, fixedIncome: 0.2, equity: 0.8 },
     };
@@ -340,10 +432,13 @@ describe("calculation explanations", () => {
       );
       draft.inputs.accounts.push({
         ...structuredClone(zeroBaselineAccount),
-        monthlyContributionToday: 750,
+        contributionPhases: [{
+          ...structuredClone(zeroBaselineAccount.contributionPhases[0]!),
+          monthlyAmountToday: 750,
+        }],
       });
       draft.overrides = {
-        "contribution.manual:override-contribution": 750,
+        "contributionPhase.manual:override-contribution.override-phase.monthlyAmountToday": 750,
       };
       draft.projection = calculateProjection(draft.inputs);
     });
@@ -362,7 +457,7 @@ describe("calculation explanations", () => {
         (step) => step.label === "Income-withheld contribution accounts",
       )?.value,
     ).toBe("1");
-    expect(section(activeDocument, "Contribution funding").rows).toEqual(
+    expect(section(activeDocument, "Active contribution funding").rows).toEqual(
       expect.arrayContaining([
         expect.objectContaining({
           account: "Override investment",
@@ -377,7 +472,7 @@ describe("calculation explanations", () => {
       )?.value,
     ).toBe("0");
     expect(
-      section(resetDocument, "Contribution funding").rows.some(
+      section(resetDocument, "Active contribution funding").rows.some(
         (row) => row.account === "Override investment",
       ),
     ).toBe(false);

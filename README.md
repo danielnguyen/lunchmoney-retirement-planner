@@ -10,7 +10,7 @@ The end-to-end MVP is defined in [plan/README.md](plan/README.md). The runtime n
 - Fetches manual accounts, Plaid accounts, categories, recurring items, and paginated trailing transactions on demand
 - Derives account balances, net deposited employment cash, essential and discretionary spending, investment contributions, recurring expenses, and a data-through date
 - Requires explicit account and category mappings; unmapped live records are shown with the identifiers needed to configure them
-- Runs a deterministic monthly, single-person retirement projection
+- Runs a deterministic monthly, single-person retirement projection with explicit employment-income and account-contribution phases
 - Shows annual spending, cash inflow, cash outflow, account-level financial assets, allocation, milestones, and an annual ledger
 - Explains every major summary, chart, ledger, cash-flow input, and account section with reconciled formulas, values, dates, and provenance
 - Supports temporary browser overrides, per-field reset, reset all, and explicit refresh
@@ -68,18 +68,53 @@ An investment-contribution category can identify its target account and transact
   contributionDirection: debit
 ```
 
-Alternatively, an investment account mapping may provide an explicit `monthlyContribution`. It must also set `contributionFunding` to `cash` when the contribution reduces available cash or `income_withheld` when it was withheld before the Lunch Money income deposit:
+### Income and contribution phases
+
+Do not assume that today’s Lunch Money income will continue unchanged until retirement. Configure contiguous employment phases from the current age through the retirement age. `startAge` is inclusive, `endAge` is exclusive, and boundaries must align to projection months. `live_baseline` resolves to the annualized net deposited employment income in the current Lunch Money transaction window; a later salary is never inferred automatically:
 
 ```yaml
-"manual:replace-with-investment-account-id": # Employer retirement account
-  include: true
-  type: rrsp
-  monthlyContribution: 500
-  contributionFunding: income_withheld
-  withdrawalPriority: 2
+employmentIncomePhases:
+  - id: current-income
+    label: Current income
+    startAge: 38
+    endAge: 41
+    annualNetCashToday: live_baseline
+    annualGrowth: 0
+  - id: future-income
+    label: Expected future income
+    startAge: 41
+    endAge: 62
+    annualNetCashToday: 72000
+    annualGrowth: 0.02
 ```
 
-Every contribution increases the investment balance. Only cash-funded contributions are projected as cash outflows. Transaction-derived contributions default to cash-funded unless their account mapping explicitly identifies them as income-withheld. The baseline and exports identify both the contribution source and funding mode.
+Investment accounts may define non-overlapping contribution phases. Gaps mean zero contribution. Funding and indexing belong to each phase, allowing a workplace contribution to end and another saving pattern to begin at the same career transition:
+
+```yaml
+"manual:replace-with-investment-account-id": # Synthetic retirement account
+  include: true
+  type: rrsp
+  withdrawalPriority: 2
+  contributionPhases:
+    - id: current-plan
+      label: Current plan
+      startAge: 38
+      endAge: 41
+      monthlyAmountToday: live_baseline
+      funding: income_withheld
+      indexingRate: 0
+    - id: later-saving
+      label: Later saving
+      startAge: 41
+      endAge: 62
+      monthlyAmountToday: 500
+      funding: cash
+      indexingRate: 0.02
+```
+
+Every contribution increases its target investment balance. Only cash-funded contributions reduce available cash. Income-withheld contributions are external additions that were withheld before the net employment deposit reached Lunch Money.
+
+Existing YAML and JSON files remain compatible. Without employment phases, the runtime normalizes current Lunch Money income plus `assumptions.incomeGrowth` into one phase through retirement. Without contribution phases, a positive account-level `monthlyContribution`, `contributionFunding`, and `assumptions.contributionIndexing` become one phase. These scalar fields are migration inputs, not the preferred model. A current-income fallback or explicit `live_baseline` phase longer than five years produces a visible warning.
 
 ## Refresh and reset behavior
 
@@ -91,7 +126,9 @@ Major report headings include a short accessible information tooltip and an `Exp
 
 Explanations are deterministic documents built from the same current baseline, active projection inputs, temporary overrides, projection result, dollar mode, and selected allocation year as the visible report. A reconciliation message appears only when the builder’s arithmetic matches the displayed value. Changing or resetting a calculator override, switching Today’s/Future dollars, or changing the allocation year updates the open explanation immediately.
 
-Baseline schema `1.1` adds aggregate cash-flow audit evidence for income, essential/discretionary spending, investment contributions, and recurring expenses. It contains category/account names and reconciled aggregates—not raw transactions, transaction IDs, credentials, or tokens. The existing typed export allowlist does not automatically export this audit structure or raw Lunch Money identifiers.
+Baseline schema `1.2` includes aggregate cash-flow audit evidence plus resolved employment and contribution phases and their provenance. It contains category/account names and reconciled aggregates—not raw transactions, transaction IDs, credentials, or tokens. The existing typed export allowlist does not automatically export the audit structure or raw Lunch Money identifiers.
+
+The Assets at retirement explanation uses the exact end-of-final-working-month snapshot. It shows both the account-type sum and a today-dollar accumulation bridge from starting financial assets through income, public benefits, income-withheld contributions, returns, spending, events, and taxes. Cash-funded contributions are internal transfers and do not change the bridge total. A success label appears only when the bridge and displayed card value agree within one cent.
 
 Covered targets are the five summary cards, five main charts, annual ledger, five cash-flow provenance rows, and the Lunch Money account section. Individual ledger cells, account rows, and chart bars intentionally do not receive separate controls in this iteration.
 
@@ -110,7 +147,7 @@ POST /api/v1/exports/projection-csv
 
 `GET /api/v1/lunchmoney/status` validates the token with a read-only categories request and returns a sanitized result.
 
-`GET /api/v1/baseline/current` returns schema `1.1` projection inputs, provenance, derived values, aggregate cash-flow audit evidence, transaction window, records analysed, warnings, and mapping details. Missing mappings return HTTP 422. An invalid token returns a sanitized HTTP 401 response.
+`GET /api/v1/baseline/current` returns schema `1.2` projection inputs, phase provenance, derived values, aggregate cash-flow audit evidence, transaction window, records analysed, warnings, and mapping details. Missing mappings return HTTP 422. An invalid token returns a sanitized HTTP 401 response.
 
 Projection requests use this shape:
 
@@ -130,7 +167,7 @@ Export requests use the current baseline response, active inputs, and browser ov
 }
 ```
 
-Exports automatically omit Lunch Money and other source-system record identifiers, account IDs supplied as source metadata, tokens, authorization values, passwords, API keys, and other credentials. The JSON export is the complete analysis document and uses a typed allowlist with deterministic export-local keys such as `cash_1`, `event_1`, and `recurring_expense_1`; it does not copy source objects recursively. Original descriptive account labels, future-event labels, recurring descriptions, warning names and messages, and provenance descriptions remain available for financial analysis. The CSV export is a conventional flat annual table with one header and one row per projection period, including partial-period labels and optional `account_cash_1`-style balance columns. CSV account columns use only export-local keys and never raw Lunch Money identifiers. Downloads use `retirement-projection-<date>.json`, `retirement-projection-real-<date>.csv`, and `retirement-projection-nominal-<date>.csv`.
+Exports automatically omit Lunch Money and other source-system record identifiers, account IDs supplied as source metadata, tokens, authorization values, passwords, API keys, and other credentials. The schema `4.0` JSON export is the complete analysis document and uses a typed allowlist with deterministic export-local keys such as `cash_1`, `event_1`, and `recurring_expense_1`; it preserves resolved phases, the exact retirement snapshot, and both accumulation bridges without copying source objects recursively. Original descriptive labels remain available for financial analysis. The flat CSV keeps one row per annual period and adds the active employment-phase label plus separate cash-funded and income-withheld contribution totals; it never embeds phase arrays or JSON. Downloads use `retirement-projection-<date>.json`, `retirement-projection-real-<date>.csv`, and `retirement-projection-nominal-<date>.csv`.
 
 ## Docker Compose
 
@@ -167,7 +204,7 @@ Tests use synthetic fixtures under `tests/`. Production modules do not import th
 
 ## Projection scope
 
-Lunch Money income transactions are modelled as net deposited employment cash and are not taxed again. The simplified effective tax rate applies to gross retirement income and taxable RRSP/RRIF withdrawals; it is not a tax filing model. The projection calendar starts in the baseline data-through month, so the first and last annual rows may be partial calendar years. CPP and OAS claim timing factors are deterministic. RRIF conversion is a milestone; statutory minimum withdrawals are not enforced. Monte Carlo simulation, optimized withdrawals, real estate, households, saved scenarios, background synchronization, and server-generated PDFs are outside the MVP.
+Lunch Money income transactions are modelled as net deposited employment cash and are not taxed again. Each working month selects one resolved employment phase; growth is phase-local and employment becomes zero after the exact retirement boundary. Each investment account independently selects its active contribution phase and stops contributing at retirement. The simplified effective tax rate applies to gross retirement income and taxable RRSP/RRIF withdrawals; it is not a tax filing model. The projection calendar starts in the baseline data-through month, so the first and last annual rows may be partial calendar years. CPP and OAS claim timing factors are deterministic. RRIF conversion is a milestone; statutory minimum withdrawals are not enforced. Monte Carlo simulation, optimized withdrawals, real estate, households, saved scenarios, background synchronization, and server-generated PDFs are outside the MVP.
 
 See [docs/architecture.md](docs/architecture.md) and [docs/report-model.md](docs/report-model.md) for implementation details.
 

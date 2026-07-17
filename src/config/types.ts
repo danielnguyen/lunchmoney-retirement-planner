@@ -26,11 +26,33 @@ export const transactionClassifications = [
 
 export type TransactionClassification = (typeof transactionClassifications)[number];
 
+export type LiveBaselineAmount = number | "live_baseline";
+
+export type EmploymentIncomePhaseConfig = {
+  id: string;
+  label: string;
+  startAge: number;
+  endAge: number;
+  annualNetCashToday: LiveBaselineAmount;
+  annualGrowth: number;
+};
+
+export type ContributionPhaseConfig = {
+  id: string;
+  label: string;
+  startAge: number;
+  endAge: number;
+  monthlyAmountToday: LiveBaselineAmount;
+  funding: ContributionFunding;
+  indexingRate: number;
+};
+
 export type AccountMapping = {
   include: boolean;
   type: PlannerAccountType;
   monthlyContribution?: number;
   contributionFunding?: ContributionFunding;
+  contributionPhases?: ContributionPhaseConfig[];
   annualReturn?: number;
   withdrawalPriority?: number;
   allocation?: AssetAllocation;
@@ -75,6 +97,7 @@ export type PlannerConfig = {
   oasMonthlyAmountAt65: number;
   retirementGoal: number;
   transactionTrailingMonths: number;
+  employmentIncomePhases?: EmploymentIncomePhaseConfig[];
   accountMappings: Record<string, AccountMapping>;
   categoryMappings: Record<string, CategoryMapping>;
   assumptions: PlannerAssumptions;

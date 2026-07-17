@@ -94,17 +94,44 @@ YAML is canonical so human-readable account and category names can be kept as co
 Example shape:
 
 ```yaml
-currentAge: 40
-retirementAge: 65
+currentAge: 38
+retirementAge: 62
 projectionEndAge: 95
 cppStartAge: 65
 oasStartAge: 65
+employmentIncomePhases:
+  - id: current-income
+    label: Current income
+    startAge: 38
+    endAge: 41
+    annualNetCashToday: live_baseline
+    annualGrowth: 0
+  - id: future-income
+    label: Expected future income
+    startAge: 41
+    endAge: 62
+    annualNetCashToday: 72000
+    annualGrowth: 0.02
 accountMappings:
-  "manual:lunch-money-account-id": # Employer retirement account
+  "manual:lunch-money-account-id": # Synthetic retirement account
     include: true
     type: rrsp
-    monthlyContribution: 500
-    contributionFunding: income_withheld
+    withdrawalPriority: 2
+    contributionPhases:
+      - id: current-plan
+        label: Current plan
+        startAge: 38
+        endAge: 41
+        monthlyAmountToday: live_baseline
+        funding: income_withheld
+        indexingRate: 0
+      - id: later-saving
+        label: Later saving
+        startAge: 41
+        endAge: 62
+        monthlyAmountToday: 500
+        funding: cash
+        indexingRate: 0.02
 categoryMappings:
   "lunch-money-category-id": essential # Groceries
 assumptions:
@@ -194,7 +221,11 @@ The result must show:
 
 Calculate monthly contributions from transactions mapped as investment contributions.
 
-If a reliable contribution value cannot be derived, the local configuration may provide an explicit `monthlyContribution` for the mapped account. That account mapping must also set `contributionFunding` to `cash` or `income_withheld`; the runtime must reject a manual contribution without this choice. The source must be shown as manual rather than Lunch Money-derived.
+The canonical configuration defines explicit employment and contribution phases. `startAge` is inclusive, `endAge` is exclusive, and boundaries align to projection months. Employment phases must be ordered, contiguous, and cover current age through retirement. Contribution phases are ordered and non-overlapping; gaps mean zero.
+
+`live_baseline` resolves employment income from annualized net Lunch Money deposits and resolves an account contribution from mapped contribution transactions or the legacy account amount. Resolution happens before projection validation, so the engine consumes numbers only. Future salary phases require explicit user amounts; the planner does not forecast them.
+
+Legacy `assumptions.incomeGrowth`, account-level `monthlyContribution`, `contributionFunding`, and global contribution indexing remain accepted. When phase arrays are omitted, these fields normalize into deterministic fallback phases. A fallback current-income phase or explicit `live_baseline` phase spanning more than five years produces a warning.
 
 Every contribution increases its investment account balance. A `cash` contribution also reduces available projected cash. An `income_withheld` contribution does not reduce projected cash because it was withheld before the net employment deposit reached Lunch Money. Transaction-derived contributions are cash-funded unless their account mapping explicitly identifies them as `income_withheld`.
 
@@ -232,7 +263,7 @@ Required account pools:
 
 Required income streams:
 
-- net deposited employment cash before retirement
+- net deposited employment cash selected from the active resolved phase before retirement
 - CPP beginning at the configured age
 - OAS beginning at the configured age
 - optional manually configured pension income
@@ -242,7 +273,7 @@ Required outflows:
 - essential spending
 - discretionary spending
 - simplified taxes
-- investment contributions before retirement
+- per-account phased investment contributions before retirement
 - portfolio withdrawals after cash-flow shortfalls
 
 Required milestones:
@@ -254,7 +285,9 @@ Required milestones:
 
 The existing simplified tax model may remain for the MVP, but the interface and exports must identify it as a simplified assumption. It applies to gross retirement income such as CPP, OAS, pension income, and taxable RRSP/RRIF withdrawals, not to Lunch Money-derived net employment cash.
 
-The first projected month is the calendar month containing the live baseline data-through date. Future events, retirement, CPP, OAS, RRIF milestones, calendar years, and annual ledger rows must use that real calendar anchor. The first and last annual rows may therefore represent partial calendar years.
+The first projected month is the calendar month containing the live baseline data-through date. Employment and contribution phases are selected from each month’s working-age interval, use phase-local growth/indexing, and stop at retirement. Future events, retirement, CPP, OAS, RRIF milestones, calendar years, and annual ledger rows use the real calendar anchor. The first and last annual rows may therefore represent partial calendar years.
+
+The exact retirement snapshot is captured at the end of the final working month, immediately before the first fully retired month. The Assets at retirement summary uses this real-dollar snapshot rather than the next December row. The projection also emits nominal and real accumulation bridges from starting financial assets to this boundary. Cash-funded contributions are internal transfers; income-withheld contributions are external additions. Both bridges must reconcile within one cent.
 
 ## Dashboard
 
@@ -280,12 +313,12 @@ Controls create temporary in-browser scenario overrides.
 
 Required controls:
 
-- retirement age
 - CPP start age
 - OAS start age
 - monthly essential spending
 - monthly discretionary spending
-- monthly contribution by included investment account
+- annual net cash and annual growth for each resolved employment phase
+- monthly amount and indexing for each resolved contribution phase
 - inflation
 - return assumption by planner account type
 - projection end age
@@ -308,9 +341,9 @@ Every major summary card, main chart, annual ledger, resolved cash-flow value, a
 - Lunch Money, local configuration, temporary override, and projection source labels
 - effective dates, the transaction window, assumptions, caveats, and data tables
 
-Explanation documents are typed domain output. They consume the same current baseline, active inputs, overrides, projection result, dollar mode, and selected allocation year as the report. Shared presentation-data builders feed both chart/ledger rendering and explanation tables. A reconciliation confirmation is shown only after exact model-precision agreement.
+Explanation documents are typed domain output. They consume the same current baseline, active phase inputs, overrides, projection result, dollar mode, and selected allocation year as the report. Shared presentation-data builders feed both chart/ledger rendering and explanation tables. The Assets at retirement explanation includes the exact snapshot, accumulation bridge, employment path, contribution path, and any long-current-income warning. A reconciliation confirmation is shown only after exact model-precision agreement.
 
-The baseline API schema `1.1` includes aggregate cash-flow audit evidence:
+The baseline API schema `1.2` includes aggregate cash-flow audit evidence and resolved phase provenance:
 
 - income, essential spending, and discretionary spending grouped by category and account
 - investment contributions grouped by account with funding and derivation source
@@ -319,6 +352,8 @@ The baseline API schema `1.1` includes aggregate cash-flow audit evidence:
 The audit excludes raw transaction payloads, transaction IDs, credentials, and tokens. It remains outside the default export allowlist, so raw Lunch Money identifiers are not added to JSON or CSV.
 
 Temporary overrides replace the active explanation input while retaining the refreshed value as evidence. Resetting one control or all controls removes the temporary source immediately. Dollar-mode and allocation-year changes also update an open explanation.
+
+Phase overrides affect an amount, growth, or indexing field only. Phase boundaries remain YAML-only to prevent browser-created gaps or overlaps. Refresh clears every override and re-resolves any `live_baseline` phase.
 
 Covered targets are the five summary cards, annual spending, annual funding, outflows, account burndown, asset allocation, the annual ledger, five resolved cash-flow rows, and the account section. Per-cell, per-account-row, and per-chart-bar explanations remain intentionally deferred.
 
@@ -394,7 +429,7 @@ The JSON transformation is typed and allowlisted. It must not copy arbitrary sou
 
 Descriptive financial context is preserved. Account labels and names, future-event labels, recurring-item descriptions, warning names and messages, provenance descriptions, and other user-facing financial labels remain in JSON so the exported plan can be understood and analyzed. Known source-system identifiers and credentials are removed if they occur inside retained descriptions. The export also preserves analytical amounts, dates, classifications, directions, warning codes and severities, safe target references, provenance source types, effective dates, and safe field references.
 
-JSON remains the complete analysis export and includes explicit metadata describing its typed identifier-removal transformation and the preservation of descriptive financial text. CSV is one conventional flat annual table with exactly one header and one row per projection period. It includes the partial-period label, annual flows, withdrawals, spending, tax, contributions, aggregate balances, financial assets, net worth, milestones, and optional per-account balance columns keyed only by export-local account references. CSV must not contain metadata preambles, blank section separators, embedded JSON, or multiple table schemas.
+Schema `4.0` JSON remains the complete analysis export and includes resolved phases, exact retirement snapshot, accumulation bridges, and explicit metadata describing its typed identifier-removal transformation. Account references use export-local keys. CSV is one conventional flat annual table with exactly one header and one row per projection period. It includes the partial-period label, employment phase, annual employment cash, separate cash-funded and income-withheld contribution totals, withdrawals, spending, tax, aggregate balances, financial assets, net worth, milestones, and optional per-account balance columns keyed only by export-local account references. CSV must not contain metadata preambles, blank section separators, phase arrays, embedded JSON, or multiple table schemas.
 
 ## Docker runtime
 
