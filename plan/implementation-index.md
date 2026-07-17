@@ -2,7 +2,7 @@
 
 This document is the operational handoff for active roadmap delivery.
 
-Use [`plan/roadmap.md`](./roadmap.md) for detailed capability requirements and acceptance criteria. Use this index to record the current implementation position, pull-request sequence, dependencies, and next action.
+Repository-wide contribution and implementation rules are defined in [`AGENTS.md`](../AGENTS.md). Use [`plan/roadmap.md`](./roadmap.md) for detailed capability requirements and acceptance criteria. Use this index to record the current implementation position, pull-request sequence, dependencies, and next action.
 
 Public content must remain generic. Do not add private financial values, account details, employer information, identifying dates, private configuration, credentials, or real exported data.
 
@@ -37,15 +37,16 @@ Branches, pull-request titles, commits, tests, documentation headings, types, fu
 
 ## Delivery rules
 
-1. Keep only one implementation pull request open at a time.
-2. Start each implementation branch from the latest `main`.
-3. Do not begin the next capability until the previous implementation pull request is merged.
-4. Update this index when a pull request opens, changes status, is blocked, or merges.
-5. Keep detailed requirements in `plan/roadmap.md`; link to them rather than duplicating them here.
-6. Run synthetic validation before private local smoke testing.
-7. Never place private financial data in source, fixtures, screenshots, logs, commits, exports, documentation, or pull-request text.
-8. Before opening a new pull request, check the repository for existing open pull requests and report any merge-order or dependency concern.
-9. Use capability-specific implementation names; do not encode roadmap sequence numbers into the product or codebase.
+1. Follow the repository-wide rules in `AGENTS.md`.
+2. Keep only one implementation pull request open at a time.
+3. Start each implementation branch from the latest `main`.
+4. Do not begin the next capability until the previous implementation pull request is merged.
+5. Update this index when a pull request opens, changes status, is blocked, or merges.
+6. Keep detailed requirements in `plan/roadmap.md`; link to them rather than duplicating them here.
+7. Run synthetic validation before private local smoke testing.
+8. Never place private financial data in source, fixtures, screenshots, logs, commits, exports, documentation, or pull-request text.
+9. Before opening a new pull request, check the repository for existing open pull requests and report any merge-order or dependency concern.
+10. Use capability-specific implementation names; do not encode roadmap sequence numbers into the product or codebase.
 
 ## Status meanings
 
@@ -77,6 +78,6 @@ When the capability merges:
 
 Start a new conversation with:
 
-> Read `plan/implementation-index.md` and `plan/roadmap.md`. Check the repository for open pull requests, verify that the index is current, and continue from the recorded next action. Treat roadmap sequence labels as planning shorthand only; use capability-specific implementation names. Do not use or publish private financial data.
+> Read `AGENTS.md`, `plan/implementation-index.md`, and `plan/roadmap.md`. Check the repository for open pull requests, verify that the index is current, and continue from the recorded next action. Treat roadmap sequence labels as planning shorthand only; use capability-specific implementation names. Do not use or publish private financial data.
 
 The repository state is authoritative when it conflicts with this index. Correct the index before proceeding.
