@@ -24,11 +24,20 @@ The dashboard retains these live-data-backed reports:
 - annual projection ledger
 - resolved baseline and provenance details
 
+Every major calculated report target has two inspectability levels:
+
+- a brief accessible tooltip that explains meaning
+- a full calculation drawer with exact steps, source badges, dates, assumptions, caveats, and reconciled data
+
+The five summary cards, five main charts, annual ledger, cash-flow provenance values, and Lunch Money account section are covered. Chart explanations include the exact shared annual dataset in the active Today’s/Future dollar view. The asset-allocation explanation follows the selected year. Individual table cells, account rows, and chart bars are intentionally deferred.
+
 The retirement goal and goal gap use financial assets. They do not include debt offsets or non-liquid real assets.
 
 Lunch Money-derived employment income is net cash after payroll deductions, so the simplified effective tax rate is not applied to it again. The rate applies to gross CPP, OAS, pension income, and taxable RRSP/RRIF withdrawals. Contributions always increase their target investment balance; only contributions configured as cash-funded appear as cash outflows.
 
 Human-maintained account mappings, category mappings, assumptions, allocations, and future events use the canonical commented YAML planner configuration. YAML and legacy JSON inputs pass through the same validation and produce the same report model.
+
+Cash-flow audit evidence records the aggregate category/account contribution to each derived value without retaining raw transactions. Lunch Money amounts and names remain distinguishable from local YAML assumptions, temporary browser overrides, and projection output. An explanation claims reconciliation only when its numeric result matches the displayed value to model precision.
 
 JSON is the canonical, complete analysis export and includes the resolved baseline, derived baseline, provenance, warnings, active inputs, overrides, and complete projection. It is built by a typed allowlist. Account references are replaced consistently with deterministic export-local keys such as `tfsa_1`; every other source record receives an export-local key such as `event_1`, `recurring_expense_1`, or `category_1`.
 

@@ -1,4 +1,9 @@
-import type { FinancialAccountInput, ProjectionInputs } from "./types";
+import type {
+  AnnualProjection,
+  FinancialAccountInput,
+  ProjectionInputs,
+  ProjectionResult,
+} from "./types";
 
 const FINANCIAL_ASSET_TYPES = new Set(["cash", "tfsa", "rrsp_rrif", "non_registered"]);
 const MONTH_LABELS = [
@@ -30,6 +35,18 @@ export function startingFinancialAssets(accounts: FinancialAccountInput[]): numb
   );
 }
 
+export function monthlyEmploymentNetCash(inputs: ProjectionInputs): number {
+  return roundCurrency(inputs.person.annualEmploymentNetCashToday / 12);
+}
+
+export function monthlyInvestmentContributions(inputs: ProjectionInputs): number {
+  return roundCurrency(
+    inputs.accounts
+      .filter((account) => ["tfsa", "rrsp_rrif", "non_registered"].includes(account.type))
+      .reduce((total, account) => total + account.monthlyContributionToday, 0),
+  );
+}
+
 export function annualPeriodLabel(inputs: ProjectionInputs, calendarYear: number): string {
   const startYear = Number(inputs.startDate.slice(0, 4));
   const startMonth = Number(inputs.startDate.slice(5, 7));
@@ -45,4 +62,119 @@ export function annualPeriodLabel(inputs: ProjectionInputs, calendarYear: number
   if (periodStartMonth === 1 && periodEndMonth === 12) return String(calendarYear);
 
   return `${calendarYear} (${MONTH_LABELS[periodStartMonth - 1]}–${MONTH_LABELS[periodEndMonth - 1]})`;
+}
+
+export type DisplayMode = "real" | "nominal";
+
+export type AnnualChartRow = {
+  [key: string]: string | number;
+  year: number;
+  periodLabel: string;
+  age: number;
+  essential: number;
+  discretionary: number;
+  oneTime: number;
+  tax: number;
+  contributions: number;
+  employmentNetCash: number;
+  cpp: number;
+  oas: number;
+  pension: number;
+  otherIncome: number;
+  cashWithdrawal: number;
+  tfsaWithdrawal: number;
+  rrspWithdrawal: number;
+  nonRegisteredWithdrawal: number;
+  financialAssets: number;
+  goal: number;
+  milestones: string;
+};
+
+export type AnnualLedgerRow = {
+  periodLabel: string;
+  year: number;
+  age: number;
+  income: number;
+  withdrawals: number;
+  tax: number;
+  spending: number;
+  financialAssets: number;
+  milestones: string;
+};
+
+export function buildAnnualChartData(
+  inputs: ProjectionInputs,
+  projection: ProjectionResult,
+  mode: DisplayMode,
+): AnnualChartRow[] {
+  return projection.annual.map((point) => {
+    const view = point[mode];
+    return {
+      year: point.calendarYear,
+      periodLabel: annualPeriodLabel(inputs, point.calendarYear),
+      age: point.age,
+      essential: view.outflows.essential,
+      discretionary: view.outflows.discretionary,
+      oneTime: view.outflows.oneTime,
+      tax: view.outflows.tax,
+      contributions: view.outflows.contributions,
+      employmentNetCash: view.income.employment,
+      cpp: view.income.cpp,
+      oas: view.income.oas,
+      pension: view.income.pension,
+      otherIncome: view.income.other,
+      cashWithdrawal: view.withdrawals.cash,
+      tfsaWithdrawal: view.withdrawals.tfsa,
+      rrspWithdrawal: view.withdrawals.rrspRrif,
+      nonRegisteredWithdrawal: view.withdrawals.nonRegistered,
+      financialAssets: view.balances.financialAssets,
+      goal:
+        mode === "real"
+          ? inputs.retirementGoalToday
+          : inputs.retirementGoalToday *
+            Math.pow(1 + inputs.annualInflation, point.age - inputs.person.currentAge),
+      milestones: point.milestones.join(" · "),
+      ...Object.fromEntries(
+        Object.entries(view.accountBalances).map(([id, value]) => [`account:${id}`, value]),
+      ),
+    };
+  });
+}
+
+export function buildAnnualLedgerData(
+  inputs: ProjectionInputs,
+  projection: ProjectionResult,
+  mode: DisplayMode,
+): AnnualLedgerRow[] {
+  return projection.annual.map((point) => {
+    const view = point[mode];
+    return {
+      periodLabel: annualPeriodLabel(inputs, point.calendarYear),
+      year: point.calendarYear,
+      age: point.age,
+      income: view.income.total,
+      withdrawals: view.withdrawals.total,
+      tax: view.outflows.tax,
+      spending: roundCurrency(
+        view.outflows.essential + view.outflows.discretionary + view.outflows.oneTime,
+      ),
+      financialAssets: view.balances.financialAssets,
+      milestones: point.milestones.join(" · ") || "—",
+    };
+  });
+}
+
+export function closestAnnualPoint(
+  annual: AnnualProjection[],
+  selectedYear: number,
+): AnnualProjection | undefined {
+  return annual.reduce<AnnualProjection | undefined>(
+    (closest, point) =>
+      !closest ||
+      Math.abs(point.calendarYear - selectedYear) <
+        Math.abs(closest.calendarYear - selectedYear)
+        ? point
+        : closest,
+    undefined,
+  );
 }

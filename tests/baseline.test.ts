@@ -226,6 +226,52 @@ describe("live baseline derivation", () => {
     expect(baseline.projectionInputs.startDate).toBe("2026-07-08");
     expect(baseline.projectionInputs.person.annualEmploymentNetCashToday).toBe(3000);
     expect(baseline.recordsAnalyzed.transactions).toBe(8);
+    expect(baseline.schemaVersion).toBe("1.1");
+  });
+
+  it("retains reconciled category and account audit evidence without raw transactions", () => {
+    const baseline = deriveCurrentBaseline(
+      configFixture,
+      lunchMoneyData(),
+      window,
+      "2026-07-14T12:00:00.000Z",
+    );
+    const { income, essentialSpending, discretionarySpending } = baseline.cashFlowAudit;
+
+    expect(income.breakdown).toEqual([
+      expect.objectContaining({
+        categoryName: "Pay",
+        accountName: "Everyday cash",
+        trailingTotal: 3000,
+        monthlyAverage: 250,
+        transactionCount: 1,
+      }),
+    ]);
+    expect(
+      essentialSpending.breakdown.reduce((total, row) => total + row.trailingTotal, 0),
+    ).toBe(baseline.derived.essentialSpending.trailingTotal);
+    expect(
+      essentialSpending.breakdown.reduce((total, row) => total + row.monthlyAverage, 0),
+    ).toBe(baseline.derived.essentialSpending.monthlyAverage);
+    expect(
+      discretionarySpending.breakdown.reduce((total, row) => total + row.trailingTotal, 0),
+    ).toBe(baseline.derived.discretionarySpending.trailingTotal);
+    expect(baseline.cashFlowAudit.investmentContributions.accounts).toEqual([
+      expect.objectContaining({
+        accountName: "TFSA",
+        funding: "cash",
+        source: "lunchmoney_derived",
+        monthlyAverage: 20,
+      }),
+    ]);
+    expect(baseline.cashFlowAudit.recurringExpenses.items).toEqual([
+      expect.objectContaining({
+        accountName: "Everyday cash",
+        categoryName: "Needs",
+        monthlyAmount: 100,
+      }),
+    ]);
+    expect(income.breakdown[0]).not.toHaveProperty("transactionId");
   });
 
   it("excludes transfers, ignored categories, grouped parents, and excluded accounts", () => {

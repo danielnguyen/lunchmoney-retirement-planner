@@ -49,6 +49,48 @@ export type DerivedMetric = {
   transactionCount: number;
 };
 
+export type TransactionAuditBreakdown = {
+  categoryId: string;
+  categoryName: string;
+  accountId: string;
+  accountName: string;
+  transactionCount: number;
+  trailingTotal: number;
+  monthlyAverage: number;
+};
+
+export type TransactionMetricAudit = DerivedMetric & {
+  breakdown: TransactionAuditBreakdown[];
+};
+
+export type ContributionAccountAudit = {
+  accountId: string;
+  accountName: string;
+  monthlyAverage: number;
+  funding: "cash" | "income_withheld";
+  source: "lunchmoney_derived" | "local_configuration";
+};
+
+export type CashFlowAudit = {
+  income: TransactionMetricAudit;
+  essentialSpending: TransactionMetricAudit;
+  discretionarySpending: TransactionMetricAudit;
+  investmentContributions: DerivedMetric & {
+    accounts: ContributionAccountAudit[];
+  };
+  recurringExpenses: {
+    monthlyTotal: number;
+    count: number;
+    items: Array<{
+      description: string;
+      classification: "essential" | "discretionary";
+      monthlyAmount: number;
+      accountName: string;
+      categoryName: string;
+    }>;
+  };
+};
+
 export type RecurringExpense = {
   id: number;
   description: string;
@@ -79,11 +121,12 @@ export type DerivedBaseline = {
 };
 
 export type CurrentBaseline = {
-  schemaVersion: "1.0";
+  schemaVersion: "1.1";
   connection: ConnectionStatus;
   projectionInputs: ProjectionInputs;
   provenance: Record<string, BaselineValue<unknown>>;
   derived: DerivedBaseline;
+  cashFlowAudit: CashFlowAudit;
   dataThrough: string;
   transactionWindow: {
     startDate: string;

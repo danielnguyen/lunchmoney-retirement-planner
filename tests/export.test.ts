@@ -17,6 +17,7 @@ const EXPORT_TOKEN = "fixture-export-token-never-share";
 const EXPORT_API_KEY = "fixture-api-key-never-share";
 const EXPORT_PASSWORD = "fixture-password-never-share";
 const EXPORT_AUTHORIZATION = "Basic fixture-authorization-never-share";
+const AUDIT_RAW_ID = "raw-audit-category-should-not-export";
 const RAW_IDS = {
   cash: "manual:919191",
   rrsp: "manual:919192",
@@ -183,6 +184,16 @@ function buildExportFixture(): ExportFixture {
       transactionCount: 3,
     },
   ];
+  Object.assign(baseline, {
+    cashFlowAudit: {
+      income: {
+        trailingTotal: 1,
+        monthlyAverage: 1,
+        transactionCount: 1,
+        breakdown: [{ categoryId: AUDIT_RAW_ID, accountId: RAW_IDS.cash }],
+      },
+    },
+  });
 
   const projection = calculateProjection(inputs);
   const previousToken = process.env.LUNCHMONEY_API_TOKEN;
@@ -358,6 +369,7 @@ describe("identifier-scrubbed projection exports", () => {
       expect(serialized).toContain(text);
     }
     expectNoSourceIdentifiersOrCredentials(serialized);
+    expect(serialized).not.toContain(AUDIT_RAW_ID);
   });
 
   it("exports only safe provenance field references and override keys", () => {

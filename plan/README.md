@@ -298,6 +298,30 @@ Refreshing Lunch Money rebuilds the baseline and clears or explicitly rebases te
 
 Saving scenarios is out of scope.
 
+## Calculation explanations and auditability
+
+Every major summary card, main chart, annual ledger, resolved cash-flow value, and the Lunch Money account section exposes:
+
+- a one- or two-sentence accessible tooltip describing meaning
+- an `Explain` action that opens a focus-trapped modal drawer
+- deterministic formula steps and exact current values
+- Lunch Money, local configuration, temporary override, and projection source labels
+- effective dates, the transaction window, assumptions, caveats, and data tables
+
+Explanation documents are typed domain output. They consume the same current baseline, active inputs, overrides, projection result, dollar mode, and selected allocation year as the report. Shared presentation-data builders feed both chart/ledger rendering and explanation tables. A reconciliation confirmation is shown only after exact model-precision agreement.
+
+The baseline API schema `1.1` includes aggregate cash-flow audit evidence:
+
+- income, essential spending, and discretionary spending grouped by category and account
+- investment contributions grouped by account with funding and derivation source
+- normalized reviewed recurring-expense items with category/account names
+
+The audit excludes raw transaction payloads, transaction IDs, credentials, and tokens. It remains outside the default export allowlist, so raw Lunch Money identifiers are not added to JSON or CSV.
+
+Temporary overrides replace the active explanation input while retaining the refreshed value as evidence. Resetting one control or all controls removes the temporary source immediately. Dollar-mode and allocation-year changes also update an open explanation.
+
+Covered targets are the five summary cards, annual spending, annual funding, outflows, account burndown, asset allocation, the annual ledger, five resolved cash-flow rows, and the account section. Per-cell, per-account-row, and per-chart-bar explanations remain intentionally deferred.
+
 ## Reports
 
 Retain these report views when backed by live inputs:

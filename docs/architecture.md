@@ -14,6 +14,13 @@ read-only Lunch Money service ---- config/planner.local.yaml
                            v
                  live baseline derivation
                            |
+                 +---------+---------+
+                 |                   |
+                 v                   v
+         cash-flow audit       provenance map
+                 |                   |
+                 +---------+---------+
+                           |
                            v
                single-person projection API
                            |
@@ -35,6 +42,8 @@ Both export routes create one deterministic alias context per request. A typed, 
 
 No source-system record ID crosses the export boundary, including recurring-item IDs. User-controlled text such as names, account descriptions, future-event labels, recurring payees or merchants, street addresses, notes, warning text, and connection messages is dropped or replaced with deterministic labels. The boundary retains only allowlisted analytical amounts, dates, types, classifications, directions, source types, safe field references, projection output, and fixed application-generated milestone text.
 
+The audit structure is available to the local dashboard but is not added to JSON or CSV exports by default. Export construction remains a typed allowlist and ignores additive baseline fields unless they receive an explicit share-safe transformation.
+
 ## Baseline derivation
 
 Account mappings are explicit and source-scoped. Category mappings classify only transactions and reviewed recurring items associated with included accounts. Transfers, excluded mappings, Lunch Money categories excluded from totals, pending transactions, deletion-pending transactions, split parents, and group parents are not counted.
@@ -46,6 +55,16 @@ Positive Lunch Money amounts are debits and negative amounts are credits. Spendi
 Mapped income is treated as net deposited employment cash. Manual contribution amounts require an account-level `contributionFunding` choice. Transaction-derived contributions default to cash-funded, while an explicit `income_withheld` mapping records a contribution that grows the investment balance without reducing the already-net employment cash flow.
 
 Missing account mappings, required category mappings, contribution targets, cash accounts, or account assumptions create a configuration-required response. No projection input is returned from an incomplete baseline.
+
+The baseline API schema is `1.1`. Its additive `cashFlowAudit` structure groups mapped transactions by category and account for income, essential spending, and discretionary spending; records resolved contribution values by account, funding mode, and source; and retains normalized reviewed recurring-item context. Each section reconciles to the existing derived metric. It deliberately omits raw transaction payloads and individual transaction IDs.
+
+## Explanation boundary
+
+Domain-level explanation builders consume `CurrentBaseline`, active `ProjectionInputs`, the temporary override map, `ProjectionResult`, display mode, and selected allocation year. Shared annual chart and ledger presentation builders supply both the visible dashboard and explanation tables, preventing a second UI-only calculation path.
+
+The builders emit typed deterministic documents containing plain-language meaning, arithmetic steps, source evidence, effective dates, exact tables, assumptions, caveats, and an optional numeric reconciliation. Presentation components render the same documents in one reusable accessible drawer. No runtime-generated or AI-generated prose is used.
+
+An active value that differs from the refreshed baseline is labelled `Temporary override`; its refreshed value remains visible as evidence. Resetting the control removes that source label without fetching Lunch Money again. Today’s/Future dollars and the selected allocation year are inputs to explanation generation, so an open drawer updates with the report.
 
 ## Projection boundary
 

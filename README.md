@@ -12,6 +12,7 @@ The end-to-end MVP is defined in [plan/README.md](plan/README.md). The runtime n
 - Requires explicit account and category mappings; unmapped live records are shown with the identifiers needed to configure them
 - Runs a deterministic monthly, single-person retirement projection
 - Shows annual spending, cash inflow, cash outflow, account-level financial assets, allocation, milestones, and an annual ledger
+- Explains every major summary, chart, ledger, cash-flow input, and account section with reconciled formulas, values, dates, and provenance
 - Supports temporary browser overrides, per-field reset, reset all, and explicit refresh
 - Exports the resolved live baseline, provenance, warnings, active overrides, and projection as JSON or CSV
 - Runs without a database, persistence, jobs, or caching
@@ -84,6 +85,16 @@ Every contribution increases the investment balance. Only cash-funded contributi
 
 The baseline endpoint fetches Lunch Money again on every request. The dashboard’s refresh action rebuilds the baseline and clears all browser overrides. Resetting a field or using Reset all restores values from the most recently refreshed baseline, never compiled constants.
 
+## Calculation explanations
+
+Major report headings include a short accessible information tooltip and an `Explain` control. Tooltips describe what a result means in one or two sentences. `Explain` opens a keyboard-accessible drawer containing the formula or calculation steps, exact displayed values, source badges, dates, active assumptions, caveats, and the data behind charts.
+
+Explanations are deterministic documents built from the same current baseline, active projection inputs, temporary overrides, projection result, dollar mode, and selected allocation year as the visible report. A reconciliation message appears only when the builder’s arithmetic matches the displayed value. Changing or resetting a calculator override, switching Today’s/Future dollars, or changing the allocation year updates the open explanation immediately.
+
+Baseline schema `1.1` adds aggregate cash-flow audit evidence for income, essential/discretionary spending, investment contributions, and recurring expenses. It contains category/account names and reconciled aggregates—not raw transactions, transaction IDs, credentials, or tokens. The existing typed export allowlist does not automatically export this audit structure or raw Lunch Money identifiers.
+
+Covered targets are the five summary cards, five main charts, annual ledger, five cash-flow provenance rows, and the Lunch Money account section. Individual ledger cells, account rows, and chart bars intentionally do not receive separate controls in this iteration.
+
 ## API
 
 ```http
@@ -99,7 +110,7 @@ POST /api/v1/exports/projection-csv
 
 `GET /api/v1/lunchmoney/status` validates the token with a read-only categories request and returns a sanitized result.
 
-`GET /api/v1/baseline/current` returns projection inputs, provenance, derived values, transaction window, records analysed, warnings, and mapping details. Missing mappings return HTTP 422. An invalid token returns a sanitized HTTP 401 response.
+`GET /api/v1/baseline/current` returns schema `1.1` projection inputs, provenance, derived values, aggregate cash-flow audit evidence, transaction window, records analysed, warnings, and mapping details. Missing mappings return HTTP 422. An invalid token returns a sanitized HTTP 401 response.
 
 Projection requests use this shape:
 
