@@ -12,7 +12,7 @@ Public content must remain generic. Do not add private financial values, account
 - Active capability: Government benefits
 - Status: In progress
 - Branch: `agent/add-government-benefits`
-- Latest validated implementation head: `0fd05e8386610f1f695fd69ed5e83e7f65d0b86d`
+- Latest validated implementation head: `1d7c9bcda56de9f7d8ac65e0f5663d889d3136fc`
 - Remaining step: repository-owner private local-configuration migration and smoke test
 - Next action: migrate the private benefit scalars to `governmentBenefits`, smoke-test the live dashboard and exports, then review draft PR #8
 - Last completed foundation: phased employment income and per-account contribution phases
