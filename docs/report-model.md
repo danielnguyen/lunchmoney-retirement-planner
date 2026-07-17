@@ -28,6 +28,8 @@ The retirement goal and goal gap use financial assets. They do not include debt 
 
 Lunch Money-derived employment income is net cash after payroll deductions, so the simplified effective tax rate is not applied to it again. The rate applies to gross CPP, OAS, pension income, and taxable RRSP/RRIF withdrawals. Contributions always increase their target investment balance; only contributions configured as cash-funded appear as cash outflows.
 
+Human-maintained account mappings, category mappings, assumptions, allocations, and future events use the canonical commented YAML planner configuration. YAML and legacy JSON inputs pass through the same validation and produce the same report model.
+
 JSON is the canonical, complete analysis export and includes the resolved baseline, derived baseline, provenance, warnings, active inputs, overrides, and complete projection. It is built by a typed allowlist. Account references are replaced consistently with deterministic export-local keys such as `tfsa_1`; every other source record receives an export-local key such as `event_1`, `recurring_expense_1`, or `category_1`.
 
 CSV is a conventional flat annual analysis table: exactly one header and one row per projection period. It includes the partial-period label, income streams, withdrawals, spending, tax, contributions, aggregate balances, financial assets, net worth, milestones, and optional `account_tfsa_1`-style balance columns. It has no metadata preamble, blank section, embedded JSON, or second schema.

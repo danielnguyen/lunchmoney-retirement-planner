@@ -1,5 +1,7 @@
 import { access, readFile } from "node:fs/promises";
 import { constants } from "node:fs";
+import { extname } from "node:path";
+import { parse as parseYaml } from "yaml";
 import {
   contributionFundingTypes,
   type AssetAllocation,
@@ -16,13 +18,13 @@ import {
   type TransactionClassification,
 } from "./types";
 
-export const DEFAULT_CONFIG_PATH = "config/planner.local.json";
+export const DEFAULT_CONFIG_PATH = "config/planner.local.yaml";
 
 function record(value: unknown, field: string): Record<string, unknown> {
   if (!value || typeof value !== "object" || Array.isArray(value)) {
     throw new PlannerRuntimeError(
       "invalid_planner_config",
-      `${field} must be an object in planner.local.json.`,
+      `${field} must be an object.`,
       422,
     );
   }
@@ -37,28 +39,28 @@ function number(
   if (typeof value !== "number" || !Number.isFinite(value)) {
     throw new PlannerRuntimeError(
       "invalid_planner_config",
-      `${field} must be a finite number in planner.local.json.`,
+      `${field} must be a finite number.`,
       422,
     );
   }
   if (options.integer && !Number.isInteger(value)) {
     throw new PlannerRuntimeError(
       "invalid_planner_config",
-      `${field} must be an integer in planner.local.json.`,
+      `${field} must be an integer.`,
       422,
     );
   }
   if (options.min !== undefined && value < options.min) {
     throw new PlannerRuntimeError(
       "invalid_planner_config",
-      `${field} must be at least ${options.min} in planner.local.json.`,
+      `${field} must be at least ${options.min}.`,
       422,
     );
   }
   if (options.max !== undefined && value > options.max) {
     throw new PlannerRuntimeError(
       "invalid_planner_config",
-      `${field} must be no greater than ${options.max} in planner.local.json.`,
+      `${field} must be no greater than ${options.max}.`,
       422,
     );
   }
@@ -79,7 +81,7 @@ function accountMapping(value: unknown, field: string): AccountMapping {
   if (typeof item.include !== "boolean") {
     throw new PlannerRuntimeError(
       "invalid_planner_config",
-      `${field}.include must be a boolean in planner.local.json.`,
+      `${field}.include must be a boolean.`,
       422,
     );
   }
@@ -269,7 +271,7 @@ function events(value: unknown): ProjectionEventInput[] {
   if (!Array.isArray(value)) {
     throw new PlannerRuntimeError(
       "invalid_planner_config",
-      "futureEvents must be an array in planner.local.json.",
+      "futureEvents must be an array.",
       422,
     );
   }
@@ -306,7 +308,7 @@ function events(value: unknown): ProjectionEventInput[] {
 }
 
 export function validatePlannerConfig(value: unknown): PlannerConfig {
-  const item = record(value, "planner.local.json");
+  const item = record(value, "The planner configuration");
   const rawAccountMappings = record(item.accountMappings, "accountMappings");
   const rawCategoryMappings = record(item.categoryMappings, "categoryMappings");
   const config: PlannerConfig = {
@@ -346,14 +348,14 @@ export function validatePlannerConfig(value: unknown): PlannerConfig {
   if (config.retirementAge <= config.currentAge) {
     throw new PlannerRuntimeError(
       "invalid_planner_config",
-      "retirementAge must be greater than currentAge in planner.local.json.",
+      "retirementAge must be greater than currentAge in the planner configuration.",
       422,
     );
   }
   if (config.projectionEndAge < config.retirementAge) {
     throw new PlannerRuntimeError(
       "invalid_planner_config",
-      "projectionEndAge must be at least retirementAge in planner.local.json.",
+      "projectionEndAge must be at least retirementAge in the planner configuration.",
       422,
     );
   }
@@ -374,24 +376,41 @@ export async function plannerConfigPresent(path = plannerConfigPath()): Promise<
 }
 
 export async function loadPlannerConfig(path = plannerConfigPath()): Promise<PlannerConfig> {
+  const extension = extname(path).toLowerCase();
+  const format =
+    extension === ".yaml" || extension === ".yml"
+      ? "YAML"
+      : extension === ".json"
+        ? "JSON"
+        : undefined;
+
+  if (!format) {
+    const extensionDescription = extension ? `"${extension}"` : "no extension";
+    throw new PlannerRuntimeError(
+      "invalid_planner_config",
+      `The planner configuration path "${path}" has an unsupported extension (${extensionDescription}). Use .yaml, .yml, or .json.`,
+      422,
+    );
+  }
+
   let contents: string;
   try {
     contents = await readFile(path, "utf8");
   } catch {
     throw new PlannerRuntimeError(
       "planner_config_missing",
-      "Private planner configuration is missing. Copy config/planner.example.json to config/planner.local.json and map your Lunch Money records.",
+      `The planner configuration is missing at "${path}". Copy config/planner.example.yaml to config/planner.local.yaml and map your Lunch Money records.`,
       422,
     );
   }
 
   let parsed: unknown;
   try {
-    parsed = JSON.parse(contents);
+    parsed = format === "YAML" ? parseYaml(contents) : JSON.parse(contents);
   } catch {
     throw new PlannerRuntimeError(
       "invalid_planner_config",
-      "Private planner configuration is not valid JSON.",
+      `The planner configuration at "${path}" is not valid ${format}.`,
       422,
     );
   }

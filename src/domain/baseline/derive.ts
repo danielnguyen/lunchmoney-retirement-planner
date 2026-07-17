@@ -564,7 +564,7 @@ export function deriveCurrentBaseline(
   if (blocking) {
     throw new PlannerRuntimeError(
       "configuration_required",
-      "Lunch Money connected, but planner.local.json needs additional mappings or assumptions before a projection can run.",
+      "Lunch Money connected, but the planner configuration needs additional mappings or assumptions before a projection can run.",
       422,
       {
         connection,

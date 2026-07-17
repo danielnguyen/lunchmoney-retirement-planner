@@ -8,7 +8,7 @@ The MVP is one Next.js application container with no database or background proc
 LUNCHMONEY_API_TOKEN
         |
         v
-read-only Lunch Money service ---- config/planner.local.json
+read-only Lunch Money service ---- config/planner.local.yaml
         |                                      |
         +------------------+-------------------+
                            v
@@ -29,7 +29,7 @@ Every baseline request fetches current manual accounts, Plaid accounts, categori
 
 The Lunch Money token is read only while constructing the server-side SDK client. The application-facing `LunchMoneyReadService` exposes five retrieval methods and no mutation method. API errors are translated to sanitized runtime errors before they reach a route response.
 
-Private assumptions and mappings are loaded from `PLANNER_CONFIG_PATH`, which defaults to `config/planner.local.json`. The local file is ignored by Git and the Docker build context.
+Private assumptions and mappings are loaded from `PLANNER_CONFIG_PATH`, which defaults to `config/planner.local.yaml`. YAML is the canonical human-maintained format and allows opaque Lunch Money identifiers to carry nearby account/category comments. The loader selects YAML or JSON from the configured file extension; `.yaml` and `.yml` are supported, while `.json` remains available for an explicitly configured compatibility path. All private local variants are ignored by Git and the Docker build context.
 
 Both export routes create one deterministic alias context per request. A typed, allowlisted transformation constructs the export model field by field; it never recursively copies the baseline or projection request. Included accounts, events, recurring expenses, categories, warnings, and unmapped records receive export-local aliases that are applied consistently to baseline inputs, active inputs, projection inputs, account-balance maps, provenance, overrides, contributions, and targets.
 

@@ -27,12 +27,12 @@ The end-to-end MVP is defined in [plan/README.md](plan/README.md). The runtime n
 
 ```bash
 cp .env.example .env
-cp config/planner.example.json config/planner.local.json
+cp config/planner.example.yaml config/planner.local.yaml
 npm install
 npm run dev
 ```
 
-Set `LUNCHMONEY_API_TOKEN` in `.env`. Replace every placeholder in `config/planner.local.json`; that file is Git-ignored and must remain private.
+Set `LUNCHMONEY_API_TOKEN` in `.env`. Replace every placeholder in `config/planner.local.yaml`; that file is Git-ignored and must remain private. YAML is the canonical human-maintained format so opaque account and category IDs can be documented with comments. Existing JSON configuration remains supported only when `PLANNER_CONFIG_PATH` explicitly points to a `.json` file.
 
 Open `http://localhost:3000`.
 
@@ -60,24 +60,22 @@ Credit-card payments and internal movements must be mapped as `transfer` or `exc
 
 An investment-contribution category can identify its target account and transaction direction:
 
-```json
-{
-  "classification": "investment_contribution",
-  "contributionAccountId": "plaid:123456",
-  "contributionDirection": "debit"
-}
+```yaml
+"replace-with-contribution-category-id": # Registered investment deposit
+  classification: investment_contribution
+  contributionAccountId: "plaid:replace-with-investment-account-id"
+  contributionDirection: debit
 ```
 
 Alternatively, an investment account mapping may provide an explicit `monthlyContribution`. It must also set `contributionFunding` to `cash` when the contribution reduces available cash or `income_withheld` when it was withheld before the Lunch Money income deposit:
 
-```json
-{
-  "include": true,
-  "type": "rrsp",
-  "monthlyContribution": 500,
-  "contributionFunding": "income_withheld",
-  "withdrawalPriority": 2
-}
+```yaml
+"manual:replace-with-investment-account-id": # Employer retirement account
+  include: true
+  type: rrsp
+  monthlyContribution: 500
+  contributionFunding: income_withheld
+  withdrawalPriority: 2
 ```
 
 Every contribution increases the investment balance. Only cash-funded contributions are projected as cash outflows. Transaction-derived contributions default to cash-funded unless their account mapping explicitly identifies them as income-withheld. The baseline and exports identify both the contribution source and funding mode.
@@ -129,11 +127,11 @@ Create the private files before starting Compose:
 
 ```bash
 cp .env.example .env
-cp config/planner.example.json config/planner.local.json
+cp config/planner.example.yaml config/planner.local.yaml
 docker compose up --build
 ```
 
-Compose starts one planner container, passes the token through the environment, and mounts `config/planner.local.json` read-only at `/app/config/planner.local.json`. PostgreSQL is not used.
+Compose starts one planner container, passes the token through the environment, and mounts `config/planner.local.yaml` read-only at `/app/config/planner.local.yaml`. The mount retains the Fedora-compatible `:ro,Z` SELinux option. PostgreSQL is not used.
 
 ## Validation
 
@@ -153,7 +151,7 @@ Tests use synthetic fixtures under `tests/`. Production modules do not import th
 - The token is never logged, returned by an API, or included in an export.
 - JSON and CSV exports use deterministic export-local aliases and exclude all source-system IDs and user-controlled free text before serialization.
 - The application-facing Lunch Money service exposes retrieval methods only.
-- `config/planner.local.json`, `.env`, and the private config in the Docker build context are ignored.
+- `config/planner.local.yaml`, `config/planner.local.yml`, `config/planner.local.json`, `.env`, and the private config in the Docker build context are ignored.
 - No baseline, scenario, transaction, or account data is persisted by the application.
 
 ## Projection scope

@@ -5,6 +5,8 @@ coverage
 .env
 .env.local
 .env.*.local
+config/planner.local.yaml
+config/planner.local.yml
 config/planner.local.json
 *.log
 .DS_Store

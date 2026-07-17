@@ -79,45 +79,40 @@ Household members, combined-household reporting, expense sharing, and member swi
 The application reads a private local configuration file:
 
 ```text
-config/planner.local.json
+config/planner.local.yaml
 ```
 
 The file must be excluded from Git. The repository provides a public template:
 
 ```text
-config/planner.example.json
+config/planner.example.yaml
 ```
 
 The local configuration contains only information that Lunch Money cannot determine safely or fields that require an explicit assumption.
+YAML is canonical so human-readable account and category names can be kept as comments beside quoted opaque Lunch Money IDs. The runtime selects its parser from the file extension, accepts `.yaml` and `.yml`, and retains `.json` only for explicitly configured backward compatibility. Every format passes through the same planner configuration validator.
 
 Example shape:
 
-```json
-{
-  "currentAge": 40,
-  "retirementAge": 65,
-  "projectionEndAge": 95,
-  "cppStartAge": 65,
-  "oasStartAge": 65,
-  "accountMappings": {
-    "lunch-money-account-id": {
-      "include": true,
-      "type": "rrsp",
-      "monthlyContribution": 500,
-      "contributionFunding": "income_withheld"
-    }
-  },
-  "categoryMappings": {
-    "lunch-money-category-id": "essential"
-  },
-  "assumptions": {
-    "inflation": 0.02,
-    "cashReturn": 0.02,
-    "tfsaReturn": 0.05,
-    "rrspReturn": 0.05,
-    "nonRegisteredReturn": 0.05
-  }
-}
+```yaml
+currentAge: 40
+retirementAge: 65
+projectionEndAge: 95
+cppStartAge: 65
+oasStartAge: 65
+accountMappings:
+  "manual:lunch-money-account-id": # Employer retirement account
+    include: true
+    type: rrsp
+    monthlyContribution: 500
+    contributionFunding: income_withheld
+categoryMappings:
+  "lunch-money-category-id": essential # Groceries
+assumptions:
+  inflation: 0.02
+  cashReturn: 0.02
+  tfsaReturn: 0.05
+  rrspReturn: 0.05
+  nonRegisteredReturn: 0.05
 ```
 
 Supported planner account types:
@@ -277,7 +272,7 @@ The header must show:
 
 When the baseline cannot be loaded, the dashboard shows the error and no projection charts.
 
-When mappings are incomplete, the dashboard shows the missing identifiers and names needed to update `planner.local.json`.
+When mappings are incomplete, the dashboard shows the missing identifiers and names needed to update the planner configuration.
 
 ## Calculator controls
 
@@ -389,7 +384,7 @@ Example runtime inputs:
 
 ```text
 LUNCHMONEY_API_TOKEN
-PLANNER_CONFIG_PATH=/app/config/planner.local.json
+PLANNER_CONFIG_PATH=/app/config/planner.local.yaml
 ```
 
 CI and GHCR publishing remain in scope.
