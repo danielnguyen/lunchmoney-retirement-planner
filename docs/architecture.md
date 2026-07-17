@@ -52,7 +52,7 @@ The transaction endpoint is requested with group children included, then group p
 
 Positive Lunch Money amounts are debits and negative amounts are credits. Spending uses signed debit totals so refunds reduce spending. Income reverses the sign so credits are positive. Contribution mappings explicitly select debit or credit direction and identify a target investment account.
 
-Mapped income is treated as net deposited employment cash. Baseline resolution converts configured `live_baseline` values to concrete numeric employment and contribution phase fields before projection validation. The engine never receives unresolved source strings.
+Mapped income is treated as net deposited employment cash. Baseline resolution converts configured `live_baseline` values to concrete numeric employment and contribution phase fields before projection validation. Within explicit contribution phases, `live_baseline` resolves only from mapped Lunch Money contribution transactions. Legacy account-level contribution fields are normalized only when contribution phases are omitted; the two forms cannot be combined. The engine never receives unresolved source strings.
 
 Explicit employment phases are contiguous from current age through retirement; contribution phases are independently non-overlapping per investment account and may contain zero-contribution gaps. Phase IDs, labels, boundaries, amount, growth or indexing, and funding receive field-level provenance. Legacy scalar income growth and account contribution fields are normalized deterministically into fallback phases and identified as compatibility behavior. A current Lunch Money income phase longer than five years produces a non-blocking warning.
 
@@ -72,7 +72,7 @@ An active phase amount, phase growth/indexing value, or other control that diffe
 
 Projection schema `4.0` models one person, explicit resolved employment-income phases, per-account contribution phases, optional future events, and simplified tax assumptions. Its ISO start date is the live baseline data-through date. For each working-month interval, the engine selects the active employment phase and independently selects each account’s contribution phase. Growth and indexing restart at each phase boundary; employment and contributions stop after the final working month.
 
-The engine captures `retirementSnapshot` at the end of the final working month, immediately before the first fully retired month. The Assets at retirement summary reads the exact real-dollar snapshot instead of the next calendar-year row. Calendar charts and the ledger continue to use annual snapshots.
+The engine captures `retirementSnapshot` at the end of the final working month, immediately before the first fully retired month. Its balances, account balances, and allocation are that exact point-in-time snapshot. Its income, withdrawals, outflows, contributions, and per-account contribution fields cover only the final working month, identified by `flowPeriod.kind: final_working_month` and a `YYYY-MM` calendar month. The Assets at retirement summary reads the exact real-dollar snapshot instead of the next calendar-year row. Calendar charts and the ledger continue to use annual flows and snapshots.
 
 The engine also accumulates nominal and real `financialAssetsBridge` records from opening financial assets to the exact retirement snapshot. Employment cash, public benefits and pension, future-event inflows, income-withheld contributions, actual non-debt returns, spending, one-time outflows, and taxes are recorded from the same monthly loop. Cash-funded contributions are excluded because they transfer value between financial accounts. Projection calculation fails its tests if either bridge misses the exact snapshot by more than one cent.
 
@@ -80,7 +80,7 @@ The simplified effective rate is applied to gross retirement income and taxable 
 
 The retirement goal comparison uses financial assets—cash, TFSA, RRSP/RRIF, and non-registered accounts—not real assets or total net worth. Debt remains visible in the ledger but is not added to the goal asset total.
 
-Browser controls materialize temporary inputs from the current baseline and call the projection API. Employment phase amounts/growth and contribution phase amounts/indexing are independently overrideable; phase boundaries are not. A field reset removes one override. Reset all removes every override. Refresh requests a new baseline, re-resolves `live_baseline`, and clears overrides.
+Browser controls materialize temporary inputs from the current baseline and call the projection API. Employment phase amounts/growth and contribution phase amounts/indexing are independently overrideable; phase boundaries are not. A field reset removes one override. Reset all removes every override. Refresh requests a new baseline, re-resolves `live_baseline`, and clears overrides. The visible long-current-income warning is resolved from this active scenario: changing a live-baseline phase amount removes it, changing growth alone does not, and resetting the amount restores it.
 
 ## Runtime states
 

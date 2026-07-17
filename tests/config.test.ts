@@ -37,6 +37,15 @@ describe("private planner configuration", () => {
 
     expect(contents).toContain("# Daily chequing account");
     expect(contents).toContain("# Groceries");
+    expect(contents).toContain(
+      "Inside an explicit contribution phase, live_baseline resolves only",
+    );
+    expect(contents).toContain(
+      "Legacy account-level contribution fields are a separate compatibility",
+    );
+    expect(contents).not.toContain(
+      "mapped contribution transactions or the",
+    );
     expect(config.transactionTrailingMonths).toBe(12);
     expect(config.accountMappings).toHaveProperty("manual:replace-with-cash-account-id");
     expect(config.employmentIncomePhases).toEqual([
@@ -53,6 +62,12 @@ describe("private planner configuration", () => {
       config.accountMappings["plaid:replace-with-investment-account-id"]
         .contributionPhases,
     ).toHaveLength(2);
+    expect(
+      config.accountMappings["plaid:replace-with-investment-account-id"],
+    ).not.toHaveProperty("monthlyContribution");
+    expect(
+      config.accountMappings["plaid:replace-with-investment-account-id"],
+    ).not.toHaveProperty("contributionFunding");
   });
 
   it("ignores YAML comments without changing configuration values", async () => {

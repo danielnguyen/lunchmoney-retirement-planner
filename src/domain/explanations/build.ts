@@ -1,4 +1,5 @@
 import type { BaselineValue } from "@/src/domain/defaults/types";
+import { resolveActiveScenarioWarnings } from "@/src/domain/baseline/scenario-warnings";
 import {
   buildAnnualChartData,
   buildAnnualLedgerData,
@@ -197,10 +198,12 @@ function contributionPhaseRows(context: ExplanationContext) {
   );
 }
 
-function longIncomeWarning(context: ExplanationContext): string | undefined {
-  return context.baseline.warnings.find(
+function longIncomeWarnings(context: ExplanationContext): string[] {
+  return resolveActiveScenarioWarnings(context.baseline, context.inputs)
+    .filter(
     (warning) => warning.code === "long_live_baseline_income",
-  )?.message;
+    )
+    .map((warning) => warning.message);
 }
 
 function commonAssumptions(context: ExplanationContext) {
@@ -577,7 +580,7 @@ function assetsAtRetirementDocument(context: ExplanationContext): ExplanationDoc
       "This card always uses today’s dollars, even when the charts are showing future dollars.",
       "The retirement snapshot is the end of the final working month, not the following December snapshot.",
       "Cash-funded contributions move money between financial accounts and therefore do not appear as an external inflow or outflow in the total-assets bridge.",
-      ...(longIncomeWarning(context) ? [longIncomeWarning(context)!] : []),
+      ...longIncomeWarnings(context),
       "This is a deterministic projection, not a guarantee of future returns or balances.",
     ],
     reconciliation: {
@@ -756,7 +759,7 @@ function durationDocument(context: ExplanationContext): ExplanationDocument {
     assumptions: commonAssumptions(context),
     caveats: [
       "Past age means the model did not observe depletion before the configured end age; it does not mean assets last forever.",
-      ...(longIncomeWarning(context) ? [longIncomeWarning(context)!] : []),
+      ...longIncomeWarnings(context),
       "Deterministic results are not a guarantee and do not model market-sequence uncertainty.",
     ],
   };
@@ -1120,9 +1123,7 @@ function baselineMetricDocument(
     caveats: [
       definition.caveat,
       "The final audit row may absorb a one-cent rounding remainder so row averages reconcile to the model’s monthly value.",
-      ...(target === "baseline-income" && longIncomeWarning(context)
-        ? [longIncomeWarning(context)!]
-        : []),
+      ...(target === "baseline-income" ? longIncomeWarnings(context) : []),
     ],
     reconciliation: matched(calculatedActive, definition.displayed),
   };

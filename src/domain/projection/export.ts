@@ -732,6 +732,10 @@ function safeProjectionResult(
     retirementSnapshot: {
       calendarDate: projection.retirementSnapshot.calendarDate,
       age: projection.retirementSnapshot.age,
+      flowPeriod: {
+        kind: projection.retirementSnapshot.flowPeriod.kind,
+        calendarMonth: projection.retirementSnapshot.flowPeriod.calendarMonth,
+      },
       nominal: safeProjectionView(projection.retirementSnapshot.nominal, context),
       real: safeProjectionView(projection.retirementSnapshot.real, context),
     },

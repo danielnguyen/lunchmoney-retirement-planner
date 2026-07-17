@@ -316,8 +316,6 @@ export function calculateProjection(rawInputs: ProjectionInputs): ProjectionResu
   const realBridge = emptyBridge(startingFinancialAssets);
   let annualNominalFlow = emptyView();
   let annualRealFlow = emptyView();
-  const retirementNominalFlow = emptyView();
-  const retirementRealFlow = emptyView();
   let annualEmploymentPhaseLabels = new Set<string>();
   let annualContributionPhaseLabels = new Map<string, Set<string>>();
   let financialAssetsDepletionAge: number | null = null;
@@ -538,9 +536,6 @@ export function calculateProjection(rawInputs: ProjectionInputs): ProjectionResu
     addMonthlyFlow(annualNominalFlow, monthlyFlow, 1);
     addMonthlyFlow(annualRealFlow, monthlyFlow, factor);
     if (month <= retirementMonth) {
-      addMonthlyFlow(retirementNominalFlow, monthlyFlow, 1);
-      addMonthlyFlow(retirementRealFlow, monthlyFlow, factor);
-
       const requestedExternalOutflows =
         monthlyFlow.outflows.essential +
         monthlyFlow.outflows.discretionary +
@@ -583,11 +578,17 @@ export function calculateProjection(rawInputs: ProjectionInputs): ProjectionResu
       financialAssetsDepletionAge = age;
     }
     if (month === retirementMonth) {
+      const retirementRealMonthlyFlow = emptyView();
+      addMonthlyFlow(retirementRealMonthlyFlow, monthlyFlow, factor);
       retirementSnapshot = {
         calendarDate: lastDayOfMonth(calendarYear, calendarMonth),
         age: round(inputs.person.retirementAge),
-        nominal: snapshotView(retirementNominalFlow, inputs.accounts, balances, 1),
-        real: snapshotView(retirementRealFlow, inputs.accounts, balances, factor),
+        flowPeriod: {
+          kind: "final_working_month",
+          calendarMonth: `${calendarYear}-${String(calendarMonth).padStart(2, "0")}`,
+        },
+        nominal: snapshotView(monthlyFlow, inputs.accounts, balances, 1),
+        real: snapshotView(retirementRealMonthlyFlow, inputs.accounts, balances, factor),
       };
       nominalBridge.endingFinancialAssets =
         retirementSnapshot.nominal.balances.financialAssets;

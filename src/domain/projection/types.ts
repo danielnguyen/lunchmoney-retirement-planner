@@ -173,6 +173,10 @@ export type ProjectionObservation = {
 export type RetirementSnapshot = {
   calendarDate: string;
   age: number;
+  flowPeriod: {
+    kind: "final_working_month";
+    calendarMonth: string;
+  };
   nominal: ProjectionView;
   real: ProjectionView;
 };

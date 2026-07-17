@@ -22,6 +22,7 @@ import {
   ExplainableHeading,
   ExplanationDrawer,
 } from "@/components/explanations";
+import { resolveActiveScenarioWarnings } from "@/src/domain/baseline/scenario-warnings";
 import type { CurrentBaseline } from "@/src/domain/baseline/types";
 import { buildExplanation } from "@/src/domain/explanations/build";
 import type { ExplanationTarget } from "@/src/domain/explanations/types";
@@ -523,6 +524,7 @@ export function PlannerDashboard() {
   );
   const activeMonthlyIncome = monthlyEmploymentNetCash(inputs);
   const activeMonthlyContributions = monthlyInvestmentContributions(inputs);
+  const activeWarnings = resolveActiveScenarioWarnings(baseline, inputs);
   const explanationDocument =
     projection && activeExplanation
       ? buildExplanation(activeExplanation.target, {
@@ -581,9 +583,9 @@ export function PlannerDashboard() {
         <button className="button secondary no-print" onClick={() => void refresh()}>Refresh Lunch Money</button>
       </section>
 
-      {baseline.warnings.length > 0 ? (
+      {activeWarnings.length > 0 ? (
         <section className="warning-panel" aria-label="Baseline warnings">
-          {baseline.warnings.map((warning, index) => (
+          {activeWarnings.map((warning, index) => (
             <p key={`${warning.code}-${index}`}>{warning.message}</p>
           ))}
         </section>

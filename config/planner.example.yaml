@@ -56,8 +56,10 @@ accountMappings:
         label: Current saving
         startAge: 38
         endAge: 41
-        # live_baseline resolves from mapped contribution transactions or the
-        # legacy configured monthly contribution for this account.
+        # Inside an explicit contribution phase, live_baseline resolves only
+        # from mapped Lunch Money contribution transactions for this account.
+        # Legacy account-level contribution fields are a separate compatibility
+        # input and cannot be combined with contributionPhases.
         monthlyAmountToday: live_baseline
         # cash: contribution leaves available cash as an outflow.
         funding: cash

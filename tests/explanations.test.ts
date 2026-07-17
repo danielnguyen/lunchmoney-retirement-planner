@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import { resolveActiveScenarioWarnings } from "@/src/domain/baseline/scenario-warnings";
 import { buildExplanation } from "@/src/domain/explanations/build";
 import {
   explanationTargets,
@@ -264,15 +265,8 @@ describe("calculation explanations", () => {
     );
   });
 
-  it("surfaces a long live-baseline income warning in relevant explanations", () => {
-    const value = context((draft) => {
-      draft.baseline.warnings.push({
-        code: "long_live_baseline_income",
-        severity: "warning",
-        message:
-          "Current Lunch Money employment income is assumed to continue for 25 years. Consider configuring future employment-income phases.",
-      });
-    });
+  it("makes the long live-baseline income warning follow the active scenario", () => {
+    const value = context();
 
     for (const target of [
       "assets-at-retirement",
@@ -285,6 +279,67 @@ describe("calculation explanations", () => {
         ),
       ).toBe(true);
     }
+
+    const amountOverride = context((draft) => {
+      draft.inputs.person.employmentIncomePhases[0]!.annualNetCashToday = 70000;
+      draft.overrides = {
+        "employmentPhase.current-income.annualNetCashToday": 70000,
+      };
+      draft.projection = calculateProjection(draft.inputs);
+    });
+    expect(resolveActiveScenarioWarnings(
+      amountOverride.baseline,
+      amountOverride.inputs,
+    ).some((warning) => warning.code === "long_live_baseline_income")).toBe(false);
+    for (const target of [
+      "assets-at-retirement",
+      "financial-assets-duration",
+      "baseline-income",
+    ] as const) {
+      expect(
+        buildExplanation(target, amountOverride).caveats.some((caveat) =>
+          caveat.includes("Current Lunch Money employment income"),
+        ),
+      ).toBe(false);
+    }
+
+    const growthOnlyOverride = context((draft) => {
+      draft.inputs.person.employmentIncomePhases[0]!.annualGrowth = 0.03;
+      draft.overrides = {
+        "employmentPhase.current-income.annualGrowth": 0.03,
+      };
+      draft.projection = calculateProjection(draft.inputs);
+    });
+    expect(resolveActiveScenarioWarnings(
+      growthOnlyOverride.baseline,
+      growthOnlyOverride.inputs,
+    ).some((warning) => warning.code === "long_live_baseline_income")).toBe(true);
+
+    const reset = context();
+    expect(resolveActiveScenarioWarnings(
+      reset.baseline,
+      reset.inputs,
+    ).some((warning) => warning.code === "long_live_baseline_income")).toBe(true);
+
+    const configuredNumeric = context((draft) => {
+      draft.baseline.provenance[
+        "person.employmentIncomePhases.current-income.annualNetCashToday"
+      ] = {
+        value: 84000,
+        sourceType: "local_configuration",
+        sourceDescription: "Explicit configured phase amount",
+        effectiveDate: "2026-07-14",
+      };
+      draft.baseline.warnings.push({
+        code: "long_live_baseline_income",
+        severity: "warning",
+        message: "Static refreshed-baseline warning that must be replaced.",
+      });
+    });
+    expect(resolveActiveScenarioWarnings(
+      configuredNumeric.baseline,
+      configuredNumeric.inputs,
+    ).some((warning) => warning.code === "long_live_baseline_income")).toBe(false);
   });
 
   it("reconciles multiple financial and debt accounts to the total included-account count", () => {

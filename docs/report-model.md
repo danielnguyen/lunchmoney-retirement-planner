@@ -37,11 +37,13 @@ Lunch Money-derived employment income is net cash after payroll deductions, so t
 
 Each included investment account has its own non-overlapping contribution phases. A gap means zero contribution. Funding and phase-local indexing may change at a phase boundary. Contributions always increase their target investment balance; only cash-funded contributions appear as cash outflows. Income-withheld contributions are external additions because they are not part of net deposited cash.
 
+Within an explicit contribution phase, `live_baseline` resolves only from mapped Lunch Money contribution transactions for that account. When contribution phases are omitted, positive legacy account-level contribution fields normalize into one compatibility phase. Explicit contribution phases and legacy contribution fields cannot be combined.
+
 Human-maintained account mappings, category mappings, assumptions, allocations, and future events use the canonical commented YAML planner configuration. YAML and legacy JSON inputs pass through the same validation and produce the same report model.
 
 Cash-flow audit evidence records the aggregate category/account contribution to each derived value without retaining raw transactions. Lunch Money amounts and names remain distinguishable from local YAML assumptions, compatibility fallbacks, temporary browser overrides, and projection output. The baseline schema is `1.2`; the projection and export schemas are `4.0`.
 
-The retirement summary uses an exact snapshot at the end of the final working month, immediately before the first fully retired month. Its explanation first reconciles cash + TFSA + RRSP/RRIF + non-registered balances, then shows the scenario’s employment and contribution paths and a today-dollar accumulation bridge:
+The retirement summary uses an exact snapshot at the end of the final working month, immediately before the first fully retired month. Snapshot balances, account balances, and allocation are point-in-time values. Snapshot income, withdrawals, outflows, contributions, and account contributions cover only the final working month; `flowPeriod` identifies that `YYYY-MM` period. The cumulative start-to-retirement activity remains in the financial-assets bridge. The explanation first reconciles cash + TFSA + RRSP/RRIF + non-registered balances, then shows the scenario’s employment and contribution paths and a today-dollar accumulation bridge:
 
 ```text
 starting financial assets

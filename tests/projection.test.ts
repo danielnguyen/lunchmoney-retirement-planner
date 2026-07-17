@@ -258,7 +258,8 @@ describe("resolved contribution phases", () => {
       },
     ];
     const result = calculateProjection(input);
-    expect(result.retirementSnapshot.nominal.contributions.total).toBe(600);
+    expect(result.annual[0]!.nominal.contributions.total).toBe(600);
+    expect(result.retirementSnapshot.nominal.contributions.total).toBe(100);
 
     input.accounts[1]!.contributionPhases[0]!.monthlyAmountToday = 0;
     expect(calculateProjection(input).retirementSnapshot.nominal.contributions.total).toBe(0);
@@ -316,7 +317,60 @@ describe("exact retirement snapshot and accumulation bridge", () => {
     expect(result.schemaVersion).toBe("4.0");
     expect(result.retirementSnapshot.calendarDate).toBe("2026-12-31");
     expect(result.retirementSnapshot.age).toBe(41);
+    expect(result.retirementSnapshot.flowPeriod).toEqual({
+      kind: "final_working_month",
+      calendarMonth: "2026-12",
+    });
     expect(result.summary.retirementDate).toBe("2026-12-31");
+  });
+
+  it("keeps snapshot flows monthly while balances and the bridge retain retirement totals", () => {
+    const input = oneYearFixture();
+    input.person.retirementAge = 55;
+    input.endAge = 55;
+    input.person.employmentIncomePhases = [{
+      id: "fifteen-working-years",
+      label: "Fifteen working years",
+      startAge: 40,
+      endAge: 55,
+      annualNetCashToday: 12000,
+      annualGrowth: 0,
+    }];
+    input.accounts[1]!.contributionPhases = [{
+      id: "fifteen-saving-years",
+      label: "Fifteen saving years",
+      startAge: 40,
+      endAge: 55,
+      monthlyAmountToday: 100,
+      funding: "cash",
+      indexingRate: 0,
+    }];
+
+    const result = calculateProjection(input);
+    const finalAnnualRow = result.annual.at(-1)!;
+
+    expect(result.annual).toHaveLength(15);
+    expect(result.annual.map((row) => row.nominal.income.employment))
+      .toEqual(Array.from({ length: 15 }, () => 12000));
+    expect(result.annual.map((row) => row.nominal.contributions.total))
+      .toEqual(Array.from({ length: 15 }, () => 1200));
+    expect(result.retirementSnapshot.nominal.income.employment).toBe(1000);
+    expect(result.retirementSnapshot.nominal.contributions.total).toBe(100);
+    expect(
+      result.retirementSnapshot.nominal.accountContributions["manual:2"],
+    ).toBe(100);
+    expect(result.retirementSnapshot.nominal.balances).toEqual(
+      finalAnnualRow.nominal.balances,
+    );
+    expect(result.retirementSnapshot.nominal.accountBalances).toEqual(
+      finalAnnualRow.nominal.accountBalances,
+    );
+    expect(result.financialAssetsBridge.nominal.employmentNetCash).toBe(180000);
+    expect(result.financialAssetsBridge.nominal.endingFinancialAssets).toBe(280000);
+    expect(bridgeEnding(result, "nominal")).toBeCloseTo(
+      result.financialAssetsBridge.nominal.endingFinancialAssets,
+      2,
+    );
   });
 
   it("captures a mid-calendar-year retirement instead of the following December snapshot", () => {

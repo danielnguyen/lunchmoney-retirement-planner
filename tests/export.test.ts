@@ -423,6 +423,10 @@ describe("identifier-scrubbed projection exports", () => {
       nominal: expect.any(Object),
       real: expect.any(Object),
     });
+    expect(snapshot.projection.retirementSnapshot.flowPeriod).toEqual({
+      kind: "final_working_month",
+      calendarMonth: projection.retirementSnapshot.flowPeriod.calendarMonth,
+    });
     expect(snapshot.projection.financialAssetsBridge).toEqual(
       projection.financialAssetsBridge,
     );
