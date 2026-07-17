@@ -112,6 +112,20 @@ describe("explanation accessibility components", () => {
     expect(opener).toHaveFocus();
   });
 
+  it("closes when the backdrop is clicked but not when the drawer is clicked", () => {
+    render(<Harness />);
+    const opener = screen.getByRole("button", { name: "Explain" });
+    fireEvent.click(opener);
+    const dialog = screen.getByRole("dialog", { name: "Starting financial assets" });
+
+    fireEvent.click(dialog);
+    expect(dialog).toBeInTheDocument();
+
+    fireEvent.click(screen.getByTestId("explanation-overlay"));
+    expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
+    expect(opener).toHaveFocus();
+  });
+
   it("traps keyboard focus inside the open drawer", () => {
     render(<Harness />);
     fireEvent.click(screen.getByRole("button", { name: "Explain" }));

@@ -244,7 +244,13 @@ export function ExplanationDrawer({
   }, [document.id, onClose, opener]);
 
   return (
-    <div className="explanation-overlay no-print" data-testid="explanation-overlay">
+    <div
+      className="explanation-overlay no-print"
+      data-testid="explanation-overlay"
+      onClick={(event) => {
+        if (event.target === event.currentTarget) onClose();
+      }}
+    >
       <aside
         className="explanation-drawer"
         ref={dialogRef}
