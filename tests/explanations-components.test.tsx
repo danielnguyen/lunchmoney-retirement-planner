@@ -156,4 +156,13 @@ describe("explanation accessibility components", () => {
       expect(dashboard).toContain(`target="${target}"`);
     }
   });
+
+  it("renders government-benefit values from the calculation result", async () => {
+    const dashboard = await readFile("components/planner-dashboard.tsx", "utf8");
+
+    expect(dashboard).toContain("projection.governmentBenefits.cpp");
+    expect(dashboard).toContain("projection.governmentBenefits.oas");
+    expect(dashboard).not.toContain("cppClaimFactor");
+    expect(dashboard).not.toContain("oasClaimFactor");
+  });
 });

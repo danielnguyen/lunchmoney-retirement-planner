@@ -67,10 +67,8 @@ Required personal assumptions:
 - current age
 - retirement age
 - projection end age
-- CPP start age
-- OAS start age
-- CPP amount at age 65 or an explicit reference default
-- OAS amount at age 65 or an explicit reference default
+- CPP claim age, indexing, and explicit dated amount source
+- OAS claim age, indexing, full-amount source, and explicit eligibility
 
 Household members, combined-household reporting, expense sharing, and member switching are out of scope.
 
@@ -97,8 +95,19 @@ Example shape:
 currentAge: 38
 retirementAge: 62
 projectionEndAge: 95
-cppStartAge: 65
-oasStartAge: 65
+governmentBenefits:
+  cpp:
+    startAge: 65
+    indexingRate: 0.02
+    amountAt65:
+      source: canadian_reference
+  oas:
+    startAge: 65
+    indexingRate: 0.02
+    fullAmountAt65:
+      source: canadian_reference
+    eligibility:
+      mode: full
 employmentIncomePhases:
   - id: current-income
     label: Current income
@@ -141,6 +150,8 @@ assumptions:
   rrspReturn: 0.05
   nonRegisteredReturn: 0.05
 ```
+
+CPP source modes distinguish a privately entered official estimate, an explicit planning amount, the dated Canadian average reference, and intentional zero. OAS resolves its full amount separately from explicit full, partial, or absent eligibility; partial eligibility is asserted qualifying residence years divided by 40. CPP and OAS claim adjustments and the permanent 10% OAS increase beginning after age 75 are calculated in the monthly projection. Legacy scalar benefit fields remain deterministic compatibility inputs but cannot be mixed with `governmentBenefits`.
 
 Supported planner account types:
 
@@ -338,12 +349,12 @@ Every major summary card, main chart, annual ledger, resolved cash-flow value, a
 - a one- or two-sentence accessible tooltip describing meaning
 - an `Explain` action that opens a focus-trapped modal drawer
 - deterministic formula steps and exact current values
-- Lunch Money, local configuration, temporary override, and projection source labels
+- Lunch Money, local configuration, Canadian reference, temporary override, and projection source labels
 - effective dates, the transaction window, assumptions, caveats, and data tables
 
 Explanation documents are typed domain output. They consume the same current baseline, active phase inputs, overrides, projection result, dollar mode, and selected allocation year as the report. Shared presentation-data builders feed both chart/ledger rendering and explanation tables. The Assets at retirement explanation includes the exact snapshot, accumulation bridge, employment path, contribution path, and any long-current-income warning. A reconciliation confirmation is shown only after exact model-precision agreement.
 
-The baseline API schema `1.2` includes aggregate cash-flow audit evidence and resolved phase provenance:
+The baseline API schema `1.3` includes aggregate cash-flow audit evidence, resolved phase provenance, and concrete CPP/OAS inputs with dated source and statutory-rule provenance:
 
 - income, essential spending, and discretionary spending grouped by category and account
 - investment contributions grouped by account with funding and derivation source
@@ -355,7 +366,7 @@ Temporary overrides replace the active explanation input while retaining the ref
 
 Phase overrides affect an amount, growth, or indexing field only. Phase boundaries remain YAML-only to prevent browser-created gaps or overlaps. Refresh clears every override and re-resolves any `live_baseline` phase.
 
-Covered targets are the five summary cards, annual spending, annual funding, outflows, account burndown, asset allocation, the annual ledger, five resolved cash-flow rows, and the account section. Per-cell, per-account-row, and per-chart-bar explanations remain intentionally deferred.
+Covered targets are the five summary cards, annual spending, annual funding, outflows, account burndown, asset allocation, the annual ledger, five resolved cash-flow rows, the account section, and dedicated CPP and OAS calculations. Per-cell, per-account-row, and per-chart-bar explanations remain intentionally deferred.
 
 ## Reports
 
@@ -429,7 +440,7 @@ The JSON transformation is typed and allowlisted. It must not copy arbitrary sou
 
 Descriptive financial context is preserved. Account labels and names, future-event labels, recurring-item descriptions, warning names and messages, provenance descriptions, and other user-facing financial labels remain in JSON so the exported plan can be understood and analyzed. Known source-system identifiers and credentials are removed if they occur inside retained descriptions. The export also preserves analytical amounts, dates, classifications, directions, warning codes and severities, safe target references, provenance source types, effective dates, and safe field references.
 
-Schema `4.0` JSON remains the complete analysis export and includes resolved phases, exact retirement snapshot, accumulation bridges, and explicit metadata describing its typed identifier-removal transformation. Account references use export-local keys. CSV is one conventional flat annual table with exactly one header and one row per projection period. It includes the partial-period label, employment phase, annual employment cash, separate cash-funded and income-withheld contribution totals, withdrawals, spending, tax, aggregate balances, financial assets, net worth, milestones, and optional per-account balance columns keyed only by export-local account references. CSV must not contain metadata preambles, blank section separators, phase arrays, embedded JSON, or multiple table schemas.
+Schema `5.0` JSON remains the complete analysis export and includes resolved phases, concrete CPP/OAS inputs and calculation summaries, safe public reference metadata, the exact retirement snapshot, accumulation bridges, and explicit metadata describing its typed identifier-removal transformation. Account references use export-local keys. CSV is one conventional flat annual table with exactly one header and one row per projection period. It includes the partial-period label, employment phase, annual employment cash, flat CPP/OAS basis columns, separate cash-funded and income-withheld contribution totals, withdrawals, spending, tax, aggregate balances, financial assets, net worth, milestones, and optional per-account balance columns keyed only by export-local account references. CSV must not contain metadata preambles, blank section separators, phase arrays, embedded JSON, or multiple table schemas.
 
 ## Docker runtime
 

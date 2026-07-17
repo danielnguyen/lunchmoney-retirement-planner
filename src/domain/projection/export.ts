@@ -40,6 +40,7 @@ export type ShareSafeProvenanceValue = {
   sourceDescription: string;
   effectiveDate: string;
   referenceKind?: CanadianReferenceKind;
+  referenceUrl?: string;
 };
 
 export type ShareSafeDerivedBaseline = {
@@ -83,7 +84,7 @@ export type ShareSafeDerivedBaseline = {
 };
 
 export type ProjectionSnapshot = {
-  schemaVersion: "4.0";
+  schemaVersion: "5.0";
   generatedAt: string;
   exportMetadata: {
     transformation: "typed_allowlist";
@@ -220,10 +221,21 @@ const SAFE_PROVENANCE_FIELDS = new Set([
   "person.pensionIndexingRate",
   "person.cpp.startAge",
   "person.cpp.monthlyAmountAt65Today",
+  "person.cpp.amountSourceMode",
+  "person.cpp.effectiveDate",
+  "person.cpp.claimAdjustmentRule",
   "person.cpp.indexingRate",
   "person.oas.startAge",
-  "person.oas.monthlyAmountAt65Today",
+  "person.oas.fullAmountSourceMode",
+  "person.oas.fullMonthlyAmountAt65Today",
+  "person.oas.effectiveDate",
+  "person.oas.eligibility.mode",
+  "person.oas.eligibility.qualifyingResidenceYearsAfter18",
+  "person.oas.eligibility.fraction",
   "person.oas.indexingRate",
+  "person.oas.delayedClaimRule",
+  "person.oas.age75IncreaseRule",
+  "person.oas.age75IncreaseRate",
   "person.rrifConversionAge",
   "tax.effectiveTaxRate",
   "tax.oasRecoveryThresholdToday",
@@ -280,6 +292,10 @@ const BASELINE_WARNING_CODES = new Set([
   "withdrawal_priority_required",
   "negative_asset_balance",
   "long_live_baseline_income",
+  "cpp_canadian_reference_in_use",
+  "oas_canadian_reference_in_use",
+  "legacy_zero_cpp_amount",
+  "legacy_zero_oas_amount",
 ]);
 
 const REFERENCE_KINDS = new Set<CanadianReferenceKind>([
@@ -617,8 +633,16 @@ function safeProjectionInputs(
       },
       oas: {
         startAge: inputs.person.oas.startAge,
-        monthlyAmountAt65Today: inputs.person.oas.monthlyAmountAt65Today,
+        fullMonthlyAmountAt65Today:
+          inputs.person.oas.fullMonthlyAmountAt65Today,
+        eligibility: {
+          mode: inputs.person.oas.eligibility.mode,
+          qualifyingResidenceYearsAfter18:
+            inputs.person.oas.eligibility.qualifyingResidenceYearsAfter18,
+          fraction: inputs.person.oas.eligibility.fraction,
+        },
         indexingRate: inputs.person.oas.indexingRate,
+        age75IncreaseRate: inputs.person.oas.age75IncreaseRate,
       },
       rrifConversionAge: inputs.person.rrifConversionAge,
     },
@@ -718,7 +742,7 @@ function safeProjectionResult(
   context: ShareSafeContext,
 ): ProjectionResult {
   return {
-    schemaVersion: "4.0",
+    schemaVersion: "5.0",
     inputs: safeProjectionInputs(projection.inputs, context),
     summary: {
       retirementYear: projection.summary.retirementYear,
@@ -742,6 +766,14 @@ function safeProjectionResult(
     financialAssetsBridge: {
       nominal: safeFinancialAssetsBridge(projection.financialAssetsBridge.nominal),
       real: safeFinancialAssetsBridge(projection.financialAssetsBridge.real),
+    },
+    governmentBenefits: {
+      cpp: {
+        ...projection.governmentBenefits.cpp,
+      },
+      oas: {
+        ...projection.governmentBenefits.oas,
+      },
     },
     annual: projection.annual.map((point) => ({
       calendarYear: point.calendarYear,
@@ -934,6 +966,18 @@ function safeReferenceKind(
   return value && REFERENCE_KINDS.has(value) ? value : undefined;
 }
 
+function safeReferenceUrl(value: string | undefined): string | undefined {
+  if (!value) return undefined;
+  try {
+    const url = new URL(value);
+    return url.protocol === "https:" && url.hostname === "www.canada.ca"
+      ? url.toString()
+      : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
 function safeProvenanceValue(
   value: unknown,
   field: ProvenanceField,
@@ -976,6 +1020,7 @@ function safeProvenance(
     };
     const sourceType = safeSourceType(source.sourceType);
     const referenceKind = safeReferenceKind(source.referenceKind);
+    const referenceUrl = safeReferenceUrl(source.referenceUrl);
     result[field.reference] = {
       fieldReference: field.reference,
       value: safeProvenanceValue(source.value, field, safeEvents, context),
@@ -983,6 +1028,7 @@ function safeProvenance(
       sourceDescription: safeDescriptiveText(source.sourceDescription, context),
       effectiveDate: safeDateLike(source.effectiveDate, dataThrough),
       ...(referenceKind ? { referenceKind } : {}),
+      ...(referenceUrl ? { referenceUrl } : {}),
     };
   }
   return result;
@@ -1093,7 +1139,7 @@ export function createProjectionSnapshot(
   const dataThrough = safeDateLike(baseline.dataThrough, projection.inputs.startDate);
   const safeGeneratedAt = requireIsoTimestamp(generatedAt);
   return {
-    schemaVersion: "4.0",
+    schemaVersion: "5.0",
     generatedAt: safeGeneratedAt,
     exportMetadata: {
       transformation: "typed_allowlist",
@@ -1209,6 +1255,14 @@ export function projectionSnapshotToCsv(
     "employmentNetCash",
     "cppIncome",
     "oasIncome",
+    "cpp_base_monthly_at_65_today",
+    "cpp_claim_age",
+    "cpp_claim_factor",
+    "oas_full_monthly_at_65_today",
+    "oas_claim_age",
+    "oas_claim_factor",
+    "oas_eligibility_fraction",
+    "oas_age_75_increase_rate",
     "pensionIncome",
     "otherIncome",
     "totalIncome",
@@ -1249,6 +1303,15 @@ export function projectionSnapshotToCsv(
       view.income.employment,
       view.income.cpp,
       view.income.oas,
+      snapshot.projection.governmentBenefits.cpp.baseMonthlyAmountAt65Today,
+      snapshot.projection.governmentBenefits.cpp.claimAge,
+      snapshot.projection.governmentBenefits.cpp.claimFactor,
+      snapshot.projection.governmentBenefits.oas
+        .fullBaseMonthlyAmountAt65Today,
+      snapshot.projection.governmentBenefits.oas.claimAge,
+      snapshot.projection.governmentBenefits.oas.claimFactor,
+      snapshot.projection.governmentBenefits.oas.eligibilityFraction,
+      snapshot.projection.governmentBenefits.oas.age75IncreaseRate,
       view.income.pension,
       view.income.other,
       view.income.total,

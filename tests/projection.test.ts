@@ -67,6 +67,166 @@ describe("public benefit timing", () => {
     expect(oasClaimFactor(65)).toBe(1);
     expect(oasClaimFactor(70)).toBeCloseTo(1.36);
   });
+
+  it("resolves full, partial, and explicitly absent OAS consistently", () => {
+    const full = oneYearFixture();
+    full.person.oas.fullMonthlyAmountAt65Today = 751.97;
+    full.person.oas.startAge = 70;
+    full.person.oas.eligibility = {
+      mode: "full",
+      qualifyingResidenceYearsAfter18: null,
+      fraction: 1,
+    };
+    const partial = structuredClone(full);
+    partial.person.oas.eligibility = {
+      mode: "partial",
+      qualifyingResidenceYearsAfter18: 20,
+      fraction: 0.5,
+    };
+    const none = structuredClone(full);
+    none.person.oas.eligibility = {
+      mode: "none",
+      qualifyingResidenceYearsAfter18: null,
+      fraction: 0,
+    };
+
+    expect(
+      calculateProjection(full).governmentBenefits.oas
+        .monthlyAmountAtClaimToday,
+    ).toBeCloseTo(751.97 * 1.36, 8);
+    expect(
+      calculateProjection(partial).governmentBenefits.oas
+        .monthlyAmountAtClaimToday,
+    ).toBeCloseTo(751.97 * 0.5 * 1.36, 8);
+    expect(
+      calculateProjection(none).governmentBenefits.oas
+        .monthlyAmountAtClaimToday,
+    ).toBe(0);
+  });
+
+  it("applies the permanent OAS increase in the first month after age 75", () => {
+    const input = oneYearFixture();
+    input.startDate = "2026-01-15";
+    input.person.currentAge = 74;
+    input.person.retirementAge = 75;
+    input.endAge = 76;
+    input.person.employmentIncomePhases = [{
+      id: "final-working-year",
+      label: "Final working year",
+      startAge: 74,
+      endAge: 75,
+      annualNetCashToday: 0,
+      annualGrowth: 0,
+    }];
+    input.person.cpp.monthlyAmountAt65Today = 0;
+    input.person.oas = {
+      startAge: 65,
+      fullMonthlyAmountAt65Today: 751.97,
+      eligibility: {
+        mode: "full",
+        qualifyingResidenceYearsAfter18: null,
+        fraction: 1,
+      },
+      indexingRate: 0,
+      age75IncreaseRate: 0.1,
+    };
+    input.tax.effectiveTaxRate = 0;
+    input.tax.oasRecoveryRate = 0;
+
+    const result = calculateProjection(input);
+
+    expect(result.annual[0]!.nominal.income.oas).toBeCloseTo(
+      751.97 * 12,
+      2,
+    );
+    expect(result.annual[1]!.nominal.income.oas).toBeCloseTo(
+      751.97 * 1.1 * 12,
+      2,
+    );
+    expect(
+      result.governmentBenefits.oas
+        .monthlyAmountAfterAge75IncreaseToday,
+    ).toBeCloseTo(827.17, 2);
+    expect(
+      result.financialAssetsBridge.nominal.publicBenefitsAndPension,
+    ).toBeCloseTo(751.97 * 12, 2);
+    expect(bridgeEnding(result, "nominal")).toBeCloseTo(
+      result.financialAssetsBridge.nominal.endingFinancialAssets,
+      2,
+    );
+    expect(bridgeEnding(result, "real")).toBeCloseTo(
+      result.financialAssetsBridge.real.endingFinancialAssets,
+      2,
+    );
+
+    const partial = structuredClone(input);
+    partial.person.oas.eligibility = {
+      mode: "partial",
+      qualifyingResidenceYearsAfter18: 20,
+      fraction: 0.5,
+    };
+    const partialResult = calculateProjection(partial);
+    expect(partialResult.annual[0]!.nominal.income.oas).toBeCloseTo(
+      result.annual[0]!.nominal.income.oas / 2,
+      2,
+    );
+    expect(partialResult.annual[1]!.nominal.income.oas).toBeCloseTo(
+      result.annual[1]!.nominal.income.oas / 2,
+      2,
+    );
+  });
+
+  it("rejects internally inconsistent OAS eligibility", () => {
+    const input = oneYearFixture();
+    input.person.oas.eligibility = {
+      mode: "partial",
+      qualifyingResidenceYearsAfter18: 20,
+      fraction: 0.75,
+    };
+    expect(() => calculateProjection(input)).toThrow(
+      "years / 40",
+    );
+  });
+
+  it("begins CPP and OAS exactly in the month that reaches each claim boundary", () => {
+    const input = oneYearFixture();
+    input.person.currentAge = 64;
+    input.person.retirementAge = 65;
+    input.endAge = 66;
+    input.person.employmentIncomePhases = [{
+      id: "final-working-year",
+      label: "Final working year",
+      startAge: 64,
+      endAge: 65,
+      annualNetCashToday: 0,
+      annualGrowth: 0,
+    }];
+    input.person.cpp = {
+      startAge: 65,
+      monthlyAmountAt65Today: 100,
+      indexingRate: 0,
+    };
+    input.person.oas = {
+      startAge: 65,
+      fullMonthlyAmountAt65Today: 100,
+      eligibility: {
+        mode: "full",
+        qualifyingResidenceYearsAfter18: null,
+        fraction: 1,
+      },
+      indexingRate: 0,
+      age75IncreaseRate: 0.1,
+    };
+    input.tax.effectiveTaxRate = 0;
+    input.tax.oasRecoveryRate = 0;
+
+    const result = calculateProjection(input);
+
+    expect(result.annual[0]!.nominal.income.cpp).toBe(100);
+    expect(result.annual[0]!.nominal.income.oas).toBe(100);
+    expect(result.annual[1]!.nominal.income.cpp).toBe(1200);
+    expect(result.annual[1]!.nominal.income.oas).toBe(1200);
+  });
 });
 
 describe("resolved employment-income phases", () => {
@@ -314,7 +474,7 @@ describe("exact retirement snapshot and accumulation bridge", () => {
   it("captures an integer-age retirement after the final working month", () => {
     const result = calculateProjection(oneYearFixture());
 
-    expect(result.schemaVersion).toBe("4.0");
+    expect(result.schemaVersion).toBe("5.0");
     expect(result.retirementSnapshot.calendarDate).toBe("2026-12-31");
     expect(result.retirementSnapshot.age).toBe(41);
     expect(result.retirementSnapshot.flowPeriod).toEqual({

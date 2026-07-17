@@ -55,7 +55,7 @@ The easiest configuration workflow is:
 3. Map every account to `cash`, `tfsa`, `rrsp`, `non_registered`, `debt`, or `exclude`.
 4. Refresh again. The blocking state lists categories used by included accounts in the trailing window and reviewed recurring items.
 5. Map each listed category to `essential`, `discretionary`, `income`, `investment_contribution`, `transfer`, or `exclude`.
-6. Replace the generic ages, benefit amounts, goal, returns, allocation, tax, pension, and milestone assumptions.
+6. Replace the generic ages, government-benefit sources, goal, returns, allocation, tax, pension, and milestone assumptions.
 
 Credit-card payments and internal movements must be mapped as `transfer` or `exclude`; the planner does not infer them from a payee or account name. Categories marked “exclude from totals” in Lunch Money are ignored automatically.
 
@@ -118,6 +118,35 @@ Every contribution increases its target investment balance. Only cash-funded con
 
 Existing YAML and JSON files remain compatible. Without employment phases, the runtime normalizes current Lunch Money income plus `assumptions.incomeGrowth` into one phase through retirement. When `contributionPhases` are omitted, a positive account-level `monthlyContribution`, `contributionFunding`, and `assumptions.contributionIndexing` become one compatibility phase. These scalar fields are migration inputs, not an alternate source for an explicit phase. A current-income fallback or explicit `live_baseline` phase longer than five years produces a visible warning while its active amount still matches the refreshed Lunch Money baseline.
 
+### Government benefits
+
+CPP and OAS are resolved from explicit, dated configuration. CPP accepts an official estimate entered privately, a configured planning amount, the bundled published Canadian average for new beneficiaries at age 65, or an explicit zero. The generic average is always labelled as a reference—not a personal estimate or entitlement. OAS resolves a configured or bundled full amount separately from explicit `full`, `partial`, or `none` eligibility:
+
+The bundled CPP reference is CAD 877.01 per month effective 2026-04-01 ([Government of Canada CPP amounts](https://www.canada.ca/en/services/benefits/publicpensions/cpp/amount.html)). The bundled full OAS amount for ages 65–74 is CAD 751.97 per month effective 2026-07-01 ([Government of Canada quarterly OAS statistics](https://www.canada.ca/en/employment-social-development/programs/pensions/pension/statistics/2026-quarterly-july-september.html)).
+
+```yaml
+governmentBenefits:
+  cpp:
+    startAge: 65
+    indexingRate: 0.02
+    amountAt65:
+      source: canadian_reference
+  oas:
+    startAge: 65
+    indexingRate: 0.02
+    fullAmountAt65:
+      source: canadian_reference
+    eligibility:
+      mode: partial
+      qualifyingResidenceYearsAfter18: 20
+```
+
+Partial OAS is the asserted qualifying residence years divided by 40; the planner does not infer eligibility or evaluate special residence rules and international agreements. CPP uses the statutory 0.6% monthly reduction before 65 and 0.7% monthly increase after 65. OAS uses the statutory 0.6% monthly delayed-claim increase and a permanent 10% increase beginning in the first modelled month after age 75. The dashboard’s CPP and OAS explanations show the dated basis, exact factors, eligibility, indexing, annual amount, caveats, and active start-age override.
+
+Legacy CPP/OAS scalar fields remain compatibility inputs only. A complete legacy set normalizes deterministically into the concrete benefit model; legacy zero amounts remain zero and produce migration warnings. Canonical `governmentBenefits` cannot be mixed with legacy benefit fields.
+
+For migration, replace the legacy top-level ages and amounts plus `assumptions.cppIndexing` / `assumptions.oasIndexing` with one canonical block. A non-zero legacy CPP amount becomes `amountAt65.source: configured_amount` with the same amount and an explicit effective date; a non-zero legacy OAS amount becomes `fullAmountAt65.source: configured_amount`, with eligibility stated separately. Use `explicit_zero` for intentional zero CPP and `eligibility.mode: none` for intentional zero OAS. Do not copy statement filenames, account numbers, document IDs, or identifying descriptions into the configuration.
+
 ## Refresh and reset behavior
 
 The baseline endpoint fetches Lunch Money again on every request. The dashboard’s refresh action rebuilds the baseline and clears all browser overrides. Resetting a field or using Reset all restores values from the most recently refreshed baseline, never compiled constants.
@@ -130,11 +159,11 @@ Explanations are deterministic documents built from the same current baseline, a
 
 The exact `retirementSnapshot` keeps end-of-final-working-month balances and allocation. Its flow fields describe only that final working month, identified by `flowPeriod`; cumulative activity from today through retirement belongs to `financialAssetsBridge`.
 
-Baseline schema `1.2` includes aggregate cash-flow audit evidence plus resolved employment and contribution phases and their provenance. It contains category/account names and reconciled aggregates—not raw transactions, transaction IDs, credentials, or tokens. The existing typed export allowlist does not automatically export the audit structure or raw Lunch Money identifiers.
+Baseline schema `1.3` includes aggregate cash-flow audit evidence, resolved employment and contribution phases, and concrete CPP/OAS inputs with field-level provenance. It contains category/account names and reconciled aggregates—not raw transactions, transaction IDs, credentials, tokens, or private benefit-statement metadata. The typed export allowlist does not automatically export the audit structure or raw Lunch Money identifiers.
 
 The Assets at retirement explanation uses the exact end-of-final-working-month snapshot. It shows both the account-type sum and a today-dollar accumulation bridge from starting financial assets through income, public benefits, income-withheld contributions, returns, spending, events, and taxes. Cash-funded contributions are internal transfers and do not change the bridge total. A success label appears only when the bridge and displayed card value agree within one cent.
 
-Covered targets are the five summary cards, five main charts, annual ledger, five cash-flow provenance rows, and the Lunch Money account section. Individual ledger cells, account rows, and chart bars intentionally do not receive separate controls in this iteration.
+Covered targets are the five summary cards, five main charts, annual ledger, five cash-flow provenance rows, Lunch Money account section, and concrete CPP and OAS benefit calculations. Individual ledger cells, account rows, and chart bars intentionally do not receive separate controls in this iteration.
 
 ## API
 
@@ -151,7 +180,7 @@ POST /api/v1/exports/projection-csv
 
 `GET /api/v1/lunchmoney/status` validates the token with a read-only categories request and returns a sanitized result.
 
-`GET /api/v1/baseline/current` returns schema `1.2` projection inputs, phase provenance, derived values, aggregate cash-flow audit evidence, transaction window, records analysed, warnings, and mapping details. Missing mappings return HTTP 422. An invalid token returns a sanitized HTTP 401 response.
+`GET /api/v1/baseline/current` returns schema `1.3` projection inputs, phase and government-benefit provenance, derived values, aggregate cash-flow audit evidence, transaction window, records analysed, warnings, and mapping details. Missing mappings return HTTP 422. An invalid token returns a sanitized HTTP 401 response.
 
 Projection requests use this shape:
 
@@ -171,7 +200,7 @@ Export requests use the current baseline response, active inputs, and browser ov
 }
 ```
 
-Exports automatically omit Lunch Money and other source-system record identifiers, account IDs supplied as source metadata, tokens, authorization values, passwords, API keys, and other credentials. The schema `4.0` JSON export is the complete analysis document and uses a typed allowlist with deterministic export-local keys such as `cash_1`, `event_1`, and `recurring_expense_1`; it preserves resolved phases, the exact retirement snapshot, and both accumulation bridges without copying source objects recursively. Original descriptive labels remain available for financial analysis. The flat CSV keeps one row per annual period and adds the active employment-phase label plus separate cash-funded and income-withheld contribution totals; it never embeds phase arrays or JSON. Downloads use `retirement-projection-<date>.json`, `retirement-projection-real-<date>.csv`, and `retirement-projection-nominal-<date>.csv`.
+Exports automatically omit Lunch Money and other source-system record identifiers, account IDs supplied as source metadata, private benefit-statement details, tokens, authorization values, passwords, API keys, and other credentials. The schema `5.0` JSON export is the complete analysis document and uses a typed allowlist with deterministic export-local keys such as `cash_1`, `event_1`, and `recurring_expense_1`; it preserves resolved phases, concrete CPP/OAS inputs and calculation summaries, public Canadian reference URLs, the exact retirement snapshot, and both accumulation bridges without copying source objects recursively. Original descriptive labels remain available for financial analysis. The flat CSV keeps one row per annual period and adds the active employment-phase label, separate cash-funded and income-withheld contribution totals, and flat CPP/OAS basis columns; it never embeds phase arrays or JSON. Downloads use `retirement-projection-<date>.json`, `retirement-projection-real-<date>.csv`, and `retirement-projection-nominal-<date>.csv`.
 
 ## Docker Compose
 
@@ -208,7 +237,7 @@ Tests use synthetic fixtures under `tests/`. Production modules do not import th
 
 ## Projection scope
 
-Lunch Money income transactions are modelled as net deposited employment cash and are not taxed again. Each working month selects one resolved employment phase; growth is phase-local and employment becomes zero after the exact retirement boundary. Each investment account independently selects its active contribution phase and stops contributing at retirement. The simplified effective tax rate applies to gross retirement income and taxable RRSP/RRIF withdrawals; it is not a tax filing model. The projection calendar starts in the baseline data-through month, so the first and last annual rows may be partial calendar years. CPP and OAS claim timing factors are deterministic. RRIF conversion is a milestone; statutory minimum withdrawals are not enforced. Monte Carlo simulation, optimized withdrawals, real estate, households, saved scenarios, background synchronization, and server-generated PDFs are outside the MVP.
+Lunch Money income transactions are modelled as net deposited employment cash and are not taxed again. Each working month selects one resolved employment phase; growth is phase-local and employment becomes zero after the exact retirement boundary. Each investment account independently selects its active contribution phase and stops contributing at retirement. The simplified effective tax rate applies to gross retirement income and taxable RRSP/RRIF withdrawals; it is not a tax filing model. The projection calendar starts in the baseline data-through month, so the first and last annual rows may be partial calendar years. CPP/OAS claim timing, explicit OAS eligibility, and the OAS age-75 increase are deterministic; CPP entitlement is not calculated from contribution history. RRIF conversion is a milestone; statutory minimum withdrawals are not enforced. Monte Carlo simulation, optimized withdrawals, real estate, households, saved scenarios, background synchronization, and server-generated PDFs are outside the MVP.
 
 See [docs/architecture.md](docs/architecture.md) and [docs/report-model.md](docs/report-model.md) for implementation details.
 

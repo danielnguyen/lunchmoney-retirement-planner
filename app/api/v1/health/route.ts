@@ -9,7 +9,7 @@ export async function GET() {
     status: tokenConfigured && configPresent ? "ok" : "configuration_required",
     service: "lunchmoney-retirement-planner",
     apiVersion: "v1",
-    projectionSchemaVersion: "4.0",
+    projectionSchemaVersion: "5.0",
     configuration: {
       lunchMoneyTokenConfigured: tokenConfigured,
       plannerConfigPresent: configPresent,

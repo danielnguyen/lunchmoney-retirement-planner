@@ -56,6 +56,13 @@ const percent = new Intl.NumberFormat("en-CA", {
   maximumFractionDigits: 1,
 });
 
+const exactCurrency = new Intl.NumberFormat("en-CA", {
+  style: "currency",
+  currency: "CAD",
+  minimumFractionDigits: 2,
+  maximumFractionDigits: 2,
+});
+
 const accountColors = ["#d8bd65", "#d99269", "#8072d7", "#4eb5d2", "#70d6b2", "#a9cf6c"];
 
 type Overrides = Record<string, number>;
@@ -92,7 +99,7 @@ function buildControls(baseline: ProjectionInputs): ControlDefinition[] {
   const controls: ControlDefinition[] = [
     {
       key: "cppStartAge",
-      sourceKey: "cppStartAge",
+      sourceKey: "person.cpp.startAge",
       label: "CPP start age",
       min: fixed(60),
       max: fixed(70),
@@ -105,7 +112,7 @@ function buildControls(baseline: ProjectionInputs): ControlDefinition[] {
     },
     {
       key: "oasStartAge",
-      sourceKey: "oasStartAge",
+      sourceKey: "person.oas.startAge",
       label: "OAS start age",
       min: fixed(65),
       max: fixed(70),
@@ -308,6 +315,19 @@ function compactCurrency(value: number): string {
 
 function sourceLabel(baseline: CurrentBaseline, key: string): string {
   return baseline.provenance[key]?.sourceType.replaceAll("_", " ") ?? "live baseline";
+}
+
+function benefitSourceLabel(
+  baseline: CurrentBaseline,
+  key: "person.cpp.amountSourceMode" | "person.oas.fullAmountSourceMode",
+): string {
+  const mode = baseline.provenance[key]?.value;
+  if (mode === "official_estimate") return "Official estimate";
+  if (mode === "configured_amount") return "Configured amount";
+  if (mode === "canadian_reference") return "Canadian reference";
+  if (mode === "explicit_zero") return "Explicit zero";
+  if (mode === "legacy_configured_amount") return "Legacy compatibility amount";
+  return "Source unavailable";
 }
 
 function BlockingState({ error, onRefresh }: { error: BlockingError; onRefresh: () => void }) {
@@ -958,6 +978,69 @@ export function PlannerDashboard() {
                       </div>
                     );
                   })}
+                </dl>
+              </div>
+              <div>
+                <h3>Government benefits</h3>
+                <dl>
+                  <div>
+                    <dt>
+                      <ExplainableHeading
+                        compact
+                        headingLevel="span"
+                        target="cpp-benefit"
+                        title="Canada Pension Plan (CPP)"
+                        onExplain={openExplanation}
+                      />
+                    </dt>
+                    <dd>
+                      {benefitSourceLabel(
+                        baseline,
+                        "person.cpp.amountSourceMode",
+                      )} · {exactCurrency.format(
+                        projection.governmentBenefits.cpp
+                          .baseMonthlyAmountAt65Today,
+                      )} at 65 · claim age{" "}
+                      {projection.governmentBenefits.cpp.claimAge} ·{" "}
+                      {exactCurrency.format(
+                        projection.governmentBenefits.cpp
+                          .monthlyAmountAtClaimToday,
+                      )} at claim
+                    </dd>
+                  </div>
+                  <div>
+                    <dt>
+                      <ExplainableHeading
+                        compact
+                        headingLevel="span"
+                        target="oas-benefit"
+                        title="Old Age Security (OAS)"
+                        onExplain={openExplanation}
+                      />
+                    </dt>
+                    <dd>
+                      {benefitSourceLabel(
+                        baseline,
+                        "person.oas.fullAmountSourceMode",
+                      )} · {exactCurrency.format(
+                        projection.governmentBenefits.oas
+                          .fullBaseMonthlyAmountAt65Today,
+                      )} full amount ·{" "}
+                      {projection.governmentBenefits.oas.eligibilityMode}{" "}
+                      {percent.format(
+                        projection.governmentBenefits.oas
+                          .eligibilityFraction,
+                      )} · claim age{" "}
+                      {projection.governmentBenefits.oas.claimAge} ·{" "}
+                      {exactCurrency.format(
+                        projection.governmentBenefits.oas
+                          .monthlyAmountAtClaimToday,
+                      )} at claim ·{" "}
+                      {percent.format(
+                        projection.governmentBenefits.oas.age75IncreaseRate,
+                      )} increase after age 75
+                    </dd>
+                  </div>
                 </dl>
               </div>
               <div>

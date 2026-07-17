@@ -244,7 +244,7 @@ describe("live baseline derivation", () => {
       }),
     ]);
     expect(baseline.recordsAnalyzed.transactions).toBe(8);
-    expect(baseline.schemaVersion).toBe("1.2");
+    expect(baseline.schemaVersion).toBe("1.3");
     expect(baseline.warnings).toContainEqual(
       expect.objectContaining({ code: "long_live_baseline_income" }),
     );
@@ -395,5 +395,155 @@ describe("live baseline derivation", () => {
         "person.employmentIncomePhases.current.annualNetCashToday"
       ]?.sourceType,
     ).toBe("lunchmoney_derived");
+  });
+
+  it("resolves dated Canadian references and explicit partial OAS eligibility", () => {
+    const canonical = structuredClone(configFixture);
+    delete canonical.cppStartAge;
+    delete canonical.oasStartAge;
+    delete canonical.cppMonthlyAmountAt65;
+    delete canonical.oasMonthlyAmountAt65;
+    delete canonical.assumptions.cppIndexing;
+    delete canonical.assumptions.oasIndexing;
+    canonical.governmentBenefits = {
+      cpp: {
+        startAge: 60,
+        indexingRate: 0.02,
+        amountAt65: { source: "canadian_reference" },
+      },
+      oas: {
+        startAge: 70,
+        indexingRate: 0.02,
+        fullAmountAt65: { source: "canadian_reference" },
+        eligibility: {
+          mode: "partial",
+          qualifyingResidenceYearsAfter18: 20,
+        },
+      },
+    };
+
+    const baseline = deriveCurrentBaseline(
+      canonical,
+      lunchMoneyData(),
+      window,
+      "2026-07-14T12:00:00.000Z",
+    );
+
+    expect(baseline.projectionInputs.person.cpp).toMatchObject({
+      startAge: 60,
+      monthlyAmountAt65Today: 877.01,
+    });
+    expect(baseline.projectionInputs.person.oas).toMatchObject({
+      startAge: 70,
+      fullMonthlyAmountAt65Today: 751.97,
+      eligibility: {
+        mode: "partial",
+        qualifyingResidenceYearsAfter18: 20,
+        fraction: 0.5,
+      },
+      age75IncreaseRate: 0.1,
+    });
+    expect(
+      baseline.provenance["person.cpp.monthlyAmountAt65Today"],
+    ).toMatchObject({
+      sourceType: "canadian_reference",
+      effectiveDate: "2026-04-01",
+      referenceKind: "population_average",
+      referenceUrl: expect.stringContaining("canada.ca"),
+    });
+    expect(baseline.warnings.map((warning) => warning.code)).toEqual(
+      expect.arrayContaining([
+        "cpp_canadian_reference_in_use",
+        "oas_canadian_reference_in_use",
+      ]),
+    );
+  });
+
+  it("keeps official CPP estimates distinct from configured OAS planning amounts", () => {
+    const canonical = structuredClone(configFixture);
+    delete canonical.cppStartAge;
+    delete canonical.oasStartAge;
+    delete canonical.cppMonthlyAmountAt65;
+    delete canonical.oasMonthlyAmountAt65;
+    delete canonical.assumptions.cppIndexing;
+    delete canonical.assumptions.oasIndexing;
+    canonical.governmentBenefits = {
+      cpp: {
+        startAge: 65,
+        indexingRate: 0.02,
+        amountAt65: {
+          source: "official_estimate",
+          monthlyAmountToday: 1111,
+          effectiveDate: "2026-06-01",
+        },
+      },
+      oas: {
+        startAge: 65,
+        indexingRate: 0.02,
+        fullAmountAt65: {
+          source: "configured_amount",
+          monthlyAmountToday: 700,
+          effectiveDate: "2026-06-01",
+        },
+        eligibility: { mode: "none" },
+      },
+    };
+
+    const baseline = deriveCurrentBaseline(
+      canonical,
+      lunchMoneyData(),
+      window,
+      "2026-07-14T12:00:00.000Z",
+    );
+
+    expect(baseline.provenance["person.cpp.amountSourceMode"]?.value).toBe(
+      "official_estimate",
+    );
+    expect(
+      baseline.provenance["person.cpp.monthlyAmountAt65Today"]
+        ?.sourceDescription,
+    ).toContain("official CPP estimate");
+    expect(
+      baseline.provenance["person.oas.fullMonthlyAmountAt65Today"]
+        ?.sourceDescription,
+    ).toContain("not a personal entitlement");
+    expect(baseline.projectionInputs.person.oas.eligibility).toEqual({
+      mode: "none",
+      qualifyingResidenceYearsAfter18: null,
+      fraction: 0,
+    });
+    expect(
+      baseline.warnings.some((warning) =>
+        warning.code.includes("canadian_reference"),
+      ),
+    ).toBe(false);
+  });
+
+  it("keeps legacy zero benefit amounts at zero and emits migration warnings", () => {
+    const legacyZero = structuredClone(configFixture);
+    legacyZero.cppMonthlyAmountAt65 = 0;
+    legacyZero.oasMonthlyAmountAt65 = 0;
+
+    const baseline = deriveCurrentBaseline(
+      legacyZero,
+      lunchMoneyData(),
+      window,
+      "2026-07-14T12:00:00.000Z",
+    );
+
+    expect(baseline.projectionInputs.person.cpp.monthlyAmountAt65Today).toBe(0);
+    expect(
+      baseline.projectionInputs.person.oas.fullMonthlyAmountAt65Today,
+    ).toBe(0);
+    expect(baseline.warnings.map((warning) => warning.code)).toEqual(
+      expect.arrayContaining([
+        "legacy_zero_cpp_amount",
+        "legacy_zero_oas_amount",
+      ]),
+    );
+    expect(
+      baseline.provenance["person.cpp.monthlyAmountAt65Today"]
+        ?.sourceDescription,
+    ).toContain("compatibility");
   });
 });

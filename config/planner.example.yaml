@@ -6,12 +6,32 @@
 currentAge: 38
 retirementAge: 62
 projectionEndAge: 95
-cppStartAge: 65
-oasStartAge: 65
-cppMonthlyAmountAt65: 0
-oasMonthlyAmountAt65: 0
 retirementGoal: 0
 transactionTrailingMonths: 12
+
+# Government benefits are explicit, dated planning inputs. The bundled CPP
+# reference is the published average for new beneficiaries at age 65—not a
+# personal estimate or entitlement. In private configuration, amountAt65 may
+# instead use official_estimate or configured_amount with monthlyAmountToday
+# and effectiveDate, or explicit_zero to intentionally model no CPP.
+governmentBenefits:
+  cpp:
+    startAge: 65
+    indexingRate: 0.02
+    amountAt65:
+      source: canadian_reference
+
+  # OAS resolves the published full amount separately from eligibility. The
+  # planner never infers residence eligibility. Use mode: partial with an
+  # integer qualifyingResidenceYearsAfter18 from 1 through 39, or mode: none
+  # to explicitly model no OAS.
+  oas:
+    startAge: 65
+    indexingRate: 0.02
+    fullAmountAt65:
+      source: canadian_reference
+    eligibility:
+      mode: full
 
 # Employment phases must cover every projection month from currentAge through
 # retirementAge. startAge is inclusive and endAge is exclusive, so these two
@@ -104,8 +124,6 @@ assumptions:
   rrspReturn: 0.05
   nonRegisteredReturn: 0.05
   debtReturn: 0
-  cppIndexing: 0.02
-  oasIndexing: 0.02
   effectiveTaxRate: 0.22
   oasRecoveryThreshold: 90000
   oasRecoveryRate: 0.15

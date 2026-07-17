@@ -10,10 +10,24 @@ export type AssetAllocation = {
   equity: number;
 };
 
-export type PublicBenefitInput = {
+export type CppBenefitInput = {
   startAge: number;
   monthlyAmountAt65Today: number;
   indexingRate: number;
+};
+
+export type OasEligibilityInput = {
+  mode: "full" | "partial" | "none";
+  qualifyingResidenceYearsAfter18: number | null;
+  fraction: number;
+};
+
+export type OasBenefitInput = {
+  startAge: number;
+  fullMonthlyAmountAt65Today: number;
+  eligibility: OasEligibilityInput;
+  indexingRate: number;
+  age75IncreaseRate: number;
 };
 
 export type EmploymentIncomePhase = {
@@ -32,8 +46,8 @@ export type PersonInput = {
   annualPensionToday: number;
   pensionStartAge: number;
   pensionIndexingRate: number;
-  cpp: PublicBenefitInput;
-  oas: PublicBenefitInput;
+  cpp: CppBenefitInput;
+  oas: OasBenefitInput;
   rrifConversionAge: number;
 };
 
@@ -195,8 +209,30 @@ export type FinancialAssetsBridge = {
   endingFinancialAssets: number;
 };
 
+export type GovernmentBenefitCalculationSummary = {
+  cpp: {
+    baseMonthlyAmountAt65Today: number;
+    claimAge: number;
+    claimFactor: number;
+    monthlyAmountAtClaimToday: number;
+    annualAmountAtClaimToday: number;
+  };
+  oas: {
+    fullBaseMonthlyAmountAt65Today: number;
+    eligibilityMode: OasEligibilityInput["mode"];
+    qualifyingResidenceYearsAfter18: number | null;
+    eligibilityFraction: number;
+    claimAge: number;
+    claimFactor: number;
+    monthlyAmountAtClaimToday: number;
+    annualAmountAtClaimToday: number;
+    age75IncreaseRate: number;
+    monthlyAmountAfterAge75IncreaseToday: number;
+  };
+};
+
 export type ProjectionResult = {
-  schemaVersion: "4.0";
+  schemaVersion: "5.0";
   inputs: ProjectionInputs;
   summary: ProjectionSummary;
   retirementSnapshot: RetirementSnapshot;
@@ -204,6 +240,7 @@ export type ProjectionResult = {
     nominal: FinancialAssetsBridge;
     real: FinancialAssetsBridge;
   };
+  governmentBenefits: GovernmentBenefitCalculationSummary;
   annual: AnnualProjection[];
   observations: ProjectionObservation[];
 };
@@ -292,7 +329,41 @@ export function validateProjectionInputs(value: unknown): ProjectionInputs {
   assertNonNegative("retirementGoalToday", input.retirementGoalToday);
   assertNonNegative("annualPensionToday", input.person.annualPensionToday);
   assertNonNegative("CPP monthlyAmountAt65Today", input.person.cpp.monthlyAmountAt65Today);
-  assertNonNegative("OAS monthlyAmountAt65Today", input.person.oas.monthlyAmountAt65Today);
+  assertNonNegative(
+    "OAS fullMonthlyAmountAt65Today",
+    input.person.oas.fullMonthlyAmountAt65Today,
+  );
+  assertRate("OAS age75IncreaseRate", input.person.oas.age75IncreaseRate, 0, 1);
+  if (Math.abs(input.person.oas.age75IncreaseRate - 0.1) > PHASE_AGE_TOLERANCE) {
+    throw new Error("OAS age75IncreaseRate must use the statutory 10% increase");
+  }
+  const eligibility = input.person.oas.eligibility;
+  if (!eligibility || !["full", "partial", "none"].includes(eligibility.mode)) {
+    throw new Error("OAS eligibility mode must be full, partial, or none");
+  }
+  assertRate("OAS eligibility fraction", eligibility.fraction, 0, 1);
+  if (eligibility.mode === "full") {
+    if (eligibility.qualifyingResidenceYearsAfter18 !== null || eligibility.fraction !== 1) {
+      throw new Error("Full OAS eligibility must have no qualifying years and a fraction of 1");
+    }
+  } else if (eligibility.mode === "none") {
+    if (eligibility.qualifyingResidenceYearsAfter18 !== null || eligibility.fraction !== 0) {
+      throw new Error("No OAS eligibility must have no qualifying years and a fraction of 0");
+    }
+  } else {
+    const years = eligibility.qualifyingResidenceYearsAfter18;
+    if (
+      years === null ||
+      !Number.isInteger(years) ||
+      years < 1 ||
+      years > 39 ||
+      Math.abs(eligibility.fraction - years / 40) > PHASE_AGE_TOLERANCE
+    ) {
+      throw new Error(
+        "Partial OAS eligibility must use 1 through 39 qualifying years and years / 40",
+      );
+    }
+  }
 
   const personRecord = input.person as unknown as Record<string, unknown>;
   if (

@@ -35,4 +35,8 @@ export const explanationTooltips: Record<ExplanationTarget, string> = {
     "Reviewed recurring essential and discretionary items normalized to monthly amounts.",
   "lunchmoney-accounts":
     "The included Lunch Money accounts and the local planning assumptions applied to each one.",
+  "cpp-benefit":
+    "The modelled CPP amount after applying the configured claim age to the dated amount-at-65 basis.",
+  "oas-benefit":
+    "The modelled OAS amount after applying explicit eligibility and claim-age adjustments to the dated full amount.",
 };

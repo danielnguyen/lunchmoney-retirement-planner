@@ -33,7 +33,17 @@ export const projectionFixture: ProjectionInputs = {
     pensionStartAge: 65,
     pensionIndexingRate: 0.02,
     cpp: { startAge: 65, monthlyAmountAt65Today: 1200, indexingRate: 0.02 },
-    oas: { startAge: 65, monthlyAmountAt65Today: 700, indexingRate: 0.02 },
+    oas: {
+      startAge: 65,
+      fullMonthlyAmountAt65Today: 700,
+      eligibility: {
+        mode: "full",
+        qualifyingResidenceYearsAfter18: null,
+        fraction: 1,
+      },
+      indexingRate: 0.02,
+      age75IncreaseRate: 0.1,
+    },
     rrifConversionAge: 71,
   },
   accounts: [
@@ -142,7 +152,7 @@ export const baselineContextFixture: BaselineExportContext = {
   },
   recordsAnalyzed: { accounts: 2, categories: 5, recurringItems: 2, transactions: 84 },
   warnings: [
-    { code: "fixture_warning", severity: "warning", message: "Fixture warning" },
+    { code: "no_transactions", severity: "warning", message: "Fixture warning" },
   ],
   unmappedAccounts: [],
   unmappedCategories: [],
@@ -150,7 +160,7 @@ export const baselineContextFixture: BaselineExportContext = {
 
 export const currentBaselineFixture: CurrentBaseline = {
   ...baselineContextFixture,
-  schemaVersion: "1.2",
+  schemaVersion: "1.3",
   provenance: {
     ...baselineContextFixture.provenance,
     monthlyDiscretionarySpendingToday: {
@@ -158,6 +168,96 @@ export const currentBaselineFixture: CurrentBaseline = {
       sourceType: "lunchmoney_derived",
       sourceDescription: "Trailing transaction average",
       effectiveDate: "2026-07-14",
+    },
+    "person.cpp.amountSourceMode": {
+      value: "configured_amount",
+      sourceType: "local_configuration",
+      sourceDescription: "Configured CPP amount source mode",
+      effectiveDate: "2026-07-14",
+    },
+    "person.cpp.monthlyAmountAt65Today": {
+      value: 1200,
+      sourceType: "local_configuration",
+      sourceDescription: "Synthetic configured CPP planning amount",
+      effectiveDate: "2026-01-01",
+    },
+    "person.cpp.startAge": {
+      value: 65,
+      sourceType: "local_configuration",
+      sourceDescription: "Configured CPP claim age",
+      effectiveDate: "2026-07-14",
+    },
+    "person.cpp.indexingRate": {
+      value: 0.02,
+      sourceType: "local_configuration",
+      sourceDescription: "Configured CPP indexing",
+      effectiveDate: "2026-07-14",
+    },
+    "person.cpp.claimAdjustmentRule": {
+      value: "0.6% before 65; 0.7% after 65",
+      sourceType: "canadian_reference",
+      sourceDescription: "Statutory CPP claim-age adjustment rule",
+      effectiveDate: "2026-04-01",
+      referenceKind: "statutory_program_default",
+      referenceUrl:
+        "https://www.canada.ca/en/services/benefits/publicpensions/cpp/when-start.html",
+    },
+    "person.oas.fullAmountSourceMode": {
+      value: "configured_amount",
+      sourceType: "local_configuration",
+      sourceDescription: "Configured OAS full-amount source mode",
+      effectiveDate: "2026-07-14",
+    },
+    "person.oas.fullMonthlyAmountAt65Today": {
+      value: 700,
+      sourceType: "local_configuration",
+      sourceDescription: "Synthetic configured full OAS planning amount",
+      effectiveDate: "2026-01-01",
+    },
+    "person.oas.startAge": {
+      value: 65,
+      sourceType: "local_configuration",
+      sourceDescription: "Configured OAS claim age",
+      effectiveDate: "2026-07-14",
+    },
+    "person.oas.indexingRate": {
+      value: 0.02,
+      sourceType: "local_configuration",
+      sourceDescription: "Configured OAS indexing",
+      effectiveDate: "2026-07-14",
+    },
+    "person.oas.eligibility.fraction": {
+      value: 1,
+      sourceType: "local_configuration",
+      sourceDescription: "Full OAS eligibility",
+      effectiveDate: "2026-07-14",
+    },
+    "person.oas.delayedClaimRule": {
+      value: "0.6% per month after 65",
+      sourceType: "canadian_reference",
+      sourceDescription: "Statutory OAS delayed-claim rule",
+      effectiveDate: "2026-07-01",
+      referenceKind: "statutory_program_default",
+      referenceUrl:
+        "https://www.canada.ca/en/services/benefits/publicpensions/old-age-security/when-start.html",
+    },
+    "person.oas.age75IncreaseRule": {
+      value: "10% after age 75",
+      sourceType: "canadian_reference",
+      sourceDescription: "Statutory OAS age-75 increase rule",
+      effectiveDate: "2026-07-01",
+      referenceKind: "statutory_program_default",
+      referenceUrl:
+        "https://www.canada.ca/en/employment-social-development/programs/old-age-security/reports/oas-toolkit.html",
+    },
+    "person.oas.age75IncreaseRate": {
+      value: 0.1,
+      sourceType: "canadian_reference",
+      sourceDescription: "Statutory OAS age-75 increase rate",
+      effectiveDate: "2026-07-01",
+      referenceKind: "statutory_program_default",
+      referenceUrl:
+        "https://www.canada.ca/en/employment-social-development/programs/old-age-security/reports/oas-toolkit.html",
     },
     "person.employmentIncomePhases.current-income.annualNetCashToday": {
       value: 84000,

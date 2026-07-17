@@ -20,6 +20,8 @@ export const explanationTargets = [
   "baseline-contributions",
   "baseline-recurring",
   "lunchmoney-accounts",
+  "cpp-benefit",
+  "oas-benefit",
 ] as const;
 
 export type ExplanationTarget = (typeof explanationTargets)[number];
@@ -27,6 +29,7 @@ export type ExplanationTarget = (typeof explanationTargets)[number];
 export type ExplanationSourceType =
   | "lunchmoney"
   | "configuration"
+  | "canadian_reference"
   | "override"
   | "projection";
 
@@ -34,7 +37,7 @@ export type ExplanationStep = {
   label: string;
   value: string;
   rawValue?: number;
-  operation?: "input" | "add" | "subtract" | "result";
+  operation?: "input" | "add" | "subtract" | "multiply" | "result";
   sourceType?: ExplanationSourceType;
   sourceDescription?: string;
   effectiveDate?: string;

@@ -54,6 +54,7 @@ function sameValue(left: number, right: number): boolean {
 function sourceType(value?: BaselineValue<unknown>): ExplanationSourceType {
   if (value?.sourceType === "lunchmoney_derived") return "lunchmoney";
   if (value?.sourceType === "local_configuration") return "configuration";
+  if (value?.sourceType === "canadian_reference") return "canadian_reference";
   return "projection";
 }
 
@@ -107,6 +108,7 @@ function inputAssumption(
 function sourceLabel(type: ExplanationSourceType): string {
   if (type === "lunchmoney") return "Lunch Money";
   if (type === "configuration") return "Local configuration";
+  if (type === "canadian_reference") return "Canadian reference";
   if (type === "override") return "Temporary override";
   return "Projection";
 }
@@ -501,7 +503,7 @@ function assetsAtRetirementDocument(context: ExplanationContext): ExplanationDoc
         rows: [
           { operation: "•", component: "Starting financial assets", value: bridge.startingFinancialAssets, source: "Lunch Money" },
           { operation: "+", component: "Employment net cash", value: bridge.employmentNetCash, source: "Projection from phased inputs" },
-          { operation: "+", component: "CPP, OAS, and pension", value: bridge.publicBenefitsAndPension, source: "Projection from local configuration" },
+          { operation: "+", component: "CPP, OAS, and pension", value: bridge.publicBenefitsAndPension, source: "Projection from resolved benefit inputs" },
           { operation: "+", component: "Other inflows", value: bridge.otherInflows, source: "Projection from future events" },
           { operation: "+", component: "Income-withheld contributions", value: bridge.incomeWithheldContributions, source: "Projection from contribution phases" },
           { operation: "+", component: "Investment returns", value: bridge.investmentReturns, source: "Projection" },
@@ -1259,12 +1261,12 @@ function fundingChartDocument(context: ExplanationContext): ExplanationDocument 
           {
             series: "CPP",
             calculation:
-              "Configured CPP after its start age, prorated for the period and indexed.",
+              "Resolved amount at age 65 × the exact claim-age factor, paid from the configured boundary and nominally indexed.",
           },
           {
             series: "OAS",
             calculation:
-              "Configured OAS after its start age, prorated, indexed, and reduced by any recovery tax.",
+              "Resolved full amount × explicit eligibility × delayed-claim factor, with nominal indexing and the 10% increase beginning after age 75. Recovery tax is shown in the tax line.",
           },
           {
             series: "Pension",
@@ -1319,7 +1321,7 @@ function fundingChartDocument(context: ExplanationContext): ExplanationDocument 
     caveats: [
       "A labelled annual period can contain an employment transition; the phase column preserves the active labels in order.",
       "Employment disappears after the exact retirement boundary because the model stops net employment cash after the final working month.",
-      "CPP, OAS, and pension begin at their configured start ages.",
+      "CPP and OAS begin at their configured start ages using the same calculation summaries shown in their dedicated explanations.",
       "The tax line applies the simplified rate to gross retirement income and taxable RRSP/RRIF withdrawals, not to net employment deposits.",
       ...chartCaveats(context),
     ],
@@ -1845,6 +1847,330 @@ function accountsDocument(context: ExplanationContext): ExplanationDocument {
   };
 }
 
+function benefitWarningMessages(
+  context: ExplanationContext,
+  codes: string[],
+): string[] {
+  return context.baseline.warnings
+    .filter((warning) => codes.includes(warning.code))
+    .map((warning) => warning.message);
+}
+
+function claimAgeEvidence(
+  context: ExplanationContext,
+  benefit: "cpp" | "oas",
+): ReturnType<typeof evidence> {
+  const active = context.inputs.person[benefit].startAge;
+  const refreshed = context.baseline.projectionInputs.person[benefit].startAge;
+  const details = evidence(
+    context,
+    `person.${benefit}.startAge`,
+    active,
+    refreshed,
+  );
+  return details.sourceType === "override"
+    ? {
+        ...details,
+        sourceDescription: `Temporary override; refreshed claim age was ${refreshed}`,
+      }
+    : details;
+}
+
+function cppBenefitDocument(context: ExplanationContext): ExplanationDocument {
+  const result = context.projection.governmentBenefits.cpp;
+  const amount = context.baseline.provenance[
+    "person.cpp.monthlyAmountAt65Today"
+  ];
+  const rule = context.baseline.provenance[
+    "person.cpp.claimAdjustmentRule"
+  ];
+  const claimMonths = Math.round(Math.abs(result.claimAge - 65) * 12);
+  const adjustmentRate = result.claimAge < 65 ? 0.006 : 0.007;
+  const direction =
+    result.claimAge < 65 ? "reduction" : result.claimAge > 65 ? "increase" : "no adjustment";
+  const calculated =
+    result.baseMonthlyAmountAt65Today * result.claimFactor;
+  return {
+    id: "cpp-benefit",
+    title: "Canada Pension Plan (CPP)",
+    plainLanguage:
+      "The planner applies the statutory CPP claim-age adjustment to the configured or referenced monthly amount at age 65. It does not calculate personal entitlement from contribution history.",
+    displayedResult: {
+      label: "Monthly amount at claim",
+      value: exactCurrency.format(result.monthlyAmountAtClaimToday),
+      dollarMode: "real",
+      period: `Claim age ${result.claimAge}`,
+    },
+    formula:
+      result.claimAge < 65
+        ? `Base amount × [1 − (${claimMonths} months × 0.006)]`
+        : result.claimAge > 65
+          ? `Base amount × [1 + (${claimMonths} months × 0.007)]`
+          : "Base amount × 1",
+    steps: [
+      {
+        label: "Monthly amount at age 65",
+        value: exactCurrency.format(result.baseMonthlyAmountAt65Today),
+        rawValue: result.baseMonthlyAmountAt65Today,
+        operation: "input",
+        sourceType: sourceType(amount),
+        sourceDescription: amount?.sourceDescription,
+        effectiveDate: amount?.effectiveDate,
+      },
+      {
+        label: `Claim-age ${direction}`,
+        value:
+          result.claimAge === 65
+            ? "0 months"
+            : `${claimMonths} months × ${percent.format(adjustmentRate)}`,
+        operation: result.claimAge === 65 ? "input" : "multiply",
+        sourceType: sourceType(rule),
+        sourceDescription: rule?.sourceDescription,
+        effectiveDate: rule?.effectiveDate,
+      },
+      {
+        label: "Claim factor",
+        value: result.claimFactor.toFixed(4),
+        rawValue: result.claimFactor,
+        operation: "multiply",
+        sourceType: "projection",
+      },
+      {
+        label: "Monthly amount at claim",
+        value: exactCurrency.format(result.monthlyAmountAtClaimToday),
+        rawValue: result.monthlyAmountAtClaimToday,
+        operation: "result",
+        sourceType: "projection",
+      },
+      {
+        label: "Annual amount at claim",
+        value: exactCurrency.format(result.annualAmountAtClaimToday),
+        rawValue: result.annualAmountAtClaimToday,
+        operation: "result",
+        sourceType: "projection",
+        sourceDescription: "Monthly amount at claim × 12",
+      },
+    ],
+    dataSections: [
+      {
+        title: "Source and rule metadata",
+        columns: [
+          { key: "item", label: "Item" },
+          { key: "description", label: "Description" },
+          { key: "effectiveDate", label: "Effective date" },
+          { key: "referenceUrl", label: "Public reference" },
+        ],
+        rows: [
+          {
+            item: "Amount at age 65",
+            description: amount?.sourceDescription ?? "Evidence unavailable",
+            effectiveDate: amount?.effectiveDate ?? "Unavailable",
+            referenceUrl: amount?.referenceUrl ?? "Private configuration (no document metadata stored)",
+          },
+          {
+            item: "Claim-age rule",
+            description: rule?.sourceDescription ?? "Evidence unavailable",
+            effectiveDate: rule?.effectiveDate ?? "Unavailable",
+            referenceUrl: rule?.referenceUrl ?? "Unavailable",
+          },
+        ],
+      },
+    ],
+    assumptions: [
+      {
+        label: "CPP claim age",
+        value: String(result.claimAge),
+        ...claimAgeEvidence(context, "cpp"),
+      },
+      {
+        label: "CPP indexing",
+        value: percent.format(context.inputs.person.cpp.indexingRate),
+        ...evidence(context, "person.cpp.indexingRate"),
+      },
+    ],
+    caveats: [
+      ...benefitWarningMessages(context, [
+        "cpp_canadian_reference_in_use",
+        "legacy_zero_cpp_amount",
+      ]),
+      "A generic Canadian average is never a personal CPP estimate or entitlement.",
+      "The planner does not calculate CPP entitlement from contribution history.",
+      "Projected retirement tax is simplified and does not model progressive federal or provincial brackets.",
+    ],
+    reconciliation: matched(calculated, result.monthlyAmountAtClaimToday),
+  };
+}
+
+function oasBenefitDocument(context: ExplanationContext): ExplanationDocument {
+  const result = context.projection.governmentBenefits.oas;
+  const amount = context.baseline.provenance[
+    "person.oas.fullMonthlyAmountAt65Today"
+  ];
+  const eligibility = context.baseline.provenance[
+    "person.oas.eligibility.fraction"
+  ];
+  const claimRule = context.baseline.provenance[
+    "person.oas.delayedClaimRule"
+  ];
+  const age75Rule = context.baseline.provenance[
+    "person.oas.age75IncreaseRule"
+  ];
+  const claimMonths = Math.round((result.claimAge - 65) * 12);
+  const calculated =
+    result.fullBaseMonthlyAmountAt65Today *
+    result.eligibilityFraction *
+    result.claimFactor;
+  return {
+    id: "oas-benefit",
+    title: "Old Age Security (OAS)",
+    plainLanguage:
+      "The planner applies explicit residence eligibility and the statutory delayed-claim factor to the dated full OAS amount, then applies the permanent age-75 increase at its model boundary.",
+    displayedResult: {
+      label: "Monthly amount at claim",
+      value: exactCurrency.format(result.monthlyAmountAtClaimToday),
+      dollarMode: "real",
+      period: `Claim age ${result.claimAge}`,
+    },
+    formula:
+      "Full amount at 65 × eligibility fraction × [1 + (delay months × 0.006)]",
+    steps: [
+      {
+        label: "Full monthly amount at age 65",
+        value: exactCurrency.format(result.fullBaseMonthlyAmountAt65Today),
+        rawValue: result.fullBaseMonthlyAmountAt65Today,
+        operation: "input",
+        sourceType: sourceType(amount),
+        sourceDescription: amount?.sourceDescription,
+        effectiveDate: amount?.effectiveDate,
+      },
+      ...(result.eligibilityMode === "partial"
+        ? [{
+            label: "Partial eligibility",
+            value: `${result.qualifyingResidenceYearsAfter18} ÷ 40 = ${percent.format(result.eligibilityFraction)}`,
+            rawValue: result.eligibilityFraction,
+            operation: "multiply" as const,
+            sourceType: sourceType(eligibility),
+            sourceDescription: eligibility?.sourceDescription,
+            effectiveDate: eligibility?.effectiveDate,
+          }]
+        : [{
+            label: `${result.eligibilityMode === "full" ? "Full" : "No"} eligibility`,
+            value: percent.format(result.eligibilityFraction),
+            rawValue: result.eligibilityFraction,
+            operation: "multiply" as const,
+            sourceType: sourceType(eligibility),
+            sourceDescription: eligibility?.sourceDescription,
+            effectiveDate: eligibility?.effectiveDate,
+          }]),
+      {
+        label: "Delayed-claim adjustment",
+        value: `${claimMonths} months × ${percent.format(0.006)}`,
+        operation: "multiply",
+        sourceType: sourceType(claimRule),
+        sourceDescription: claimRule?.sourceDescription,
+        effectiveDate: claimRule?.effectiveDate,
+      },
+      {
+        label: "Claim factor",
+        value: result.claimFactor.toFixed(4),
+        rawValue: result.claimFactor,
+        operation: "multiply",
+        sourceType: "projection",
+      },
+      {
+        label: "Monthly amount at claim",
+        value: exactCurrency.format(result.monthlyAmountAtClaimToday),
+        rawValue: result.monthlyAmountAtClaimToday,
+        operation: "result",
+        sourceType: "projection",
+      },
+      {
+        label: "Annual amount at claim",
+        value: exactCurrency.format(result.annualAmountAtClaimToday),
+        rawValue: result.annualAmountAtClaimToday,
+        operation: "result",
+        sourceType: "projection",
+        sourceDescription: "Monthly amount at claim × 12",
+      },
+      {
+        label: "Monthly amount after age-75 increase",
+        value: exactCurrency.format(
+          result.monthlyAmountAfterAge75IncreaseToday,
+        ),
+        rawValue: result.monthlyAmountAfterAge75IncreaseToday,
+        operation: "result",
+        sourceType: sourceType(age75Rule),
+        sourceDescription:
+          "Monthly amount at claim × 1.10 beginning in the first modelled month after the age-75 boundary",
+        effectiveDate: age75Rule?.effectiveDate,
+      },
+    ],
+    dataSections: [
+      {
+        title: "Source and rule metadata",
+        columns: [
+          { key: "item", label: "Item" },
+          { key: "description", label: "Description" },
+          { key: "effectiveDate", label: "Effective date" },
+          { key: "referenceUrl", label: "Public reference" },
+        ],
+        rows: [
+          {
+            item: "Full amount at age 65",
+            description: amount?.sourceDescription ?? "Evidence unavailable",
+            effectiveDate: amount?.effectiveDate ?? "Unavailable",
+            referenceUrl: amount?.referenceUrl ?? "Private configuration (no document metadata stored)",
+          },
+          {
+            item: "Delayed-claim rule",
+            description: claimRule?.sourceDescription ?? "Evidence unavailable",
+            effectiveDate: claimRule?.effectiveDate ?? "Unavailable",
+            referenceUrl: claimRule?.referenceUrl ?? "Unavailable",
+          },
+          {
+            item: "Age-75 increase",
+            description: age75Rule?.sourceDescription ?? "Evidence unavailable",
+            effectiveDate: age75Rule?.effectiveDate ?? "Unavailable",
+            referenceUrl: age75Rule?.referenceUrl ?? "Unavailable",
+          },
+        ],
+      },
+    ],
+    assumptions: [
+      {
+        label: "OAS claim age",
+        value: String(result.claimAge),
+        ...claimAgeEvidence(context, "oas"),
+      },
+      {
+        label: "OAS eligibility",
+        value: `${result.eligibilityMode} · ${percent.format(result.eligibilityFraction)}`,
+        ...evidence(context, "person.oas.eligibility.fraction"),
+      },
+      {
+        label: "OAS indexing",
+        value: percent.format(context.inputs.person.oas.indexingRate),
+        ...evidence(context, "person.oas.indexingRate"),
+      },
+      {
+        label: "Permanent increase after age 75",
+        value: percent.format(result.age75IncreaseRate),
+        ...evidence(context, "person.oas.age75IncreaseRate"),
+      },
+    ],
+    caveats: [
+      ...benefitWarningMessages(context, [
+        "oas_canadian_reference_in_use",
+        "legacy_zero_oas_amount",
+      ]),
+      "For partial eligibility, the configured residence years are an explicit assertion. Special residence rules and international social-security agreements are not independently evaluated.",
+      "The planner does not infer OAS eligibility from age, citizenship, location, accounts, or other personal information.",
+      "Retirement tax and OAS recovery tax are simplified; not all future taxable-withdrawal cases are modelled.",
+    ],
+    reconciliation: matched(calculated, result.monthlyAmountAtClaimToday),
+  };
+}
+
 export function buildExplanation(
   target: ExplanationTarget,
   context: ExplanationContext,
@@ -1860,6 +2186,8 @@ export function buildExplanation(
   if (target === "account-burndown") return burndownDocument(context);
   if (target === "asset-allocation") return allocationDocument(context);
   if (target === "annual-ledger") return ledgerDocument(context);
+  if (target === "cpp-benefit") return cppBenefitDocument(context);
+  if (target === "oas-benefit") return oasBenefitDocument(context);
   if (
     target === "baseline-income" ||
     target === "baseline-essential" ||

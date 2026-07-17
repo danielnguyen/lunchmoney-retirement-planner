@@ -58,7 +58,7 @@ Explicit employment phases are contiguous from current age through retirement; c
 
 Missing account mappings, required category mappings, contribution targets, cash accounts, or account assumptions create a configuration-required response. No projection input is returned from an incomplete baseline.
 
-The baseline API schema is `1.2`. Its `cashFlowAudit` structure groups mapped transactions by category and account for income, essential spending, and discretionary spending; records resolved contribution values by account, funding mode, and source; and retains normalized reviewed recurring-item context. Each section reconciles to the existing derived metric. The resolved projection inputs add phase arrays and phase provenance but deliberately omit raw transaction payloads and individual transaction IDs.
+The baseline API schema is `1.3`. Its `cashFlowAudit` structure groups mapped transactions by category and account for income, essential spending, and discretionary spending; records resolved contribution values by account, funding mode, and source; and retains normalized reviewed recurring-item context. Each section reconciles to the existing derived metric. The resolved projection inputs add phase arrays plus concrete numeric CPP and OAS inputs. Benefit provenance retains source mode, effective date, public Canadian reference metadata, claim rules, and explicit OAS eligibility while omitting private statement metadata, raw transaction payloads, and individual transaction IDs.
 
 ## Explanation boundary
 
@@ -70,11 +70,13 @@ An active phase amount, phase growth/indexing value, or other control that diffe
 
 ## Projection boundary
 
-Projection schema `4.0` models one person, explicit resolved employment-income phases, per-account contribution phases, optional future events, and simplified tax assumptions. Its ISO start date is the live baseline data-through date. For each working-month interval, the engine selects the active employment phase and independently selects each account’s contribution phase. Growth and indexing restart at each phase boundary; employment and contributions stop after the final working month.
+Projection schema `5.0` models one person, explicit resolved employment-income phases, per-account contribution phases, concrete CPP and OAS inputs, optional future events, and simplified tax assumptions. Configuration discriminators are resolved at the baseline boundary; financial formulas receive numeric benefit amounts plus explicit OAS eligibility. The calculation result contains the shared CPP/OAS base, claim factors, claim amounts, eligibility, and age-75 amount consumed by the dashboard and explanation layer. Its ISO start date is the live baseline data-through date. For each working-month interval, the engine selects the active employment phase and independently selects each account’s contribution phase. Growth and indexing restart at each phase boundary; employment and contributions stop after the final working month.
 
 The engine captures `retirementSnapshot` at the end of the final working month, immediately before the first fully retired month. Its balances, account balances, and allocation are that exact point-in-time snapshot. Its income, withdrawals, outflows, contributions, and per-account contribution fields cover only the final working month, identified by `flowPeriod.kind: final_working_month` and a `YYYY-MM` calendar month. The Assets at retirement summary reads the exact real-dollar snapshot instead of the next calendar-year row. Calendar charts and the ledger continue to use annual flows and snapshots.
 
 The engine also accumulates nominal and real `financialAssetsBridge` records from opening financial assets to the exact retirement snapshot. Employment cash, public benefits and pension, future-event inflows, income-withheld contributions, actual non-debt returns, spending, one-time outflows, and taxes are recorded from the same monthly loop. Cash-funded contributions are excluded because they transfer value between financial accounts. Projection calculation fails its tests if either bridge misses the exact snapshot by more than one cent.
+
+CPP applies the statutory monthly reduction before age 65 or increase after 65. OAS multiplies the full amount by explicit eligibility and the delayed-claim factor, then applies the permanent 10% increase in the first modelled month after the age-75 boundary. Nominal indexing continues through the same monthly projection path, so charts, ledger rows, explanations, exports, and the financial-assets bridge share one result.
 
 The simplified effective rate is applied to gross retirement income and taxable RRSP/RRIF withdrawals. It is not applied again to net deposited employment cash.
 

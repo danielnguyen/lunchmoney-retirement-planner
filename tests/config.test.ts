@@ -46,7 +46,26 @@ describe("private planner configuration", () => {
     expect(contents).not.toContain(
       "mapped contribution transactions or the",
     );
+    expect(contents).toContain("not a");
+    expect(contents).toContain("personal estimate or entitlement");
+    expect(contents).toContain("qualifyingResidenceYearsAfter18");
+    expect(contents).not.toMatch(/^cppStartAge:|^oasStartAge:/m);
     expect(config.transactionTrailingMonths).toBe(12);
+    expect(config.governmentBenefits).toEqual({
+      cpp: {
+        startAge: 65,
+        indexingRate: 0.02,
+        amountAt65: { source: "canadian_reference" },
+      },
+      oas: {
+        startAge: 65,
+        indexingRate: 0.02,
+        fullAmountAt65: { source: "canadian_reference" },
+        eligibility: { mode: "full" },
+      },
+    });
+    expect(config).not.toHaveProperty("cppStartAge");
+    expect(config.assumptions).not.toHaveProperty("cppIndexing");
     expect(config.accountMappings).toHaveProperty("manual:replace-with-cash-account-id");
     expect(config.employmentIncomePhases).toEqual([
       expect.objectContaining({
@@ -125,6 +144,151 @@ describe("private planner configuration", () => {
     const jsonPath = await temporaryConfig("planner.json", JSON.stringify(yamlConfig));
 
     expect(await loadPlannerConfig(jsonPath)).toEqual(yamlConfig);
+  });
+
+  it("validates every canonical CPP source and OAS eligibility mode", async () => {
+    const base = await loadPlannerConfig(EXAMPLE_CONFIG_PATH);
+    for (const amountAt65 of [
+      {
+        source: "official_estimate",
+        monthlyAmountToday: 1234.56,
+        effectiveDate: "2026-06-30",
+      },
+      {
+        source: "configured_amount",
+        monthlyAmountToday: 900,
+        effectiveDate: "2026-06-30",
+      },
+      { source: "canadian_reference" },
+      { source: "explicit_zero" },
+    ]) {
+      const value = structuredClone(base) as unknown as Record<string, unknown>;
+      const benefits = value.governmentBenefits as Record<string, Record<string, unknown>>;
+      benefits.cpp!.amountAt65 = amountAt65;
+      expect(() => validatePlannerConfig(value)).not.toThrow();
+    }
+    for (const eligibility of [
+      { mode: "full" },
+      { mode: "partial", qualifyingResidenceYearsAfter18: 20 },
+      { mode: "none" },
+    ]) {
+      const value = structuredClone(base) as unknown as Record<string, unknown>;
+      const benefits = value.governmentBenefits as Record<string, Record<string, unknown>>;
+      benefits.oas!.eligibility = eligibility;
+      expect(() => validatePlannerConfig(value)).not.toThrow();
+    }
+    const configuredOas = structuredClone(base) as unknown as Record<
+      string,
+      unknown
+    >;
+    const configuredOasBenefits = configuredOas.governmentBenefits as Record<
+      string,
+      Record<string, unknown>
+    >;
+    configuredOasBenefits.oas!.fullAmountAt65 = {
+      source: "configured_amount",
+      monthlyAmountToday: 750,
+      effectiveDate: "2026-07-01",
+    };
+    expect(() => validatePlannerConfig(configuredOas)).not.toThrow();
+  });
+
+  it("rejects mixed, incomplete, and invalid government-benefit configuration", async () => {
+    const mixed = structuredClone(
+      await loadPlannerConfig(EXAMPLE_CONFIG_PATH),
+    ) as unknown as Record<string, unknown>;
+    mixed.cppStartAge = 65;
+    expect(() => validatePlannerConfig(mixed)).toThrow(
+      "cannot be combined with legacy CPP or OAS fields",
+    );
+
+    const missing = structuredClone(mixed);
+    delete missing.governmentBenefits;
+    expect(() => validatePlannerConfig(missing)).toThrow(
+      "complete legacy CPP and OAS scalar configuration",
+    );
+
+    const badReference = structuredClone(
+      await loadPlannerConfig(EXAMPLE_CONFIG_PATH),
+    ) as unknown as Record<string, unknown>;
+    const referenceBenefits = badReference.governmentBenefits as Record<
+      string,
+      Record<string, unknown>
+    >;
+    referenceBenefits.cpp!.amountAt65 = {
+      source: "canadian_reference",
+      monthlyAmountToday: 999,
+    };
+    expect(() => validatePlannerConfig(badReference)).toThrow(
+      "does not accept monthlyAmountToday",
+    );
+
+    const badDate = structuredClone(
+      await loadPlannerConfig(EXAMPLE_CONFIG_PATH),
+    ) as unknown as Record<string, unknown>;
+    const badDateBenefits = badDate.governmentBenefits as Record<
+      string,
+      Record<string, unknown>
+    >;
+    badDateBenefits.cpp!.amountAt65 = {
+      source: "official_estimate",
+      monthlyAmountToday: 1000,
+      effectiveDate: "2026-02-30",
+    };
+    expect(() => validatePlannerConfig(badDate)).toThrow(
+      "valid ISO calendar date",
+    );
+
+    const unknownCpp = structuredClone(
+      await loadPlannerConfig(EXAMPLE_CONFIG_PATH),
+    ) as unknown as Record<string, unknown>;
+    const unknownCppBenefits = unknownCpp.governmentBenefits as Record<
+      string,
+      Record<string, unknown>
+    >;
+    unknownCppBenefits.cpp!.amountAt65 = { source: "personal_entitlement" };
+    expect(() => validatePlannerConfig(unknownCpp)).toThrow(
+      "official_estimate, configured_amount, canadian_reference, or explicit_zero",
+    );
+
+    for (const eligibility of [
+      { mode: "partial" },
+      { mode: "partial", qualifyingResidenceYearsAfter18: 0 },
+      { mode: "partial", qualifyingResidenceYearsAfter18: 20.5 },
+      { mode: "partial", qualifyingResidenceYearsAfter18: 40 },
+      { mode: "full", qualifyingResidenceYearsAfter18: 20 },
+      { mode: "unknown" },
+    ]) {
+      const value = structuredClone(
+        await loadPlannerConfig(EXAMPLE_CONFIG_PATH),
+      ) as unknown as Record<string, unknown>;
+      const benefits = value.governmentBenefits as Record<
+        string,
+        Record<string, unknown>
+      >;
+      benefits.oas!.eligibility = eligibility;
+      expect(() => validatePlannerConfig(value)).toThrow();
+    }
+  });
+
+  it("accepts a complete legacy benefit configuration deterministically", async () => {
+    const legacy = structuredClone(
+      await loadPlannerConfig(EXAMPLE_CONFIG_PATH),
+    ) as unknown as Record<string, unknown>;
+    delete legacy.governmentBenefits;
+    Object.assign(legacy, {
+      cppStartAge: 65,
+      oasStartAge: 67,
+      cppMonthlyAmountAt65: 1000,
+      oasMonthlyAmountAt65: 700,
+    });
+    const legacyAssumptions = legacy.assumptions as Record<string, unknown>;
+    legacyAssumptions.cppIndexing = 0.02;
+    legacyAssumptions.oasIndexing = 0.02;
+
+    const resolved = validatePlannerConfig(legacy);
+    expect(resolved.cppMonthlyAmountAt65).toBe(1000);
+    expect(resolved.governmentBenefits).toBeUndefined();
   });
 
   it("rejects unsupported configuration extensions clearly", async () => {

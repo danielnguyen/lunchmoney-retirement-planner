@@ -14,8 +14,12 @@ import {
   type AccountMapping,
   type CategoryMapping,
   type ContributionPhaseConfig,
+  type CppAmountAt65Config,
   type EmploymentIncomePhaseConfig,
+  type GovernmentBenefitsConfig,
   type LiveBaselineAmount,
+  type OasEligibilityConfig,
+  type OasFullAmountAt65Config,
   type PlannerAssumptions,
   type PlannerConfig,
   type TransactionClassification,
@@ -89,6 +93,141 @@ function nonEmptyString(value: unknown, field: string): string {
     );
   }
   return value;
+}
+
+function isoCalendarDate(value: unknown, field: string): string {
+  if (typeof value !== "string" || !/^\d{4}-\d{2}-\d{2}$/.test(value)) {
+    throw new PlannerRuntimeError(
+      "invalid_planner_config",
+      `${field} must be an ISO calendar date in YYYY-MM-DD format.`,
+      422,
+    );
+  }
+  const date = new Date(`${value}T00:00:00.000Z`);
+  if (Number.isNaN(date.valueOf()) || date.toISOString().slice(0, 10) !== value) {
+    throw new PlannerRuntimeError(
+      "invalid_planner_config",
+      `${field} must be a valid ISO calendar date.`,
+      422,
+    );
+  }
+  return value;
+}
+
+function rejectFields(
+  item: Record<string, unknown>,
+  field: string,
+  names: string[],
+): void {
+  const present = names.filter((name) => item[name] !== undefined);
+  if (present.length > 0) {
+    throw new PlannerRuntimeError(
+      "invalid_planner_config",
+      `${field} does not accept ${present.join(", ")} for this source mode.`,
+      422,
+    );
+  }
+}
+
+function cppAmountAt65(value: unknown): CppAmountAt65Config {
+  const field = "governmentBenefits.cpp.amountAt65";
+  const item = record(value, field);
+  if (item.source === "official_estimate" || item.source === "configured_amount") {
+    return {
+      source: item.source,
+      monthlyAmountToday: number(item.monthlyAmountToday, `${field}.monthlyAmountToday`, {
+        min: 0,
+      }),
+      effectiveDate: isoCalendarDate(item.effectiveDate, `${field}.effectiveDate`),
+    };
+  }
+  if (item.source === "canadian_reference" || item.source === "explicit_zero") {
+    rejectFields(item, field, ["monthlyAmountToday", "effectiveDate"]);
+    return { source: item.source };
+  }
+  throw new PlannerRuntimeError(
+    "invalid_planner_config",
+    `${field}.source must be official_estimate, configured_amount, canadian_reference, or explicit_zero.`,
+    422,
+  );
+}
+
+function oasFullAmountAt65(value: unknown): OasFullAmountAt65Config {
+  const field = "governmentBenefits.oas.fullAmountAt65";
+  const item = record(value, field);
+  if (item.source === "configured_amount") {
+    return {
+      source: item.source,
+      monthlyAmountToday: number(item.monthlyAmountToday, `${field}.monthlyAmountToday`, {
+        min: 0,
+      }),
+      effectiveDate: isoCalendarDate(item.effectiveDate, `${field}.effectiveDate`),
+    };
+  }
+  if (item.source === "canadian_reference") {
+    rejectFields(item, field, ["monthlyAmountToday", "effectiveDate"]);
+    return { source: item.source };
+  }
+  throw new PlannerRuntimeError(
+    "invalid_planner_config",
+    `${field}.source must be configured_amount or canadian_reference.`,
+    422,
+  );
+}
+
+function oasEligibility(value: unknown): OasEligibilityConfig {
+  const field = "governmentBenefits.oas.eligibility";
+  const item = record(value, field);
+  if (item.mode === "partial") {
+    return {
+      mode: "partial",
+      qualifyingResidenceYearsAfter18: number(
+        item.qualifyingResidenceYearsAfter18,
+        `${field}.qualifyingResidenceYearsAfter18`,
+        { min: 1, max: 39, integer: true },
+      ),
+    };
+  }
+  if (item.mode === "full" || item.mode === "none") {
+    rejectFields(item, field, ["qualifyingResidenceYearsAfter18"]);
+    return { mode: item.mode };
+  }
+  throw new PlannerRuntimeError(
+    "invalid_planner_config",
+    `${field}.mode must be full, partial, or none.`,
+    422,
+  );
+}
+
+function governmentBenefits(value: unknown): GovernmentBenefitsConfig {
+  const item = record(value, "governmentBenefits");
+  const cpp = record(item.cpp, "governmentBenefits.cpp");
+  const oas = record(item.oas, "governmentBenefits.oas");
+  return {
+    cpp: {
+      startAge: number(cpp.startAge, "governmentBenefits.cpp.startAge", {
+        min: 60,
+        max: 70,
+      }),
+      indexingRate: number(cpp.indexingRate, "governmentBenefits.cpp.indexingRate", {
+        min: -0.2,
+        max: 0.5,
+      }),
+      amountAt65: cppAmountAt65(cpp.amountAt65),
+    },
+    oas: {
+      startAge: number(oas.startAge, "governmentBenefits.oas.startAge", {
+        min: 65,
+        max: 70,
+      }),
+      indexingRate: number(oas.indexingRate, "governmentBenefits.oas.indexingRate", {
+        min: -0.2,
+        max: 0.5,
+      }),
+      fullAmountAt65: oasFullAmountAt65(oas.fullAmountAt65),
+      eligibility: oasEligibility(oas.eligibility),
+    },
+  };
 }
 
 function liveBaselineAmount(value: unknown, field: string): LiveBaselineAmount {
@@ -325,8 +464,22 @@ function assumptions(value: unknown): PlannerAssumptions {
             min: -0.2,
             max: 0.5,
           }),
-    cppIndexing: number(item.cppIndexing, "assumptions.cppIndexing", { min: -0.2, max: 0.5 }),
-    oasIndexing: number(item.oasIndexing, "assumptions.oasIndexing", { min: -0.2, max: 0.5 }),
+    ...(item.cppIndexing === undefined
+      ? {}
+      : {
+          cppIndexing: number(item.cppIndexing, "assumptions.cppIndexing", {
+            min: -0.2,
+            max: 0.5,
+          }),
+        }),
+    ...(item.oasIndexing === undefined
+      ? {}
+      : {
+          oasIndexing: number(item.oasIndexing, "assumptions.oasIndexing", {
+            min: -0.2,
+            max: 0.5,
+          }),
+        }),
     effectiveTaxRate: number(item.effectiveTaxRate, "assumptions.effectiveTaxRate", {
       min: 0,
       max: 0.8,
@@ -565,6 +718,40 @@ function events(value: unknown): ProjectionEventInput[] {
 
 export function validatePlannerConfig(value: unknown): PlannerConfig {
   const item = record(value, "The planner configuration");
+  const rawAssumptions = record(item.assumptions, "assumptions");
+  const legacyBenefitFields = [
+    "cppStartAge",
+    "oasStartAge",
+    "cppMonthlyAmountAt65",
+    "oasMonthlyAmountAt65",
+  ] as const;
+  const presentLegacyFields = legacyBenefitFields.filter(
+    (field) => item[field] !== undefined,
+  );
+  const presentLegacyIndexing = ["cppIndexing", "oasIndexing"].filter(
+    (field) => rawAssumptions[field] !== undefined,
+  );
+  if (
+    item.governmentBenefits !== undefined &&
+    (presentLegacyFields.length > 0 || presentLegacyIndexing.length > 0)
+  ) {
+    throw new PlannerRuntimeError(
+      "invalid_planner_config",
+      "governmentBenefits cannot be combined with legacy CPP or OAS fields.",
+      422,
+    );
+  }
+  if (
+    item.governmentBenefits === undefined &&
+    (presentLegacyFields.length !== legacyBenefitFields.length ||
+      presentLegacyIndexing.length !== 2)
+  ) {
+    throw new PlannerRuntimeError(
+      "invalid_planner_config",
+      "Configure governmentBenefits, or provide the complete legacy CPP and OAS scalar configuration.",
+      422,
+    );
+  }
   const rawAccountMappings = record(item.accountMappings, "accountMappings");
   const rawCategoryMappings = record(item.categoryMappings, "categoryMappings");
   const config: PlannerConfig = {
@@ -574,10 +761,30 @@ export function validatePlannerConfig(value: unknown): PlannerConfig {
       min: 19,
       max: 120,
     }),
-    cppStartAge: number(item.cppStartAge, "cppStartAge", { min: 60, max: 70, integer: true }),
-    oasStartAge: number(item.oasStartAge, "oasStartAge", { min: 65, max: 70, integer: true }),
-    cppMonthlyAmountAt65: number(item.cppMonthlyAmountAt65, "cppMonthlyAmountAt65", { min: 0 }),
-    oasMonthlyAmountAt65: number(item.oasMonthlyAmountAt65, "oasMonthlyAmountAt65", { min: 0 }),
+    ...(item.governmentBenefits === undefined
+      ? {
+          cppStartAge: number(item.cppStartAge, "cppStartAge", {
+            min: 60,
+            max: 70,
+            integer: true,
+          }),
+          oasStartAge: number(item.oasStartAge, "oasStartAge", {
+            min: 65,
+            max: 70,
+            integer: true,
+          }),
+          cppMonthlyAmountAt65: number(
+            item.cppMonthlyAmountAt65,
+            "cppMonthlyAmountAt65",
+            { min: 0 },
+          ),
+          oasMonthlyAmountAt65: number(
+            item.oasMonthlyAmountAt65,
+            "oasMonthlyAmountAt65",
+            { min: 0 },
+          ),
+        }
+      : { governmentBenefits: governmentBenefits(item.governmentBenefits) }),
     retirementGoal: number(item.retirementGoal, "retirementGoal", { min: 0 }),
     transactionTrailingMonths: number(item.transactionTrailingMonths, "transactionTrailingMonths", {
       min: 1,

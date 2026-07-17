@@ -8,6 +8,12 @@ import type {
 } from "@lunch-money/lunch-money-js-v2";
 import type { AccountMapping, CategoryMapping, PlannerConfig } from "@/src/config/types";
 import type { BaselineValue } from "@/src/domain/defaults/types";
+import {
+  canadianCppReference,
+  canadianOasReference,
+  cppClaimRules,
+  oasClaimRules,
+} from "@/src/domain/defaults/canadian-public-benefits";
 import { validateProjectionInputs, type AccountType, type ProjectionInputs } from "@/src/domain/projection/types";
 import type { LunchMoneyData } from "@/src/integrations/lunchmoney/read-service";
 import { PlannerRuntimeError } from "@/src/runtime/errors";
@@ -114,6 +120,23 @@ function derivedValue<T>(value: T, description: string, date: string): BaselineV
     sourceType: "lunchmoney_derived",
     sourceDescription: description,
     effectiveDate: date,
+  };
+}
+
+function canadianValue<T>(
+  value: T,
+  description: string,
+  effectiveDate: string,
+  referenceKind: BaselineValue<T>["referenceKind"],
+  referenceUrl: string,
+): BaselineValue<T> {
+  return {
+    value,
+    sourceType: "canadian_reference",
+    sourceDescription: description,
+    effectiveDate,
+    referenceKind,
+    referenceUrl,
   };
 }
 
@@ -825,10 +848,6 @@ export function deriveCurrentBaseline(
     currentAge: config.currentAge,
     retirementAge: config.retirementAge,
     endAge: config.projectionEndAge,
-    cppStartAge: config.cppStartAge,
-    oasStartAge: config.oasStartAge,
-    cppMonthlyAmountAt65: config.cppMonthlyAmountAt65,
-    oasMonthlyAmountAt65: config.oasMonthlyAmountAt65,
     retirementGoalToday: config.retirementGoal,
     annualInflation: config.assumptions.inflation,
     effectiveTaxRate: config.assumptions.effectiveTaxRate,
@@ -839,12 +858,6 @@ export function deriveCurrentBaseline(
     "person.annualPensionToday": config.assumptions.pensionAnnualIncome,
     "person.pensionStartAge": config.assumptions.pensionStartAge,
     "person.pensionIndexingRate": config.assumptions.pensionIndexing,
-    "person.cpp.startAge": config.cppStartAge,
-    "person.cpp.monthlyAmountAt65Today": config.cppMonthlyAmountAt65,
-    "person.cpp.indexingRate": config.assumptions.cppIndexing,
-    "person.oas.startAge": config.oasStartAge,
-    "person.oas.monthlyAmountAt65Today": config.oasMonthlyAmountAt65,
-    "person.oas.indexingRate": config.assumptions.oasIndexing,
     "person.rrifConversionAge": config.assumptions.rrifConversionAge,
     "tax.effectiveTaxRate": config.assumptions.effectiveTaxRate,
     "tax.oasRecoveryThresholdToday": config.assumptions.oasRecoveryThreshold,
@@ -854,6 +867,249 @@ export function deriveCurrentBaseline(
   for (const [field, value] of Object.entries(localFields)) {
     provenance[field] = localValue(value, `${field} from private planner configuration`, window.endDate);
   }
+
+  const canonicalBenefits = config.governmentBenefits;
+  const cppStartAge = canonicalBenefits?.cpp.startAge ?? config.cppStartAge!;
+  const cppIndexingRate =
+    canonicalBenefits?.cpp.indexingRate ?? config.assumptions.cppIndexing!;
+  const oasStartAge = canonicalBenefits?.oas.startAge ?? config.oasStartAge!;
+  const oasIndexingRate =
+    canonicalBenefits?.oas.indexingRate ?? config.assumptions.oasIndexing!;
+
+  let cppMonthlyAmountAt65Today: number;
+  let cppAmountProvenance: BaselineValue<number>;
+  let cppSourceMode: string;
+  if (canonicalBenefits?.cpp.amountAt65.source === "canadian_reference") {
+    cppMonthlyAmountAt65Today = canadianCppReference.monthlyAmountAt65Today;
+    cppSourceMode = "canadian_reference";
+    cppAmountProvenance = canadianValue(
+      cppMonthlyAmountAt65Today,
+      canadianCppReference.description,
+      canadianCppReference.effectiveDate,
+      canadianCppReference.referenceKind,
+      canadianCppReference.referenceUrl,
+    );
+    warnings.push({
+      code: "cpp_canadian_reference_in_use",
+      severity: "warning",
+      message:
+        "CPP uses a generic published Canadian average for new beneficiaries at age 65. It is not a personal estimate or entitlement.",
+    });
+  } else if (canonicalBenefits?.cpp.amountAt65.source === "explicit_zero") {
+    cppMonthlyAmountAt65Today = 0;
+    cppSourceMode = "explicit_zero";
+    cppAmountProvenance = localValue(
+      0,
+      "CPP is intentionally configured as zero",
+      window.endDate,
+    );
+  } else if (canonicalBenefits) {
+    const amount = canonicalBenefits.cpp.amountAt65;
+    if (
+      amount.source !== "official_estimate" &&
+      amount.source !== "configured_amount"
+    ) {
+      throw new Error("Canonical CPP amount source was not resolved");
+    }
+    cppMonthlyAmountAt65Today = amount.monthlyAmountToday;
+    cppSourceMode = amount.source;
+    cppAmountProvenance = localValue(
+      amount.monthlyAmountToday,
+      amount.source === "official_estimate"
+        ? "Amount entered from an official CPP estimate in private configuration"
+        : "Explicit CPP planning assumption from private configuration; not an official entitlement",
+      amount.effectiveDate,
+    );
+  } else {
+    cppMonthlyAmountAt65Today = config.cppMonthlyAmountAt65!;
+    cppSourceMode = "legacy_configured_amount";
+    cppAmountProvenance = localValue(
+      cppMonthlyAmountAt65Today,
+      "Legacy CPP scalar amount normalized into the concrete CPP model through compatibility behaviour",
+      window.endDate,
+    );
+    if (cppMonthlyAmountAt65Today === 0) {
+      warnings.push({
+        code: "legacy_zero_cpp_amount",
+        severity: "warning",
+        message:
+          "Legacy CPP amount is zero and remains zero for compatibility. Canonical configuration must use amountAt65.source: explicit_zero to make that intent explicit.",
+      });
+    }
+  }
+
+  let oasFullMonthlyAmountAt65Today: number;
+  let oasAmountProvenance: BaselineValue<number>;
+  let oasSourceMode: string;
+  if (canonicalBenefits?.oas.fullAmountAt65.source === "canadian_reference") {
+    oasFullMonthlyAmountAt65Today =
+      canadianOasReference.fullMonthlyAmountAt65Today;
+    oasSourceMode = "canadian_reference";
+    oasAmountProvenance = canadianValue(
+      oasFullMonthlyAmountAt65Today,
+      canadianOasReference.description,
+      canadianOasReference.effectiveDate,
+      canadianOasReference.referenceKind,
+      canadianOasReference.referenceUrl,
+    );
+    warnings.push({
+      code: "oas_canadian_reference_in_use",
+      severity: "warning",
+      message:
+        "OAS uses the generic published full amount for ages 65–74. It is not a personal entitlement, and eligibility is configured separately.",
+    });
+  } else if (canonicalBenefits) {
+    const amount = canonicalBenefits.oas.fullAmountAt65;
+    oasFullMonthlyAmountAt65Today = amount.monthlyAmountToday;
+    oasSourceMode = "configured_amount";
+    oasAmountProvenance = localValue(
+      amount.monthlyAmountToday,
+      "Configured full OAS planning amount from private configuration; eligibility is resolved separately and this is not a personal entitlement",
+      amount.effectiveDate,
+    );
+  } else {
+    oasFullMonthlyAmountAt65Today = config.oasMonthlyAmountAt65!;
+    oasSourceMode = "legacy_configured_amount";
+    oasAmountProvenance = localValue(
+      oasFullMonthlyAmountAt65Today,
+      "Legacy OAS scalar amount normalized into the concrete OAS model through compatibility behaviour",
+      window.endDate,
+    );
+    if (oasFullMonthlyAmountAt65Today === 0) {
+      warnings.push({
+        code: "legacy_zero_oas_amount",
+        severity: "warning",
+        message:
+          "Legacy OAS amount is zero and remains zero for compatibility. Canonical configuration must use eligibility.mode: none to make a zero OAS assumption explicit.",
+      });
+    }
+  }
+
+  const oasEligibility = canonicalBenefits
+    ? canonicalBenefits.oas.eligibility.mode === "partial"
+      ? {
+          mode: "partial" as const,
+          qualifyingResidenceYearsAfter18:
+            canonicalBenefits.oas.eligibility
+              .qualifyingResidenceYearsAfter18,
+          fraction:
+            canonicalBenefits.oas.eligibility
+              .qualifyingResidenceYearsAfter18 / 40,
+        }
+      : {
+          mode: canonicalBenefits.oas.eligibility.mode,
+          qualifyingResidenceYearsAfter18: null,
+          fraction:
+            canonicalBenefits.oas.eligibility.mode === "full" ? 1 : 0,
+        }
+    : {
+        mode: "full" as const,
+        qualifyingResidenceYearsAfter18: null,
+        fraction: 1,
+      };
+
+  const benefitProvenance: Record<string, BaselineValue<unknown>> = {
+    "person.cpp.amountSourceMode": localValue(
+      cppSourceMode,
+      canonicalBenefits
+        ? "Configured CPP amount source mode"
+        : "Legacy CPP scalar normalized as a configured amount through compatibility behaviour",
+      window.endDate,
+    ),
+    "person.cpp.monthlyAmountAt65Today": cppAmountProvenance,
+    "person.cpp.effectiveDate": {
+      ...cppAmountProvenance,
+      value: cppAmountProvenance.effectiveDate,
+    },
+    "person.cpp.startAge": localValue(
+      cppStartAge,
+      canonicalBenefits
+        ? "Configured CPP claim age"
+        : "Legacy CPP start age normalized through compatibility behaviour",
+      window.endDate,
+    ),
+    "person.cpp.indexingRate": localValue(
+      cppIndexingRate,
+      canonicalBenefits
+        ? "Configured CPP indexing assumption"
+        : "Legacy assumptions.cppIndexing normalized through compatibility behaviour",
+      window.endDate,
+    ),
+    "person.cpp.claimAdjustmentRule": canadianValue(
+      "0.6% reduction per month before 65; 0.7% increase per month after 65",
+      "Statutory CPP claim-age adjustment rule",
+      cppClaimRules.effectiveDate,
+      "statutory_program_default",
+      cppClaimRules.referenceUrl,
+    ),
+    "person.oas.fullAmountSourceMode": localValue(
+      oasSourceMode,
+      canonicalBenefits
+        ? "Configured OAS full-amount source mode"
+        : "Legacy OAS scalar normalized as a configured full amount through compatibility behaviour",
+      window.endDate,
+    ),
+    "person.oas.fullMonthlyAmountAt65Today": oasAmountProvenance,
+    "person.oas.effectiveDate": {
+      ...oasAmountProvenance,
+      value: oasAmountProvenance.effectiveDate,
+    },
+    "person.oas.eligibility.mode": localValue(
+      oasEligibility.mode,
+      canonicalBenefits
+        ? "Explicit OAS eligibility mode"
+        : "Legacy OAS amount normalized with full eligibility through compatibility behaviour",
+      window.endDate,
+    ),
+    "person.oas.eligibility.qualifyingResidenceYearsAfter18": localValue(
+      oasEligibility.qualifyingResidenceYearsAfter18,
+      "Explicit qualifying residence years for partial OAS eligibility, when applicable",
+      window.endDate,
+    ),
+    "person.oas.eligibility.fraction": localValue(
+      oasEligibility.fraction,
+      oasEligibility.mode === "partial"
+        ? "Configured qualifying residence years divided by 40"
+        : "Resolved from the explicit OAS eligibility mode",
+      window.endDate,
+    ),
+    "person.oas.startAge": localValue(
+      oasStartAge,
+      canonicalBenefits
+        ? "Configured OAS claim age"
+        : "Legacy OAS start age normalized through compatibility behaviour",
+      window.endDate,
+    ),
+    "person.oas.indexingRate": localValue(
+      oasIndexingRate,
+      canonicalBenefits
+        ? "Configured OAS indexing assumption"
+        : "Legacy assumptions.oasIndexing normalized through compatibility behaviour",
+      window.endDate,
+    ),
+    "person.oas.delayedClaimRule": canadianValue(
+      "0.6% increase per month after age 65, to a maximum 36% at age 70",
+      "Statutory OAS delayed-claim adjustment rule",
+      oasClaimRules.effectiveDate,
+      "statutory_program_default",
+      oasClaimRules.delayedClaimReferenceUrl,
+    ),
+    "person.oas.age75IncreaseRule": canadianValue(
+      "Permanent 10% increase beginning in the first modelled month after the age-75 boundary",
+      "Statutory OAS age-75 increase rule",
+      oasClaimRules.effectiveDate,
+      "statutory_program_default",
+      oasClaimRules.age75IncreaseReferenceUrl,
+    ),
+    "person.oas.age75IncreaseRate": canadianValue(
+      oasClaimRules.age75IncreaseRate,
+      "Statutory OAS age-75 increase rate",
+      oasClaimRules.effectiveDate,
+      "statutory_program_default",
+      oasClaimRules.age75IncreaseReferenceUrl,
+    ),
+  };
+  Object.assign(provenance, benefitProvenance);
   provenance.startDate = derivedValue(
     dataThrough,
     "Lunch Money data-through date used as the projection calendar anchor",
@@ -885,14 +1141,16 @@ export function deriveCurrentBaseline(
       pensionStartAge: config.assumptions.pensionStartAge,
       pensionIndexingRate: config.assumptions.pensionIndexing,
       cpp: {
-        startAge: config.cppStartAge,
-        monthlyAmountAt65Today: config.cppMonthlyAmountAt65,
-        indexingRate: config.assumptions.cppIndexing,
+        startAge: cppStartAge,
+        monthlyAmountAt65Today: cppMonthlyAmountAt65Today,
+        indexingRate: cppIndexingRate,
       },
       oas: {
-        startAge: config.oasStartAge,
-        monthlyAmountAt65Today: config.oasMonthlyAmountAt65,
-        indexingRate: config.assumptions.oasIndexing,
+        startAge: oasStartAge,
+        fullMonthlyAmountAt65Today: oasFullMonthlyAmountAt65Today,
+        eligibility: oasEligibility,
+        indexingRate: oasIndexingRate,
+        age75IncreaseRate: oasClaimRules.age75IncreaseRate,
       },
       rrifConversionAge: config.assumptions.rrifConversionAge,
     },
@@ -901,7 +1159,7 @@ export function deriveCurrentBaseline(
   });
 
   return {
-    schemaVersion: "1.2",
+    schemaVersion: "1.3",
     connection,
     projectionInputs,
     provenance,

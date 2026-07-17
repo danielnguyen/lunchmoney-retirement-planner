@@ -93,6 +93,16 @@ function buildExportFixture(): ExportFixture {
       sourceDescription: `${PRIVATE_TEXT.eventLabel}; ${PRIVATE_TEXT.note}`,
       effectiveDate: baseline.dataThrough,
     },
+    "person.cpp.monthlyAmountAt65Today": {
+      value: 877.01,
+      sourceType: "canadian_reference",
+      sourceDescription:
+        "Published average for new CPP beneficiaries at age 65; not a personal entitlement.",
+      effectiveDate: "2026-04-01",
+      referenceKind: "population_average",
+      referenceUrl:
+        "https://www.canada.ca/en/services/benefits/publicpensions/cpp/amount.html",
+    },
     [`notes.${PRIVATE_TEXT.personalName}`]: {
       value: `${PRIVATE_TEXT.note} ${PRIVATE_TEXT.streetAddress}; password=${EXPORT_PASSWORD}`,
       sourceType: "local_configuration",
@@ -280,6 +290,8 @@ describe("identifier-scrubbed projection exports", () => {
     const { snapshot } = buildExportFixture();
     const serialized = JSON.stringify(snapshot);
 
+    expect(snapshot.schemaVersion).toBe("5.0");
+    expect(snapshot.projection.schemaVersion).toBe("5.0");
     expect(snapshot.exportMetadata).toEqual({
       transformation: "typed_allowlist",
       rawLunchMoneyIdentifiersIncluded: false,
@@ -384,6 +396,14 @@ describe("identifier-scrubbed projection exports", () => {
     expect(snapshot.provenance.events?.sourceDescription).toBe(
       `${PRIVATE_TEXT.eventLabel}; ${PRIVATE_TEXT.note}`,
     );
+    expect(
+      snapshot.provenance["person.cpp.monthlyAmountAt65Today"],
+    ).toMatchObject({
+      referenceKind: "population_average",
+      referenceUrl:
+        "https://www.canada.ca/en/services/benefits/publicpensions/cpp/amount.html",
+    });
+    expect(snapshot.provenance.field_1).not.toHaveProperty("referenceUrl");
     expect(snapshot.provenance.field_1).toMatchObject({
       fieldReference: "field_1",
       value: `${PRIVATE_TEXT.note} ${PRIVATE_TEXT.streetAddress}; password=[credential removed]`,
@@ -430,6 +450,9 @@ describe("identifier-scrubbed projection exports", () => {
     expect(snapshot.projection.financialAssetsBridge).toEqual(
       projection.financialAssetsBridge,
     );
+    expect(snapshot.projection.governmentBenefits).toEqual(
+      projection.governmentBenefits,
+    );
     expect(
       Object.values(snapshot.projection.annual[0]!.real.accountBalances).sort((a, b) => a - b),
     ).toEqual(
@@ -450,6 +473,63 @@ describe("identifier-scrubbed projection exports", () => {
       classification: baseline.derived.recurringExpenses.items[0]!.classification,
     });
     expectNoSourceIdentifiersOrCredentials(JSON.stringify(snapshot));
+  });
+
+  it("preserves typed legacy-zero migration warnings", () => {
+    const inputs = structuredClone(projectionFixture);
+    inputs.person.cpp.monthlyAmountAt65Today = 0;
+    inputs.person.oas.fullMonthlyAmountAt65Today = 0;
+    const baseline = structuredClone(baselineContextFixture);
+    baseline.projectionInputs = inputs;
+    baseline.warnings = [
+      {
+        code: "legacy_zero_cpp_amount",
+        severity: "warning",
+        message: "Legacy CPP zero requires explicit_zero when migrated.",
+      },
+      {
+        code: "legacy_zero_oas_amount",
+        severity: "warning",
+        message: "Legacy OAS zero requires eligibility mode none when migrated.",
+      },
+    ];
+
+    const snapshot = createProjectionSnapshot(
+      calculateProjection(inputs),
+      baseline,
+      {},
+    );
+
+    expect(snapshot.warnings.map((warning) => warning.code)).toEqual([
+      "legacy_zero_cpp_amount",
+      "legacy_zero_oas_amount",
+    ]);
+  });
+
+  it("preserves active CPP and OAS claim-age overrides", () => {
+    const baseline = structuredClone(baselineContextFixture);
+    const activeInputs = structuredClone(projectionFixture);
+    activeInputs.person.cpp.startAge = 70;
+    activeInputs.person.oas.startAge = 70;
+
+    const snapshot = createProjectionSnapshot(
+      calculateProjection(activeInputs),
+      baseline,
+      { cppStartAge: 70, oasStartAge: 70 },
+    );
+
+    expect(snapshot.resolvedBaseline.person.cpp.startAge).toBe(65);
+    expect(snapshot.activeInputs.person.cpp.startAge).toBe(70);
+    expect(snapshot.projection.governmentBenefits.cpp.claimFactor).toBeCloseTo(
+      1.42,
+    );
+    expect(snapshot.projection.governmentBenefits.oas.claimFactor).toBeCloseTo(
+      1.36,
+    );
+    expect(snapshot.activeOverrides).toEqual({
+      cppStartAge: 70,
+      oasStartAge: 70,
+    });
   });
 
   it("keeps aliases distinct when included accounts have duplicate display names", () => {
@@ -581,6 +661,16 @@ describe("identifier-scrubbed projection exports", () => {
     expect(header).toContain("account_rrsp_1");
     expect(header).toContain("employmentPhase");
     expect(header).toContain("incomeWithheldContributions");
+    expect(header).toEqual(expect.arrayContaining([
+      "cpp_base_monthly_at_65_today",
+      "cpp_claim_age",
+      "cpp_claim_factor",
+      "oas_full_monthly_at_65_today",
+      "oas_claim_age",
+      "oas_claim_factor",
+      "oas_eligibility_fraction",
+      "oas_age_75_increase_rate",
+    ]));
     expect(parsed[1]![0]).toBe("2026 (Jul–Dec)");
     expect(csv).not.toContain("section,key,value");
     expect(csv).not.toContain("metadata,");
@@ -592,6 +682,12 @@ describe("identifier-scrubbed projection exports", () => {
     expect(Number(parsed[1]![financialAssetsColumn])).toBe(
       snapshot.projection.annual[0]!.real.balances.financialAssets,
     );
+    expect(
+      Number(parsed[1]![header.indexOf("cpp_claim_factor")]),
+    ).toBe(snapshot.projection.governmentBenefits.cpp.claimFactor);
+    expect(
+      Number(parsed[1]![header.indexOf("oas_eligibility_fraction")]),
+    ).toBe(snapshot.projection.governmentBenefits.oas.eligibilityFraction);
     expectNoSourceIdentifiersOrCredentials(csv);
   });
 

@@ -565,6 +565,117 @@ describe("calculation explanations", () => {
     expect(resetDocument.steps.some((step) => step.sourceType === "override")).toBe(false);
   });
 
+  it("reconciles CPP claim arithmetic and updates a claim-age override", () => {
+    const reset = buildExplanation("cpp-benefit", context());
+    const overridden = context((draft) => {
+      draft.inputs.person.cpp.startAge = 70;
+      draft.overrides = { cppStartAge: 70 };
+      draft.projection = calculateProjection(draft.inputs);
+    });
+    const active = buildExplanation("cpp-benefit", overridden);
+
+    expect(reset.reconciliation?.matched).toBe(true);
+    expect(reset.steps.find((step) => step.label === "Claim factor")?.rawValue)
+      .toBe(1);
+    expect(active.reconciliation?.matched).toBe(true);
+    expect(active.steps.find((step) => step.label === "Claim factor")?.rawValue)
+      .toBeCloseTo(1.42);
+    expect(active.assumptions).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          label: "CPP claim age",
+          sourceType: "override",
+          value: "70",
+        }),
+      ]),
+    );
+    expect(reset.assumptions.some((item) => item.sourceType === "override"))
+      .toBe(false);
+  });
+
+  it("shows OAS partial-residence arithmetic, delayed claim, and age-75 amount", () => {
+    const value = context((draft) => {
+      draft.inputs.person.oas.startAge = 70;
+      draft.inputs.person.oas.fullMonthlyAmountAt65Today = 751.97;
+      draft.inputs.person.oas.eligibility = {
+        mode: "partial",
+        qualifyingResidenceYearsAfter18: 20,
+        fraction: 0.5,
+      };
+      draft.baseline.projectionInputs.person.oas =
+        structuredClone(draft.inputs.person.oas);
+      draft.baseline.provenance["person.oas.eligibility.fraction"] = {
+        value: 0.5,
+        sourceType: "local_configuration",
+        sourceDescription: "20 qualifying years divided by 40",
+        effectiveDate: "2026-07-14",
+      };
+      draft.projection = calculateProjection(draft.inputs);
+    });
+    const document = buildExplanation("oas-benefit", value);
+
+    expect(document.reconciliation?.matched).toBe(true);
+    expect(
+      document.steps.find((step) => step.label === "Partial eligibility")
+        ?.value,
+    ).toContain("20 ÷ 40");
+    expect(
+      document.steps.find((step) => step.label === "Claim factor")?.rawValue,
+    ).toBeCloseTo(1.36);
+    expect(
+      document.steps.find(
+        (step) => step.label === "Monthly amount after age-75 increase",
+      )?.rawValue,
+    ).toBeCloseTo(751.97 * 0.5 * 1.36 * 1.1);
+    expect(document.caveats.join(" ")).toContain(
+      "international social-security agreements",
+    );
+  });
+
+  it("never labels a Canadian CPP reference as a personal entitlement", () => {
+    const value = context((draft) => {
+      draft.baseline.provenance["person.cpp.monthlyAmountAt65Today"] = {
+        value: 877.01,
+        sourceType: "canadian_reference",
+        sourceDescription:
+          "Published average for new CPP beneficiaries at age 65; not a personal estimate or entitlement.",
+        effectiveDate: "2026-04-01",
+        referenceKind: "population_average",
+        referenceUrl:
+          "https://www.canada.ca/en/services/benefits/publicpensions/cpp/amount.html",
+      };
+      draft.baseline.warnings.push({
+        code: "cpp_canadian_reference_in_use",
+        severity: "warning",
+        message:
+          "CPP uses a generic published Canadian average, not a personal estimate or entitlement.",
+      });
+    });
+    const serialized = JSON.stringify(buildExplanation("cpp-benefit", value));
+
+    expect(serialized).toContain("not a personal");
+    expect(serialized).not.toMatch(/personal entitlement is|your entitlement/i);
+  });
+
+  it("makes a legacy zero benefit and its migration warning visible", () => {
+    const value = context((draft) => {
+      draft.inputs.person.cpp.monthlyAmountAt65Today = 0;
+      draft.baseline.projectionInputs.person.cpp.monthlyAmountAt65Today = 0;
+      draft.baseline.warnings.push({
+        code: "legacy_zero_cpp_amount",
+        severity: "warning",
+        message:
+          "Legacy CPP amount remains zero; canonical configuration must use explicit_zero.",
+      });
+      draft.projection = calculateProjection(draft.inputs);
+    });
+    const document = buildExplanation("cpp-benefit", value);
+
+    expect(document.displayedResult?.value).toBe("$0.00");
+    expect(document.caveats.join(" ")).toContain("explicit_zero");
+    expect(document.reconciliation?.matched).toBe(true);
+  });
+
   it("returns only finite deterministic evidence and omits credentials", () => {
     const value = context();
     value.baseline.provenance.unused = {
