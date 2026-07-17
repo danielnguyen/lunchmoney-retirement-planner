@@ -16,6 +16,7 @@ import type {
   BaselineWarning,
   CurrentBaseline,
   RecurringExpense,
+  TransactionAuditBreakdown,
   UnmappedAccount,
   UnmappedCategory,
 } from "./types";
@@ -38,8 +39,64 @@ type MappingDetails = {
   contributionDirection: "debit" | "credit";
 };
 
+type AuditAccumulator = Omit<
+  TransactionAuditBreakdown,
+  "transactionCount" | "trailingTotal" | "monthlyAverage"
+> & {
+  transactionCount: number;
+  trailingTotal: number;
+};
+
 function round(value: number): number {
   return Math.round((value + Number.EPSILON) * 100) / 100;
+}
+
+function addAuditValue(
+  audit: Map<string, AuditAccumulator>,
+  details: Omit<AuditAccumulator, "transactionCount" | "trailingTotal">,
+  amount: number,
+): void {
+  const key = `${details.categoryId}\u0000${details.accountId}`;
+  const current = audit.get(key);
+  if (current) {
+    current.transactionCount += 1;
+    current.trailingTotal += amount;
+    return;
+  }
+  audit.set(key, {
+    ...details,
+    transactionCount: 1,
+    trailingTotal: amount,
+  });
+}
+
+function auditBreakdown(
+  audit: Map<string, AuditAccumulator>,
+  trailingMonths: number,
+  expectedMonthlyAverage: number,
+): TransactionAuditBreakdown[] {
+  const rows = [...audit.values()]
+    .sort(
+      (left, right) =>
+        left.categoryName.localeCompare(right.categoryName) ||
+        left.accountName.localeCompare(right.accountName) ||
+        left.categoryId.localeCompare(right.categoryId) ||
+        left.accountId.localeCompare(right.accountId),
+    )
+    .map((item) => ({
+      ...item,
+      trailingTotal: round(item.trailingTotal),
+      monthlyAverage: round(item.trailingTotal / trailingMonths),
+    }));
+
+  const last = rows.at(-1);
+  if (last) {
+    const precedingTotal = round(
+      rows.slice(0, -1).reduce((total, item) => total + item.monthlyAverage, 0),
+    );
+    last.monthlyAverage = round(expectedMonthlyAverage - precedingTotal);
+  }
+  return rows;
 }
 
 function localValue<T>(value: T, description: string, date: string): BaselineValue<T> {
@@ -257,7 +314,9 @@ export function deriveCurrentBaseline(
   let discretionaryCount = 0;
   let contributionTransactionTotal = 0;
   let contributionTransactionCount = 0;
-
+  const incomeAudit = new Map<string, AuditAccumulator>();
+  const essentialAudit = new Map<string, AuditAccumulator>();
+  const discretionaryAudit = new Map<string, AuditAccumulator>();
   function noteUnmappedCategory(categoryId: string): void {
     unmappedCategoryCounts.set(categoryId, (unmappedCategoryCounts.get(categoryId) ?? 0) + 1);
   }
@@ -315,15 +374,24 @@ export function deriveCurrentBaseline(
 
     const details = mappingDetails(configuredCategory);
     const amount = transaction.to_base;
+    const auditDetails = {
+      categoryId,
+      categoryName: category?.name ?? "Uncategorized",
+      accountId: sourceAccount,
+      accountName: accountById.get(sourceAccount)?.name ?? "Cash transactions",
+    };
     if (details.classification === "essential") {
       essentialTotal += amount;
       essentialCount += 1;
+      addAuditValue(essentialAudit, auditDetails, amount);
     } else if (details.classification === "discretionary") {
       discretionaryTotal += amount;
       discretionaryCount += 1;
+      addAuditValue(discretionaryAudit, auditDetails, amount);
     } else if (details.classification === "income") {
       incomeTotal -= amount;
       incomeCount += 1;
+      addAuditValue(incomeAudit, auditDetails, -amount);
     } else if (details.classification === "investment_contribution") {
       const target = resolveContributionTarget(details, sourceAccount, categoryId);
       const contribution = details.contributionDirection === "credit" ? -amount : amount;
@@ -334,6 +402,7 @@ export function deriveCurrentBaseline(
   }
 
   const recurringExpenses: RecurringExpense[] = [];
+  const recurringAuditItems: CurrentBaseline["cashFlowAudit"]["recurringExpenses"]["items"] = [];
   let suggestedRecurringCount = 0;
   for (const item of data.recurringItems) {
     if (item.status !== "reviewed") {
@@ -370,6 +439,13 @@ export function deriveCurrentBaseline(
       monthlyAmount: round(monthlyAmount),
       accountId: sourceAccount,
       categoryId,
+    });
+    recurringAuditItems.push({
+      description: item.description || item.transaction_criteria.payee || `Recurring item ${item.id}`,
+      classification: details.classification,
+      monthlyAmount: round(monthlyAmount),
+      accountName: accountById.get(sourceAccount)?.name ?? "Cash transactions",
+      categoryName: category?.name ?? "Uncategorized",
     });
   }
   if (suggestedRecurringCount > 0) {
@@ -589,6 +665,12 @@ export function deriveCurrentBaseline(
       source: account.contributionSource,
       funding: account.contributionFunding ?? "cash",
     }));
+  const contributionAuditAccounts = contributionAccounts.map((account) => ({
+    ...account,
+    accountName:
+      accountBaselines.find((baselineAccount) => baselineAccount.id === account.accountId)?.name ??
+      "Unknown account",
+  }));
   const resolvedMonthlyContributions = round(
     contributionAccounts.reduce((total, account) => total + account.monthlyAverage, 0),
   );
@@ -691,7 +773,7 @@ export function deriveCurrentBaseline(
   });
 
   return {
-    schemaVersion: "1.0",
+    schemaVersion: "1.1",
     connection,
     projectionInputs,
     provenance,
@@ -723,6 +805,41 @@ export function deriveCurrentBaseline(
         monthlyTotal: round(recurringExpenses.reduce((total, item) => total + item.monthlyAmount, 0)),
         count: recurringExpenses.length,
         items: recurringExpenses,
+      },
+    },
+    cashFlowAudit: {
+      income: {
+        trailingTotal: round(incomeTotal),
+        monthlyAverage: monthlyIncome,
+        transactionCount: incomeCount,
+        breakdown: auditBreakdown(incomeAudit, window.trailingMonths, monthlyIncome),
+      },
+      essentialSpending: {
+        trailingTotal: round(essentialTotal),
+        monthlyAverage: monthlyEssential,
+        transactionCount: essentialCount,
+        breakdown: auditBreakdown(essentialAudit, window.trailingMonths, monthlyEssential),
+      },
+      discretionarySpending: {
+        trailingTotal: round(discretionaryTotal),
+        monthlyAverage: monthlyDiscretionary,
+        transactionCount: discretionaryCount,
+        breakdown: auditBreakdown(
+          discretionaryAudit,
+          window.trailingMonths,
+          monthlyDiscretionary,
+        ),
+      },
+      investmentContributions: {
+        trailingTotal: round(resolvedMonthlyContributions * window.trailingMonths),
+        monthlyAverage: resolvedMonthlyContributions,
+        transactionCount: contributionTransactionCount,
+        accounts: contributionAuditAccounts,
+      },
+      recurringExpenses: {
+        monthlyTotal: round(recurringExpenses.reduce((total, item) => total + item.monthlyAmount, 0)),
+        count: recurringExpenses.length,
+        items: recurringAuditItems,
       },
     },
     dataThrough,

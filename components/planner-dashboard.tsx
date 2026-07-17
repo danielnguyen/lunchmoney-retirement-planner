@@ -18,9 +18,20 @@ import {
   XAxis,
   YAxis,
 } from "recharts";
-import type { CurrentBaseline } from "@/src/domain/baseline/types";
 import {
-  annualPeriodLabel,
+  ExplainableHeading,
+  ExplanationDrawer,
+} from "@/components/explanations";
+import type { CurrentBaseline } from "@/src/domain/baseline/types";
+import { buildExplanation } from "@/src/domain/explanations/build";
+import type { ExplanationTarget } from "@/src/domain/explanations/types";
+import {
+  buildAnnualChartData,
+  buildAnnualLedgerData,
+  closestAnnualPoint,
+  type DisplayMode,
+  monthlyEmploymentNetCash,
+  monthlyInvestmentContributions,
   startingFinancialAssets,
 } from "@/src/domain/projection/presentation";
 import {
@@ -46,7 +57,6 @@ const percent = new Intl.NumberFormat("en-CA", {
 
 const accountColors = ["#d8bd65", "#d99269", "#8072d7", "#4eb5d2", "#70d6b2", "#a9cf6c"];
 
-type DisplayMode = "real" | "nominal";
 type Overrides = Record<string, number>;
 
 type BlockingError = {
@@ -312,11 +322,24 @@ export function PlannerDashboard() {
   const [mode, setMode] = useState<DisplayMode>("real");
   const [allocationYear, setAllocationYear] = useState<number | null>(null);
   const [exportStatus, setExportStatus] = useState("");
+  const [activeExplanation, setActiveExplanation] = useState<{
+    target: ExplanationTarget;
+    opener: HTMLButtonElement;
+  } | null>(null);
+
+  const openExplanation = useCallback(
+    (target: ExplanationTarget, opener: HTMLButtonElement) => {
+      setActiveExplanation({ target, opener });
+    },
+    [],
+  );
+  const closeExplanation = useCallback(() => setActiveExplanation(null), []);
 
   const refresh = useCallback(() => {
     setRefreshGeneration((current) => current + 1);
     setOverrides({});
     setExportStatus("");
+    setActiveExplanation(null);
   }, []);
 
   useEffect(() => {
@@ -424,45 +447,11 @@ export function PlannerDashboard() {
   if (loadError) return <BlockingState error={loadError} onRefresh={() => void refresh()} />;
   if (!baseline || !inputs) return null;
 
-  const chartData = projection?.annual.map((point) => {
-    const view = point[mode];
-    return {
-      year: point.calendarYear,
-      periodLabel: annualPeriodLabel(inputs, point.calendarYear),
-      age: point.age,
-      essential: view.outflows.essential,
-      discretionary: view.outflows.discretionary,
-      oneTime: view.outflows.oneTime,
-      tax: view.outflows.tax,
-      contributions: view.outflows.contributions,
-      employmentNetCash: view.income.employment,
-      cpp: view.income.cpp,
-      oas: view.income.oas,
-      pension: view.income.pension,
-      otherIncome: view.income.other,
-      cashWithdrawal: view.withdrawals.cash,
-      tfsaWithdrawal: view.withdrawals.tfsa,
-      rrspWithdrawal: view.withdrawals.rrspRrif,
-      nonRegisteredWithdrawal: view.withdrawals.nonRegistered,
-      financialAssets: view.balances.financialAssets,
-      goal:
-        mode === "real"
-          ? inputs.retirementGoalToday
-          : inputs.retirementGoalToday *
-            Math.pow(1 + inputs.annualInflation, point.age - inputs.person.currentAge),
-      milestones: point.milestones.join(" · "),
-      ...Object.fromEntries(
-        Object.entries(view.accountBalances).map(([id, value]) => [`account:${id}`, value]),
-      ),
-    };
-  }) ?? [];
+  const chartData = projection ? buildAnnualChartData(inputs, projection, mode) : [];
+  const ledgerData = projection ? buildAnnualLedgerData(inputs, projection, mode) : [];
   const milestonePoints = projection?.annual.filter((point) => point.milestones.length > 0) ?? [];
   const selectedAllocationPoint = projection && allocationYear !== null
-    ? projection.annual.reduce((closest, point) =>
-        Math.abs(point.calendarYear - allocationYear) < Math.abs(closest.calendarYear - allocationYear)
-          ? point
-          : closest,
-      )
+    ? closestAnnualPoint(projection.annual, allocationYear)
     : null;
   const selectedAllocationView = selectedAllocationPoint?.[mode];
   const allocationData = selectedAllocationView
@@ -476,6 +465,23 @@ export function PlannerDashboard() {
   const importedStartingFinancialAssets = startingFinancialAssets(
     baseline.projectionInputs.accounts,
   );
+  const activeMonthlyIncome = monthlyEmploymentNetCash(inputs);
+  const activeMonthlyContributions = monthlyInvestmentContributions(inputs);
+  const explanationDocument =
+    projection && activeExplanation
+      ? buildExplanation(activeExplanation.target, {
+          baseline,
+          inputs,
+          overrides,
+          projection,
+          displayMode: mode,
+          selectedAllocationYear:
+            selectedAllocationPoint?.calendarYear ??
+            allocationYear ??
+            projection.annual[0]?.calendarYear ??
+            Number(inputs.startDate.slice(0, 4)),
+        })
+      : null;
 
   return (
     <main>
@@ -552,27 +558,57 @@ export function PlannerDashboard() {
         <>
           <section className="summary-grid" aria-label="Projection summary">
             <article className="metric-card">
-              <span>Starting financial assets</span>
+              <ExplainableHeading
+                compact
+                headingLevel="span"
+                target="starting-financial-assets"
+                title="Starting financial assets"
+                onExplain={openExplanation}
+              />
               <strong>{currency.format(importedStartingFinancialAssets)}</strong>
               <small>Imported balances as of {baseline.dataThrough} · debt excluded</small>
             </article>
             <article className="metric-card">
-              <span>Assets at retirement</span>
+              <ExplainableHeading
+                compact
+                headingLevel="span"
+                target="assets-at-retirement"
+                title="Assets at retirement"
+                onExplain={openExplanation}
+              />
               <strong>{currency.format(projection.summary.financialAssetsAtRetirementToday)}</strong>
               <small>{projection.summary.retirementYear} · financial assets only</small>
             </article>
             <article className="metric-card">
-              <span>Goal</span>
+              <ExplainableHeading
+                compact
+                headingLevel="span"
+                target="retirement-goal"
+                title="Goal"
+                onExplain={openExplanation}
+              />
               <strong>{currency.format(projection.summary.retirementGoalToday)}</strong>
               <small>Financial-asset target</small>
             </article>
             <article className="metric-card">
-              <span>Goal gap</span>
+              <ExplainableHeading
+                compact
+                headingLevel="span"
+                target="goal-gap"
+                title="Goal gap"
+                onExplain={openExplanation}
+              />
               <strong>{currency.format(projection.summary.goalGapToday)}</strong>
               <small>{projection.summary.goalGapToday >= 0 ? "Above goal" : "Below goal"}</small>
             </article>
             <article className="metric-card">
-              <span>Financial assets</span>
+              <ExplainableHeading
+                compact
+                headingLevel="span"
+                target="financial-assets-duration"
+                title="Financial assets duration"
+                onExplain={openExplanation}
+              />
               <strong>
                 {projection.summary.financialAssetsDepletionAge === null
                   ? `Past age ${inputs.endAge}`
@@ -585,10 +621,13 @@ export function PlannerDashboard() {
           <section className="report-layout">
             <div className="report-column">
               <article className="report-card wide-chart">
-                <div className="section-heading">
-                  <div><span className="section-kicker">Expenses</span><h2>Annual spending projection</h2></div>
-                  <span className="pill">{mode === "real" ? "Today’s dollars" : "Future dollars"}</span>
-                </div>
+                <ExplainableHeading
+                  kicker="Expenses"
+                  target="annual-spending"
+                  title="Annual spending projection"
+                  onExplain={openExplanation}
+                  trailing={<span className="pill">{mode === "real" ? "Today’s dollars" : "Future dollars"}</span>}
+                />
                 <div className="chart-shell medium">
                   <ResponsiveContainer width="100%" height="100%">
                     <BarChart data={chartData}>
@@ -610,9 +649,12 @@ export function PlannerDashboard() {
               </article>
 
               <article className="report-card wide-chart">
-                <div className="section-heading">
-                  <div><span className="section-kicker">Cash inflow</span><h2>How each year is funded</h2></div>
-                </div>
+                <ExplainableHeading
+                  kicker="Cash inflow"
+                  target="annual-funding"
+                  title="How each year is funded"
+                  onExplain={openExplanation}
+                />
                 <div className="chart-shell tall">
                   <ResponsiveContainer width="100%" height="100%">
                     <ComposedChart data={chartData}>
@@ -641,9 +683,12 @@ export function PlannerDashboard() {
               </article>
 
               <article className="report-card wide-chart">
-                <div className="section-heading">
-                  <div><span className="section-kicker">Cash outflow</span><h2>Spending, taxes, and contributions</h2></div>
-                </div>
+                <ExplainableHeading
+                  kicker="Cash outflow"
+                  target="annual-outflows"
+                  title="Spending, taxes, and contributions"
+                  onExplain={openExplanation}
+                />
                 <div className="chart-shell medium">
                   <ResponsiveContainer width="100%" height="100%">
                     <BarChart data={chartData}>
@@ -668,9 +713,12 @@ export function PlannerDashboard() {
               </article>
 
               <article className="report-card wide-chart">
-                <div className="section-heading">
-                  <div><span className="section-kicker">Financial assets</span><h2>Account-level burndown</h2></div>
-                </div>
+                <ExplainableHeading
+                  kicker="Financial assets"
+                  target="account-burndown"
+                  title="Account-level burndown"
+                  onExplain={openExplanation}
+                />
                 <div className="chart-shell tall">
                   <ResponsiveContainer width="100%" height="100%">
                     <ComposedChart data={chartData}>
@@ -713,9 +761,12 @@ export function PlannerDashboard() {
 
               <div className="two-column">
                 <article className="report-card">
-                  <div className="section-heading">
-                    <div><span className="section-kicker">Allocation</span><h2>Asset mix in {selectedAllocationPoint?.calendarYear}</h2></div>
-                  </div>
+                  <ExplainableHeading
+                    kicker="Allocation"
+                    target="asset-allocation"
+                    title={`Asset allocation in ${selectedAllocationPoint?.calendarYear ?? "selected year"}`}
+                    onExplain={openExplanation}
+                  />
                   <div className="chart-shell compact">
                     <ResponsiveContainer width="100%" height="100%">
                       <PieChart>
@@ -750,23 +801,23 @@ export function PlannerDashboard() {
               </div>
 
               <article className="report-card">
-                <div className="section-heading">
-                  <div><span className="section-kicker">Annual details</span><h2>Inspectable projection ledger</h2></div>
-                  <button className="button secondary no-print" onClick={() => void download(`/api/v1/exports/projection-csv?mode=${mode}`, projectionCsvFilename(new Date().toISOString(), mode))}>Export CSV</button>
-                </div>
+                <ExplainableHeading
+                  kicker="Annual details"
+                  target="annual-ledger"
+                  title="Inspectable projection ledger"
+                  onExplain={openExplanation}
+                  trailing={<button className="button secondary no-print" onClick={() => void download(`/api/v1/exports/projection-csv?mode=${mode}`, projectionCsvFilename(new Date().toISOString(), mode))}>Export CSV</button>}
+                />
                 <div className="table-shell">
                   <table>
                     <thead><tr><th>Year</th><th>Age</th><th>Income</th><th>Withdrawals</th><th>Tax</th><th>Spending</th><th>Financial assets</th><th>Milestones</th></tr></thead>
                     <tbody>
-                      {projection.annual.map((point) => {
-                        const view = point[mode];
-                        return (
-                          <tr key={point.calendarYear}>
-                            <td>{annualPeriodLabel(inputs, point.calendarYear)}</td><td>{point.age}</td><td>{currency.format(view.income.total)}</td><td>{currency.format(view.withdrawals.total)}</td><td>{currency.format(view.outflows.tax)}</td>
-                            <td>{currency.format(view.outflows.essential + view.outflows.discretionary + view.outflows.oneTime)}</td><td>{currency.format(view.balances.financialAssets)}</td><td>{point.milestones.join(" · ") || "—"}</td>
-                          </tr>
-                        );
-                      })}
+                      {ledgerData.map((row) => (
+                        <tr key={row.year}>
+                          <td>{row.periodLabel}</td><td>{row.age}</td><td>{currency.format(row.income)}</td><td>{currency.format(row.withdrawals)}</td><td>{currency.format(row.tax)}</td>
+                          <td>{currency.format(row.spending)}</td><td>{currency.format(row.financialAssets)}</td><td>{row.milestones}</td>
+                        </tr>
+                      ))}
                     </tbody>
                   </table>
                 </div>
@@ -805,11 +856,26 @@ export function PlannerDashboard() {
               <div>
                 <h3>Cash flow</h3>
                 <dl>
-                  <div><dt>Monthly employment income (net deposited cash)</dt><dd>{currency.format(baseline.derived.monthlyIncome.monthlyAverage)}</dd></div>
-                  <div><dt>Essential spending</dt><dd>{currency.format(baseline.derived.essentialSpending.monthlyAverage)}</dd></div>
-                  <div><dt>Discretionary spending</dt><dd>{currency.format(baseline.derived.discretionarySpending.monthlyAverage)}</dd></div>
-                  <div><dt>Investment contributions (balance additions)</dt><dd>{currency.format(baseline.derived.investmentContributions.monthlyAverage)}</dd></div>
-                  <div><dt>Recurring expenses</dt><dd>{currency.format(baseline.derived.recurringExpenses.monthlyTotal)}</dd></div>
+                  <div>
+                    <dt><ExplainableHeading compact headingLevel="span" target="baseline-income" title="Monthly employment income" onExplain={openExplanation} /></dt>
+                    <dd>{currency.format(activeMonthlyIncome)}</dd>
+                  </div>
+                  <div>
+                    <dt><ExplainableHeading compact headingLevel="span" target="baseline-essential" title="Essential spending" onExplain={openExplanation} /></dt>
+                    <dd>{currency.format(inputs.monthlyEssentialSpendingToday)}</dd>
+                  </div>
+                  <div>
+                    <dt><ExplainableHeading compact headingLevel="span" target="baseline-discretionary" title="Discretionary spending" onExplain={openExplanation} /></dt>
+                    <dd>{currency.format(inputs.monthlyDiscretionarySpendingToday)}</dd>
+                  </div>
+                  <div>
+                    <dt><ExplainableHeading compact headingLevel="span" target="baseline-contributions" title="Investment contributions" onExplain={openExplanation} /></dt>
+                    <dd>{currency.format(activeMonthlyContributions)}</dd>
+                  </div>
+                  <div>
+                    <dt><ExplainableHeading compact headingLevel="span" target="baseline-recurring" title="Recurring expenses" onExplain={openExplanation} /></dt>
+                    <dd>{currency.format(baseline.derived.recurringExpenses.monthlyTotal)}</dd>
+                  </div>
                 </dl>
               </div>
               <div>
@@ -833,7 +899,13 @@ export function PlannerDashboard() {
                 </dl>
               </div>
               <div>
-                <h3>Lunch Money accounts</h3>
+                <ExplainableHeading
+                  compact
+                  headingLevel="h3"
+                  target="lunchmoney-accounts"
+                  title="Lunch Money accounts"
+                  onExplain={openExplanation}
+                />
                 <dl>
                   {baseline.derived.accountBalances.map((account) => (
                     <div key={account.id}>
@@ -846,6 +918,13 @@ export function PlannerDashboard() {
             </div>
           </section>
         </>
+      ) : null}
+      {explanationDocument && activeExplanation ? (
+        <ExplanationDrawer
+          document={explanationDocument}
+          opener={activeExplanation.opener}
+          onClose={closeExplanation}
+        />
       ) : null}
     </main>
   );
