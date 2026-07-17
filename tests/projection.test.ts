@@ -68,6 +68,45 @@ describe("public benefit timing", () => {
     expect(oasClaimFactor(70)).toBeCloseTo(1.36);
   });
 
+  it("accepts month-aligned fractional claim ages", () => {
+    const input = oneYearFixture();
+    input.person.cpp.startAge = 65 + 1 / 12;
+    input.person.oas.startAge = 65.5;
+
+    const result = calculateProjection(input);
+
+    expect(result.governmentBenefits.cpp.claimFactor).toBeCloseTo(1.007, 10);
+    expect(result.governmentBenefits.oas.claimFactor).toBeCloseTo(1.036, 10);
+  });
+
+  it("rejects missing, non-finite, and non-month-aligned claim ages", () => {
+    for (const [benefit, value] of [
+      ["cpp", undefined],
+      ["cpp", Number.NaN],
+      ["oas", undefined],
+      ["oas", Number.POSITIVE_INFINITY],
+    ] as const) {
+      const input = oneYearFixture();
+      (input.person[benefit] as unknown as Record<string, unknown>).startAge =
+        value;
+      expect(() => calculateProjection(input)).toThrow(
+        `${benefit.toUpperCase()} start age must be a finite age`,
+      );
+    }
+
+    const cppInvalid = oneYearFixture();
+    cppInvalid.person.cpp.startAge = 65.1;
+    expect(() => calculateProjection(cppInvalid)).toThrow(
+      "CPP start age must align to a projection month",
+    );
+
+    const oasInvalid = oneYearFixture();
+    oasInvalid.person.oas.startAge = 65.1;
+    expect(() => calculateProjection(oasInvalid)).toThrow(
+      "OAS start age must align to a projection month",
+    );
+  });
+
   it("resolves full, partial, and explicitly absent OAS consistently", () => {
     const full = oneYearFixture();
     full.person.oas.fullMonthlyAmountAt65Today = 751.97;
@@ -104,17 +143,17 @@ describe("public benefit timing", () => {
     ).toBe(0);
   });
 
-  it("applies the permanent OAS increase in the first month after age 75", () => {
+  it("applies the permanent OAS increase after a mid-period age-75 boundary", () => {
     const input = oneYearFixture();
     input.startDate = "2026-01-15";
-    input.person.currentAge = 74;
-    input.person.retirementAge = 75;
-    input.endAge = 76;
+    input.person.currentAge = 74.5;
+    input.person.retirementAge = 75.5;
+    input.endAge = 75.5;
     input.person.employmentIncomePhases = [{
       id: "final-working-year",
       label: "Final working year",
-      startAge: 74,
-      endAge: 75,
+      startAge: 74.5,
+      endAge: 75.5,
       annualNetCashToday: 0,
       annualGrowth: 0,
     }];
@@ -134,13 +173,34 @@ describe("public benefit timing", () => {
     input.tax.oasRecoveryRate = 0;
 
     const result = calculateProjection(input);
+    const firstSixMonths = structuredClone(input);
+    firstSixMonths.person.retirementAge = 75;
+    firstSixMonths.endAge = 75;
+    firstSixMonths.person.employmentIncomePhases[0]!.endAge = 75;
+    const firstSixResult = calculateProjection(firstSixMonths);
+    const base = 751.97;
+    const expectedFirstSixMonths = 6 * base;
+    const expectedFinalSixMonths = 6 * base * 1.1;
+    const expectedAnnual = expectedFirstSixMonths + expectedFinalSixMonths;
 
-    expect(result.annual[0]!.nominal.income.oas).toBeCloseTo(
-      751.97 * 12,
+    expect(firstSixResult.annual[0]!.nominal.income.oas).toBeCloseTo(
+      expectedFirstSixMonths,
       2,
     );
-    expect(result.annual[1]!.nominal.income.oas).toBeCloseTo(
-      751.97 * 1.1 * 12,
+    expect(firstSixResult.retirementSnapshot.nominal.income.oas).toBeCloseTo(
+      base,
+      2,
+    );
+    expect(
+      result.annual[0]!.nominal.income.oas -
+        firstSixResult.annual[0]!.nominal.income.oas,
+    ).toBeCloseTo(expectedFinalSixMonths, 2);
+    expect(result.annual[0]!.nominal.income.oas).toBeCloseTo(
+      expectedAnnual,
+      2,
+    );
+    expect(result.retirementSnapshot.nominal.income.oas).toBeCloseTo(
+      base * 1.1,
       2,
     );
     expect(
@@ -149,7 +209,10 @@ describe("public benefit timing", () => {
     ).toBeCloseTo(827.17, 2);
     expect(
       result.financialAssetsBridge.nominal.publicBenefitsAndPension,
-    ).toBeCloseTo(751.97 * 12, 2);
+    ).toBeCloseTo(expectedAnnual, 2);
+    expect(
+      result.financialAssetsBridge.real.publicBenefitsAndPension,
+    ).toBeCloseTo(expectedAnnual, 2);
     expect(bridgeEnding(result, "nominal")).toBeCloseTo(
       result.financialAssetsBridge.nominal.endingFinancialAssets,
       2,
@@ -159,21 +222,6 @@ describe("public benefit timing", () => {
       2,
     );
 
-    const partial = structuredClone(input);
-    partial.person.oas.eligibility = {
-      mode: "partial",
-      qualifyingResidenceYearsAfter18: 20,
-      fraction: 0.5,
-    };
-    const partialResult = calculateProjection(partial);
-    expect(partialResult.annual[0]!.nominal.income.oas).toBeCloseTo(
-      result.annual[0]!.nominal.income.oas / 2,
-      2,
-    );
-    expect(partialResult.annual[1]!.nominal.income.oas).toBeCloseTo(
-      result.annual[1]!.nominal.income.oas / 2,
-      2,
-    );
   });
 
   it("rejects internally inconsistent OAS eligibility", () => {

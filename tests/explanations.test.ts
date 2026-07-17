@@ -593,6 +593,42 @@ describe("calculation explanations", () => {
       .toBe(false);
   });
 
+  it("uses exact aligned adjustment months in fractional-age explanations", () => {
+    const value = context((draft) => {
+      draft.inputs.person.cpp.startAge = 65 + 1 / 12;
+      draft.inputs.person.oas.startAge = 65.5;
+      draft.baseline.projectionInputs.person.cpp.startAge = 65 + 1 / 12;
+      draft.baseline.projectionInputs.person.oas.startAge = 65.5;
+      draft.projection = calculateProjection(draft.inputs);
+    });
+
+    const cpp = buildExplanation("cpp-benefit", value);
+    const oas = buildExplanation("oas-benefit", value);
+
+    expect(cpp.formula).toBe(
+      "Base amount × [1 + (1 month × 0.007)]",
+    );
+    expect(
+      cpp.steps.find((step) => step.label === "Claim-age increase")?.value,
+    ).toBe("1 month × 0.7%");
+    expect(
+      cpp.steps.find((step) => step.label === "Claim factor")?.rawValue,
+    ).toBeCloseTo(1.007, 10);
+    expect(cpp.reconciliation?.matched).toBe(true);
+
+    expect(oas.formula).toBe(
+      "Full amount at 65 × eligibility fraction × [1 + (6 months × 0.006)]",
+    );
+    expect(
+      oas.steps.find((step) => step.label === "Delayed-claim adjustment")
+        ?.value,
+    ).toBe("6 months × 0.6%");
+    expect(
+      oas.steps.find((step) => step.label === "Claim factor")?.rawValue,
+    ).toBeCloseTo(1.036, 10);
+    expect(oas.reconciliation?.matched).toBe(true);
+  });
+
   it("shows OAS partial-residence arithmetic, delayed claim, and age-75 amount", () => {
     const value = context((draft) => {
       draft.inputs.person.oas.startAge = 70;

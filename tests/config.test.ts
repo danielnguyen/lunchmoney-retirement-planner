@@ -193,6 +193,25 @@ describe("private planner configuration", () => {
     expect(() => validatePlannerConfig(configuredOas)).not.toThrow();
   });
 
+  it("requires canonical benefit claim ages to align to projection months", async () => {
+    const cppInvalid = await loadPlannerConfig(EXAMPLE_CONFIG_PATH);
+    cppInvalid.governmentBenefits!.cpp.startAge = 65.1;
+    expect(() => validatePlannerConfig(cppInvalid)).toThrow(
+      "governmentBenefits.cpp.startAge must align to a projection month",
+    );
+
+    const oasInvalid = await loadPlannerConfig(EXAMPLE_CONFIG_PATH);
+    oasInvalid.governmentBenefits!.oas.startAge = 65.1;
+    expect(() => validatePlannerConfig(oasInvalid)).toThrow(
+      "governmentBenefits.oas.startAge must align to a projection month",
+    );
+
+    const aligned = await loadPlannerConfig(EXAMPLE_CONFIG_PATH);
+    aligned.governmentBenefits!.cpp.startAge = 65 + 1 / 12;
+    aligned.governmentBenefits!.oas.startAge = 65.5;
+    expect(() => validatePlannerConfig(aligned)).not.toThrow();
+  });
+
   it("rejects mixed, incomplete, and invalid government-benefit configuration", async () => {
     const mixed = structuredClone(
       await loadPlannerConfig(EXAMPLE_CONFIG_PATH),

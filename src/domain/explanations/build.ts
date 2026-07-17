@@ -8,7 +8,10 @@ import {
   monthlyInvestmentContributions,
   startingFinancialAssets,
 } from "@/src/domain/projection/presentation";
-import type { FinancialAccountInput } from "@/src/domain/projection/types";
+import {
+  projectionMonthOffset,
+  type FinancialAccountInput,
+} from "@/src/domain/projection/types";
 import type {
   ExplanationContext,
   ExplanationDocument,
@@ -1884,7 +1887,12 @@ function cppBenefitDocument(context: ExplanationContext): ExplanationDocument {
   const rule = context.baseline.provenance[
     "person.cpp.claimAdjustmentRule"
   ];
-  const claimMonths = Math.round(Math.abs(result.claimAge - 65) * 12);
+  const claimMonthOffset = projectionMonthOffset(result.claimAge, 65);
+  if (claimMonthOffset === null) {
+    throw new Error("CPP claim age is not aligned to a projection month");
+  }
+  const claimMonths = Math.abs(claimMonthOffset);
+  const claimMonthLabel = `${claimMonths} ${claimMonths === 1 ? "month" : "months"}`;
   const adjustmentRate = result.claimAge < 65 ? 0.006 : 0.007;
   const direction =
     result.claimAge < 65 ? "reduction" : result.claimAge > 65 ? "increase" : "no adjustment";
@@ -1903,9 +1911,9 @@ function cppBenefitDocument(context: ExplanationContext): ExplanationDocument {
     },
     formula:
       result.claimAge < 65
-        ? `Base amount × [1 − (${claimMonths} months × 0.006)]`
+        ? `Base amount × [1 − (${claimMonthLabel} × 0.006)]`
         : result.claimAge > 65
-          ? `Base amount × [1 + (${claimMonths} months × 0.007)]`
+          ? `Base amount × [1 + (${claimMonthLabel} × 0.007)]`
           : "Base amount × 1",
     steps: [
       {
@@ -1922,7 +1930,7 @@ function cppBenefitDocument(context: ExplanationContext): ExplanationDocument {
         value:
           result.claimAge === 65
             ? "0 months"
-            : `${claimMonths} months × ${percent.format(adjustmentRate)}`,
+            : `${claimMonthLabel} × ${percent.format(adjustmentRate)}`,
         operation: result.claimAge === 65 ? "input" : "multiply",
         sourceType: sourceType(rule),
         sourceDescription: rule?.sourceDescription,
@@ -2015,7 +2023,11 @@ function oasBenefitDocument(context: ExplanationContext): ExplanationDocument {
   const age75Rule = context.baseline.provenance[
     "person.oas.age75IncreaseRule"
   ];
-  const claimMonths = Math.round((result.claimAge - 65) * 12);
+  const claimMonths = projectionMonthOffset(result.claimAge, 65);
+  if (claimMonths === null) {
+    throw new Error("OAS claim age is not aligned to a projection month");
+  }
+  const claimMonthLabel = `${claimMonths} ${claimMonths === 1 ? "month" : "months"}`;
   const calculated =
     result.fullBaseMonthlyAmountAt65Today *
     result.eligibilityFraction *
@@ -2032,7 +2044,7 @@ function oasBenefitDocument(context: ExplanationContext): ExplanationDocument {
       period: `Claim age ${result.claimAge}`,
     },
     formula:
-      "Full amount at 65 × eligibility fraction × [1 + (delay months × 0.006)]",
+      `Full amount at 65 × eligibility fraction × [1 + (${claimMonthLabel} × 0.006)]`,
     steps: [
       {
         label: "Full monthly amount at age 65",
@@ -2064,7 +2076,7 @@ function oasBenefitDocument(context: ExplanationContext): ExplanationDocument {
           }]),
       {
         label: "Delayed-claim adjustment",
-        value: `${claimMonths} months × ${percent.format(0.006)}`,
+        value: `${claimMonthLabel} × ${percent.format(0.006)}`,
         operation: "multiply",
         sourceType: sourceType(claimRule),
         sourceDescription: claimRule?.sourceDescription,

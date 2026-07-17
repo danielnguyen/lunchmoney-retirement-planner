@@ -4,6 +4,8 @@ import { extname } from "node:path";
 import { parse as parseYaml } from "yaml";
 import {
   contributionFundingTypes,
+  PROJECTION_AGE_TOLERANCE,
+  projectionMonthOffset,
   type AssetAllocation,
   type ProjectionEventInput,
 } from "@/src/domain/projection/types";
@@ -26,7 +28,6 @@ import {
 } from "./types";
 
 export const DEFAULT_CONFIG_PATH = "config/planner.local.yaml";
-const PHASE_AGE_TOLERANCE = 1e-6;
 
 function record(value: unknown, field: string): Record<string, unknown> {
   if (!value || typeof value !== "object" || Array.isArray(value)) {
@@ -545,12 +546,11 @@ function employmentIncomePhases(value: unknown): EmploymentIncomePhaseConfig[] {
 }
 
 function sameAge(left: number, right: number): boolean {
-  return Math.abs(left - right) <= PHASE_AGE_TOLERANCE;
+  return Math.abs(left - right) <= PROJECTION_AGE_TOLERANCE;
 }
 
 function assertMonthAligned(age: number, currentAge: number, field: string): void {
-  const elapsedMonths = (age - currentAge) * 12;
-  if (Math.abs(elapsedMonths - Math.round(elapsedMonths)) > PHASE_AGE_TOLERANCE) {
+  if (projectionMonthOffset(age, currentAge) === null) {
     throw new PlannerRuntimeError(
       "invalid_planner_config",
       `${field} must align to a projection month relative to currentAge.`,
@@ -573,21 +573,21 @@ function validateEmploymentPhaseRanges(config: PlannerConfig): void {
       );
     }
     ids.add(phase.id);
-    if (phase.startAge < config.currentAge - PHASE_AGE_TOLERANCE) {
+    if (phase.startAge < config.currentAge - PROJECTION_AGE_TOLERANCE) {
       throw new PlannerRuntimeError(
         "invalid_planner_config",
         `${field}.startAge must not be before currentAge.`,
         422,
       );
     }
-    if (phase.endAge > config.retirementAge + PHASE_AGE_TOLERANCE) {
+    if (phase.endAge > config.retirementAge + PROJECTION_AGE_TOLERANCE) {
       throw new PlannerRuntimeError(
         "invalid_planner_config",
         `${field}.endAge must not be after retirementAge.`,
         422,
       );
     }
-    if (phase.endAge <= phase.startAge + PHASE_AGE_TOLERANCE) {
+    if (phase.endAge <= phase.startAge + PROJECTION_AGE_TOLERANCE) {
       throw new PlannerRuntimeError(
         "invalid_planner_config",
         `${field}.endAge must be greater than startAge.`,
@@ -598,14 +598,14 @@ function validateEmploymentPhaseRanges(config: PlannerConfig): void {
     assertMonthAligned(phase.endAge, config.currentAge, `${field}.endAge`);
     const previous = phases[index - 1];
     if (!previous) continue;
-    if (phase.startAge < previous.endAge - PHASE_AGE_TOLERANCE) {
+    if (phase.startAge < previous.endAge - PROJECTION_AGE_TOLERANCE) {
       throw new PlannerRuntimeError(
         "invalid_planner_config",
         `employmentIncomePhases overlap between "${previous.id}" and "${phase.id}".`,
         422,
       );
     }
-    if (phase.startAge > previous.endAge + PHASE_AGE_TOLERANCE) {
+    if (phase.startAge > previous.endAge + PROJECTION_AGE_TOLERANCE) {
       throw new PlannerRuntimeError(
         "invalid_planner_config",
         `employmentIncomePhases have a gap between "${previous.id}" and "${phase.id}".`,
@@ -645,8 +645,8 @@ function validateContributionPhaseRanges(config: PlannerConfig): void {
       }
       ids.add(phase.id);
       if (
-        phase.startAge < config.currentAge - PHASE_AGE_TOLERANCE ||
-        phase.endAge > config.retirementAge + PHASE_AGE_TOLERANCE
+        phase.startAge < config.currentAge - PROJECTION_AGE_TOLERANCE ||
+        phase.endAge > config.retirementAge + PROJECTION_AGE_TOLERANCE
       ) {
         throw new PlannerRuntimeError(
           "invalid_planner_config",
@@ -654,7 +654,7 @@ function validateContributionPhaseRanges(config: PlannerConfig): void {
           422,
         );
       }
-      if (phase.endAge <= phase.startAge + PHASE_AGE_TOLERANCE) {
+      if (phase.endAge <= phase.startAge + PROJECTION_AGE_TOLERANCE) {
         throw new PlannerRuntimeError(
           "invalid_planner_config",
           `${field}.endAge must be greater than startAge.`,
@@ -664,7 +664,7 @@ function validateContributionPhaseRanges(config: PlannerConfig): void {
       assertMonthAligned(phase.startAge, config.currentAge, `${field}.startAge`);
       assertMonthAligned(phase.endAge, config.currentAge, `${field}.endAge`);
       const previous = phases[index - 1];
-      if (previous && phase.startAge < previous.endAge - PHASE_AGE_TOLERANCE) {
+      if (previous && phase.startAge < previous.endAge - PROJECTION_AGE_TOLERANCE) {
         throw new PlannerRuntimeError(
           "invalid_planner_config",
           `${field} overlaps contribution phase "${previous.id}".`,
@@ -830,6 +830,18 @@ export function validatePlannerConfig(value: unknown): PlannerConfig {
   }
   assertMonthAligned(config.retirementAge, config.currentAge, "retirementAge");
   assertMonthAligned(config.projectionEndAge, config.currentAge, "projectionEndAge");
+  if (config.governmentBenefits) {
+    assertMonthAligned(
+      config.governmentBenefits.cpp.startAge,
+      config.currentAge,
+      "governmentBenefits.cpp.startAge",
+    );
+    assertMonthAligned(
+      config.governmentBenefits.oas.startAge,
+      config.currentAge,
+      "governmentBenefits.oas.startAge",
+    );
+  }
   validateEmploymentPhaseRanges(config);
   validateContributionPhaseRanges(config);
   return config;
