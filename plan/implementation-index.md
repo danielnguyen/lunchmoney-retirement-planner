@@ -9,12 +9,19 @@ Public content must remain generic. Do not add private financial values, account
 ## Current position
 
 - Open implementation pull request: [#8 Add explicit CPP and OAS modelling](https://github.com/danielnguyen/lunchmoney-retirement-planner/pull/8)
+- Pull request state: Open draft
 - Active capability: Government benefits
 - Status: In progress
 - Branch: `agent/add-government-benefits`
-- Latest validated implementation head: `1d7c9bcda56de9f7d8ac65e0f5663d889d3136fc`
-- Remaining step: repository-owner private local-configuration migration and smoke test
-- Next action: migrate the private benefit scalars to `governmentBenefits`, smoke-test the live dashboard and exports, then review draft PR #8
+- Latest validated implementation head: `9dd14456b57ed7cd2ee5bc45e1f8e7e480660417`
+- Private configuration migration: Passed
+- Live baseline and projection smoke test: Passed
+- Automatic JSON sanitization smoke test: Passed
+- Automatic real CSV sanitization smoke test: Passed
+- Automatic nominal CSV sanitization smoke test: Passed
+- Private denylist verification: Passed
+- Remaining step: final review and merge
+- Next action: review and merge PR #8
 - Last completed foundation: phased employment income and per-account contribution phases
 
 ## Terminology boundary
