@@ -14,7 +14,7 @@ The end-to-end MVP is defined in [plan/README.md](plan/README.md). The runtime n
 - Shows annual spending, cash inflow, cash outflow, account-level financial assets, allocation, milestones, and an annual ledger
 - Explains every major summary, chart, ledger, cash-flow input, and account section with reconciled formulas, values, dates, and provenance
 - Supports temporary browser overrides, per-field reset, reset all, and explicit refresh
-- Exports the resolved live baseline, provenance, warnings, active overrides, and projection as JSON or CSV
+- Exports an automatically anonymized resolved baseline, provenance, warnings, active overrides, and projection as JSON or CSV
 - Runs without a database, persistence, jobs, or caching
 
 ## Requirements
@@ -200,7 +200,9 @@ Export requests use the current baseline response, active inputs, and browser ov
 }
 ```
 
-Exports automatically omit Lunch Money and other source-system record identifiers, account IDs supplied as source metadata, private benefit-statement details, tokens, authorization values, passwords, API keys, and other credentials. The schema `5.0` JSON export is the complete analysis document and uses a typed allowlist with deterministic export-local keys such as `cash_1`, `event_1`, and `recurring_expense_1`; it preserves resolved phases, concrete CPP/OAS inputs and calculation summaries, public Canadian reference URLs, the exact retirement snapshot, and both accumulation bridges without copying source objects recursively. Original descriptive labels remain available for financial analysis. The flat CSV keeps one row per annual period and adds the active employment-phase label, separate cash-funded and income-withheld contribution totals, and flat CPP/OAS basis columns; it never embeds phase arrays or JSON. Downloads use `retirement-projection-<date>.json`, `retirement-projection-real-<date>.csv`, and `retirement-projection-nominal-<date>.csv`.
+Every normal JSON and CSV export is automatically anonymized; there is no raw or private export mode. Financial amounts, dates, account types, assumptions, CPP/OAS calculation summaries, public Canadian reference metadata, the exact retirement snapshot, and both accumulation bridges remain available for analysis. Account, institution, employer, category, event, recurring-expense, warning, and employment/contribution-phase text is replaced with stable generic aliases based only on record type and order.
+
+Schema `5.0` JSON is the complete analysis document and uses a typed allowlist with export-local keys such as `cash_1`, `employment_phase_1`, `event_1`, and `recurring_expense_1`; it never recursively copies source objects. The flat CSV keeps one row per annual period, generic phase aliases, separate cash-funded and income-withheld contribution totals, and flat CPP/OAS basis columns without embedding arrays or JSON. Both formats are designed to be shared for external financial analysis without manually editing identifiers. Downloads use `retirement-projection-<date>.json`, `retirement-projection-real-<date>.csv`, and `retirement-projection-nominal-<date>.csv`.
 
 ## Docker Compose
 

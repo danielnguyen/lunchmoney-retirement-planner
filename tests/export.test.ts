@@ -26,22 +26,32 @@ const RAW_IDS = {
   recurring: 818181,
   event: "private-future-event-id",
   warning: "727272",
+  employmentPhase: "private-employer-transition-id",
+  contributionPhase: "private-workplace-plan-id",
 };
 const PRIVATE_TEXT = {
   personalName: "Alexandra Privacy-Test",
+  employer: "Confidential Employer Incorporated",
+  institution: "Private Financial Institution",
   streetAddress: "742 Evergreen Privacy Avenue, Toronto",
+  email: "alexandra.privacy-test@example.invalid",
+  username: "alexandra-private-user",
   merchant: "Confidential Health Merchant",
   payee: "Private Therapy Payee",
+  employmentPhaseLabel: "Senior role at Confidential Employer Incorporated",
+  contributionPhaseLabel: "Confidential Employer workplace plan",
   eventLabel: "Purchase a home for Alexandra at 742 Evergreen Privacy Avenue",
   warningMessage: "Alexandra must call the private adviser immediately.",
   note: "Personal note: transfer funds after the confidential appointment.",
+  privateConfigPath: "config/planner.local.yaml",
 };
 const RAW_ACCOUNT_NAMES = {
-  cash: "Everyday Chequing •••• 1234",
-  rrsp: "Employer RRSP ending in 9876",
+  cash: "Private Financial Institution Everyday Chequing ending DIGITS-1234",
+  rrsp: "Confidential Employer RRSP account ACCT-009876-Q ending DIGITS-9876",
   unmapped: "Private Card ending in 4321",
   category: "Private category name",
 };
+const PRIVATE_FRAGMENTS = ["ACCT-009876-Q", "DIGITS-9876", "DIGITS-1234"];
 
 type ExportFixture = {
   inputs: ProjectionInputs;
@@ -52,6 +62,11 @@ type ExportFixture = {
 
 function buildExportFixture(): ExportFixture {
   const inputs: ProjectionInputs = structuredClone(projectionFixture);
+  inputs.person.employmentIncomePhases[0] = {
+    ...inputs.person.employmentIncomePhases[0]!,
+    id: RAW_IDS.employmentPhase,
+    label: PRIVATE_TEXT.employmentPhaseLabel,
+  };
   inputs.accounts[0] = {
     ...inputs.accounts[0]!,
     id: RAW_IDS.cash,
@@ -61,6 +76,11 @@ function buildExportFixture(): ExportFixture {
     ...inputs.accounts[1]!,
     id: RAW_IDS.rrsp,
     label: RAW_ACCOUNT_NAMES.rrsp,
+    contributionPhases: inputs.accounts[1]!.contributionPhases.map((phase) => ({
+      ...phase,
+      id: RAW_IDS.contributionPhase,
+      label: PRIVATE_TEXT.contributionPhaseLabel,
+    })),
   };
   inputs.events[0] = {
     ...inputs.events[0]!,
@@ -81,10 +101,22 @@ function buildExportFixture(): ExportFixture {
         `Lunch Money account 919191 (${RAW_IDS.cash}) balance for ${RAW_ACCOUNT_NAMES.cash}`,
       effectiveDate: baseline.dataThrough,
     },
-    [`accounts.${RAW_IDS.rrsp}.contributionPhases.current-saving.monthlyAmountToday`]: {
+    [`accounts.${RAW_IDS.rrsp}.contributionPhases.${RAW_IDS.contributionPhase}.monthlyAmountToday`]: {
       value: inputs.accounts[1]!.contributionPhases[0]!.monthlyAmountToday,
       sourceType: "local_configuration",
       sourceDescription: `Manual contribution for ${RAW_ACCOUNT_NAMES.rrsp}`,
+      effectiveDate: baseline.dataThrough,
+    },
+    [`accounts.${RAW_IDS.rrsp}.contributionPhases.${RAW_IDS.contributionPhase}.label`]: {
+      value: PRIVATE_TEXT.contributionPhaseLabel,
+      sourceType: "local_configuration",
+      sourceDescription: `Contribution phase for ${PRIVATE_TEXT.employer}`,
+      effectiveDate: baseline.dataThrough,
+    },
+    [`person.employmentIncomePhases.${RAW_IDS.employmentPhase}.label`]: {
+      value: PRIVATE_TEXT.employmentPhaseLabel,
+      sourceType: "local_configuration",
+      sourceDescription: `Employment phase for ${PRIVATE_TEXT.employer}`,
       effectiveDate: baseline.dataThrough,
     },
     events: {
@@ -104,10 +136,14 @@ function buildExportFixture(): ExportFixture {
         "https://www.canada.ca/en/services/benefits/publicpensions/cpp/amount.html",
     },
     [`notes.${PRIVATE_TEXT.personalName}`]: {
-      value: `${PRIVATE_TEXT.note} ${PRIVATE_TEXT.streetAddress}; password=${EXPORT_PASSWORD}`,
+      value:
+        `${PRIVATE_TEXT.note} ${PRIVATE_TEXT.streetAddress}; ${PRIVATE_TEXT.email}; ` +
+        `${PRIVATE_TEXT.username}; ${PRIVATE_TEXT.privateConfigPath}; password=${EXPORT_PASSWORD}`,
       sourceType: "local_configuration",
       sourceDescription:
-        `${PRIVATE_TEXT.merchant} / ${PRIVATE_TEXT.payee}; token=${EXPORT_TOKEN}; api_key=${EXPORT_API_KEY}; authorization=${EXPORT_AUTHORIZATION}`,
+        `${PRIVATE_TEXT.merchant} / ${PRIVATE_TEXT.payee}; ${PRIVATE_TEXT.institution}; ` +
+        `${PRIVATE_TEXT.employer}; token=${EXPORT_TOKEN}; api_key=${EXPORT_API_KEY}; ` +
+        `authorization=${EXPORT_AUTHORIZATION}`,
       effectiveDate: baseline.dataThrough,
       referenceUrl: `https://example.invalid/${encodeURIComponent(PRIVATE_TEXT.personalName)}`,
     },
@@ -217,8 +253,8 @@ function buildExportFixture(): ExportFixture {
         projection,
         baseline,
         {
-          "employmentPhase.current-income.annualNetCashToday": 70000,
-          [`contributionPhase.${RAW_IDS.rrsp}.current-saving.monthlyAmountToday`]: 1500,
+          [`employmentPhase.${RAW_IDS.employmentPhase}.annualNetCashToday`]: 70000,
+          [`contributionPhase.${RAW_IDS.rrsp}.${RAW_IDS.contributionPhase}.monthlyAmountToday`]: 1500,
         },
         "2026-07-14T00:00:00.000Z",
       ),
@@ -262,7 +298,7 @@ function collectIdValues(value: unknown): unknown[] {
 
 function expectNoSourceIdentifiersOrCredentials(exported: string): void {
   expect(exported).not.toMatch(/\b(?:plaid|manual):/i);
-  for (const raw of [RAW_IDS.cash, RAW_IDS.rrsp, RAW_IDS.unmapped, RAW_IDS.event]) {
+  for (const raw of Object.values(RAW_IDS)) {
     expect(exported).not.toContain(raw);
   }
   for (const rawId of [
@@ -283,41 +319,49 @@ function expectNoSourceIdentifiersOrCredentials(exported: string): void {
   ]) {
     expect(exported).not.toContain(credential);
   }
+  for (const text of [
+    ...Object.values(RAW_ACCOUNT_NAMES),
+    ...Object.values(PRIVATE_TEXT),
+    ...PRIVATE_FRAGMENTS,
+  ]) {
+    expect(exported).not.toContain(text);
+  }
 }
 
-describe("identifier-scrubbed projection exports", () => {
-  it("aliases every exported id while preserving descriptive financial text", () => {
+describe("automatically anonymized projection exports", () => {
+  it("aliases every exported identifier and removes descriptive private text", () => {
     const { snapshot } = buildExportFixture();
     const serialized = JSON.stringify(snapshot);
 
     expect(snapshot.schemaVersion).toBe("5.0");
     expect(snapshot.projection.schemaVersion).toBe("5.0");
     expect(snapshot.exportMetadata).toEqual({
-      transformation: "typed_allowlist",
+      transformation: "typed_allowlist_and_automatic_anonymization",
+      automaticSanitizationApplied: true,
       rawLunchMoneyIdentifiersIncluded: false,
       sourceSystemRecordIdsIncluded: false,
-      descriptiveFinancialTextIncluded: true,
+      descriptiveFinancialTextIncluded: false,
       credentialsIncluded: false,
       accountAliases: [
-        { key: "cash_1", label: RAW_ACCOUNT_NAMES.cash, plannerType: "cash" },
-        { key: "rrsp_1", label: RAW_ACCOUNT_NAMES.rrsp, plannerType: "rrsp_rrif" },
+        { key: "cash_1", label: "Cash account 1", plannerType: "cash" },
+        { key: "rrsp_1", label: "RRSP/RRIF account 1", plannerType: "rrsp_rrif" },
       ],
     });
     expect(snapshot.resolvedBaseline.accounts.map(({ label }) => label)).toEqual([
-      RAW_ACCOUNT_NAMES.cash,
-      RAW_ACCOUNT_NAMES.rrsp,
+      "Cash account 1",
+      "RRSP/RRIF account 1",
     ]);
     expect(snapshot.activeInputs.accounts.map(({ label }) => label)).toEqual([
-      RAW_ACCOUNT_NAMES.cash,
-      RAW_ACCOUNT_NAMES.rrsp,
+      "Cash account 1",
+      "RRSP/RRIF account 1",
     ]);
     expect(snapshot.projection.inputs.accounts.map(({ label }) => label)).toEqual([
-      RAW_ACCOUNT_NAMES.cash,
-      RAW_ACCOUNT_NAMES.rrsp,
+      "Cash account 1",
+      "RRSP/RRIF account 1",
     ]);
     expect(snapshot.derivedBaseline.accountBalances.map(({ name }) => name)).toEqual([
-      RAW_ACCOUNT_NAMES.cash,
-      RAW_ACCOUNT_NAMES.rrsp,
+      "Cash account 1",
+      "RRSP/RRIF account 1",
     ]);
     expect(snapshot.connection).toEqual({
       status: "connected",
@@ -326,7 +370,7 @@ describe("identifier-scrubbed projection exports", () => {
     });
     expect(snapshot.resolvedBaseline.events[0]).toEqual({
       id: "event_1",
-      label: PRIVATE_TEXT.eventLabel,
+      label: "Future event 1",
       calendarYear: 2038,
       month: 6,
       amountToday: 10000,
@@ -338,8 +382,7 @@ describe("identifier-scrubbed projection exports", () => {
     expect(snapshot.derivedBaseline.recurringExpenses.items).toEqual([
       {
         id: "recurring_expense_1",
-        description:
-          `${PRIVATE_TEXT.merchant} paid to ${PRIVATE_TEXT.payee} for ${PRIVATE_TEXT.personalName} at ${PRIVATE_TEXT.streetAddress}`,
+        description: "Recurring expense 1",
         classification: "essential",
         monthlyAmount: 137.45,
         accountId: "cash_1",
@@ -350,34 +393,39 @@ describe("identifier-scrubbed projection exports", () => {
       {
         code: "negative_asset_balance",
         severity: "warning",
-        identifier: "rrsp_1",
-        name: PRIVATE_TEXT.personalName,
-        message: PRIVATE_TEXT.warningMessage,
+        identifier: "warning_1",
+        name: "Warning 1",
+        message: "An included financial account has a negative opening balance.",
       },
       {
         code: "unused_account_mapping",
         severity: "warning",
-        identifier: "warning_identifier_1",
-        name: `${PRIVATE_TEXT.merchant} account`,
-        message: `${PRIVATE_TEXT.note} ${PRIVATE_TEXT.payee}`,
+        identifier: "warning_2",
+        name: "Warning 2",
+        message: "A configured account mapping did not match an imported account.",
       },
     ]);
     expect(snapshot.unmappedAccounts).toEqual([
-      { id: "unmapped_account_1", source: "plaid", name: RAW_ACCOUNT_NAMES.unmapped },
+      { id: "unmapped_account_1", source: "plaid", name: "Unmapped account 1" },
     ]);
     expect(snapshot.unmappedCategories).toEqual([
-      { id: "category_1", name: RAW_ACCOUNT_NAMES.category, transactionCount: 3 },
+      { id: "category_1", name: "Category 1", transactionCount: 3 },
     ]);
+    expect(snapshot.resolvedBaseline.person.employmentIncomePhases[0]).toMatchObject({
+      id: "employment_phase_1",
+      label: "Employment phase 1",
+    });
+    expect(snapshot.resolvedBaseline.accounts[1]!.contributionPhases[0]).toMatchObject({
+      id: "contribution_phase_1",
+      label: "Contribution phase 1",
+    });
 
     const idValues = collectIdValues(snapshot);
     expect(idValues.length).toBeGreaterThan(0);
     expect(idValues.every((id) => typeof id === "string")).toBe(true);
     expect(idValues.every((id) =>
-      /^(?:(?:cash|tfsa|rrsp|non_registered|debt|event|recurring_expense|category|unmapped_account)_\d+|current-income|current-saving)$/.test(String(id)),
+      /^(?:cash|tfsa|rrsp|non_registered|debt|event|recurring_expense|category|unmapped_account|employment_phase|contribution_phase)_\d+$/.test(String(id)),
     )).toBe(true);
-    for (const text of [...Object.values(RAW_ACCOUNT_NAMES), ...Object.values(PRIVATE_TEXT)]) {
-      expect(serialized).toContain(text);
-    }
     expectNoSourceIdentifiersOrCredentials(serialized);
     expect(serialized).not.toContain(AUDIT_RAW_ID);
   });
@@ -389,12 +437,12 @@ describe("identifier-scrubbed projection exports", () => {
       fieldReference: "accounts.cash_1.openingBalance",
       value: 20000,
       sourceType: "lunchmoney_derived",
-      sourceDescription: `Lunch Money account [source ID removed] ([source ID removed]) balance for ${RAW_ACCOUNT_NAMES.cash}`,
+      sourceDescription: "Value imported from Lunch Money and aggregated for the baseline",
       effectiveDate: "2026-07-14",
     });
     expect(snapshot.provenance.events?.value).toEqual(snapshot.resolvedBaseline.events);
     expect(snapshot.provenance.events?.sourceDescription).toBe(
-      `${PRIVATE_TEXT.eventLabel}; ${PRIVATE_TEXT.note}`,
+      "Value supplied through private local configuration",
     );
     expect(
       snapshot.provenance["person.cpp.monthlyAmountAt65Today"],
@@ -402,25 +450,29 @@ describe("identifier-scrubbed projection exports", () => {
       referenceKind: "population_average",
       referenceUrl:
         "https://www.canada.ca/en/services/benefits/publicpensions/cpp/amount.html",
+      sourceDescription: "Published Canadian reference",
     });
-    expect(snapshot.provenance.field_1).not.toHaveProperty("referenceUrl");
-    expect(snapshot.provenance.field_1).toMatchObject({
-      fieldReference: "field_1",
-      value: `${PRIVATE_TEXT.note} ${PRIVATE_TEXT.streetAddress}; password=[credential removed]`,
-      sourceType: "local_configuration",
-      sourceDescription:
-        `${PRIVATE_TEXT.merchant} / ${PRIVATE_TEXT.payee}; token=[credential removed]; api_key=[credential removed]; authorization=[credential removed]`,
-    });
+    expect(snapshot.provenance).not.toHaveProperty("field_1");
     expect(snapshot.activeOverrides).toEqual({
-      "contributionPhase.rrsp_1.current-saving.monthlyAmountToday": 1500,
-      "employmentPhase.current-income.annualNetCashToday": 70000,
+      "contributionPhase.rrsp_1.contribution_phase_1.monthlyAmountToday": 1500,
+      "employmentPhase.employment_phase_1.annualNetCashToday": 70000,
     });
     expect(
       snapshot.provenance[
-        "accounts.rrsp_1.contributionPhases.current-saving.monthlyAmountToday"
+        "accounts.rrsp_1.contributionPhases.contribution_phase_1.monthlyAmountToday"
       ]?.sourceDescription,
     )
-      .toBe(`Manual contribution for ${RAW_ACCOUNT_NAMES.rrsp}`);
+      .toBe("Value supplied through private local configuration");
+    expect(
+      snapshot.provenance[
+        "accounts.rrsp_1.contributionPhases.contribution_phase_1.label"
+      ]?.value,
+    ).toBe("Contribution phase 1");
+    expect(
+      snapshot.provenance[
+        "person.employmentIncomePhases.employment_phase_1.label"
+      ]?.value,
+    ).toBe("Employment phase 1");
     expectNoSourceIdentifiersOrCredentials(JSON.stringify(snapshot.provenance));
     expectNoSourceIdentifiersOrCredentials(JSON.stringify(snapshot.activeOverrides));
   });
@@ -532,10 +584,18 @@ describe("identifier-scrubbed projection exports", () => {
     });
   });
 
-  it("keeps aliases distinct when included accounts have duplicate display names", () => {
+  it("keeps same-type account aliases distinct despite duplicate private labels", () => {
     const inputs: ProjectionInputs = structuredClone(projectionFixture);
     inputs.accounts[0] = { ...inputs.accounts[0]!, label: PRIVATE_TEXT.personalName };
     inputs.accounts[1] = { ...inputs.accounts[1]!, label: PRIVATE_TEXT.personalName };
+    inputs.accounts.push({
+      ...structuredClone(inputs.accounts[1]!),
+      id: "manual:duplicate-private-rrsp",
+      label: PRIVATE_TEXT.personalName,
+      openingBalance: 25000,
+      contributionPhases: [],
+      withdrawalPriority: 3,
+    });
     inputs.events[0] = {
       ...inputs.events[0]!,
       label: `${PRIVATE_TEXT.personalName} at ${PRIVATE_TEXT.streetAddress}`,
@@ -551,20 +611,20 @@ describe("identifier-scrubbed projection exports", () => {
     const snapshot = createProjectionSnapshot(projection, baseline, {});
 
     expect(snapshot.projection.inputs.accounts.map(({ label }) => label)).toEqual([
-      PRIVATE_TEXT.personalName,
-      PRIVATE_TEXT.personalName,
+      "Cash account 1",
+      "RRSP/RRIF account 1",
+      "RRSP/RRIF account 2",
     ]);
     expect(snapshot.exportMetadata.accountAliases.map(({ key }) => key)).toEqual([
       "cash_1",
       "rrsp_1",
+      "rrsp_2",
     ]);
-    expect(snapshot.projection.inputs.events[0]!.label).toBe(
-      `${PRIVATE_TEXT.personalName} at ${PRIVATE_TEXT.streetAddress}`,
-    );
+    expect(snapshot.projection.inputs.events[0]!.label).toBe("Future event 1");
     expectNoSourceIdentifiersOrCredentials(JSON.stringify(snapshot));
   });
 
-  it("uses a safe key for the synthetic cash account while preserving its label", () => {
+  it("uses a generic label and safe key for the synthetic cash account", () => {
     const inputs: ProjectionInputs = structuredClone(projectionFixture);
     inputs.accounts[0] = { ...inputs.accounts[0]!, id: "cash", label: PRIVATE_TEXT.personalName };
     const baseline: BaselineExportContext = structuredClone(baselineContextFixture);
@@ -596,7 +656,7 @@ describe("identifier-scrubbed projection exports", () => {
       "accounts.cash_1.openingBalance": inputs.accounts[0]!.openingBalance,
     });
     expect(Object.keys(snapshot.projection.annual[0]!.real.accountBalances)).toContain("cash_1");
-    expect(snapshot.resolvedBaseline.accounts[0]!.label).toBe(PRIVATE_TEXT.personalName);
+    expect(snapshot.resolvedBaseline.accounts[0]!.label).toBe("Cash account 1");
     expectNoSourceIdentifiersOrCredentials(JSON.stringify(snapshot));
   });
 
@@ -647,9 +707,10 @@ describe("identifier-scrubbed projection exports", () => {
     expect(milestoneRow).toContain("OAS begins");
   });
 
-  it("emits one consistently shaped flat CSV without source ids or credentials", () => {
+  it("emits automatically anonymized rectangular real and nominal CSV tables", () => {
     const { snapshot } = buildExportFixture();
     const csv = projectionSnapshotToCsv(snapshot, "real");
+    const nominalCsv = projectionSnapshotToCsv(snapshot, "nominal");
     const lines = csv.split("\n");
     const parsed = lines.map(parseCsvLine);
     const header = parsed[0]!;
@@ -672,6 +733,7 @@ describe("identifier-scrubbed projection exports", () => {
       "oas_age_75_increase_rate",
     ]));
     expect(parsed[1]![0]).toBe("2026 (Jul–Dec)");
+    expect(parsed[1]![header.indexOf("employmentPhase")]).toBe("Employment phase 1");
     expect(csv).not.toContain("section,key,value");
     expect(csv).not.toContain("metadata,");
     expect(csv).not.toContain("resolvedBaseline,");
@@ -689,6 +751,39 @@ describe("identifier-scrubbed projection exports", () => {
       Number(parsed[1]![header.indexOf("oas_eligibility_fraction")]),
     ).toBe(snapshot.projection.governmentBenefits.oas.eligibilityFraction);
     expectNoSourceIdentifiersOrCredentials(csv);
+    expectNoSourceIdentifiersOrCredentials(nominalCsv);
+    const nominalRows = nominalCsv.split("\n").map(parseCsvLine);
+    expect(nominalRows).toHaveLength(snapshot.projection.annual.length + 1);
+    expect(nominalRows.every((row) => row.length === nominalRows[0]!.length)).toBe(true);
+    expect(nominalRows[1]![header.indexOf("dollarMode")]).toBe("nominal");
+  });
+
+  it("produces deterministic aliases across repeated exports of the same input", () => {
+    const { projection, baseline } = buildExportFixture();
+    const overrides = {
+      [`employmentPhase.${RAW_IDS.employmentPhase}.annualNetCashToday`]: 70000,
+      [`contributionPhase.${RAW_IDS.rrsp}.${RAW_IDS.contributionPhase}.monthlyAmountToday`]: 1500,
+    };
+    const first = createProjectionSnapshot(
+      projection,
+      baseline,
+      overrides,
+      "2026-07-14T00:00:00.000Z",
+    );
+    const second = createProjectionSnapshot(
+      projection,
+      baseline,
+      overrides,
+      "2026-07-14T00:00:00.000Z",
+    );
+
+    expect(second).toEqual(first);
+    expect(projectionSnapshotToCsv(second, "real")).toBe(
+      projectionSnapshotToCsv(first, "real"),
+    );
+    expect(projectionSnapshotToCsv(second, "nominal")).toBe(
+      projectionSnapshotToCsv(first, "nominal"),
+    );
   });
 
   it("uses ordinary export filenames for JSON and both CSV modes", () => {

@@ -1,6 +1,7 @@
 import type {
   BaselineExportContext,
   BaselineWarning,
+  BaselineWarningCode,
   DerivedBaseline,
 } from "@/src/domain/baseline/types";
 import type {
@@ -33,9 +34,17 @@ export type ShareSafeAccountAlias = {
   plannerType: AccountType;
 };
 
+export type ShareSafeProvenanceData =
+  | string
+  | number
+  | boolean
+  | null
+  | AssetAllocation
+  | ProjectionEventInput[];
+
 export type ShareSafeProvenanceValue = {
   fieldReference: string;
-  value: unknown;
+  value: ShareSafeProvenanceData;
   sourceType: BaselineSourceType;
   sourceDescription: string;
   effectiveDate: string;
@@ -87,10 +96,11 @@ export type ProjectionSnapshot = {
   schemaVersion: "5.0";
   generatedAt: string;
   exportMetadata: {
-    transformation: "typed_allowlist";
+    transformation: "typed_allowlist_and_automatic_anonymization";
+    automaticSanitizationApplied: true;
     rawLunchMoneyIdentifiersIncluded: false;
     sourceSystemRecordIdsIncluded: false;
-    descriptiveFinancialTextIncluded: true;
+    descriptiveFinancialTextIncluded: false;
     credentialsIncluded: false;
     accountAliases: ShareSafeAccountAlias[];
   };
@@ -145,18 +155,23 @@ type ShareSafeContext = {
   accounts: AccountAlias[];
   accountByRawId: Map<string, AccountAlias>;
   accountByNumericId: Map<string, RecordAlias>;
+  employmentPhaseByRawId: Map<string, RecordAlias>;
+  employmentPhaseByRawLabel: Map<string, RecordAlias>;
+  contributionPhaseByAccountAndRawId: Map<string, RecordAlias>;
+  contributionPhaseByAccountAndRawLabel: Map<string, RecordAlias>;
   eventsByRawId: Map<string, RecordAlias>;
   recurringByRawId: Map<string, RecordAlias>;
   unmappedAccountsByRawId: Map<string, RecordAlias>;
   categoriesByRawId: Map<string, RecordAlias>;
-  warningIdentifiers: Map<string, string>;
-  sourceIdentifiers: string[];
 };
 
 type ProvenanceField = {
   reference: string;
   account?: AccountAlias;
   accountField?: string;
+  employmentPhase?: RecordAlias;
+  contributionPhase?: RecordAlias;
+  finalField?: string;
 };
 
 const ACCOUNT_ALIAS_BASE: Record<AccountType, string> = {
@@ -165,6 +180,14 @@ const ACCOUNT_ALIAS_BASE: Record<AccountType, string> = {
   rrsp_rrif: "rrsp",
   non_registered: "non_registered",
   debt: "debt",
+};
+
+const ACCOUNT_ALIAS_LABEL: Record<AccountType, string> = {
+  cash: "Cash account",
+  tfsa: "TFSA account",
+  rrsp_rrif: "RRSP/RRIF account",
+  non_registered: "Non-registered account",
+  debt: "Debt account",
 };
 
 const ACCOUNT_TYPE_ORDER: AccountType[] = [
@@ -280,23 +303,28 @@ const CONTRIBUTION_SOURCES = ["lunchmoney_derived", "local_configuration"] as co
 const CONTRIBUTION_FUNDING = ["cash", "income_withheld"] as const;
 const RECURRING_CLASSIFICATIONS = ["essential", "discretionary"] as const;
 const WARNING_SEVERITIES = ["warning", "error"] as const;
-const BASELINE_WARNING_CODES = new Set([
-  "transactions_skipped",
-  "no_transactions",
-  "unused_account_mapping",
-  "contribution_target_required",
-  "suggested_recurring_ignored",
-  "negative_derived_total",
-  "cash_account_required",
-  "invalid_manual_contribution",
-  "withdrawal_priority_required",
-  "negative_asset_balance",
-  "long_live_baseline_income",
-  "cpp_canadian_reference_in_use",
-  "oas_canadian_reference_in_use",
-  "legacy_zero_cpp_amount",
-  "legacy_zero_oas_amount",
-]);
+const SAFE_WARNING_MESSAGES: Record<BaselineWarningCode, string> = {
+  transactions_skipped: "Some transactions were excluded from baseline calculations.",
+  no_transactions: "No eligible transactions were available for a baseline calculation.",
+  unused_account_mapping: "A configured account mapping did not match an imported account.",
+  contribution_target_required: "An investment contribution requires a mapped target account.",
+  suggested_recurring_ignored: "A suggested recurring item was excluded from the baseline.",
+  negative_derived_total: "A derived baseline total was negative and requires review.",
+  cash_account_required: "The projection requires an included cash account.",
+  invalid_manual_contribution: "A configured contribution requires review.",
+  withdrawal_priority_required: "An investment account requires a withdrawal priority.",
+  negative_asset_balance: "An included financial account has a negative opening balance.",
+  long_live_baseline_income:
+    "Current imported employment income is assumed to continue for more than five years.",
+  cpp_canadian_reference_in_use:
+    "CPP uses a generic published Canadian reference rather than a personal entitlement estimate.",
+  oas_canadian_reference_in_use:
+    "OAS uses a generic published Canadian reference amount.",
+  legacy_zero_cpp_amount:
+    "A legacy zero CPP amount remains in effect until canonical configuration is supplied.",
+  legacy_zero_oas_amount:
+    "A legacy zero OAS amount remains in effect until canonical configuration is supplied.",
+};
 
 const REFERENCE_KINDS = new Set<CanadianReferenceKind>([
   "population_median",
@@ -349,13 +377,19 @@ function metric(value: DerivedBaseline["essentialSpending"]) {
   };
 }
 
+function contributionPhaseKey(accountId: string, phaseValue: string): string {
+  return `${accountId}\u0000${phaseValue}`;
+}
+
 function createShareSafeContext(
   projection: ProjectionResult,
   baseline: BaselineExportContext,
 ): ShareSafeContext {
   const descriptors = new Map<string, { id: string; type: AccountType; label: string }>();
   for (const account of [...baseline.projectionInputs.accounts, ...projection.inputs.accounts]) {
-    descriptors.set(account.id, { id: account.id, type: account.type, label: account.label });
+    if (!descriptors.has(account.id)) {
+      descriptors.set(account.id, { id: account.id, type: account.type, label: account.label });
+    }
   }
   for (const account of baseline.derived.accountBalances) {
     if (!descriptors.has(account.id)) {
@@ -371,19 +405,13 @@ function createShareSafeContext(
     AccountType,
     number
   >;
-  const accounts = [...descriptors.values()]
-    .sort(
-      (left, right) =>
-        ACCOUNT_TYPE_ORDER.indexOf(left.type) - ACCOUNT_TYPE_ORDER.indexOf(right.type) ||
-        left.id.localeCompare(right.id),
-    )
-    .map((account): AccountAlias => {
+  const accounts = [...descriptors.values()].map((account): AccountAlias => {
       const sequence = (counters[account.type] += 1);
       const base = ACCOUNT_ALIAS_BASE[account.type];
       return {
         rawId: account.id,
         key: `${base}_${sequence}`,
-        label: account.label,
+        label: `${ACCOUNT_ALIAS_LABEL[account.type]} ${sequence}`,
         plannerType: account.type,
       };
     });
@@ -396,13 +424,55 @@ function createShareSafeContext(
     }
   }
 
+  const employmentPhaseByRawId = new Map<string, RecordAlias>();
+  const employmentPhaseByRawLabel = new Map<string, RecordAlias>();
+  for (const phase of [
+    ...baseline.projectionInputs.person.employmentIncomePhases,
+    ...projection.inputs.person.employmentIncomePhases,
+  ]) {
+    let alias = employmentPhaseByRawId.get(phase.id);
+    if (!alias) {
+      const sequence = employmentPhaseByRawId.size + 1;
+      alias = {
+        key: `employment_phase_${sequence}`,
+        label: `Employment phase ${sequence}`,
+      };
+      employmentPhaseByRawId.set(phase.id, alias);
+    }
+    if (!employmentPhaseByRawLabel.has(phase.label)) {
+      employmentPhaseByRawLabel.set(phase.label, alias);
+    }
+  }
+
+  const contributionPhaseByAccountAndRawId = new Map<string, RecordAlias>();
+  const contributionPhaseByAccountAndRawLabel = new Map<string, RecordAlias>();
+  let contributionSequence = 0;
+  for (const input of [baseline.projectionInputs, projection.inputs]) {
+    for (const account of input.accounts) {
+      for (const phase of account.contributionPhases) {
+        const idKey = contributionPhaseKey(account.id, phase.id);
+        let alias = contributionPhaseByAccountAndRawId.get(idKey);
+        if (!alias) {
+          contributionSequence += 1;
+          alias = {
+            key: `contribution_phase_${contributionSequence}`,
+            label: `Contribution phase ${contributionSequence}`,
+          };
+          contributionPhaseByAccountAndRawId.set(idKey, alias);
+        }
+        const labelKey = contributionPhaseKey(account.id, phase.label);
+        if (!contributionPhaseByAccountAndRawLabel.has(labelKey)) {
+          contributionPhaseByAccountAndRawLabel.set(labelKey, alias);
+        }
+      }
+    }
+  }
+
   const unmappedAccountsByRawId = new Map<string, RecordAlias>();
-  [...baseline.unmappedAccounts]
-    .sort((left, right) => left.id.localeCompare(right.id))
-    .forEach((account, index) => {
+  baseline.unmappedAccounts.forEach((account, index) => {
       const alias = {
         key: `unmapped_account_${index + 1}`,
-        label: account.name,
+        label: `Unmapped account ${index + 1}`,
       };
       unmappedAccountsByRawId.set(account.id, alias);
       if (account.lunchMoneyId !== null && !accountByNumericId.has(String(account.lunchMoneyId))) {
@@ -412,89 +482,51 @@ function createShareSafeContext(
 
   const eventDescriptions = new Map<string, string>();
   for (const event of [...baseline.projectionInputs.events, ...projection.inputs.events]) {
-    eventDescriptions.set(event.id, event.label);
+    if (!eventDescriptions.has(event.id)) eventDescriptions.set(event.id, event.label);
   }
   const eventsByRawId = new Map<string, RecordAlias>();
-  [...eventDescriptions]
-    .sort(([left], [right]) => left.localeCompare(right))
-    .forEach(([id, label], index) => {
+  [...eventDescriptions].forEach(([id], index) => {
       eventsByRawId.set(id, {
         key: `event_${index + 1}`,
-        label,
+        label: `Future event ${index + 1}`,
       });
     });
 
-  const recurringDescriptions = new Map(
-    baseline.derived.recurringExpenses.items.map((item) => [String(item.id), item.description]),
-  );
   const recurringByRawId = new Map<string, RecordAlias>();
-  [...recurringDescriptions]
-    .sort(([left], [right]) => left.localeCompare(right))
-    .forEach(([id, label], index) => {
-      recurringByRawId.set(id, {
-        key: `recurring_expense_${index + 1}`,
-        label,
-      });
+  baseline.derived.recurringExpenses.items.forEach((item, index) => {
+    recurringByRawId.set(String(item.id), {
+      key: `recurring_expense_${index + 1}`,
+      label: `Recurring expense ${index + 1}`,
     });
+  });
 
-  const categoryDescriptions = new Map<string, string>();
+  const categoryIds = new Set<string>();
   for (const category of baseline.unmappedCategories) {
-    categoryDescriptions.set(category.id, category.name);
+    categoryIds.add(category.id);
   }
   for (const item of baseline.derived.recurringExpenses.items) {
-    if (!categoryDescriptions.has(item.categoryId)) {
-      categoryDescriptions.set(item.categoryId, "Mapped category");
-    }
+    categoryIds.add(item.categoryId);
   }
   const categoriesByRawId = new Map<string, RecordAlias>();
-  [...categoryDescriptions]
-    .sort(([left], [right]) => left.localeCompare(right))
-    .forEach(([id, label], index) => {
+  [...categoryIds].forEach((id, index) => {
       categoriesByRawId.set(id, {
         key: `category_${index + 1}`,
-        label,
+        label: `Category ${index + 1}`,
       });
     });
-
-  const knownWarningIdentifier = (identifier: string): boolean =>
-    accountByRawId.has(identifier) ||
-    accountByNumericId.has(identifier) ||
-    unmappedAccountsByRawId.has(identifier) ||
-    categoriesByRawId.has(identifier);
-  const warningIdentifiers = new Map<string, string>();
-  [...new Set(
-    baseline.warnings
-      .map((warning) => warning.identifier)
-      .filter((identifier): identifier is string => Boolean(identifier)),
-  )]
-    .filter((identifier) => !knownWarningIdentifier(identifier))
-    .sort((left, right) => left.localeCompare(right))
-    .forEach((identifier, index) => {
-      warningIdentifiers.set(identifier, `warning_identifier_${index + 1}`);
-    });
-
-  const sourceIdentifiers = [...new Set([
-    ...accounts.map((account) => account.rawId),
-    ...accountByNumericId.keys(),
-    ...eventsByRawId.keys(),
-    ...recurringByRawId.keys(),
-    ...unmappedAccountsByRawId.keys(),
-    ...categoriesByRawId.keys(),
-    ...warningIdentifiers.keys(),
-  ])]
-    .filter((identifier) => identifier !== "cash" && identifier !== "uncategorized")
-    .sort((left, right) => right.length - left.length || left.localeCompare(right));
 
   return {
     accounts,
     accountByRawId,
     accountByNumericId,
+    employmentPhaseByRawId,
+    employmentPhaseByRawLabel,
+    contributionPhaseByAccountAndRawId,
+    contributionPhaseByAccountAndRawLabel,
     eventsByRawId,
     recurringByRawId,
     unmappedAccountsByRawId,
     categoriesByRawId,
-    warningIdentifiers,
-    sourceIdentifiers,
   };
 }
 
@@ -514,35 +546,27 @@ function requiredRecordAlias(
   return alias;
 }
 
-function escapeRegExp(value: string): string {
-  return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+function requiredEmploymentPhaseAlias(
+  rawId: string,
+  context: ShareSafeContext,
+): RecordAlias {
+  return requiredRecordAlias(
+    rawId,
+    context.employmentPhaseByRawId,
+    "employment phase",
+  );
 }
 
-function safeDescriptiveText(value: string, context: ShareSafeContext): string {
-  let result = value;
-  for (const identifier of context.sourceIdentifiers) {
-    if (!identifier) continue;
-    result = /^\d+$/.test(identifier)
-      ? result.replace(
-          new RegExp(`(?<![A-Za-z0-9])${escapeRegExp(identifier)}(?![A-Za-z0-9])`, "g"),
-          "[source ID removed]",
-        )
-      : result.replaceAll(identifier, "[source ID removed]");
-  }
-
-  result = result
-    .replace(/\bBearer\s+[^\s,;]+/gi, "Bearer [credential removed]")
-    .replace(
-      /\b(authorization)\b(\s*[:=]\s*)(?:"[^"]*"|'[^']*'|[^,;\n]+)/gi,
-      "$1$2[credential removed]",
-    )
-    .replace(
-      /\b(api[-_ ]?key|token|password|credential|secret)\b(\s*[:=]\s*)(?:"[^"]*"|'[^']*'|[^\s,;]+)/gi,
-      "$1$2[credential removed]",
-    );
-  const configuredToken = process.env.LUNCHMONEY_API_TOKEN;
-  if (configuredToken) result = result.replaceAll(configuredToken, "[credential removed]");
-  return result;
+function requiredContributionPhaseAlias(
+  accountId: string,
+  phaseValue: string,
+  aliases: Map<string, RecordAlias>,
+): RecordAlias {
+  return requiredRecordAlias(
+    contributionPhaseKey(accountId, phaseValue),
+    aliases,
+    "contribution phase",
+  );
 }
 
 function safeAllocation(value: AssetAllocation): AssetAllocation {
@@ -560,19 +584,26 @@ function safeAccountInput(
   const alias = requiredAccountAlias(account.id, context);
   return {
     id: alias.key,
-    label: safeDescriptiveText(alias.label, context),
+    label: alias.label,
     type: account.type,
     openingBalance: account.openingBalance,
     annualReturn: account.annualReturn,
-    contributionPhases: account.contributionPhases.map((phase) => ({
-      id: safeDescriptiveText(phase.id, context),
-      label: safeDescriptiveText(phase.label, context),
-      startAge: phase.startAge,
-      endAge: phase.endAge,
-      monthlyAmountToday: phase.monthlyAmountToday,
-      funding: phase.funding,
-      indexingRate: phase.indexingRate,
-    })),
+    contributionPhases: account.contributionPhases.map((phase) => {
+      const phaseAlias = requiredContributionPhaseAlias(
+        account.id,
+        phase.id,
+        context.contributionPhaseByAccountAndRawId,
+      );
+      return {
+        id: phaseAlias.key,
+        label: phaseAlias.label,
+        startAge: phase.startAge,
+        endAge: phase.endAge,
+        monthlyAmountToday: phase.monthlyAmountToday,
+        funding: phase.funding,
+        indexingRate: phase.indexingRate,
+      };
+    }),
     withdrawalPriority: account.withdrawalPriority,
     allocation: safeAllocation(account.allocation),
   };
@@ -585,7 +616,7 @@ function safeEventInput(
   const alias = requiredRecordAlias(event.id, context.eventsByRawId, "event");
   return {
     id: alias.key,
-    label: safeDescriptiveText(alias.label, context),
+    label: alias.label,
     calendarYear: event.calendarYear,
     month: event.month,
     amountToday: event.amountToday,
@@ -615,14 +646,17 @@ function safeProjectionInputs(
     person: {
       currentAge: inputs.person.currentAge,
       retirementAge: inputs.person.retirementAge,
-      employmentIncomePhases: inputs.person.employmentIncomePhases.map((phase) => ({
-        id: safeDescriptiveText(phase.id, context),
-        label: safeDescriptiveText(phase.label, context),
-        startAge: phase.startAge,
-        endAge: phase.endAge,
-        annualNetCashToday: phase.annualNetCashToday,
-        annualGrowth: phase.annualGrowth,
-      })),
+      employmentIncomePhases: inputs.person.employmentIncomePhases.map((phase) => {
+        const alias = requiredEmploymentPhaseAlias(phase.id, context);
+        return {
+          id: alias.key,
+          label: alias.label,
+          startAge: phase.startAge,
+          endAge: phase.endAge,
+          annualNetCashToday: phase.annualNetCashToday,
+          annualGrowth: phase.annualGrowth,
+        };
+      }),
       annualPensionToday: inputs.person.annualPensionToday,
       pensionStartAge: inputs.person.pensionStartAge,
       pensionIndexingRate: inputs.person.pensionIndexingRate,
@@ -785,12 +819,22 @@ function safeProjectionResult(
         SAFE_MILESTONES.has(milestone) ? milestone : `Milestone ${index + 1}`,
       ),
       employmentPhaseLabels: point.employmentPhaseLabels.map((label) =>
-        safeDescriptiveText(label, context),
+        requiredRecordAlias(
+          label,
+          context.employmentPhaseByRawLabel,
+          "employment phase label",
+        ).label
       ),
       contributionPhaseLabels: Object.fromEntries(
         Object.entries(point.contributionPhaseLabels).map(([rawAccountId, labels]) => [
           requiredAccountAlias(rawAccountId, context).key,
-          labels.map((label) => safeDescriptiveText(label, context)),
+          labels.map((label) =>
+            requiredContributionPhaseAlias(
+              rawAccountId,
+              label,
+              context.contributionPhaseByAccountAndRawLabel,
+            ).label
+          ),
         ]),
       ),
     })),
@@ -826,7 +870,7 @@ function safeDerivedBaseline(
       return {
         id: alias.key,
         source: allowedValue(account.source, ACCOUNT_SOURCES, "account source"),
-        name: safeDescriptiveText(alias.label, context),
+        name: alias.label,
         plannerType: allowedValue(account.plannerType, ACCOUNT_TYPE_ORDER, "planner account type"),
         balance: finiteNumber(account.balance, "account balance"),
         balanceAsOf: safeDateLike(account.balanceAsOf, dataThrough),
@@ -871,7 +915,7 @@ function safeDerivedBaseline(
         );
         return {
           id: alias.key,
-          description: safeDescriptiveText(alias.label, context),
+          description: alias.label,
           classification: allowedValue(
             item.classification,
             RECURRING_CLASSIFICATIONS,
@@ -890,31 +934,17 @@ function safeDerivedBaseline(
   };
 }
 
-function safeWarningIdentifier(
-  identifier: string,
-  context: ShareSafeContext,
-): string {
-  return context.accountByRawId.get(identifier)?.key ??
-    context.accountByNumericId.get(identifier)?.key ??
-    context.unmappedAccountsByRawId.get(identifier)?.key ??
-    context.categoriesByRawId.get(identifier)?.key ??
-    context.warningIdentifiers.get(identifier) ??
-    "warning_identifier";
-}
-
 function safeWarnings(
   warnings: BaselineWarning[],
-  context: ShareSafeContext,
 ): ProjectionSnapshot["warnings"] {
   return warnings.map((warning, index) => {
+    const sequence = index + 1;
     return {
-      code: BASELINE_WARNING_CODES.has(warning.code) ? warning.code : `warning_code_${index + 1}`,
+      code: warning.code,
       severity: allowedValue(warning.severity, WARNING_SEVERITIES, "warning severity"),
-      ...(warning.identifier
-        ? { identifier: safeWarningIdentifier(warning.identifier, context) }
-        : {}),
-      name: safeDescriptiveText(warning.name ?? `Warning ${index + 1}`, context),
-      message: safeDescriptiveText(warning.message, context),
+      ...(warning.identifier ? { identifier: `warning_${sequence}` } : {}),
+      name: `Warning ${sequence}`,
+      message: SAFE_WARNING_MESSAGES[warning.code],
     };
   });
 }
@@ -923,33 +953,57 @@ function provenanceField(
   rawField: string,
   context: ShareSafeContext,
 ): ProvenanceField | undefined {
-  if (SAFE_PROVENANCE_FIELDS.has(rawField)) return { reference: rawField };
+  if (SAFE_PROVENANCE_FIELDS.has(rawField)) {
+    return {
+      reference: rawField,
+      finalField: rawField.slice(rawField.lastIndexOf(".") + 1),
+    };
+  }
   const employmentPrefix = "person.employmentIncomePhases.";
   if (rawField.startsWith(employmentPrefix)) {
-    const field = rawField.slice(employmentPrefix.length);
-    const finalField = field.slice(field.lastIndexOf(".") + 1);
+    const remainder = rawField.slice(employmentPrefix.length);
+    const separator = remainder.lastIndexOf(".");
+    if (separator < 0) return undefined;
+    const rawPhaseId = remainder.slice(0, separator);
+    const finalField = remainder.slice(separator + 1);
+    const phase = context.employmentPhaseByRawId.get(rawPhaseId);
     if (EMPLOYMENT_PHASE_PROVENANCE_FIELDS.has(finalField)) {
-      return { reference: safeDescriptiveText(rawField, context) };
+      if (!phase) return undefined;
+      return {
+        reference: `${employmentPrefix}${phase.key}.${finalField}`,
+        employmentPhase: phase,
+        finalField,
+      };
     }
   }
   for (const account of context.accounts) {
     const prefix = `accounts.${account.rawId}.`;
     if (!rawField.startsWith(prefix)) continue;
     const accountField = rawField.slice(prefix.length);
-    const contributionPhaseField = accountField.startsWith("contributionPhases.")
-      ? accountField.slice(accountField.lastIndexOf(".") + 1)
-      : undefined;
-    if (
-      !ACCOUNT_PROVENANCE_FIELDS.has(accountField) &&
-      (!contributionPhaseField ||
-        !CONTRIBUTION_PHASE_PROVENANCE_FIELDS.has(contributionPhaseField))
-    ) {
-      return undefined;
+    if (accountField.startsWith("contributionPhases.")) {
+      const remainder = accountField.slice("contributionPhases.".length);
+      const separator = remainder.lastIndexOf(".");
+      if (separator < 0) return undefined;
+      const rawPhaseId = remainder.slice(0, separator);
+      const finalField = remainder.slice(separator + 1);
+      if (!CONTRIBUTION_PHASE_PROVENANCE_FIELDS.has(finalField)) return undefined;
+      const phase = context.contributionPhaseByAccountAndRawId.get(
+        contributionPhaseKey(account.rawId, rawPhaseId),
+      );
+      if (!phase) return undefined;
+      return {
+        reference: `accounts.${account.key}.contributionPhases.${phase.key}.${finalField}`,
+        account,
+        contributionPhase: phase,
+        finalField,
+      };
     }
+    if (!ACCOUNT_PROVENANCE_FIELDS.has(accountField)) return undefined;
     return {
-      reference: `accounts.${account.key}.${safeDescriptiveText(accountField, context)}`,
+      reference: `accounts.${account.key}.${accountField}`,
       account,
       accountField,
+      finalField: accountField,
     };
   }
   return undefined;
@@ -982,15 +1036,55 @@ function safeProvenanceValue(
   value: unknown,
   field: ProvenanceField,
   safeEvents: ProjectionEventInput[],
-  context: ShareSafeContext,
-): unknown {
+): ShareSafeProvenanceData {
   if (field.reference === "events") return safeEvents;
   if (field.accountField === "label" && field.account) {
-    return safeDescriptiveText(field.account.label, context);
+    return field.account.label;
+  }
+  if (field.finalField === "label" && field.employmentPhase) {
+    return field.employmentPhase.label;
+  }
+  if (field.finalField === "label" && field.contributionPhase) {
+    return field.contributionPhase.label;
   }
   if (typeof value === "number") return finiteNumber(value, `provenance ${field.reference}`);
   if (typeof value === "boolean" || value === null) return value;
-  if (typeof value === "string") return safeDescriptiveText(value, context);
+  if (typeof value === "string") {
+    if (field.finalField === "funding") {
+      return allowedValue(value, CONTRIBUTION_FUNDING, "provenance contribution funding");
+    }
+    if (field.accountField === "type") {
+      return allowedValue(value, ACCOUNT_TYPE_ORDER, "provenance account type");
+    }
+    if (
+      field.reference === "person.cpp.amountSourceMode" &&
+      ["official_estimate", "configured_amount", "canadian_reference", "explicit_zero"].includes(value)
+    ) {
+      return value;
+    }
+    if (
+      field.reference === "person.oas.fullAmountSourceMode" &&
+      ["configured_amount", "canadian_reference"].includes(value)
+    ) {
+      return value;
+    }
+    if (
+      field.reference === "person.oas.eligibility.mode" &&
+      ["full", "partial", "none"].includes(value)
+    ) {
+      return value;
+    }
+    if (field.reference === "person.cpp.claimAdjustmentRule") {
+      return "Statutory monthly CPP claim-age adjustment";
+    }
+    if (field.reference === "person.oas.delayedClaimRule") {
+      return "Statutory monthly OAS delayed-claim adjustment";
+    }
+    if (field.reference === "person.oas.age75IncreaseRule") {
+      return "Statutory OAS increase after age 75";
+    }
+    return "descriptive_value_omitted";
+  }
   if (field.accountField === "allocation" && value && typeof value === "object") {
     const allocation = value as Partial<AssetAllocation>;
     if (
@@ -1004,6 +1098,22 @@ function safeProvenanceValue(
   return "unsupported_value_omitted";
 }
 
+function safeProvenanceDescription(
+  sourceType: BaselineSourceType,
+  sourceDescription: string,
+): string {
+  if (/legacy|compatib/i.test(sourceDescription)) {
+    return "Value resolved through legacy compatibility behaviour";
+  }
+  if (sourceType === "lunchmoney_derived") {
+    return "Value imported from Lunch Money and aggregated for the baseline";
+  }
+  if (sourceType === "local_configuration") {
+    return "Value supplied through private local configuration";
+  }
+  return "Published Canadian reference";
+}
+
 function safeProvenance(
   provenance: BaselineExportContext["provenance"],
   context: ShareSafeContext,
@@ -1011,21 +1121,22 @@ function safeProvenance(
   dataThrough: string,
 ): ProjectionSnapshot["provenance"] {
   const result: ProjectionSnapshot["provenance"] = {};
-  let unknownIndex = 0;
   for (const [rawField, source] of Object.entries(provenance).sort(([left], [right]) =>
     left.localeCompare(right),
   )) {
-    const field = provenanceField(rawField, context) ?? {
-      reference: `field_${(unknownIndex += 1)}`,
-    };
+    const field = provenanceField(rawField, context);
+    if (!field) continue;
     const sourceType = safeSourceType(source.sourceType);
     const referenceKind = safeReferenceKind(source.referenceKind);
     const referenceUrl = safeReferenceUrl(source.referenceUrl);
     result[field.reference] = {
       fieldReference: field.reference,
-      value: safeProvenanceValue(source.value, field, safeEvents, context),
+      value: safeProvenanceValue(source.value, field, safeEvents),
       sourceType,
-      sourceDescription: safeDescriptiveText(source.sourceDescription, context),
+      sourceDescription: safeProvenanceDescription(
+        sourceType,
+        source.sourceDescription,
+      ),
       effectiveDate: safeDateLike(source.effectiveDate, dataThrough),
       ...(referenceKind ? { referenceKind } : {}),
       ...(referenceUrl ? { referenceUrl } : {}),
@@ -1040,9 +1151,14 @@ function safeOverrideKey(
 ): string | undefined {
   if (SIMPLE_OVERRIDE_KEYS.has(rawKey)) return rawKey;
   if (rawKey.startsWith("employmentPhase.")) {
-    const field = rawKey.slice(rawKey.lastIndexOf(".") + 1);
-    return field === "annualNetCashToday" || field === "annualGrowth"
-      ? safeDescriptiveText(rawKey, context)
+    const remainder = rawKey.slice("employmentPhase.".length);
+    const separator = remainder.lastIndexOf(".");
+    if (separator < 0) return undefined;
+    const rawPhaseId = remainder.slice(0, separator);
+    const field = remainder.slice(separator + 1);
+    const phase = context.employmentPhaseByRawId.get(rawPhaseId);
+    return phase && (field === "annualNetCashToday" || field === "annualGrowth")
+      ? `employmentPhase.${phase.key}.${field}`
       : undefined;
   }
   if (rawKey.startsWith("contributionPhase.")) {
@@ -1050,9 +1166,15 @@ function safeOverrideKey(
       const prefix = `contributionPhase.${account.rawId}.`;
       if (!rawKey.startsWith(prefix)) continue;
       const remainder = rawKey.slice(prefix.length);
-      const field = remainder.slice(remainder.lastIndexOf(".") + 1);
-      return field === "monthlyAmountToday" || field === "indexingRate"
-        ? `contributionPhase.${account.key}.${safeDescriptiveText(remainder, context)}`
+      const separator = remainder.lastIndexOf(".");
+      if (separator < 0) return undefined;
+      const rawPhaseId = remainder.slice(0, separator);
+      const field = remainder.slice(separator + 1);
+      const phase = context.contributionPhaseByAccountAndRawId.get(
+        contributionPhaseKey(account.rawId, rawPhaseId),
+      );
+      return phase && (field === "monthlyAmountToday" || field === "indexingRate")
+        ? `contributionPhase.${account.key}.${phase.key}.${field}`
         : undefined;
     }
   }
@@ -1142,14 +1264,15 @@ export function createProjectionSnapshot(
     schemaVersion: "5.0",
     generatedAt: safeGeneratedAt,
     exportMetadata: {
-      transformation: "typed_allowlist",
+      transformation: "typed_allowlist_and_automatic_anonymization",
+      automaticSanitizationApplied: true,
       rawLunchMoneyIdentifiersIncluded: false,
       sourceSystemRecordIdsIncluded: false,
-      descriptiveFinancialTextIncluded: true,
+      descriptiveFinancialTextIncluded: false,
       credentialsIncluded: false,
       accountAliases: context.accounts.map(({ key, label, plannerType }) => ({
         key,
-        label: safeDescriptiveText(label, context),
+        label,
         plannerType,
       })),
     },
@@ -1197,7 +1320,7 @@ export function createProjectionSnapshot(
       dataThrough,
     ),
     derivedBaseline: safeDerivedBaseline(baseline.derived, context, dataThrough),
-    warnings: safeWarnings(baseline.warnings, context),
+    warnings: safeWarnings(baseline.warnings),
     unmappedAccounts: baseline.unmappedAccounts.map((account) => {
       const alias = requiredRecordAlias(
         account.id,
@@ -1207,7 +1330,7 @@ export function createProjectionSnapshot(
       return {
         id: alias.key,
         source: allowedValue(account.source, ACCOUNT_SOURCES, "unmapped account source"),
-        name: safeDescriptiveText(alias.label, context),
+        name: alias.label,
       };
     }),
     unmappedCategories: baseline.unmappedCategories.map((category) => {
@@ -1218,7 +1341,7 @@ export function createProjectionSnapshot(
       );
       return {
         id: alias.key,
-        name: safeDescriptiveText(alias.label, context),
+        name: alias.label,
         transactionCount: finiteNumber(category.transactionCount, "unmapped category count"),
       };
     }),
@@ -1237,12 +1360,15 @@ export function projectionSnapshotToCsv(
   mode: "real" | "nominal" = "real",
 ): string {
   if (
-    snapshot.exportMetadata.transformation !== "typed_allowlist" ||
+    snapshot.exportMetadata.transformation !==
+      "typed_allowlist_and_automatic_anonymization" ||
+    !snapshot.exportMetadata.automaticSanitizationApplied ||
     snapshot.exportMetadata.rawLunchMoneyIdentifiersIncluded ||
     snapshot.exportMetadata.sourceSystemRecordIdsIncluded ||
+    snapshot.exportMetadata.descriptiveFinancialTextIncluded ||
     snapshot.exportMetadata.credentialsIncluded
   ) {
-    throw new Error("CSV export requires an identifier-scrubbed projection snapshot");
+    throw new Error("CSV export requires an automatically anonymized projection snapshot");
   }
   const accountAliases = snapshot.exportMetadata.accountAliases;
   const headers = [
