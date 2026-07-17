@@ -2,5 +2,8 @@ node_modules
 .next
 .git
 .env*
+config/planner.local.yaml
+config/planner.local.yml
+config/planner.local.json
 coverage
 *.log

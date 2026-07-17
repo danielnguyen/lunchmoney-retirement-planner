@@ -4,7 +4,6 @@ import type {
   AssetAllocation,
   BalanceBreakdown,
   FinancialAccountInput,
-  HouseholdMemberInput,
   IncomeBreakdown,
   OutflowBreakdown,
   ProjectionInputs,
@@ -24,10 +23,6 @@ function round(value: number): number {
 
 function monthlyRate(annualRate: number): number {
   return Math.pow(1 + annualRate, 1 / MONTHS_PER_YEAR) - 1;
-}
-
-function inflationFactor(annualInflation: number, month: number): number {
-  return Math.pow(1 + annualInflation, month / MONTHS_PER_YEAR);
 }
 
 function indexedFactor(annualRate: number, month: number): number {
@@ -72,8 +67,8 @@ function emptyBalances(): BalanceBreakdown {
     tfsa: 0,
     rrspRrif: 0,
     nonRegistered: 0,
-    realAssets: 0,
     debts: 0,
+    financialAssets: 0,
     netWorth: 0,
   };
 }
@@ -84,24 +79,12 @@ function emptyView(): ProjectionView {
     withdrawals: emptyWithdrawals(),
     outflows: emptyOutflows(),
     balances: emptyBalances(),
+    accountBalances: {},
     allocation: { ...ZERO_ALLOCATION },
   };
 }
 
-function addIncome(target: IncomeBreakdown, source: IncomeBreakdown): void {
-  target.employment += source.employment;
-  target.cpp += source.cpp;
-  target.oas += source.oas;
-  target.pension += source.pension;
-  target.other += source.other;
-  target.total += source.total;
-}
-
-function addWithdrawal(
-  target: WithdrawalBreakdown,
-  accountType: AccountType,
-  amount: number,
-): void {
+function addWithdrawal(target: WithdrawalBreakdown, accountType: AccountType, amount: number): void {
   if (accountType === "cash") target.cash += amount;
   if (accountType === "tfsa") target.tfsa += amount;
   if (accountType === "rrsp_rrif") target.rrspRrif += amount;
@@ -109,53 +92,31 @@ function addWithdrawal(
   target.total += amount;
 }
 
-function benefitMonthlyAmount(
-  member: HouseholdMemberInput,
-  kind: "cpp" | "oas",
-  age: number,
-  month: number,
-): number {
-  const benefit = member[kind];
-  if (age < benefit.startAge) return 0;
-  const claimFactor = kind === "cpp" ? cppClaimFactor(benefit.startAge) : oasClaimFactor(benefit.startAge);
-  return (
-    benefit.monthlyAmountAt65Today *
-    benefit.percentOfMaximum *
-    claimFactor *
-    indexedFactor(benefit.indexingRate, month)
-  );
-}
-
 function accountBalances(
   accounts: FinancialAccountInput[],
   balances: Map<string, number>,
-  ownerId?: string,
 ): BalanceBreakdown {
   const result = emptyBalances();
   for (const account of accounts) {
-    if (ownerId && account.ownerId !== ownerId) continue;
     const balance = balances.get(account.id) ?? 0;
     if (account.type === "cash") result.cash += balance;
     if (account.type === "tfsa") result.tfsa += balance;
     if (account.type === "rrsp_rrif") result.rrspRrif += balance;
     if (account.type === "non_registered") result.nonRegistered += balance;
-    if (account.type === "real_asset") result.realAssets += balance;
     if (account.type === "debt") result.debts += balance;
   }
-  result.netWorth =
-    result.cash + result.tfsa + result.rrspRrif + result.nonRegistered + result.realAssets - result.debts;
+  result.financialAssets = result.cash + result.tfsa + result.rrspRrif + result.nonRegistered;
+  result.netWorth = result.financialAssets - result.debts;
   return result;
 }
 
 function accountAllocation(
   accounts: FinancialAccountInput[],
   balances: Map<string, number>,
-  ownerId?: string,
 ): AssetAllocation {
   const result = { ...ZERO_ALLOCATION };
   for (const account of accounts) {
-    if (ownerId && account.ownerId !== ownerId) continue;
-    if (account.type === "real_asset" || account.type === "debt") continue;
+    if (account.type === "debt") continue;
     const balance = balances.get(account.id) ?? 0;
     result.cash += balance * account.allocation.cash;
     result.fixedIncome += balance * account.allocation.fixedIncome;
@@ -164,228 +125,219 @@ function accountAllocation(
   return result;
 }
 
-function deflateView(view: ProjectionView, factor: number): ProjectionView {
+function snapshotAccountBalances(
+  accounts: FinancialAccountInput[],
+  balances: Map<string, number>,
+): Record<string, number> {
+  return Object.fromEntries(accounts.map((account) => [account.id, balances.get(account.id) ?? 0]));
+}
+
+function snapshotView(
+  flow: ProjectionView,
+  accounts: FinancialAccountInput[],
+  balances: Map<string, number>,
+  factor: number,
+): ProjectionView {
   const divide = (value: number) => round(value / factor);
+  const balancesAtSnapshot = accountBalances(accounts, balances);
+  const accountBalancesAtSnapshot = snapshotAccountBalances(accounts, balances);
+  const allocationAtSnapshot = accountAllocation(accounts, balances);
   return {
     income: {
-      employment: divide(view.income.employment),
-      cpp: divide(view.income.cpp),
-      oas: divide(view.income.oas),
-      pension: divide(view.income.pension),
-      other: divide(view.income.other),
-      total: divide(view.income.total),
+      employment: round(flow.income.employment),
+      cpp: round(flow.income.cpp),
+      oas: round(flow.income.oas),
+      pension: round(flow.income.pension),
+      other: round(flow.income.other),
+      total: round(flow.income.total),
     },
     withdrawals: {
-      cash: divide(view.withdrawals.cash),
-      tfsa: divide(view.withdrawals.tfsa),
-      rrspRrif: divide(view.withdrawals.rrspRrif),
-      nonRegistered: divide(view.withdrawals.nonRegistered),
-      total: divide(view.withdrawals.total),
+      cash: round(flow.withdrawals.cash),
+      tfsa: round(flow.withdrawals.tfsa),
+      rrspRrif: round(flow.withdrawals.rrspRrif),
+      nonRegistered: round(flow.withdrawals.nonRegistered),
+      total: round(flow.withdrawals.total),
     },
     outflows: {
-      essential: divide(view.outflows.essential),
-      discretionary: divide(view.outflows.discretionary),
-      oneTime: divide(view.outflows.oneTime),
-      tax: divide(view.outflows.tax),
-      oasRecoveryTax: divide(view.outflows.oasRecoveryTax),
-      contributions: divide(view.outflows.contributions),
-      unmetSpending: divide(view.outflows.unmetSpending),
-      total: divide(view.outflows.total),
+      essential: round(flow.outflows.essential),
+      discretionary: round(flow.outflows.discretionary),
+      oneTime: round(flow.outflows.oneTime),
+      tax: round(flow.outflows.tax),
+      oasRecoveryTax: round(flow.outflows.oasRecoveryTax),
+      contributions: round(flow.outflows.contributions),
+      unmetSpending: round(flow.outflows.unmetSpending),
+      total: round(flow.outflows.total),
     },
     balances: {
-      cash: divide(view.balances.cash),
-      tfsa: divide(view.balances.tfsa),
-      rrspRrif: divide(view.balances.rrspRrif),
-      nonRegistered: divide(view.balances.nonRegistered),
-      realAssets: divide(view.balances.realAssets),
-      debts: divide(view.balances.debts),
-      netWorth: divide(view.balances.netWorth),
+      cash: divide(balancesAtSnapshot.cash),
+      tfsa: divide(balancesAtSnapshot.tfsa),
+      rrspRrif: divide(balancesAtSnapshot.rrspRrif),
+      nonRegistered: divide(balancesAtSnapshot.nonRegistered),
+      debts: divide(balancesAtSnapshot.debts),
+      financialAssets: divide(balancesAtSnapshot.financialAssets),
+      netWorth: divide(balancesAtSnapshot.netWorth),
     },
+    accountBalances: Object.fromEntries(
+      Object.entries(accountBalancesAtSnapshot).map(([id, balance]) => [id, divide(balance)]),
+    ),
     allocation: {
-      cash: divide(view.allocation.cash),
-      fixedIncome: divide(view.allocation.fixedIncome),
-      equity: divide(view.allocation.equity),
+      cash: divide(allocationAtSnapshot.cash),
+      fixedIncome: divide(allocationAtSnapshot.fixedIncome),
+      equity: divide(allocationAtSnapshot.equity),
     },
   };
 }
 
-function roundView(view: ProjectionView): ProjectionView {
-  return deflateView(view, 1);
-}
-
-function firstCashAccount(
-  accounts: FinancialAccountInput[],
-  ownerId?: string,
-): FinancialAccountInput | undefined {
-  return accounts.find((account) => account.type === "cash" && (!ownerId || account.ownerId === ownerId));
-}
-
-function milestoneLabels(
-  inputs: ProjectionInputs,
-  previousMonth: number,
-  month: number,
-): string[] {
-  const labels: string[] = [];
-  for (const member of inputs.members) {
-    const previousAge = member.currentAge + previousMonth / MONTHS_PER_YEAR;
-    const age = member.currentAge + month / MONTHS_PER_YEAR;
-    const checks: Array<[number, string]> = [
-      [member.retirementAge, `${member.label} retires`],
-      [member.cpp.startAge, `${member.label} CPP begins`],
-      [member.oas.startAge, `${member.label} OAS begins`],
-      [member.rrifConversionAge, `${member.label} RRIF conversion age`],
-    ];
-    for (const [targetAge, label] of checks) {
-      if (previousAge < targetAge && age >= targetAge) labels.push(label);
-    }
+function addMonthlyFlow(target: ProjectionView, monthly: ProjectionView, factor: number): void {
+  for (const key of Object.keys(monthly.income) as Array<keyof IncomeBreakdown>) {
+    target.income[key] += monthly.income[key] / factor;
   }
-  return labels;
+  for (const key of Object.keys(monthly.withdrawals) as Array<keyof WithdrawalBreakdown>) {
+    target.withdrawals[key] += monthly.withdrawals[key] / factor;
+  }
+  for (const key of Object.keys(monthly.outflows) as Array<keyof OutflowBreakdown>) {
+    target.outflows[key] += monthly.outflows[key] / factor;
+  }
+}
+
+function milestoneLabels(inputs: ProjectionInputs, previousMonth: number, month: number): string[] {
+  const previousAge = inputs.person.currentAge + previousMonth / MONTHS_PER_YEAR;
+  const age = inputs.person.currentAge + month / MONTHS_PER_YEAR;
+  const checks: Array<[number, string]> = [
+    [inputs.person.retirementAge, "Retirement"],
+    [inputs.person.cpp.startAge, "CPP begins"],
+    [inputs.person.oas.startAge, "OAS begins"],
+    [inputs.person.rrifConversionAge, "RRIF conversion age"],
+  ];
+  return checks.filter(([target]) => previousAge < target && age >= target).map(([, label]) => label);
 }
 
 export function calculateProjection(rawInputs: ProjectionInputs): ProjectionResult {
   const inputs = validateProjectionInputs(rawInputs);
-  const primary = inputs.members.find((member) => member.id === inputs.primaryMemberId)!;
-  const totalMonths = Math.round((inputs.endAge - primary.currentAge) * MONTHS_PER_YEAR);
+  const startYear = Number(inputs.startDate.slice(0, 4));
+  const startMonth = Number(inputs.startDate.slice(5, 7));
+  const totalMonths = Math.round((inputs.endAge - inputs.person.currentAge) * MONTHS_PER_YEAR);
   const balances = new Map(inputs.accounts.map((account) => [account.id, account.openingBalance]));
   const annual: AnnualProjection[] = [];
   const observations: ProjectionObservation[] = [];
-  const memberFlows = new Map<string, ProjectionView>(
-    inputs.members.map((member) => [member.id, emptyView()]),
-  );
-  let householdFlow = emptyView();
+  let annualNominalFlow = emptyView();
+  let annualRealFlow = emptyView();
   let financialAssetsDepletionAge: number | null = null;
+  let previousSnapshotMonth = 0;
 
   function snapshot(month: number, previousMonth: number, calendarYear: number): void {
-    const factor = inflationFactor(inputs.annualInflation, month);
-    householdFlow.balances = accountBalances(inputs.accounts, balances);
-    householdFlow.allocation = accountAllocation(inputs.accounts, balances);
-
-    const memberSnapshots: AnnualProjection["members"] = {};
-    for (const member of inputs.members) {
-      const flow = memberFlows.get(member.id)!;
-      flow.balances = accountBalances(inputs.accounts, balances, member.id);
-      flow.allocation = accountAllocation(inputs.accounts, balances, member.id);
-      memberSnapshots[member.id] = {
-        label: member.label,
-        age: round(member.currentAge + month / MONTHS_PER_YEAR),
-        nominal: roundView(flow),
-        real: deflateView(flow, factor),
-      };
-    }
-
-    const primaryAge = primary.currentAge + month / MONTHS_PER_YEAR;
+    const factor = indexedFactor(inputs.annualInflation, month);
+    const age = inputs.person.currentAge + month / MONTHS_PER_YEAR;
     annual.push({
       calendarYear,
-      primaryAge: round(primaryAge),
-      phase: primaryAge < primary.retirementAge ? "accumulation" : "retirement",
-      nominal: roundView(householdFlow),
-      real: deflateView(householdFlow, factor),
-      members: memberSnapshots,
+      age: round(age),
+      phase: age < inputs.person.retirementAge ? "accumulation" : "retirement",
+      nominal: snapshotView(annualNominalFlow, inputs.accounts, balances, 1),
+      real: snapshotView(annualRealFlow, inputs.accounts, balances, factor),
       milestones: milestoneLabels(inputs, previousMonth, month),
     });
-
-    householdFlow = emptyView();
-    for (const member of inputs.members) memberFlows.set(member.id, emptyView());
+    annualNominalFlow = emptyView();
+    annualRealFlow = emptyView();
+    previousSnapshotMonth = month;
   }
 
   for (let month = 1; month <= totalMonths; month += 1) {
-    const factor = inflationFactor(inputs.annualInflation, month);
-    const calendarYear = inputs.startYear + Math.floor((month - 1) / MONTHS_PER_YEAR);
-    const calendarMonth = ((month - 1) % MONTHS_PER_YEAR) + 1;
+    const factor = indexedFactor(inputs.annualInflation, month);
+    const age = inputs.person.currentAge + month / MONTHS_PER_YEAR;
+    const calendarMonthIndex = startMonth - 1 + month - 1;
+    const calendarYear = startYear + Math.floor(calendarMonthIndex / MONTHS_PER_YEAR);
+    const calendarMonth = (calendarMonthIndex % MONTHS_PER_YEAR) + 1;
+    const monthlyFlow = emptyView();
 
     for (const account of inputs.accounts) {
       const current = balances.get(account.id) ?? 0;
       balances.set(account.id, Math.max(0, current * (1 + monthlyRate(account.annualReturn))));
     }
 
-    let totalIncome = 0;
-    let totalBaseTax = 0;
-    let totalContributions = 0;
-    let totalEventInflows = 0;
-    let totalEventOutflows = 0;
-
-    for (const member of inputs.members) {
-      const age = member.currentAge + month / MONTHS_PER_YEAR;
-      const memberFlow = memberFlows.get(member.id)!;
-      const income = emptyIncome();
-
-      if (age < member.retirementAge) {
-        income.employment =
-          (member.annualEmploymentIncomeToday * indexedFactor(member.annualIncomeGrowth, month)) /
-          MONTHS_PER_YEAR;
-      }
-      income.cpp = benefitMonthlyAmount(member, "cpp", age, month);
-      income.oas = benefitMonthlyAmount(member, "oas", age, month);
-      if (age >= member.pensionStartAge) {
-        income.pension =
-          (member.annualPensionToday * indexedFactor(member.pensionIndexingRate, month)) /
-          MONTHS_PER_YEAR;
-      }
-      income.total = income.employment + income.cpp + income.oas + income.pension + income.other;
-      addIncome(memberFlow.income, income);
-      addIncome(householdFlow.income, income);
-      totalIncome += income.total;
-
-      const taxableIncome = income.employment + income.cpp + income.oas + income.pension;
-      const threshold = inputs.tax.oasRecoveryThresholdToday * factor / MONTHS_PER_YEAR;
-      const recoveryTax = Math.min(
-        income.oas,
-        Math.max(0, taxableIncome - threshold) * inputs.tax.oasRecoveryRate,
-      );
-      const regularTax = taxableIncome * inputs.tax.effectiveTaxRate;
-      memberFlow.outflows.tax += regularTax + recoveryTax;
-      memberFlow.outflows.oasRecoveryTax += recoveryTax;
-      householdFlow.outflows.tax += regularTax + recoveryTax;
-      householdFlow.outflows.oasRecoveryTax += recoveryTax;
-      totalBaseTax += regularTax + recoveryTax;
+    const income = emptyIncome();
+    if (age < inputs.person.retirementAge) {
+      income.employment =
+        (inputs.person.annualEmploymentNetCashToday *
+          indexedFactor(inputs.person.annualIncomeGrowth, month)) /
+        MONTHS_PER_YEAR;
     }
+    if (age >= inputs.person.cpp.startAge) {
+      income.cpp =
+        inputs.person.cpp.monthlyAmountAt65Today *
+        cppClaimFactor(inputs.person.cpp.startAge) *
+        indexedFactor(inputs.person.cpp.indexingRate, month);
+    }
+    if (age >= inputs.person.oas.startAge) {
+      income.oas =
+        inputs.person.oas.monthlyAmountAt65Today *
+        oasClaimFactor(inputs.person.oas.startAge) *
+        indexedFactor(inputs.person.oas.indexingRate, month);
+    }
+    if (age >= inputs.person.pensionStartAge) {
+      income.pension =
+        (inputs.person.annualPensionToday *
+          indexedFactor(inputs.person.pensionIndexingRate, month)) /
+        MONTHS_PER_YEAR;
+    }
+    income.total = income.employment + income.cpp + income.oas + income.pension;
+    for (const key of Object.keys(income) as Array<keyof IncomeBreakdown>) {
+      monthlyFlow.income[key] += income[key];
+    }
+
+    const grossRetirementIncome = income.cpp + income.oas + income.pension;
+    const threshold = inputs.tax.oasRecoveryThresholdToday * factor / MONTHS_PER_YEAR;
+    const recoveryTax = Math.min(
+      income.oas,
+      Math.max(0, grossRetirementIncome - threshold) * inputs.tax.oasRecoveryRate,
+    );
+    const regularTax = grossRetirementIncome * inputs.tax.effectiveTaxRate;
+    monthlyFlow.outflows.tax += regularTax + recoveryTax;
+    monthlyFlow.outflows.oasRecoveryTax += recoveryTax;
 
     const essential = inputs.monthlyEssentialSpendingToday * factor;
     const discretionary = inputs.monthlyDiscretionarySpendingToday * factor;
-    householdFlow.outflows.essential += essential;
-    householdFlow.outflows.discretionary += discretionary;
-    for (const member of inputs.members) {
-      const flow = memberFlows.get(member.id)!;
-      flow.outflows.essential += essential * member.expenseShare;
-      flow.outflows.discretionary += discretionary * member.expenseShare;
-    }
+    monthlyFlow.outflows.essential += essential;
+    monthlyFlow.outflows.discretionary += discretionary;
 
+    let totalContributions = 0;
     for (const account of inputs.accounts) {
-      const owner = inputs.members.find((member) => member.id === account.ownerId)!;
-      const age = owner.currentAge + month / MONTHS_PER_YEAR;
-      if (age >= owner.retirementAge || account.type === "debt" || account.type === "real_asset") continue;
+      if (age >= inputs.person.retirementAge || account.type === "debt") continue;
       const contribution =
         account.monthlyContributionToday * indexedFactor(account.contributionIndexingRate, month);
       if (contribution <= 0) continue;
       balances.set(account.id, (balances.get(account.id) ?? 0) + contribution);
-      householdFlow.outflows.contributions += contribution;
-      memberFlows.get(owner.id)!.outflows.contributions += contribution;
-      totalContributions += contribution;
+      if (account.contributionFunding === "cash") {
+        monthlyFlow.outflows.contributions += contribution;
+        totalContributions += contribution;
+      }
     }
 
+    let eventInflows = 0;
+    let eventOutflows = 0;
     const matchingEvents = inputs.events.filter(
       (event) => event.calendarYear === calendarYear && event.month === calendarMonth,
     );
     for (const event of matchingEvents) {
       const amount = event.amountToday * factor;
-      const ownerFlow = event.ownerId ? memberFlows.get(event.ownerId) : undefined;
       if (event.direction === "inflow") {
-        totalEventInflows += amount;
-        householdFlow.income.other += amount;
-        householdFlow.income.total += amount;
-        if (ownerFlow) {
-          ownerFlow.income.other += amount;
-          ownerFlow.income.total += amount;
-        }
+        eventInflows += amount;
+        monthlyFlow.income.other += amount;
+        monthlyFlow.income.total += amount;
       } else {
-        totalEventOutflows += amount;
-        householdFlow.outflows.oneTime += amount;
-        if (ownerFlow) ownerFlow.outflows.oneTime += amount;
+        eventOutflows += amount;
+        monthlyFlow.outflows.oneTime += amount;
       }
     }
 
     let cashPosition =
-      totalIncome + totalEventInflows - essential - discretionary - totalBaseTax - totalContributions - totalEventOutflows;
+      income.total +
+      eventInflows -
+      essential -
+      discretionary -
+      regularTax -
+      recoveryTax -
+      totalContributions -
+      eventOutflows;
 
     if (cashPosition > 0) {
       const targetEvent = matchingEvents.find(
@@ -393,102 +345,76 @@ export function calculateProjection(rawInputs: ProjectionInputs): ProjectionResu
       );
       const target = targetEvent
         ? inputs.accounts.find((account) => account.id === targetEvent.targetAccountId)
-        : firstCashAccount(inputs.accounts);
+        : inputs.accounts.find((account) => account.type === "cash");
       if (target) balances.set(target.id, (balances.get(target.id) ?? 0) + cashPosition);
       cashPosition = 0;
     }
 
     let gap = Math.max(0, -cashPosition);
     const withdrawalAccounts = inputs.accounts
-      .filter((account) => !["real_asset", "debt"].includes(account.type))
+      .filter((account) => account.type !== "debt")
       .sort((left, right) => left.withdrawalPriority - right.withdrawalPriority);
 
     for (const account of withdrawalAccounts) {
       if (gap <= 0) break;
       const balance = balances.get(account.id) ?? 0;
       if (balance <= 0) continue;
-      const ownerFlow = memberFlows.get(account.ownerId)!;
       let grossWithdrawal = Math.min(balance, gap);
       let netCash = grossWithdrawal;
-
       if (account.type === "rrsp_rrif") {
         const netRate = 1 - inputs.tax.effectiveTaxRate;
         grossWithdrawal = Math.min(balance, gap / netRate);
         const withdrawalTax = grossWithdrawal * inputs.tax.effectiveTaxRate;
         netCash = grossWithdrawal - withdrawalTax;
-        householdFlow.outflows.tax += withdrawalTax;
-        ownerFlow.outflows.tax += withdrawalTax;
+        monthlyFlow.outflows.tax += withdrawalTax;
       }
-
       balances.set(account.id, balance - grossWithdrawal);
-      addWithdrawal(householdFlow.withdrawals, account.type, grossWithdrawal);
-      addWithdrawal(ownerFlow.withdrawals, account.type, grossWithdrawal);
+      addWithdrawal(monthlyFlow.withdrawals, account.type, grossWithdrawal);
       gap -= netCash;
     }
 
-    if (gap > 0) {
-      householdFlow.outflows.unmetSpending += gap;
-      const totalShare = inputs.members.reduce((sum, member) => sum + member.expenseShare, 0);
-      for (const member of inputs.members) {
-        memberFlows.get(member.id)!.outflows.unmetSpending += gap * (member.expenseShare / totalShare);
-      }
-    }
+    if (gap > 0) monthlyFlow.outflows.unmetSpending += gap;
+    monthlyFlow.outflows.total =
+      monthlyFlow.outflows.essential +
+      monthlyFlow.outflows.discretionary +
+      monthlyFlow.outflows.oneTime +
+      monthlyFlow.outflows.tax +
+      monthlyFlow.outflows.contributions +
+      monthlyFlow.outflows.unmetSpending;
 
-    householdFlow.outflows.total =
-      householdFlow.outflows.essential +
-      householdFlow.outflows.discretionary +
-      householdFlow.outflows.oneTime +
-      householdFlow.outflows.tax +
-      householdFlow.outflows.contributions +
-      householdFlow.outflows.unmetSpending;
-    for (const member of inputs.members) {
-      const outflows = memberFlows.get(member.id)!.outflows;
-      outflows.total =
-        outflows.essential +
-        outflows.discretionary +
-        outflows.oneTime +
-        outflows.tax +
-        outflows.contributions +
-        outflows.unmetSpending;
-    }
+    addMonthlyFlow(annualNominalFlow, monthlyFlow, 1);
+    addMonthlyFlow(annualRealFlow, monthlyFlow, factor);
 
     const currentBalances = accountBalances(inputs.accounts, balances);
-    const financialAssets =
-      currentBalances.cash +
-      currentBalances.tfsa +
-      currentBalances.rrspRrif +
-      currentBalances.nonRegistered;
-    if (financialAssetsDepletionAge === null && financialAssets <= 0.01) {
-      financialAssetsDepletionAge = primary.currentAge + month / MONTHS_PER_YEAR;
+    if (financialAssetsDepletionAge === null && currentBalances.financialAssets <= 0.01) {
+      financialAssetsDepletionAge = age;
     }
-
-    if (month % MONTHS_PER_YEAR === 0 || month === totalMonths) {
-      snapshot(month, Math.max(0, month - MONTHS_PER_YEAR), calendarYear);
+    if (calendarMonth === MONTHS_PER_YEAR || month === totalMonths) {
+      snapshot(month, previousSnapshotMonth, calendarYear);
     }
   }
 
-  const firstRetirement = annual.find((point) => point.primaryAge >= primary.retirementAge) ?? annual.at(-1)!;
+  const retirement =
+    annual.find((point) => point.age >= inputs.person.retirementAge) ?? annual.at(-1)!;
   const ending = annual.at(-1)!;
-  const netWorthAtFirstRetirementToday = firstRetirement.real.balances.netWorth;
+  const assetsAtRetirement = retirement.real.balances.financialAssets;
 
   observations.push({
-    code: "first_retirement",
-    message: `The first retirement transition occurs in ${firstRetirement.calendarYear}.`,
-    calendarYear: firstRetirement.calendarYear,
-    age: firstRetirement.primaryAge,
+    code: "retirement",
+    message: `Retirement begins in ${retirement.calendarYear}.`,
+    calendarYear: retirement.calendarYear,
+    age: retirement.age,
   });
-  for (const member of inputs.members) {
-    observations.push({
-      code: `cpp_start_${member.id}`,
-      message: `${member.label} CPP begins at age ${member.cpp.startAge}.`,
-      age: member.cpp.startAge,
-    });
-    observations.push({
-      code: `oas_start_${member.id}`,
-      message: `${member.label} OAS begins at age ${member.oas.startAge}.`,
-      age: member.oas.startAge,
-    });
-  }
+  observations.push({
+    code: "cpp_start",
+    message: `CPP begins at age ${inputs.person.cpp.startAge}.`,
+    age: inputs.person.cpp.startAge,
+  });
+  observations.push({
+    code: "oas_start",
+    message: `OAS begins at age ${inputs.person.oas.startAge}.`,
+    age: inputs.person.oas.startAge,
+  });
   observations.push({
     code: "portfolio_duration",
     message:
@@ -499,16 +425,16 @@ export function calculateProjection(rawInputs: ProjectionInputs): ProjectionResu
   });
 
   return {
-    schemaVersion: "2.0",
+    schemaVersion: "3.0",
     inputs,
     summary: {
-      firstRetirementYear: firstRetirement.calendarYear,
-      netWorthAtFirstRetirementToday: round(netWorthAtFirstRetirementToday),
+      retirementYear: retirement.calendarYear,
+      financialAssetsAtRetirementToday: round(assetsAtRetirement),
       retirementGoalToday: round(inputs.retirementGoalToday),
-      goalGapToday: round(netWorthAtFirstRetirementToday - inputs.retirementGoalToday),
+      goalGapToday: round(assetsAtRetirement - inputs.retirementGoalToday),
       financialAssetsDepletionAge:
         financialAssetsDepletionAge === null ? null : round(financialAssetsDepletionAge),
-      endingNetWorthToday: round(ending.real.balances.netWorth),
+      endingFinancialAssetsToday: round(ending.real.balances.financialAssets),
     },
     annual,
     observations,

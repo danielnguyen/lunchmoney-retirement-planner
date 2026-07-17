@@ -4,7 +4,11 @@ import { validateProjectionInputs } from "@/src/domain/projection/types";
 export async function POST(request: Request) {
   try {
     const payload: unknown = await request.json();
-    return Response.json(calculateProjection(validateProjectionInputs(payload)));
+    if (!payload || typeof payload !== "object" || !("inputs" in payload)) {
+      throw new Error("Projection request must contain inputs");
+    }
+    const inputs = validateProjectionInputs((payload as { inputs: unknown }).inputs);
+    return Response.json(calculateProjection(inputs));
   } catch (error) {
     return Response.json(
       {

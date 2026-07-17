@@ -1,0 +1,97 @@
+# Copy this file to config/planner.local.yaml and replace every placeholder.
+# Quote every Lunch Money account and category ID, including numeric IDs and
+# source-scoped IDs such as "manual:123" and "plaid:456". Add a nearby YAML
+# comment with the human-readable name so each opaque ID remains maintainable.
+
+currentAge: 40
+retirementAge: 65
+projectionEndAge: 95
+cppStartAge: 65
+oasStartAge: 65
+cppMonthlyAmountAt65: 0
+oasMonthlyAmountAt65: 0
+retirementGoal: 0
+transactionTrailingMonths: 12
+
+accountMappings:
+  # Set include: true and choose a financial type for every account used by the
+  # projection. Set include: false with type: exclude for every ignored account.
+  "manual:replace-with-cash-account-id":
+    # Daily chequing account
+    include: true
+    type: cash
+    # Lower numbers are withdrawn first when projected cash flow is short.
+    withdrawalPriority: 1
+
+  "plaid:replace-with-investment-account-id":
+    # Long-term tax-free investment account
+    include: true
+    type: tfsa
+    withdrawalPriority: 2
+    monthlyContribution: 0
+    # cash: contribution leaves available cash as an outflow.
+    # income_withheld: contribution was deducted before income reached Lunch Money,
+    # so it grows the investment without reducing the deposited cash a second time.
+    contributionFunding: cash
+
+  "manual:replace-with-excluded-account-id":
+    # Closed or otherwise out-of-scope account
+    include: false
+    type: exclude
+
+categoryMappings:
+  # Keep category IDs quoted even when Lunch Money returns numeric IDs. The inline
+  # comments document the human-readable category names.
+  "replace-with-essential-category-id": essential # Groceries
+  "replace-with-discretionary-category-id": discretionary # Entertainment
+  "replace-with-income-category-id": income # Employment income
+  "replace-with-transfer-category-id": transfer # Internal transfer
+  "replace-with-contribution-category-id":
+    # Registered investment deposit
+    classification: investment_contribution
+    # Map the transaction to its target investment account and debit/credit sign.
+    contributionAccountId: "plaid:replace-with-investment-account-id"
+    contributionDirection: debit
+  "uncategorized": exclude # Transactions intentionally omitted from the plan
+
+assumptions:
+  # Rates use decimal values: 0.02 means 2% per year. Dollar values are today's
+  # dollars unless the planner documentation says otherwise.
+  inflation: 0.02
+  cashReturn: 0.02
+  tfsaReturn: 0.05
+  rrspReturn: 0.05
+  nonRegisteredReturn: 0.05
+  debtReturn: 0
+  incomeGrowth: 0.02
+  contributionIndexing: 0.02
+  cppIndexing: 0.02
+  oasIndexing: 0.02
+  effectiveTaxRate: 0.22
+  oasRecoveryThreshold: 90000
+  oasRecoveryRate: 0.15
+  pensionAnnualIncome: 0
+  pensionStartAge: 65
+  pensionIndexing: 0.02
+  rrifConversionAge: 71
+
+  # Each allocation contains cash, fixed income, and equity fractions that sum
+  # to 1. Account-level allocation values may override these type defaults.
+  allocations:
+    cash: { cash: 1, fixedIncome: 0, equity: 0 }
+    tfsa: { cash: 0, fixedIncome: 0.2, equity: 0.8 }
+    rrsp: { cash: 0, fixedIncome: 0.3, equity: 0.7 }
+    non_registered: { cash: 0.05, fixedIncome: 0.25, equity: 0.7 }
+    debt: { cash: 0, fixedIncome: 0, equity: 0 }
+
+# Future events are optional one-time inflows or outflows in today's dollars.
+# Replace [] with entries like the commented example and quote target account IDs.
+futureEvents: []
+# futureEvents:
+#   - id: future-home-repair
+#     label: Planned home repair
+#     calendarYear: 2035
+#     month: 6
+#     amountToday: 10000
+#     direction: outflow
+#     targetAccountId: "manual:replace-with-cash-account-id"

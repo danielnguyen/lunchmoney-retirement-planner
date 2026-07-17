@@ -1,8 +1,7 @@
 export type BaselineSourceType =
-  | "saved_personal_baseline"
+  | "local_configuration"
   | "lunchmoney_derived"
-  | "canadian_reference"
-  | "application_fallback";
+  | "canadian_reference";
 
 export type CanadianReferenceKind =
   | "population_median"
@@ -20,8 +19,7 @@ export type BaselineValue<T> = {
 };
 
 export type BaselineCandidateSet<T> = {
-  savedPersonalBaseline?: BaselineValue<T>;
+  localConfiguration?: BaselineValue<T>;
   lunchMoneyDerived?: BaselineValue<T>;
   canadianReference?: BaselineValue<T>;
-  applicationFallback: BaselineValue<T>;
 };

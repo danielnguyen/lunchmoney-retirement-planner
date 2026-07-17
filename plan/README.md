@@ -79,43 +79,40 @@ Household members, combined-household reporting, expense sharing, and member swi
 The application reads a private local configuration file:
 
 ```text
-config/planner.local.json
+config/planner.local.yaml
 ```
 
 The file must be excluded from Git. The repository provides a public template:
 
 ```text
-config/planner.example.json
+config/planner.example.yaml
 ```
 
 The local configuration contains only information that Lunch Money cannot determine safely or fields that require an explicit assumption.
+YAML is canonical so human-readable account and category names can be kept as comments beside quoted opaque Lunch Money IDs. The runtime selects its parser from the file extension, accepts `.yaml` and `.yml`, and retains `.json` only for explicitly configured backward compatibility. Every format passes through the same planner configuration validator.
 
 Example shape:
 
-```json
-{
-  "currentAge": 40,
-  "retirementAge": 65,
-  "projectionEndAge": 95,
-  "cppStartAge": 65,
-  "oasStartAge": 65,
-  "accountMappings": {
-    "lunch-money-account-id": {
-      "include": true,
-      "type": "rrsp"
-    }
-  },
-  "categoryMappings": {
-    "lunch-money-category-id": "essential"
-  },
-  "assumptions": {
-    "inflation": 0.02,
-    "cashReturn": 0.02,
-    "tfsaReturn": 0.05,
-    "rrspReturn": 0.05,
-    "nonRegisteredReturn": 0.05
-  }
-}
+```yaml
+currentAge: 40
+retirementAge: 65
+projectionEndAge: 95
+cppStartAge: 65
+oasStartAge: 65
+accountMappings:
+  "manual:lunch-money-account-id": # Employer retirement account
+    include: true
+    type: rrsp
+    monthlyContribution: 500
+    contributionFunding: income_withheld
+categoryMappings:
+  "lunch-money-category-id": essential # Groceries
+assumptions:
+  inflation: 0.02
+  cashReturn: 0.02
+  tfsaReturn: 0.05
+  rrspReturn: 0.05
+  nonRegisteredReturn: 0.05
 ```
 
 Supported planner account types:
@@ -184,6 +181,8 @@ The MVP may use a straightforward trailing monthly average. More advanced season
 
 Calculate monthly income from categories mapped as income.
 
+Lunch Money-derived employment income is net cash already deposited after payroll deductions. The projection must not apply the simplified effective tax rate to this employment cash flow a second time. The interface, provenance, and exports must identify it as net deposited cash.
+
 The result must show:
 
 - trailing-period income total
@@ -195,7 +194,9 @@ The result must show:
 
 Calculate monthly contributions from transactions mapped as investment contributions.
 
-If a reliable contribution value cannot be derived, the local configuration may provide an explicit monthly contribution for the mapped account. The source must be shown as manual rather than Lunch Money-derived.
+If a reliable contribution value cannot be derived, the local configuration may provide an explicit `monthlyContribution` for the mapped account. That account mapping must also set `contributionFunding` to `cash` or `income_withheld`; the runtime must reject a manual contribution without this choice. The source must be shown as manual rather than Lunch Money-derived.
+
+Every contribution increases its investment account balance. A `cash` contribution also reduces available projected cash. An `income_withheld` contribution does not reduce projected cash because it was withheld before the net employment deposit reached Lunch Money. Transaction-derived contributions are cash-funded unless their account mapping explicitly identifies them as `income_withheld`.
 
 ## Default resolution
 
@@ -231,7 +232,7 @@ Required account pools:
 
 Required income streams:
 
-- employment income before retirement
+- net deposited employment cash before retirement
 - CPP beginning at the configured age
 - OAS beginning at the configured age
 - optional manually configured pension income
@@ -251,7 +252,9 @@ Required milestones:
 - OAS start
 - RRIF conversion age
 
-The existing simplified tax model may remain for the MVP, but the interface and exports must identify it as a simplified assumption.
+The existing simplified tax model may remain for the MVP, but the interface and exports must identify it as a simplified assumption. It applies to gross retirement income such as CPP, OAS, pension income, and taxable RRSP/RRIF withdrawals, not to Lunch Money-derived net employment cash.
+
+The first projected month is the calendar month containing the live baseline data-through date. Future events, retirement, CPP, OAS, RRIF milestones, calendar years, and annual ledger rows must use that real calendar anchor. The first and last annual rows may therefore represent partial calendar years.
 
 ## Dashboard
 
@@ -269,7 +272,7 @@ The header must show:
 
 When the baseline cannot be loaded, the dashboard shows the error and no projection charts.
 
-When mappings are incomplete, the dashboard shows the missing identifiers and names needed to update `planner.local.json`.
+When mappings are incomplete, the dashboard shows the missing identifiers and names needed to update the planner configuration.
 
 ## Calculator controls
 
@@ -361,6 +364,14 @@ Exports must include:
 
 They must not attach demonstration provenance.
 
+Both export formats omit raw Lunch Money and other source-system identifiers and credentials by default. A deterministic per-export account map replaces every included account ID with a cross-reference key such as `cash_1`, `tfsa_1`, or `rrsp_1`, while each account object and alias entry retains the original descriptive account label. Raw Lunch Money account identifiers, numeric account IDs, account numbers supplied as source metadata, credential values, and identifiers embedded in provenance keys, overrides, warning references, event targets, contribution targets, unmapped-record IDs, or annual account-balance maps must not appear.
+
+The JSON transformation is typed and allowlisted. It must not copy arbitrary source objects recursively. Every source-system record identifier—including recurring-item IDs—is replaced by a deterministic export-local alias such as `recurring_expense_1`, `event_1`, or `category_1`. No raw numeric or string source record ID is retained.
+
+Descriptive financial context is preserved. Account labels and names, future-event labels, recurring-item descriptions, warning names and messages, provenance descriptions, and other user-facing financial labels remain in JSON so the exported plan can be understood and analyzed. Known source-system identifiers and credentials are removed if they occur inside retained descriptions. The export also preserves analytical amounts, dates, classifications, directions, warning codes and severities, safe target references, provenance source types, effective dates, and safe field references.
+
+JSON remains the complete analysis export and includes explicit metadata describing its typed identifier-removal transformation and the preservation of descriptive financial text. CSV is one conventional flat annual table with exactly one header and one row per projection period. It includes the partial-period label, annual flows, withdrawals, spending, tax, contributions, aggregate balances, financial assets, net worth, milestones, and optional per-account balance columns keyed only by export-local account references. CSV must not contain metadata preambles, blank section separators, embedded JSON, or multiple table schemas.
+
 ## Docker runtime
 
 The MVP runs as one application container.
@@ -373,7 +384,7 @@ Example runtime inputs:
 
 ```text
 LUNCHMONEY_API_TOKEN
-PLANNER_CONFIG_PATH=/app/config/planner.local.json
+PLANNER_CONFIG_PATH=/app/config/planner.local.yaml
 ```
 
 CI and GHCR publishing remain in scope.
@@ -422,6 +433,7 @@ The MVP is complete only when all criteria below pass.
 - [ ] Essential and discretionary spending are derived from the configured transaction window.
 - [ ] Income is derived from mapped income transactions.
 - [ ] Investment contributions are derived from mapped transactions or explicitly labelled manual configuration.
+- [ ] Manual contributions require an explicit cash-funded or income-withheld choice, always increase the investment balance, and reduce available cash only when cash-funded.
 - [ ] Transfers and excluded transactions are not counted as spending or income.
 
 ### Projection and interface
@@ -431,6 +443,8 @@ The MVP is complete only when all criteria below pass.
 - [ ] The displayed starting balances match the baseline endpoint.
 - [ ] The charts, summary cards, and annual ledger all derive from the same projection result.
 - [ ] CPP and OAS appear as separate income streams at their configured start ages.
+- [ ] Lunch Money-derived employment income is identified as net deposited cash and is not taxed a second time.
+- [ ] Projection calendar years, future events, milestones, and annual rows align with the live data-through month.
 - [ ] The main goal comparison uses financial assets rather than total net worth including real assets.
 - [ ] Calculator reset returns to the currently loaded live baseline.
 - [ ] Refreshing after Lunch Money data changes produces a changed baseline.
@@ -440,6 +454,11 @@ The MVP is complete only when all criteria below pass.
 - [ ] JSON and CSV exports use the same live baseline and active overrides shown in the interface.
 - [ ] Exports include provenance, warnings, and data-through date.
 - [ ] No export contains the Lunch Money token.
+- [ ] Neither export contains raw Lunch Money identifiers, numeric account or category IDs, source record IDs, account numbers supplied as source metadata, or credentials.
+- [ ] JSON preserves descriptive account, event, recurring-expense, warning, and provenance text needed for analysis.
+- [ ] The JSON export boundary uses an explicit typed allowlist rather than recursively copying arbitrary source objects.
+- [ ] JSON uses one consistent deterministic account-reference map throughout the document while retaining each original descriptive account label.
+- [ ] CSV contains exactly one header and one consistently shaped row per annual projection period, using only export-local per-account keys.
 - [ ] The application-facing Lunch Money integration exposes read operations only.
 - [ ] No Lunch Money mutation request is issued in tests or runtime code.
 

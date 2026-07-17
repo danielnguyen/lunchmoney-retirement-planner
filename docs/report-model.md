@@ -1,26 +1,37 @@
 # Report model
 
-A projection produces one annual row for every simulated calendar year.
+A projection simulates monthly intervals for one person, beginning in the live baseline data-through month, and produces calendar-year rows through the configured projection end age. The first and last rows may cover partial calendar years.
 
-Each row contains:
+Each annual row contains:
 
-- income by employment, CPP, OAS, pension, and other sources
-- withdrawals by cash, TFSA, RRSP/RRIF, and non-registered account
-- outflows for essential spending, discretionary spending, one-time events, tax, contributions, and unmet spending
-- ending balances by account category
-- asset allocation across cash, fixed income, and equity
-- combined-household and per-member views
-- milestone labels for retirement, benefit start dates, and RRIF conversion age
+- net deposited employment cash, CPP, OAS, pension, and one-time income
+- withdrawals from cash, TFSA, RRSP/RRIF, and non-registered accounts
+- essential spending, discretionary spending, one-time outflows, simplified tax, contributions, and unmet spending
+- pooled balances and each included account’s balance
+- financial assets, debt, and net worth
+- cash, fixed-income, and equity allocation
+- retirement, CPP, OAS, and RRIF milestone labels
+- nominal and inflation-adjusted views
 
-The interface renders the following reports from that output:
+The dashboard retains these live-data-backed reports:
 
-- annual expense projection
-- stacked cash-inflow chart
-- stacked cash-outflow chart
-- account-level net-worth burndown
-- allocation at a selected year
-- assumptions and provenance
+- annual spending projection
+- stacked annual cash inflow
+- stacked annual cash outflow
+- account-level financial-asset burndown
+- asset allocation at a selected year
 - deterministic observations
 - annual projection ledger
+- resolved baseline and provenance details
 
-JSON is the canonical export. CSV is a flattened annual ledger. The printable report can be saved as PDF through the browser print flow.
+The retirement goal and goal gap use financial assets. They do not include debt offsets or non-liquid real assets.
+
+Lunch Money-derived employment income is net cash after payroll deductions, so the simplified effective tax rate is not applied to it again. The rate applies to gross CPP, OAS, pension income, and taxable RRSP/RRIF withdrawals. Contributions always increase their target investment balance; only contributions configured as cash-funded appear as cash outflows.
+
+Human-maintained account mappings, category mappings, assumptions, allocations, and future events use the canonical commented YAML planner configuration. YAML and legacy JSON inputs pass through the same validation and produce the same report model.
+
+JSON is the canonical, complete analysis export and includes the resolved baseline, derived baseline, provenance, warnings, active inputs, overrides, and complete projection. It is built by a typed allowlist. Account references are replaced consistently with deterministic export-local keys such as `tfsa_1`; every other source record receives an export-local key such as `event_1`, `recurring_expense_1`, or `category_1`.
+
+CSV is a conventional flat annual analysis table: exactly one header and one row per projection period. It includes the partial-period label, income streams, withdrawals, spending, tax, contributions, aggregate balances, financial assets, net worth, milestones, and optional `account_tfsa_1`-style balance columns. It has no metadata preamble, blank section, embedded JSON, or second schema.
+
+Both formats omit raw source-system record IDs, Lunch Money account and category identifiers, account numbers supplied as source metadata, tokens, authorization values, passwords, API keys, and other credentials. JSON retains original descriptive account labels, event labels, recurring descriptions, warning names and messages, and provenance descriptions so the financial context remains understandable. Known source identifiers and credentials are removed if they occur inside retained text. CSV remains a flat financial table and uses only export-local account keys in its optional per-account columns.

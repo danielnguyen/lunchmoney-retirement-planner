@@ -1,17 +1,22 @@
 import { calculateProjection } from "@/src/domain/projection/calculate";
-import { projectionToCsv } from "@/src/domain/projection/export";
-import { validateProjectionInputs } from "@/src/domain/projection/types";
+import {
+  createProjectionSnapshot,
+  projectionSnapshotToCsv,
+  validateProjectionExportRequest,
+} from "@/src/domain/projection/export";
+import { projectionCsvFilename } from "@/src/domain/projection/filenames";
 
 export async function POST(request: Request) {
   try {
-    const payload: unknown = await request.json();
-    const projection = calculateProjection(validateProjectionInputs(payload));
+    const payload = validateProjectionExportRequest(await request.json());
+    const projection = calculateProjection(payload.inputs);
+    const snapshot = createProjectionSnapshot(projection, payload.baseline, payload.overrides);
     const mode = new URL(request.url).searchParams.get("mode") === "nominal" ? "nominal" : "real";
-    const csv = projectionToCsv(projection, mode);
+    const csv = projectionSnapshotToCsv(snapshot, mode);
     return new Response(csv, {
       headers: {
         "Content-Type": "text/csv; charset=utf-8",
-        "Content-Disposition": `attachment; filename="retirement-projection-${new Date().toISOString().slice(0, 10)}.csv"`,
+        "Content-Disposition": `attachment; filename="${projectionCsvFilename(snapshot.generatedAt, mode)}"`,
       },
     });
   } catch (error) {

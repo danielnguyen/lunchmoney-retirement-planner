@@ -1,17 +1,19 @@
-import { demoSources } from "@/src/demo/baseline";
 import { calculateProjection } from "@/src/domain/projection/calculate";
-import { createProjectionSnapshot } from "@/src/domain/projection/export";
-import { validateProjectionInputs } from "@/src/domain/projection/types";
+import {
+  createProjectionSnapshot,
+  validateProjectionExportRequest,
+} from "@/src/domain/projection/export";
+import { projectionJsonFilename } from "@/src/domain/projection/filenames";
 
 export async function POST(request: Request) {
   try {
-    const payload: unknown = await request.json();
-    const projection = calculateProjection(validateProjectionInputs(payload));
-    const snapshot = createProjectionSnapshot(projection, demoSources);
+    const payload = validateProjectionExportRequest(await request.json());
+    const projection = calculateProjection(payload.inputs);
+    const snapshot = createProjectionSnapshot(projection, payload.baseline, payload.overrides);
     return new Response(JSON.stringify(snapshot, null, 2), {
       headers: {
-        "Content-Type": "application/json",
-        "Content-Disposition": `attachment; filename="retirement-projection-${snapshot.generatedAt.slice(0, 10)}.json"`,
+        "Content-Type": "application/json; charset=utf-8",
+        "Content-Disposition": `attachment; filename="${projectionJsonFilename(snapshot.generatedAt)}"`,
       },
     });
   } catch (error) {

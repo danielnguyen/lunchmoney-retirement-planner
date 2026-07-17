@@ -5,34 +5,14 @@ services:
     ports:
       - "3000:3000"
     environment:
-      DATABASE_URL: ${DATABASE_URL:-postgres://planner:planner@db:5432/planner}
       LUNCHMONEY_API_TOKEN: ${LUNCHMONEY_API_TOKEN:-}
-      PLANNER_API_READ_TOKEN: ${PLANNER_API_READ_TOKEN:-}
+      PLANNER_CONFIG_PATH: /app/config/planner.local.yaml
       NEXT_PUBLIC_APP_NAME: ${NEXT_PUBLIC_APP_NAME:-Retirement Planner}
-    depends_on:
-      db:
-        condition: service_healthy
+    volumes:
+      - ./config/planner.local.yaml:/app/config/planner.local.yaml:ro,Z
     healthcheck:
       test: ["CMD", "wget", "-qO-", "http://127.0.0.1:3000/api/v1/health"]
       interval: 30s
       timeout: 5s
       retries: 3
       start_period: 20s
-
-  db:
-    image: postgres:17-alpine
-    restart: unless-stopped
-    environment:
-      POSTGRES_DB: planner
-      POSTGRES_USER: planner
-      POSTGRES_PASSWORD: planner
-    volumes:
-      - planner-data:/var/lib/postgresql/data
-    healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U planner -d planner"]
-      interval: 10s
-      timeout: 5s
-      retries: 5
-
-volumes:
-  planner-data:

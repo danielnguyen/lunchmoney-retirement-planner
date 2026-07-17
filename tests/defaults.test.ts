@@ -15,34 +15,27 @@ function value(
 }
 
 describe("resolveBaselineValue", () => {
-  it("prefers a saved baseline over imported and reference values", () => {
+  it("prefers explicit local configuration over imported and reference values", () => {
     const resolved = resolveBaselineValue({
-      savedPersonalBaseline: value(1, "saved_personal_baseline"),
+      localConfiguration: value(1, "local_configuration"),
       lunchMoneyDerived: value(2, "lunchmoney_derived"),
       canadianReference: value(3, "canadian_reference"),
-      applicationFallback: value(4, "application_fallback"),
     });
-
     expect(resolved.value).toBe(1);
-    expect(resolved.sourceType).toBe("saved_personal_baseline");
+    expect(resolved.sourceType).toBe("local_configuration");
   });
 
-  it("uses Lunch Money-derived data when no saved baseline exists", () => {
+  it("uses Lunch Money-derived data when local configuration does not override it", () => {
     const resolved = resolveBaselineValue({
       lunchMoneyDerived: value(2, "lunchmoney_derived"),
       canadianReference: value(3, "canadian_reference"),
-      applicationFallback: value(4, "application_fallback"),
     });
-
     expect(resolved.sourceType).toBe("lunchmoney_derived");
   });
 
-  it("falls back to a Canadian reference before an application fallback", () => {
-    const resolved = resolveBaselineValue({
-      canadianReference: value(3, "canadian_reference"),
-      applicationFallback: value(4, "application_fallback"),
-    });
-
-    expect(resolved.sourceType).toBe("canadian_reference");
+  it("blocks when no supported source has a value", () => {
+    expect(() => resolveBaselineValue({}, "required field")).toThrow(
+      "required field is missing from all supported sources",
+    );
   });
 });
