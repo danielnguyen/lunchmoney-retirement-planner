@@ -36,21 +36,14 @@ This standard is different from probability-of-success reporting. A single deter
 - Source-identifier and credential removal at the export boundary
 - Accessible tooltips and inspectable calculation explanations
 - Cash-flow audit evidence grouped by category and account
+- Explicit employment-income phases with inclusive starts and exclusive ends
+- Per-account contribution phases with phase-local funding and indexing
+- Exact retirement-boundary snapshots covering the final working month
+- Start-to-retirement accumulation bridges that reconcile to the retirement snapshot
+- Temporary phase overrides and reset behaviour
+- Deterministic compatibility normalization for legacy scalar inputs
 
-### In progress
-
-#### Phased employment income and contributions
-
-The projection model supports explicit employment-income phases and per-account contribution phases, including:
-
-- inclusive start and exclusive end boundaries
-- phase-local growth and indexing
-- exact retirement-boundary snapshots
-- start-to-retirement accumulation bridges
-- temporary overrides and reset behaviour
-- compatibility normalization for legacy scalar inputs
-
-This capability is a prerequisite for the planned items below.
+The phased income and contribution model is the foundation for the planned modelling work below.
 
 ---
 
