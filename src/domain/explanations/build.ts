@@ -1088,6 +1088,11 @@ function fundingChartDocument(context: ExplanationContext): ExplanationDocument 
 
 function outflowChartDocument(context: ExplanationContext): ExplanationDocument {
   const rows = buildAnnualChartData(context.inputs, context.projection, context.displayMode);
+  const activeContributionAccounts = context.inputs.accounts.filter(
+    (account) =>
+      ["tfsa", "rrsp_rrif", "non_registered"].includes(account.type) &&
+      account.monthlyContributionToday > 0,
+  );
   return {
     id: "annual-outflows",
     title: "Spending, taxes, and contributions",
@@ -1105,7 +1110,9 @@ function outflowChartDocument(context: ExplanationContext): ExplanationDocument 
       {
         label: "Cash-funded contribution accounts",
         value: String(
-          context.inputs.accounts.filter((account) => account.contributionFunding === "cash").length,
+          activeContributionAccounts.filter(
+            (account) => account.contributionFunding === "cash",
+          ).length,
         ),
         operation: "input",
         sourceType: "configuration",
@@ -1113,7 +1120,7 @@ function outflowChartDocument(context: ExplanationContext): ExplanationDocument 
       {
         label: "Income-withheld contribution accounts",
         value: String(
-          context.inputs.accounts.filter(
+          activeContributionAccounts.filter(
             (account) => account.contributionFunding === "income_withheld",
           ).length,
         ),
@@ -1184,16 +1191,14 @@ function outflowChartDocument(context: ExplanationContext): ExplanationDocument 
           { key: "monthlyContribution", label: "Active monthly contribution" },
           { key: "funding", label: "Funding" },
         ],
-        rows: context.inputs.accounts
-          .filter((account) => account.monthlyContributionToday > 0)
-          .map((account) => ({
-            account: account.label,
-            monthlyContribution: account.monthlyContributionToday,
-            funding:
-              account.contributionFunding === "income_withheld"
-                ? "Income-withheld"
-                : "Cash-funded",
-          })),
+        rows: activeContributionAccounts.map((account) => ({
+          account: account.label,
+          monthlyContribution: account.monthlyContributionToday,
+          funding:
+            account.contributionFunding === "income_withheld"
+              ? "Income-withheld"
+              : "Cash-funded",
+        })),
       },
     ],
     assumptions: commonAssumptions(context),
@@ -1460,6 +1465,8 @@ function accountsDocument(context: ExplanationContext): ExplanationDocument {
   const rows = accountDetailsRows(context);
   const financialAssets = rows.filter((row) => row.plannerType !== "Debt");
   const debt = rows.filter((row) => row.plannerType === "Debt");
+  const totalIncludedAccounts = rows.length;
+  const calculatedTotal = financialAssets.length + debt.length;
   return {
     id: "lunchmoney-accounts",
     title: "Lunch Money accounts",
@@ -1467,10 +1474,10 @@ function accountsDocument(context: ExplanationContext): ExplanationDocument {
       "Included account balances come from Lunch Money; planner type, returns, contributions, withdrawal priority, and allocation come from the local configuration unless temporarily overridden.",
     displayedResult: {
       label: "Included accounts",
-      value: String(rows.length),
+      value: String(totalIncludedAccounts),
       period: `Balances through ${context.baseline.dataThrough}`,
     },
-    formula: "Included mapped accounts; debt remains visible but is excluded from financial assets",
+    formula: "Financial-asset accounts + debt accounts = total included accounts",
     steps: [
       {
         label: "Financial-asset accounts",
@@ -1483,8 +1490,15 @@ function accountsDocument(context: ExplanationContext): ExplanationDocument {
         label: "Debt accounts excluded from financial assets",
         value: String(debt.length),
         rawValue: debt.length,
-        operation: "subtract",
+        operation: "add",
         sourceType: "configuration",
+      },
+      {
+        label: "Total included accounts",
+        value: String(calculatedTotal),
+        rawValue: calculatedTotal,
+        operation: "result",
+        sourceType: "projection",
       },
     ],
     dataSections: [
@@ -1511,6 +1525,7 @@ function accountsDocument(context: ExplanationContext): ExplanationDocument {
       "No raw transactions are included in this explanation.",
       "Debt balances reduce net worth but are not part of the financial-assets total.",
     ],
+    reconciliation: matched(calculatedTotal, totalIncludedAccounts),
   };
 }
 

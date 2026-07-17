@@ -10,6 +10,7 @@ import {
   buildAnnualChartData,
   buildAnnualLedgerData,
 } from "@/src/domain/projection/presentation";
+import type { FinancialAccountInput } from "@/src/domain/projection/types";
 import {
   currentBaselineFixture,
   projectionFixture,
@@ -208,6 +209,178 @@ describe("calculation explanations", () => {
     expect(document.title).toContain("2046");
     expect(sum).toBe(document.reconciliation?.calculatedValue);
     expect(document.reconciliation?.matched).toBe(true);
+  });
+
+  it("reconciles multiple financial and debt accounts to the total included-account count", () => {
+    const debtAccounts: FinancialAccountInput[] = [
+      {
+        id: "manual:debt-1",
+        label: "Synthetic debt one",
+        type: "debt",
+        openingBalance: 10000,
+        annualReturn: 0,
+        monthlyContributionToday: 0,
+        contributionIndexingRate: 0,
+        withdrawalPriority: 98,
+        allocation: { cash: 0, fixedIncome: 0, equity: 0 },
+      },
+      {
+        id: "manual:debt-2",
+        label: "Synthetic debt two",
+        type: "debt",
+        openingBalance: 20000,
+        annualReturn: 0,
+        monthlyContributionToday: 0,
+        contributionIndexingRate: 0,
+        withdrawalPriority: 99,
+        allocation: { cash: 0, fixedIncome: 0, equity: 0 },
+      },
+    ];
+    const value = context((draft) => {
+      draft.inputs.accounts.push(...structuredClone(debtAccounts));
+      draft.baseline.projectionInputs.accounts.push(...structuredClone(debtAccounts));
+      draft.projection = calculateProjection(draft.inputs);
+    });
+    const document = buildExplanation("lunchmoney-accounts", value);
+
+    expect(document.displayedResult?.value).toBe("4");
+    expect(document.steps.map(({ label, operation, rawValue }) => ({
+      label,
+      operation,
+      rawValue,
+    }))).toEqual([
+      {
+        label: "Financial-asset accounts",
+        operation: "input",
+        rawValue: 2,
+      },
+      {
+        label: "Debt accounts excluded from financial assets",
+        operation: "add",
+        rawValue: 2,
+      },
+      {
+        label: "Total included accounts",
+        operation: "result",
+        rawValue: 4,
+      },
+    ]);
+    expect(document.reconciliation).toEqual({
+      matched: true,
+      calculatedValue: 4,
+      displayedValue: 4,
+    });
+  });
+
+  it("excludes zero-contribution accounts from outflow funding counts and evidence", () => {
+    const zeroContributionAccounts: FinancialAccountInput[] = [
+      {
+        id: "manual:zero-cash",
+        label: "Zero cash-funded contribution",
+        type: "tfsa",
+        openingBalance: 0,
+        annualReturn: 0.05,
+        monthlyContributionToday: 0,
+        contributionFunding: "cash",
+        contributionIndexingRate: 0.02,
+        withdrawalPriority: 3,
+        allocation: { cash: 0, fixedIncome: 0.2, equity: 0.8 },
+      },
+      {
+        id: "manual:zero-withheld",
+        label: "Zero income-withheld contribution",
+        type: "non_registered",
+        openingBalance: 0,
+        annualReturn: 0.05,
+        monthlyContributionToday: 0,
+        contributionFunding: "income_withheld",
+        contributionIndexingRate: 0.02,
+        withdrawalPriority: 4,
+        allocation: { cash: 0.05, fixedIncome: 0.25, equity: 0.7 },
+      },
+    ];
+    const value = context((draft) => {
+      draft.inputs.accounts.push(...structuredClone(zeroContributionAccounts));
+      draft.baseline.projectionInputs.accounts.push(
+        ...structuredClone(zeroContributionAccounts),
+      );
+      draft.projection = calculateProjection(draft.inputs);
+    });
+    const document = buildExplanation("annual-outflows", value);
+    const rows = section(document, "Contribution funding").rows;
+
+    expect(
+      document.steps.find((step) => step.label === "Cash-funded contribution accounts")
+        ?.value,
+    ).toBe("1");
+    expect(
+      document.steps.find(
+        (step) => step.label === "Income-withheld contribution accounts",
+      )?.value,
+    ).toBe("0");
+    expect(rows.map((row) => row.account)).toEqual(["Investment account"]);
+  });
+
+  it("updates contribution counts and evidence for an active override and its reset", () => {
+    const zeroBaselineAccount: FinancialAccountInput = {
+      id: "manual:override-contribution",
+      label: "Override investment",
+      type: "tfsa",
+      openingBalance: 0,
+      annualReturn: 0.05,
+      monthlyContributionToday: 0,
+      contributionFunding: "income_withheld",
+      contributionIndexingRate: 0.02,
+      withdrawalPriority: 3,
+      allocation: { cash: 0, fixedIncome: 0.2, equity: 0.8 },
+    };
+    const active = context((draft) => {
+      draft.baseline.projectionInputs.accounts.push(
+        structuredClone(zeroBaselineAccount),
+      );
+      draft.inputs.accounts.push({
+        ...structuredClone(zeroBaselineAccount),
+        monthlyContributionToday: 750,
+      });
+      draft.overrides = {
+        "contribution.manual:override-contribution": 750,
+      };
+      draft.projection = calculateProjection(draft.inputs);
+    });
+    const reset = context((draft) => {
+      draft.baseline.projectionInputs.accounts.push(
+        structuredClone(zeroBaselineAccount),
+      );
+      draft.inputs.accounts.push(structuredClone(zeroBaselineAccount));
+      draft.projection = calculateProjection(draft.inputs);
+    });
+    const activeDocument = buildExplanation("annual-outflows", active);
+    const resetDocument = buildExplanation("annual-outflows", reset);
+
+    expect(
+      activeDocument.steps.find(
+        (step) => step.label === "Income-withheld contribution accounts",
+      )?.value,
+    ).toBe("1");
+    expect(section(activeDocument, "Contribution funding").rows).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          account: "Override investment",
+          monthlyContribution: 750,
+          funding: "Income-withheld",
+        }),
+      ]),
+    );
+    expect(
+      resetDocument.steps.find(
+        (step) => step.label === "Income-withheld contribution accounts",
+      )?.value,
+    ).toBe("0");
+    expect(
+      section(resetDocument, "Contribution funding").rows.some(
+        (row) => row.account === "Override investment",
+      ),
+    ).toBe(false);
   });
 
   it("labels and uses an active override, then removes override evidence after reset", () => {
