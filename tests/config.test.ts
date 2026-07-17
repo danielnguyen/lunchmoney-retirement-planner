@@ -37,8 +37,37 @@ describe("private planner configuration", () => {
 
     expect(contents).toContain("# Daily chequing account");
     expect(contents).toContain("# Groceries");
+    expect(contents).toContain(
+      "Inside an explicit contribution phase, live_baseline resolves only",
+    );
+    expect(contents).toContain(
+      "Legacy account-level contribution fields are a separate compatibility",
+    );
+    expect(contents).not.toContain(
+      "mapped contribution transactions or the",
+    );
     expect(config.transactionTrailingMonths).toBe(12);
     expect(config.accountMappings).toHaveProperty("manual:replace-with-cash-account-id");
+    expect(config.employmentIncomePhases).toEqual([
+      expect.objectContaining({
+        id: "current-income",
+        annualNetCashToday: "live_baseline",
+      }),
+      expect.objectContaining({
+        id: "future-income",
+        annualNetCashToday: 72000,
+      }),
+    ]);
+    expect(
+      config.accountMappings["plaid:replace-with-investment-account-id"]
+        .contributionPhases,
+    ).toHaveLength(2);
+    expect(
+      config.accountMappings["plaid:replace-with-investment-account-id"],
+    ).not.toHaveProperty("monthlyContribution");
+    expect(
+      config.accountMappings["plaid:replace-with-investment-account-id"],
+    ).not.toHaveProperty("contributionFunding");
   });
 
   it("ignores YAML comments without changing configuration values", async () => {
@@ -88,7 +117,7 @@ describe("private planner configuration", () => {
   it("accepts the .yml extension", async () => {
     const config = await loadPlannerConfig(await temporaryConfig("planner.yml"));
 
-    expect(config.currentAge).toBe(40);
+    expect(config.currentAge).toBe(38);
   });
 
   it("continues to accept JSON when explicitly configured", async () => {
@@ -130,11 +159,122 @@ describe("private planner configuration", () => {
 
   it("requires an explicit funding choice for every manual monthly contribution", async () => {
     const config = await loadPlannerConfig(EXAMPLE_CONFIG_PATH);
-    delete config.accountMappings["plaid:replace-with-investment-account-id"]
-      .contributionFunding;
+    const mapping = config.accountMappings["plaid:replace-with-investment-account-id"];
+    delete mapping.contributionPhases;
+    mapping.monthlyContribution = 100;
 
     expect(() => validatePlannerConfig(config)).toThrow(
       "contributionFunding must be cash or income_withheld",
+    );
+  });
+
+  it("validates contiguous ordered employment phases and month-aligned boundaries", async () => {
+    const gap = await loadPlannerConfig(EXAMPLE_CONFIG_PATH);
+    gap.employmentIncomePhases![1]!.startAge = 42;
+    expect(() => validatePlannerConfig(gap)).toThrow("have a gap");
+
+    const overlap = await loadPlannerConfig(EXAMPLE_CONFIG_PATH);
+    overlap.employmentIncomePhases![1]!.startAge = 40;
+    expect(() => validatePlannerConfig(overlap)).toThrow("overlap");
+
+    const nonAligned = await loadPlannerConfig(EXAMPLE_CONFIG_PATH);
+    nonAligned.employmentIncomePhases![0]!.endAge = 41.01;
+    expect(() => validatePlannerConfig(nonAligned)).toThrow(
+      "must align to a projection month",
+    );
+  });
+
+  it("rejects duplicate phase ids and phase ranges outside working ages", async () => {
+    const duplicate = await loadPlannerConfig(EXAMPLE_CONFIG_PATH);
+    duplicate.employmentIncomePhases![1]!.id =
+      duplicate.employmentIncomePhases![0]!.id;
+    expect(() => validatePlannerConfig(duplicate)).toThrow("duplicate phase id");
+
+    const outside = await loadPlannerConfig(EXAMPLE_CONFIG_PATH);
+    outside.accountMappings[
+      "plaid:replace-with-investment-account-id"
+    ]!.contributionPhases![0]!.startAge = 37;
+    expect(() => validatePlannerConfig(outside)).toThrow(
+      "must stay within currentAge and retirementAge",
+    );
+
+    const duplicateContribution = await loadPlannerConfig(EXAMPLE_CONFIG_PATH);
+    const contributionPhases =
+      duplicateContribution.accountMappings[
+        "plaid:replace-with-investment-account-id"
+      ]!.contributionPhases!;
+    contributionPhases[1]!.id = contributionPhases[0]!.id;
+    expect(() => validatePlannerConfig(duplicateContribution)).toThrow(
+      "duplicates contribution phase id",
+    );
+
+    const overlappingContribution = await loadPlannerConfig(EXAMPLE_CONFIG_PATH);
+    overlappingContribution.accountMappings[
+      "plaid:replace-with-investment-account-id"
+    ]!.contributionPhases![1]!.startAge = 40;
+    expect(() => validatePlannerConfig(overlappingContribution)).toThrow(
+      "overlaps contribution phase",
+    );
+  });
+
+  it("rejects phased contributions on non-investment accounts and ambiguous legacy fields", async () => {
+    const config = await loadPlannerConfig(EXAMPLE_CONFIG_PATH);
+    const cash = config.accountMappings["manual:replace-with-cash-account-id"]!;
+    cash.contributionPhases = structuredClone(
+      config.accountMappings["plaid:replace-with-investment-account-id"]!
+        .contributionPhases,
+    );
+    expect(() => validatePlannerConfig(config)).toThrow(
+      "may only be configured for a TFSA, RRSP/RRIF, or non-registered account",
+    );
+
+    const ambiguous = await loadPlannerConfig(EXAMPLE_CONFIG_PATH);
+    ambiguous.accountMappings[
+      "plaid:replace-with-investment-account-id"
+    ]!.monthlyContribution = 100;
+    expect(() => validatePlannerConfig(ambiguous)).toThrow(
+      "cannot combine contributionPhases",
+    );
+  });
+
+  it("rejects invalid live-baseline source strings and negative phase amounts", async () => {
+    const invalidSource = JSON.parse(
+      JSON.stringify(await loadPlannerConfig(EXAMPLE_CONFIG_PATH)),
+    ) as Record<string, unknown>;
+    (
+      invalidSource.employmentIncomePhases as Array<Record<string, unknown>>
+    )[0]!.annualNetCashToday = "current_income";
+    expect(() => validatePlannerConfig(invalidSource)).toThrow(
+      "exact string live_baseline",
+    );
+
+    const negative = JSON.parse(
+      JSON.stringify(await loadPlannerConfig(EXAMPLE_CONFIG_PATH)),
+    ) as Record<string, unknown>;
+    const mappings = negative.accountMappings as Record<
+      string,
+      Record<string, unknown>
+    >;
+    (
+      mappings["plaid:replace-with-investment-account-id"]!
+        .contributionPhases as Array<Record<string, unknown>>
+    )[0]!.monthlyAmountToday = -1;
+    expect(() => validatePlannerConfig(negative)).toThrow(
+      "must be at least 0",
+    );
+
+    const invalidGrowth = await loadPlannerConfig(EXAMPLE_CONFIG_PATH);
+    invalidGrowth.employmentIncomePhases![0]!.annualGrowth = 0.75;
+    expect(() => validatePlannerConfig(invalidGrowth)).toThrow(
+      "must be no greater than 0.5",
+    );
+
+    const invalidIndexing = await loadPlannerConfig(EXAMPLE_CONFIG_PATH);
+    invalidIndexing.accountMappings[
+      "plaid:replace-with-investment-account-id"
+    ]!.contributionPhases![0]!.indexingRate = -0.3;
+    expect(() => validatePlannerConfig(invalidIndexing)).toThrow(
+      "must be at least -0.2",
     );
   });
 

@@ -81,8 +81,8 @@ function buildExportFixture(): ExportFixture {
         `Lunch Money account 919191 (${RAW_IDS.cash}) balance for ${RAW_ACCOUNT_NAMES.cash}`,
       effectiveDate: baseline.dataThrough,
     },
-    [`accounts.${RAW_IDS.rrsp}.monthlyContributionToday`]: {
-      value: inputs.accounts[1]!.monthlyContributionToday,
+    [`accounts.${RAW_IDS.rrsp}.contributionPhases.current-saving.monthlyAmountToday`]: {
+      value: inputs.accounts[1]!.contributionPhases[0]!.monthlyAmountToday,
       sourceType: "local_configuration",
       sourceDescription: `Manual contribution for ${RAW_ACCOUNT_NAMES.rrsp}`,
       effectiveDate: baseline.dataThrough,
@@ -123,7 +123,7 @@ function buildExportFixture(): ExportFixture {
       plannerType: "rrsp_rrif",
       balance: inputs.accounts[1]!.openingBalance,
       balanceAsOf: baseline.dataThrough,
-      monthlyContribution: inputs.accounts[1]!.monthlyContributionToday,
+      monthlyContribution: inputs.accounts[1]!.contributionPhases[0]!.monthlyAmountToday,
       contributionSource: "local_configuration",
       contributionFunding: "cash",
     },
@@ -131,7 +131,7 @@ function buildExportFixture(): ExportFixture {
   baseline.derived.investmentContributions.accounts = [
     {
       accountId: RAW_IDS.rrsp,
-      monthlyAverage: inputs.accounts[1]!.monthlyContributionToday,
+      monthlyAverage: inputs.accounts[1]!.contributionPhases[0]!.monthlyAmountToday,
       source: "local_configuration",
       funding: "cash",
     },
@@ -207,8 +207,8 @@ function buildExportFixture(): ExportFixture {
         projection,
         baseline,
         {
-          retirementAge: 64,
-          [`accounts.${RAW_IDS.rrsp}.monthlyContributionToday`]: 1500,
+          "employmentPhase.current-income.annualNetCashToday": 70000,
+          [`contributionPhase.${RAW_IDS.rrsp}.current-saving.monthlyAmountToday`]: 1500,
         },
         "2026-07-14T00:00:00.000Z",
       ),
@@ -361,9 +361,7 @@ describe("identifier-scrubbed projection exports", () => {
     expect(idValues.length).toBeGreaterThan(0);
     expect(idValues.every((id) => typeof id === "string")).toBe(true);
     expect(idValues.every((id) =>
-      /^(?:cash|tfsa|rrsp|non_registered|debt|event|recurring_expense|category|unmapped_account)_\d+$/.test(
-        String(id),
-      ),
+      /^(?:(?:cash|tfsa|rrsp|non_registered|debt|event|recurring_expense|category|unmapped_account)_\d+|current-income|current-saving)$/.test(String(id)),
     )).toBe(true);
     for (const text of [...Object.values(RAW_ACCOUNT_NAMES), ...Object.values(PRIVATE_TEXT)]) {
       expect(serialized).toContain(text);
@@ -394,10 +392,14 @@ describe("identifier-scrubbed projection exports", () => {
         `${PRIVATE_TEXT.merchant} / ${PRIVATE_TEXT.payee}; token=[credential removed]; api_key=[credential removed]; authorization=[credential removed]`,
     });
     expect(snapshot.activeOverrides).toEqual({
-      "accounts.rrsp_1.monthlyContributionToday": 1500,
-      retirementAge: 64,
+      "contributionPhase.rrsp_1.current-saving.monthlyAmountToday": 1500,
+      "employmentPhase.current-income.annualNetCashToday": 70000,
     });
-    expect(snapshot.provenance["accounts.rrsp_1.monthlyContributionToday"]?.sourceDescription)
+    expect(
+      snapshot.provenance[
+        "accounts.rrsp_1.contributionPhases.current-saving.monthlyAmountToday"
+      ]?.sourceDescription,
+    )
       .toBe(`Manual contribution for ${RAW_ACCOUNT_NAMES.rrsp}`);
     expectNoSourceIdentifiersOrCredentials(JSON.stringify(snapshot.provenance));
     expectNoSourceIdentifiersOrCredentials(JSON.stringify(snapshot.activeOverrides));
@@ -415,6 +417,18 @@ describe("identifier-scrubbed projection exports", () => {
     );
     expect(snapshot.projection.annual.map((point) => point.real.balances)).toEqual(
       projection.annual.map((point) => point.real.balances),
+    );
+    expect(snapshot.projection.retirementSnapshot).toEqual({
+      ...projection.retirementSnapshot,
+      nominal: expect.any(Object),
+      real: expect.any(Object),
+    });
+    expect(snapshot.projection.retirementSnapshot.flowPeriod).toEqual({
+      kind: "final_working_month",
+      calendarMonth: projection.retirementSnapshot.flowPeriod.calendarMonth,
+    });
+    expect(snapshot.projection.financialAssetsBridge).toEqual(
+      projection.financialAssetsBridge,
     );
     expect(
       Object.values(snapshot.projection.annual[0]!.real.accountBalances).sort((a, b) => a - b),
@@ -510,6 +524,23 @@ describe("identifier-scrubbed projection exports", () => {
     const inputs: ProjectionInputs = structuredClone(projectionFixture);
     inputs.person.currentAge = 64;
     inputs.person.retirementAge = 65;
+    inputs.person.employmentIncomePhases = [
+      {
+        id: "current-income",
+        label: "Current income",
+        startAge: 64,
+        endAge: 65,
+        annualNetCashToday: 84000,
+        annualGrowth: 0.02,
+      },
+    ];
+    for (const account of inputs.accounts) {
+      account.contributionPhases = account.contributionPhases.map((phase) => ({
+        ...phase,
+        startAge: 64,
+        endAge: 65,
+      }));
+    }
     inputs.person.cpp.startAge = 65;
     inputs.person.oas.startAge = 65;
     inputs.endAge = 66;
@@ -548,6 +579,8 @@ describe("identifier-scrubbed projection exports", () => {
     expect(parsed.every((row) => row.length === header.length)).toBe(true);
     expect(header).toContain("account_cash_1");
     expect(header).toContain("account_rrsp_1");
+    expect(header).toContain("employmentPhase");
+    expect(header).toContain("incomeWithheldContributions");
     expect(parsed[1]![0]).toBe("2026 (Jul–Dec)");
     expect(csv).not.toContain("section,key,value");
     expect(csv).not.toContain("metadata,");

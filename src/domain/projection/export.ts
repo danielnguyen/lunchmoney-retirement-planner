@@ -12,7 +12,9 @@ import {
   validateProjectionInputs,
   type AccountType,
   type AssetAllocation,
+  type ContributionFunding,
   type FinancialAccountInput,
+  type FinancialAssetsBridge,
   type ProjectionEventInput,
   type ProjectionInputs,
   type ProjectionResult,
@@ -50,7 +52,7 @@ export type ShareSafeDerivedBaseline = {
     balanceAsOf: string;
     monthlyContribution: number;
     contributionSource: "lunchmoney_derived" | "local_configuration";
-    contributionFunding: FinancialAccountInput["contributionFunding"];
+    contributionFunding: ContributionFunding | undefined;
   }>;
   monthlyIncome: DerivedBaseline["monthlyIncome"];
   essentialSpending: DerivedBaseline["essentialSpending"];
@@ -63,7 +65,7 @@ export type ShareSafeDerivedBaseline = {
       accountId: string;
       monthlyAverage: number;
       source: "lunchmoney_derived" | "local_configuration";
-      funding: NonNullable<FinancialAccountInput["contributionFunding"]>;
+      funding: ContributionFunding;
     }>;
   };
   recurringExpenses: {
@@ -81,7 +83,7 @@ export type ShareSafeDerivedBaseline = {
 };
 
 export type ProjectionSnapshot = {
-  schemaVersion: "3.0";
+  schemaVersion: "4.0";
   generatedAt: string;
   exportMetadata: {
     transformation: "typed_allowlist";
@@ -175,19 +177,30 @@ const ACCOUNT_TYPE_ORDER: AccountType[] = [
 const ACCOUNT_PROVENANCE_FIELDS = new Set([
   "openingBalance",
   "annualReturn",
-  "monthlyContributionToday",
-  "contributionFunding",
   "label",
   "type",
   "allocation",
   "withdrawalPriority",
-  "contributionIndexingRate",
+]);
+const CONTRIBUTION_PHASE_PROVENANCE_FIELDS = new Set([
+  "label",
+  "startAge",
+  "endAge",
+  "monthlyAmountToday",
+  "funding",
+  "indexingRate",
+]);
+const EMPLOYMENT_PHASE_PROVENANCE_FIELDS = new Set([
+  "label",
+  "startAge",
+  "endAge",
+  "annualNetCashToday",
+  "annualGrowth",
 ]);
 
 const SAFE_PROVENANCE_FIELDS = new Set([
   "monthlyEssentialSpendingToday",
   "monthlyDiscretionarySpendingToday",
-  "person.annualEmploymentNetCashToday",
   "currentAge",
   "retirementAge",
   "endAge",
@@ -202,7 +215,6 @@ const SAFE_PROVENANCE_FIELDS = new Set([
   "oasRecoveryRate",
   "person.currentAge",
   "person.retirementAge",
-  "person.annualIncomeGrowth",
   "person.annualPensionToday",
   "person.pensionStartAge",
   "person.pensionIndexingRate",
@@ -267,6 +279,7 @@ const BASELINE_WARNING_CODES = new Set([
   "invalid_manual_contribution",
   "withdrawal_priority_required",
   "negative_asset_balance",
+  "long_live_baseline_income",
 ]);
 
 const REFERENCE_KINDS = new Set<CanadianReferenceKind>([
@@ -535,9 +548,15 @@ function safeAccountInput(
     type: account.type,
     openingBalance: account.openingBalance,
     annualReturn: account.annualReturn,
-    monthlyContributionToday: account.monthlyContributionToday,
-    ...(account.contributionFunding ? { contributionFunding: account.contributionFunding } : {}),
-    contributionIndexingRate: account.contributionIndexingRate,
+    contributionPhases: account.contributionPhases.map((phase) => ({
+      id: safeDescriptiveText(phase.id, context),
+      label: safeDescriptiveText(phase.label, context),
+      startAge: phase.startAge,
+      endAge: phase.endAge,
+      monthlyAmountToday: phase.monthlyAmountToday,
+      funding: phase.funding,
+      indexingRate: phase.indexingRate,
+    })),
     withdrawalPriority: account.withdrawalPriority,
     allocation: safeAllocation(account.allocation),
   };
@@ -580,8 +599,14 @@ function safeProjectionInputs(
     person: {
       currentAge: inputs.person.currentAge,
       retirementAge: inputs.person.retirementAge,
-      annualEmploymentNetCashToday: inputs.person.annualEmploymentNetCashToday,
-      annualIncomeGrowth: inputs.person.annualIncomeGrowth,
+      employmentIncomePhases: inputs.person.employmentIncomePhases.map((phase) => ({
+        id: safeDescriptiveText(phase.id, context),
+        label: safeDescriptiveText(phase.label, context),
+        startAge: phase.startAge,
+        endAge: phase.endAge,
+        annualNetCashToday: phase.annualNetCashToday,
+        annualGrowth: phase.annualGrowth,
+      })),
       annualPensionToday: inputs.person.annualPensionToday,
       pensionStartAge: inputs.person.pensionStartAge,
       pensionIndexingRate: inputs.person.pensionIndexingRate,
@@ -606,6 +631,10 @@ function safeProjectionView(view: ProjectionView, context: ShareSafeContext): Pr
   const accountBalances: Record<string, number> = {};
   for (const [rawId, value] of Object.entries(view.accountBalances)) {
     accountBalances[requiredAccountAlias(rawId, context).key] = value;
+  }
+  const accountContributions: Record<string, number> = {};
+  for (const [rawId, value] of Object.entries(view.accountContributions)) {
+    accountContributions[requiredAccountAlias(rawId, context).key] = value;
   }
   return {
     income: {
@@ -633,6 +662,11 @@ function safeProjectionView(view: ProjectionView, context: ShareSafeContext): Pr
       unmetSpending: view.outflows.unmetSpending,
       total: view.outflows.total,
     },
+    contributions: {
+      cashFunded: view.contributions.cashFunded,
+      incomeWithheld: view.contributions.incomeWithheld,
+      total: view.contributions.total,
+    },
     balances: {
       cash: view.balances.cash,
       tfsa: view.balances.tfsa,
@@ -643,7 +677,24 @@ function safeProjectionView(view: ProjectionView, context: ShareSafeContext): Pr
       netWorth: view.balances.netWorth,
     },
     accountBalances,
+    accountContributions,
     allocation: safeAllocation(view.allocation),
+  };
+}
+
+function safeFinancialAssetsBridge(bridge: FinancialAssetsBridge): FinancialAssetsBridge {
+  return {
+    startingFinancialAssets: bridge.startingFinancialAssets,
+    employmentNetCash: bridge.employmentNetCash,
+    publicBenefitsAndPension: bridge.publicBenefitsAndPension,
+    otherInflows: bridge.otherInflows,
+    incomeWithheldContributions: bridge.incomeWithheldContributions,
+    investmentReturns: bridge.investmentReturns,
+    essentialSpending: bridge.essentialSpending,
+    discretionarySpending: bridge.discretionarySpending,
+    oneTimeOutflows: bridge.oneTimeOutflows,
+    taxes: bridge.taxes,
+    endingFinancialAssets: bridge.endingFinancialAssets,
   };
 }
 
@@ -667,15 +718,30 @@ function safeProjectionResult(
   context: ShareSafeContext,
 ): ProjectionResult {
   return {
-    schemaVersion: "3.0",
+    schemaVersion: "4.0",
     inputs: safeProjectionInputs(projection.inputs, context),
     summary: {
       retirementYear: projection.summary.retirementYear,
+      retirementDate: projection.summary.retirementDate,
       financialAssetsAtRetirementToday: projection.summary.financialAssetsAtRetirementToday,
       retirementGoalToday: projection.summary.retirementGoalToday,
       goalGapToday: projection.summary.goalGapToday,
       financialAssetsDepletionAge: projection.summary.financialAssetsDepletionAge,
       endingFinancialAssetsToday: projection.summary.endingFinancialAssetsToday,
+    },
+    retirementSnapshot: {
+      calendarDate: projection.retirementSnapshot.calendarDate,
+      age: projection.retirementSnapshot.age,
+      flowPeriod: {
+        kind: projection.retirementSnapshot.flowPeriod.kind,
+        calendarMonth: projection.retirementSnapshot.flowPeriod.calendarMonth,
+      },
+      nominal: safeProjectionView(projection.retirementSnapshot.nominal, context),
+      real: safeProjectionView(projection.retirementSnapshot.real, context),
+    },
+    financialAssetsBridge: {
+      nominal: safeFinancialAssetsBridge(projection.financialAssetsBridge.nominal),
+      real: safeFinancialAssetsBridge(projection.financialAssetsBridge.real),
     },
     annual: projection.annual.map((point) => ({
       calendarYear: point.calendarYear,
@@ -685,6 +751,15 @@ function safeProjectionResult(
       real: safeProjectionView(point.real, context),
       milestones: point.milestones.map((milestone, index) =>
         SAFE_MILESTONES.has(milestone) ? milestone : `Milestone ${index + 1}`,
+      ),
+      employmentPhaseLabels: point.employmentPhaseLabels.map((label) =>
+        safeDescriptiveText(label, context),
+      ),
+      contributionPhaseLabels: Object.fromEntries(
+        Object.entries(point.contributionPhaseLabels).map(([rawAccountId, labels]) => [
+          requiredAccountAlias(rawAccountId, context).key,
+          labels.map((label) => safeDescriptiveText(label, context)),
+        ]),
       ),
     })),
     observations: projection.observations.map((observation, index) => {
@@ -817,13 +892,30 @@ function provenanceField(
   context: ShareSafeContext,
 ): ProvenanceField | undefined {
   if (SAFE_PROVENANCE_FIELDS.has(rawField)) return { reference: rawField };
+  const employmentPrefix = "person.employmentIncomePhases.";
+  if (rawField.startsWith(employmentPrefix)) {
+    const field = rawField.slice(employmentPrefix.length);
+    const finalField = field.slice(field.lastIndexOf(".") + 1);
+    if (EMPLOYMENT_PHASE_PROVENANCE_FIELDS.has(finalField)) {
+      return { reference: safeDescriptiveText(rawField, context) };
+    }
+  }
   for (const account of context.accounts) {
     const prefix = `accounts.${account.rawId}.`;
     if (!rawField.startsWith(prefix)) continue;
     const accountField = rawField.slice(prefix.length);
-    if (!ACCOUNT_PROVENANCE_FIELDS.has(accountField)) return undefined;
+    const contributionPhaseField = accountField.startsWith("contributionPhases.")
+      ? accountField.slice(accountField.lastIndexOf(".") + 1)
+      : undefined;
+    if (
+      !ACCOUNT_PROVENANCE_FIELDS.has(accountField) &&
+      (!contributionPhaseField ||
+        !CONTRIBUTION_PHASE_PROVENANCE_FIELDS.has(contributionPhaseField))
+    ) {
+      return undefined;
+    }
     return {
-      reference: `accounts.${account.key}.${accountField}`,
+      reference: `accounts.${account.key}.${safeDescriptiveText(accountField, context)}`,
       account,
       accountField,
     };
@@ -901,9 +993,22 @@ function safeOverrideKey(
   context: ShareSafeContext,
 ): string | undefined {
   if (SIMPLE_OVERRIDE_KEYS.has(rawKey)) return rawKey;
-  if (rawKey.startsWith("contribution.")) {
-    const account = context.accountByRawId.get(rawKey.slice("contribution.".length));
-    return account ? `contribution.${account.key}` : undefined;
+  if (rawKey.startsWith("employmentPhase.")) {
+    const field = rawKey.slice(rawKey.lastIndexOf(".") + 1);
+    return field === "annualNetCashToday" || field === "annualGrowth"
+      ? safeDescriptiveText(rawKey, context)
+      : undefined;
+  }
+  if (rawKey.startsWith("contributionPhase.")) {
+    for (const account of context.accounts) {
+      const prefix = `contributionPhase.${account.rawId}.`;
+      if (!rawKey.startsWith(prefix)) continue;
+      const remainder = rawKey.slice(prefix.length);
+      const field = remainder.slice(remainder.lastIndexOf(".") + 1);
+      return field === "monthlyAmountToday" || field === "indexingRate"
+        ? `contributionPhase.${account.key}.${safeDescriptiveText(remainder, context)}`
+        : undefined;
+    }
   }
   if (rawKey.startsWith("return.")) {
     const accountType = rawKey.slice("return.".length) as AccountType;
@@ -988,7 +1093,7 @@ export function createProjectionSnapshot(
   const dataThrough = safeDateLike(baseline.dataThrough, projection.inputs.startDate);
   const safeGeneratedAt = requireIsoTimestamp(generatedAt);
   return {
-    schemaVersion: "3.0",
+    schemaVersion: "4.0",
     generatedAt: safeGeneratedAt,
     exportMetadata: {
       transformation: "typed_allowlist",
@@ -1100,6 +1205,7 @@ export function projectionSnapshotToCsv(
     "age",
     "phase",
     "dollarMode",
+    "employmentPhase",
     "employmentNetCash",
     "cppIncome",
     "oasIncome",
@@ -1117,6 +1223,7 @@ export function projectionSnapshotToCsv(
     "tax",
     "oasRecoveryTax",
     "cashFundedContributions",
+    "incomeWithheldContributions",
     "unmetSpending",
     "totalOutflows",
     "cashBalance",
@@ -1138,6 +1245,7 @@ export function projectionSnapshotToCsv(
       point.age,
       point.phase,
       mode,
+      point.employmentPhaseLabels.join(" → "),
       view.income.employment,
       view.income.cpp,
       view.income.oas,
@@ -1155,6 +1263,7 @@ export function projectionSnapshotToCsv(
       view.outflows.tax,
       view.outflows.oasRecoveryTax,
       view.outflows.contributions,
+      view.contributions.incomeWithheld,
       view.outflows.unmetSpending,
       view.outflows.total,
       view.balances.cash,

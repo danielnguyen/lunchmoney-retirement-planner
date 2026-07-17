@@ -4,7 +4,7 @@ export const explanationTooltips: Record<ExplanationTarget, string> = {
   "starting-financial-assets":
     "The included cash and investment balances imported at the start of the projection. Debt is not counted as a financial asset.",
   "assets-at-retirement":
-    "The projected cash and investment balances at the first annual snapshot at or after retirement, expressed in today’s dollars.",
+    "Projected cash and investment balances at the end of the final working month, immediately before the first fully retired month, in today’s dollars.",
   "retirement-goal":
     "The financial-asset target used for the retirement comparison. Real property is outside this goal.",
   "goal-gap":
@@ -24,7 +24,7 @@ export const explanationTooltips: Record<ExplanationTarget, string> = {
   "annual-ledger":
     "The annual projection rows used by the report charts, including flows, ending balances, and milestones.",
   "baseline-income":
-    "The monthly net employment cash derived from mapped Lunch Money income transactions in the trailing window.",
+    "The current monthly net employment cash derived from mapped Lunch Money transactions. Configured phases may use different future income.",
   "baseline-essential":
     "The active monthly essential-spending input, refreshed from mapped Lunch Money transactions unless temporarily overridden.",
   "baseline-discretionary":

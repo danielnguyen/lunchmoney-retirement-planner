@@ -1,4 +1,5 @@
 import type { BaselineValue } from "@/src/domain/defaults/types";
+import { resolveActiveScenarioWarnings } from "@/src/domain/baseline/scenario-warnings";
 import {
   buildAnnualChartData,
   buildAnnualLedgerData,
@@ -103,6 +104,108 @@ function inputAssumption(
   };
 }
 
+function sourceLabel(type: ExplanationSourceType): string {
+  if (type === "lunchmoney") return "Lunch Money";
+  if (type === "configuration") return "Local configuration";
+  if (type === "override") return "Temporary override";
+  return "Projection";
+}
+
+function employmentPhaseRows(context: ExplanationContext) {
+  return context.inputs.person.employmentIncomePhases.map((phase) => {
+    const refreshed = context.baseline.projectionInputs.person.employmentIncomePhases.find(
+      (item) => item.id === phase.id,
+    );
+    const provenanceKey =
+      `person.employmentIncomePhases.${phase.id}.annualNetCashToday`;
+    const amountDetails = evidence(
+      context,
+      provenanceKey,
+      phase.annualNetCashToday,
+      refreshed?.annualNetCashToday,
+    );
+    const growthDetails = evidence(
+      context,
+      `person.employmentIncomePhases.${phase.id}.annualGrowth`,
+      phase.annualGrowth,
+      refreshed?.annualGrowth,
+    );
+    const details =
+      amountDetails.sourceType === "override" || growthDetails.sourceType === "override"
+        ? {
+            sourceType: "override" as const,
+            effectiveDate: context.baseline.dataThrough,
+          }
+        : amountDetails;
+    const compatibilityFallback = context.baseline.provenance[
+      provenanceKey
+    ]?.sourceDescription.includes("normalized into a resolved");
+    return {
+      phase: phase.label,
+      startAge: phase.startAge,
+      endAge: phase.endAge,
+      annualNetCashToday: phase.annualNetCashToday,
+      annualGrowth: percent.format(phase.annualGrowth),
+      source: `${sourceLabel(details.sourceType)}${compatibilityFallback ? " · Compatibility fallback" : ""}`,
+      effectiveDate: details.effectiveDate ?? context.baseline.dataThrough,
+    };
+  });
+}
+
+function contributionPhaseRows(context: ExplanationContext) {
+  return context.inputs.accounts.flatMap((account) =>
+    account.contributionPhases.map((phase) => {
+      const refreshed = context.baseline.projectionInputs.accounts
+        .find((item) => item.id === account.id)
+        ?.contributionPhases.find((item) => item.id === phase.id);
+      const provenanceKey =
+        `accounts.${account.id}.contributionPhases.${phase.id}.monthlyAmountToday`;
+      const amountDetails = evidence(
+        context,
+        provenanceKey,
+        phase.monthlyAmountToday,
+        refreshed?.monthlyAmountToday,
+      );
+      const indexingDetails = evidence(
+        context,
+        `accounts.${account.id}.contributionPhases.${phase.id}.indexingRate`,
+        phase.indexingRate,
+        refreshed?.indexingRate,
+      );
+      const details =
+        amountDetails.sourceType === "override" ||
+        indexingDetails.sourceType === "override"
+          ? {
+              sourceType: "override" as const,
+              effectiveDate: context.baseline.dataThrough,
+            }
+          : amountDetails;
+      const compatibilityFallback = context.baseline.provenance[
+        provenanceKey
+      ]?.sourceDescription.includes("normalized into a resolved");
+      return {
+        account: account.label,
+        phase: phase.label,
+        startAge: phase.startAge,
+        endAge: phase.endAge,
+        monthlyAmount: phase.monthlyAmountToday,
+        funding: phase.funding === "cash" ? "Cash-funded" : "Income-withheld",
+        indexing: percent.format(phase.indexingRate),
+        source: `${sourceLabel(details.sourceType)}${compatibilityFallback ? " · Compatibility fallback" : ""}`,
+        effectiveDate: details.effectiveDate ?? context.baseline.dataThrough,
+      };
+    }),
+  );
+}
+
+function longIncomeWarnings(context: ExplanationContext): string[] {
+  return resolveActiveScenarioWarnings(context.baseline, context.inputs)
+    .filter(
+    (warning) => warning.code === "long_live_baseline_income",
+    )
+    .map((warning) => warning.message);
+}
+
 function commonAssumptions(context: ExplanationContext) {
   const baseline = context.baseline.projectionInputs;
   const assumptions = [
@@ -185,18 +288,44 @@ function commonAssumptions(context: ExplanationContext) {
         percent.format,
       ),
     );
-    if (["tfsa", "rrsp_rrif", "non_registered"].includes(account.type)) {
+    for (const phase of account.contributionPhases) {
+      const refreshedPhase = refreshed.contributionPhases.find(
+        (item) => item.id === phase.id,
+      );
       assumptions.push(
         inputAssumption(
           context,
-          `${account.label} monthly contribution`,
-          account.monthlyContributionToday,
-          refreshed.monthlyContributionToday,
-          `accounts.${account.id}.monthlyContributionToday`,
+          `${account.label} · ${phase.label} monthly contribution`,
+          phase.monthlyAmountToday,
+          refreshedPhase?.monthlyAmountToday ?? phase.monthlyAmountToday,
+          `accounts.${account.id}.contributionPhases.${phase.id}.monthlyAmountToday`,
           exactCurrency.format,
         ),
       );
     }
+  }
+  for (const phase of context.inputs.person.employmentIncomePhases) {
+    const refreshed = baseline.person.employmentIncomePhases.find(
+      (item) => item.id === phase.id,
+    );
+    assumptions.push(
+      inputAssumption(
+        context,
+        `${phase.label} annual net cash`,
+        phase.annualNetCashToday,
+        refreshed?.annualNetCashToday ?? phase.annualNetCashToday,
+        `person.employmentIncomePhases.${phase.id}.annualNetCashToday`,
+        exactCurrency.format,
+      ),
+      inputAssumption(
+        context,
+        `${phase.label} annual growth`,
+        phase.annualGrowth,
+        refreshed?.annualGrowth ?? phase.annualGrowth,
+        `person.employmentIncomePhases.${phase.id}.annualGrowth`,
+        percent.format,
+      ),
+    );
   }
   const eventsProvenance = context.baseline.provenance.events;
   assumptions.push({
@@ -295,26 +424,25 @@ function startingFinancialAssetsDocument(context: ExplanationContext): Explanati
 }
 
 function assetsAtRetirementDocument(context: ExplanationContext): ExplanationDocument {
-  const retirement = context.projection.annual.find(
-    (point) => point.calendarYear === context.projection.summary.retirementYear,
-  );
-  if (!retirement) {
-    return {
-      id: "assets-at-retirement",
-      title: "Assets at retirement",
-      plainLanguage: "The retirement snapshot could not be identified in the projection result.",
-      steps: [],
-      dataSections: [],
-      assumptions: commonAssumptions(context),
-      caveats: ["No values were invented because the matching projection snapshot is unavailable."],
-      unavailableEvidence: ["Retirement annual snapshot"],
-    };
-  }
+  const retirement = context.projection.retirementSnapshot;
   const balances = retirement.real.balances;
   const calculated = round(
     balances.cash + balances.tfsa + balances.rrspRrif + balances.nonRegistered,
   );
   const result = context.projection.summary.financialAssetsAtRetirementToday;
+  const bridge = context.projection.financialAssetsBridge.real;
+  const bridgeCalculated =
+    bridge.startingFinancialAssets +
+    bridge.employmentNetCash +
+    bridge.publicBenefitsAndPension +
+    bridge.otherInflows +
+    bridge.incomeWithheldContributions +
+    bridge.investmentReturns -
+    bridge.essentialSpending -
+    bridge.discretionarySpending -
+    bridge.oneTimeOutflows -
+    bridge.taxes;
+  const bridgeMatched = sameValue(bridgeCalculated, bridge.endingFinancialAssets);
   const balanceSteps: Array<[string, number]> = [
     ["Cash", balances.cash],
     ["TFSA", balances.tfsa],
@@ -325,12 +453,12 @@ function assetsAtRetirementDocument(context: ExplanationContext): ExplanationDoc
     id: "assets-at-retirement",
     title: "Assets at retirement",
     plainLanguage:
-      "Projected cash and investment balances at the first annual snapshot at or after retirement, expressed in today’s dollars.",
+      "Projected cash and investment balances at the end of the final working month, immediately before the first fully retired month, expressed in today’s dollars.",
     displayedResult: {
       label: "Assets at retirement",
       value: currency.format(result),
       dollarMode: "real",
-      period: `${annualSnapshotLabel(context, retirement.calendarYear)} · age ${retirement.age}`,
+      period: `${retirement.calendarDate} · age ${retirement.age}`,
     },
     formula: "Cash + TFSA + RRSP/RRIF + non-registered balances at the retirement snapshot",
     steps: [
@@ -360,6 +488,67 @@ function assetsAtRetirementDocument(context: ExplanationContext): ExplanationDoc
         initiallyExpanded: true,
       },
       {
+        title: "How assets grew from today to retirement",
+        description: bridgeMatched
+          ? "External cash flows, income-withheld contributions, and actual modelled returns reconcile to the exact retirement snapshot. Cash-funded contributions are internal transfers and do not change total financial assets."
+          : "The available bridge evidence does not reconcile, so no success claim is shown.",
+        columns: [
+          { key: "operation", label: "" },
+          { key: "component", label: "Component" },
+          { key: "value", label: "Today’s-dollar value" },
+          { key: "source", label: "Source" },
+        ],
+        rows: [
+          { operation: "•", component: "Starting financial assets", value: bridge.startingFinancialAssets, source: "Lunch Money" },
+          { operation: "+", component: "Employment net cash", value: bridge.employmentNetCash, source: "Projection from phased inputs" },
+          { operation: "+", component: "CPP, OAS, and pension", value: bridge.publicBenefitsAndPension, source: "Projection from local configuration" },
+          { operation: "+", component: "Other inflows", value: bridge.otherInflows, source: "Projection from future events" },
+          { operation: "+", component: "Income-withheld contributions", value: bridge.incomeWithheldContributions, source: "Projection from contribution phases" },
+          { operation: "+", component: "Investment returns", value: bridge.investmentReturns, source: "Projection" },
+          { operation: "−", component: "Essential spending", value: bridge.essentialSpending, source: "Lunch Money baseline / override" },
+          { operation: "−", component: "Discretionary spending", value: bridge.discretionarySpending, source: "Lunch Money baseline / override" },
+          { operation: "−", component: "One-time outflows", value: bridge.oneTimeOutflows, source: "Local configuration" },
+          { operation: "−", component: "Taxes", value: bridge.taxes, source: "Projection from local assumptions" },
+          { operation: "=", component: "Assets at retirement", value: bridge.endingFinancialAssets, source: "Exact retirement snapshot" },
+          ...(bridgeMatched
+            ? [{ operation: "✓", component: "Reconciles to displayed value", value: bridge.endingFinancialAssets, source: "Projection" }]
+            : []),
+        ],
+        initiallyExpanded: true,
+      },
+      {
+        title: "Employment income path",
+        description: "These are the resolved phases consumed directly by the monthly projection.",
+        columns: [
+          { key: "phase", label: "Phase" },
+          { key: "startAge", label: "Start age" },
+          { key: "endAge", label: "End age" },
+          { key: "annualNetCashToday", label: "Annual net cash (today’s dollars)" },
+          { key: "annualGrowth", label: "Annual growth" },
+          { key: "source", label: "Source" },
+          { key: "effectiveDate", label: "Effective date" },
+        ],
+        rows: employmentPhaseRows(context),
+        initiallyExpanded: true,
+      },
+      {
+        title: "Contribution path",
+        description: "Each row is a resolved account phase used directly by the monthly projection.",
+        columns: [
+          { key: "account", label: "Account" },
+          { key: "phase", label: "Phase" },
+          { key: "startAge", label: "Start age" },
+          { key: "endAge", label: "End age" },
+          { key: "monthlyAmount", label: "Monthly amount" },
+          { key: "funding", label: "Funding" },
+          { key: "indexing", label: "Indexing" },
+          { key: "source", label: "Source" },
+          { key: "effectiveDate", label: "Effective date" },
+        ],
+        rows: contributionPhaseRows(context),
+        initiallyExpanded: true,
+      },
+      {
         title: "Future events used by the projection",
         columns: [
           { key: "label", label: "Event" },
@@ -385,24 +574,20 @@ function assetsAtRetirementDocument(context: ExplanationContext): ExplanationDoc
         sourceDescription: "Included opening balances imported from Lunch Money",
         effectiveDate: context.baseline.dataThrough,
       },
-      {
-        label: "Annual employment net cash",
-        value: exactCurrency.format(context.inputs.person.annualEmploymentNetCashToday),
-        ...evidence(
-          context,
-          "person.annualEmploymentNetCashToday",
-          context.inputs.person.annualEmploymentNetCashToday,
-          context.baseline.projectionInputs.person.annualEmploymentNetCashToday,
-        ),
-      },
       ...commonAssumptions(context),
     ],
     caveats: [
       "This card always uses today’s dollars, even when the charts are showing future dollars.",
-      "The retirement snapshot is the first annual period ending at or after the configured retirement age.",
+      "The retirement snapshot is the end of the final working month, not the following December snapshot.",
+      "Cash-funded contributions move money between financial accounts and therefore do not appear as an external inflow or outflow in the total-assets bridge.",
+      ...longIncomeWarnings(context),
       "This is a deterministic projection, not a guarantee of future returns or balances.",
     ],
-    reconciliation: matched(calculated, result),
+    reconciliation: {
+      matched: sameValue(calculated, result) && bridgeMatched,
+      calculatedValue: round(bridgeCalculated),
+      displayedValue: round(result),
+    },
   };
 }
 
@@ -574,6 +759,7 @@ function durationDocument(context: ExplanationContext): ExplanationDocument {
     assumptions: commonAssumptions(context),
     caveats: [
       "Past age means the model did not observe depletion before the configured end age; it does not mean assets last forever.",
+      ...longIncomeWarnings(context),
       "Deterministic results are not a guarantee and do not model market-sequence uncertainty.",
     ],
   };
@@ -684,21 +870,32 @@ function baselineMetricDocument(
   if (target === "baseline-contributions") {
     const audit = context.baseline.cashFlowAudit.investmentContributions;
     const displayed = activeContributionTotal(context);
-    const activeRows = audit.accounts.map((account) => {
-      const active = context.inputs.accounts.find((item) => item.id === account.accountId);
-      const activeValue = active?.monthlyContributionToday ?? account.monthlyAverage;
-      const overridden = !sameValue(activeValue, account.monthlyAverage);
-      return {
-        account: account.accountName,
-        refreshedMonthlyAverage: account.monthlyAverage,
-        activeMonthlyAverage: activeValue,
-        funding: account.funding === "cash" ? "Cash-funded" : "Income-withheld",
-        source: overridden
-          ? "Temporary override"
-          : account.source === "local_configuration"
-            ? "Local configuration"
-            : "Lunch Money transactions",
-      };
+    const activeRows = context.inputs.accounts.flatMap((account) => {
+      const phase = account.contributionPhases.find(
+        (item) =>
+          context.inputs.person.currentAge >= item.startAge &&
+          context.inputs.person.currentAge < item.endAge,
+      );
+      if (!phase) return [];
+      const refreshedPhase = context.baseline.projectionInputs.accounts
+        .find((item) => item.id === account.id)
+        ?.contributionPhases.find((item) => item.id === phase.id);
+      const details = evidence(
+        context,
+        `accounts.${account.id}.contributionPhases.${phase.id}.monthlyAmountToday`,
+        phase.monthlyAmountToday,
+        refreshedPhase?.monthlyAmountToday,
+      );
+      const accountAudit = audit.accounts.find((item) => item.accountId === account.id);
+      return [{
+        account: account.label,
+        phase: phase.label,
+        refreshedMonthlyAverage:
+          refreshedPhase?.monthlyAmountToday ?? accountAudit?.monthlyAverage ?? 0,
+        activeMonthlyAverage: phase.monthlyAmountToday,
+        funding: phase.funding === "cash" ? "Cash-funded" : "Income-withheld",
+        source: sourceLabel(details.sourceType),
+      }];
     });
     const calculated = round(
       activeRows.reduce((total, row) => total + Number(row.activeMonthlyAverage), 0),
@@ -765,6 +962,7 @@ function baselineMetricDocument(
           title: "Contribution account audit",
           columns: [
             { key: "account", label: "Account" },
+            { key: "phase", label: "Active phase" },
             { key: "refreshedMonthlyAverage", label: "Refreshed monthly" },
             { key: "activeMonthlyAverage", label: "Active monthly" },
             { key: "funding", label: "Funding" },
@@ -772,6 +970,21 @@ function baselineMetricDocument(
           ],
           rows: activeRows,
           initiallyExpanded: true,
+        },
+        {
+          title: "Full contribution path",
+          description: "Current and future resolved contribution phases consumed by the projection.",
+          columns: [
+            { key: "account", label: "Account" },
+            { key: "phase", label: "Phase" },
+            { key: "startAge", label: "Start age" },
+            { key: "endAge", label: "End age" },
+            { key: "monthlyAmount", label: "Monthly amount" },
+            { key: "funding", label: "Funding" },
+            { key: "indexing", label: "Indexing" },
+            { key: "source", label: "Source" },
+          ],
+          rows: contributionPhaseRows(context),
         },
       ],
       assumptions: [],
@@ -784,15 +997,22 @@ function baselineMetricDocument(
     };
   }
 
+  const currentEmploymentPhase = context.inputs.person.employmentIncomePhases.find(
+    (phase) =>
+      context.inputs.person.currentAge >= phase.startAge &&
+      context.inputs.person.currentAge < phase.endAge,
+  );
   const definitions = {
     "baseline-income": {
       title: "Monthly employment income",
       audit: context.baseline.cashFlowAudit.income,
       displayed: monthlyEmploymentNetCash(context.inputs),
       refreshed: context.baseline.cashFlowAudit.income.monthlyAverage,
-      provenanceKey: "person.annualEmploymentNetCashToday",
+      provenanceKey: currentEmploymentPhase
+        ? `person.employmentIncomePhases.${currentEmploymentPhase.id}.annualNetCashToday`
+        : "person.employmentIncomePhases",
       plainLanguage:
-        "Net employment cash deposited to included accounts, averaged across the configured Lunch Money transaction window.",
+        "The current Lunch Money-derived net employment cash average. Future projection income may change across the configured employment phases shown below.",
       caveat: "Employment income is already net deposited cash, so the projection does not apply the simplified tax a second time.",
     },
     "baseline-essential": {
@@ -882,11 +1102,28 @@ function baselineMetricDocument(
         rows: definition.audit.breakdown,
         initiallyExpanded: true,
       },
+      ...(target === "baseline-income"
+        ? [{
+            title: "Employment income path",
+            description: "The current row is a trailing Lunch Money baseline; these resolved phases define the full future scenario.",
+            columns: [
+              { key: "phase", label: "Phase" },
+              { key: "startAge", label: "Start age" },
+              { key: "endAge", label: "End age" },
+              { key: "annualNetCashToday", label: "Annual net cash" },
+              { key: "annualGrowth", label: "Annual growth" },
+              { key: "source", label: "Source" },
+              { key: "effectiveDate", label: "Effective date" },
+            ],
+            rows: employmentPhaseRows(context),
+          }]
+        : []),
     ],
     assumptions: [],
     caveats: [
       definition.caveat,
       "The final audit row may absorb a one-cent rounding remainder so row averages reconcile to the model’s monthly value.",
+      ...(target === "baseline-income" ? longIncomeWarnings(context) : []),
     ],
     reconciliation: matched(calculatedActive, definition.displayed),
   };
@@ -1017,7 +1254,7 @@ function fundingChartDocument(context: ExplanationContext): ExplanationDocument 
           {
             series: "Employment",
             calculation:
-              "Net deposited employment cash for pre-retirement months, with configured income growth applied.",
+              "Net deposited employment cash from the phase active in each working month, with growth measured from that phase’s start.",
           },
           {
             series: "CPP",
@@ -1051,6 +1288,7 @@ function fundingChartDocument(context: ExplanationContext): ExplanationDocument 
         description: "These are the exact stacked funding series and tax line supplied to the chart.",
         columns: [
           { key: "periodLabel", label: "Period" },
+          { key: "employmentPhase", label: "Employment phase" },
           { key: "employmentNetCash", label: "Employment" },
           { key: "cpp", label: "CPP" },
           { key: "oas", label: "OAS" },
@@ -1063,6 +1301,7 @@ function fundingChartDocument(context: ExplanationContext): ExplanationDocument 
         ],
         rows: rows.map((row) => ({
           periodLabel: row.periodLabel,
+          employmentPhase: row.employmentPhase || "Retired",
           employmentNetCash: row.employmentNetCash,
           cpp: row.cpp,
           oas: row.oas,
@@ -1078,7 +1317,8 @@ function fundingChartDocument(context: ExplanationContext): ExplanationDocument 
     ],
     assumptions: commonAssumptions(context),
     caveats: [
-      "Employment disappears after retirement because the model stops net employment cash at the configured retirement age.",
+      "A labelled annual period can contain an employment transition; the phase column preserves the active labels in order.",
+      "Employment disappears after the exact retirement boundary because the model stops net employment cash after the final working month.",
       "CPP, OAS, and pension begin at their configured start ages.",
       "The tax line applies the simplified rate to gross retirement income and taxable RRSP/RRIF withdrawals, not to net employment deposits.",
       ...chartCaveats(context),
@@ -1088,11 +1328,18 @@ function fundingChartDocument(context: ExplanationContext): ExplanationDocument 
 
 function outflowChartDocument(context: ExplanationContext): ExplanationDocument {
   const rows = buildAnnualChartData(context.inputs, context.projection, context.displayMode);
-  const activeContributionAccounts = context.inputs.accounts.filter(
-    (account) =>
-      ["tfsa", "rrsp_rrif", "non_registered"].includes(account.type) &&
-      account.monthlyContributionToday > 0,
+  const contributionAccounts = context.inputs.accounts.filter(
+    (account) => ["tfsa", "rrsp_rrif", "non_registered"].includes(account.type),
   );
+  const activeContributionPhases = contributionAccounts.flatMap((account) => {
+    const phase = account.contributionPhases.find(
+      (item) =>
+        context.inputs.person.currentAge >= item.startAge &&
+        context.inputs.person.currentAge < item.endAge &&
+        item.monthlyAmountToday > 0,
+    );
+    return phase ? [{ account, phase }] : [];
+  });
   return {
     id: "annual-outflows",
     title: "Spending, taxes, and contributions",
@@ -1110,8 +1357,8 @@ function outflowChartDocument(context: ExplanationContext): ExplanationDocument 
       {
         label: "Cash-funded contribution accounts",
         value: String(
-          activeContributionAccounts.filter(
-            (account) => account.contributionFunding === "cash",
+          activeContributionPhases.filter(
+            ({ phase }) => phase.funding === "cash",
           ).length,
         ),
         operation: "input",
@@ -1120,8 +1367,8 @@ function outflowChartDocument(context: ExplanationContext): ExplanationDocument 
       {
         label: "Income-withheld contribution accounts",
         value: String(
-          activeContributionAccounts.filter(
-            (account) => account.contributionFunding === "income_withheld",
+          activeContributionPhases.filter(
+            ({ phase }) => phase.funding === "income_withheld",
           ).length,
         ),
         operation: "input",
@@ -1168,37 +1415,84 @@ function outflowChartDocument(context: ExplanationContext): ExplanationDocument 
         description: "These are the exact stacked outflow series supplied to the chart.",
         columns: [
           { key: "periodLabel", label: "Period" },
+          { key: "contributionPhases", label: "Active contribution phases" },
           { key: "essential", label: "Essential" },
           { key: "discretionary", label: "Discretionary" },
           { key: "oneTime", label: "One-time events" },
           { key: "tax", label: "Simplified tax" },
           { key: "contributions", label: "Cash-funded contributions" },
         ],
-        rows: rows.map(({ periodLabel, essential, discretionary, oneTime, tax, contributions }) => ({
-          periodLabel,
-          essential,
-          discretionary,
-          oneTime,
-          tax,
-          contributions,
-        })),
+        rows: rows.map(
+          ({
+            periodLabel,
+            contributionPhases,
+            essential,
+            discretionary,
+            oneTime,
+            tax,
+            contributions,
+          }) => ({
+            periodLabel,
+            contributionPhases: contributionPhases || "No active contribution phase",
+            essential,
+            discretionary,
+            oneTime,
+            tax,
+            contributions,
+          }),
+        ),
         initiallyExpanded: true,
       },
       {
-        title: "Contribution funding",
+        title: "Contribution phase amounts by period",
+        description: "Exact account-level contributions produced by the active phase in each annual period.",
+        columns: [
+          { key: "periodLabel", label: "Period" },
+          ...contributionAccounts.map((account, index) => ({
+            key: `account${index}`,
+            label: account.label,
+          })),
+        ],
+        rows: rows.map((row) => ({
+          periodLabel: row.periodLabel,
+          ...Object.fromEntries(
+            contributionAccounts.map((account, index) => [
+              `account${index}`,
+              row[`contribution:${account.id}`] ?? 0,
+            ]),
+          ),
+        })),
+      },
+      {
+        title: "Active contribution funding",
+        description: "Only investment accounts with a positive contribution in the phase active at the baseline age are included.",
         columns: [
           { key: "account", label: "Account" },
+          { key: "phase", label: "Active phase" },
           { key: "monthlyContribution", label: "Active monthly contribution" },
           { key: "funding", label: "Funding" },
         ],
-        rows: activeContributionAccounts.map((account) => ({
+        rows: activeContributionPhases.map(({ account, phase }) => ({
           account: account.label,
-          monthlyContribution: account.monthlyContributionToday,
+          phase: phase.label,
+          monthlyContribution: phase.monthlyAmountToday,
           funding:
-            account.contributionFunding === "income_withheld"
-              ? "Income-withheld"
-              : "Cash-funded",
+            phase.funding === "income_withheld" ? "Income-withheld" : "Cash-funded",
         })),
+      },
+      {
+        title: "Resolved contribution path",
+        columns: [
+          { key: "account", label: "Account" },
+          { key: "phase", label: "Phase" },
+          { key: "startAge", label: "Start age" },
+          { key: "endAge", label: "End age" },
+          { key: "monthlyAmount", label: "Monthly amount" },
+          { key: "funding", label: "Funding" },
+          { key: "indexing", label: "Indexing" },
+          { key: "source", label: "Source" },
+        ],
+        rows: contributionPhaseRows(context),
       },
     ],
     assumptions: commonAssumptions(context),
@@ -1215,6 +1509,11 @@ function accountDetailsRows(context: ExplanationContext) {
     const baselineAccount = context.baseline.derived.accountBalances.find(
       (item) => item.id === account.id,
     );
+    const activeContributionPhase = account.contributionPhases.find(
+      (phase) =>
+        context.inputs.person.currentAge >= phase.startAge &&
+        context.inputs.person.currentAge < phase.endAge,
+    );
     return {
       account: account.label,
       plannerType: accountTypeLabels[account.type],
@@ -1223,14 +1522,16 @@ function accountDetailsRows(context: ExplanationContext) {
       openingBalance: account.openingBalance,
       balanceDate: baselineAccount?.balanceAsOf ?? context.baseline.dataThrough,
       annualReturn: percent.format(account.annualReturn),
-      monthlyContribution: account.monthlyContributionToday,
+      monthlyContribution: activeContributionPhase?.monthlyAmountToday ?? 0,
       contributionFunding:
-        account.contributionFunding === "income_withheld"
+        activeContributionPhase?.funding === "income_withheld"
           ? "Income-withheld"
-          : account.contributionFunding === "cash"
+          : activeContributionPhase?.funding === "cash"
             ? "Cash-funded"
             : "None",
-      contributionIndexing: percent.format(account.contributionIndexingRate),
+      contributionIndexing: activeContributionPhase
+        ? percent.format(activeContributionPhase.indexingRate)
+        : "None",
       withdrawalPriority: account.withdrawalPriority,
       allocation:
         `${percent.format(account.allocation.cash)} cash · ` +
@@ -1308,6 +1609,21 @@ function burndownDocument(context: ExplanationContext): ExplanationDocument {
           goal: row.goal,
         })),
         initiallyExpanded: true,
+      },
+      {
+        title: "Contribution phases by account",
+        description: "All resolved contribution phases used by the account-level projection.",
+        columns: [
+          { key: "account", label: "Account" },
+          { key: "phase", label: "Phase" },
+          { key: "startAge", label: "Start age" },
+          { key: "endAge", label: "End age" },
+          { key: "monthlyAmount", label: "Monthly amount" },
+          { key: "funding", label: "Funding" },
+          { key: "indexing", label: "Indexing" },
+          { key: "source", label: "Source" },
+        ],
+        rows: contributionPhaseRows(context),
       },
     ],
     assumptions: commonAssumptions(context),

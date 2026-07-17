@@ -491,6 +491,13 @@ export function deriveCurrentBaseline(
   const accountBaselines: AccountBaseline[] = [];
   const projectionAccounts: ProjectionInputs["accounts"] = [];
   const provenance: Record<string, BaselineValue<unknown>> = {};
+  const dataThrough =
+    transactions.reduce(
+      (latest, transaction) => (transaction.date > latest ? transaction.date : latest),
+      "",
+    ) || window.endDate;
+  const monthlyIncome = round(incomeTotal / window.trailingMonths);
+  const annualEmploymentNetCashToday = round(monthlyIncome * 12);
   for (const account of includedAccountRecords) {
     const mapping = resolvedMapping.get(account.canonicalId)!;
     if (mapping.type === "exclude") continue;
@@ -530,6 +537,32 @@ export function deriveCurrentBaseline(
     const contributionFunding = isInvestmentAccount
       ? mapping.contributionFunding ?? (contributionFromConfig === undefined ? "cash" : undefined)
       : undefined;
+    const contributionPhases: ProjectionInputs["accounts"][number]["contributionPhases"] =
+      mapping.contributionPhases?.map((phase) => ({
+        id: phase.id,
+        label: phase.label,
+        startAge: phase.startAge,
+        endAge: phase.endAge,
+        monthlyAmountToday:
+          phase.monthlyAmountToday === "live_baseline"
+            ? monthlyContribution
+            : phase.monthlyAmountToday,
+        funding: phase.funding,
+        indexingRate: phase.indexingRate,
+      })) ??
+      (monthlyContribution > 0 && contributionFunding
+        ? [
+            {
+              id: "legacy-current-contribution",
+              label: "Current contribution",
+              startAge: config.currentAge,
+              endAge: config.retirementAge,
+              monthlyAmountToday: monthlyContribution,
+              funding: contributionFunding,
+              indexingRate: config.assumptions.contributionIndexing,
+            },
+          ]
+        : []);
     const balance = round(Math.max(0, rawBalance));
     const annualReturn = projectionReturn(config, mapping);
     const allocation = projectionAllocation(config, mapping);
@@ -552,9 +585,7 @@ export function deriveCurrentBaseline(
       type,
       openingBalance: balance,
       annualReturn,
-      monthlyContributionToday: monthlyContribution,
-      contributionFunding,
-      contributionIndexingRate: config.assumptions.contributionIndexing,
+      contributionPhases,
       withdrawalPriority: mapping.withdrawalPriority ?? 999,
       allocation,
     });
@@ -568,27 +599,63 @@ export function deriveCurrentBaseline(
       `Return assumption for ${account.canonicalId}`,
       window.endDate,
     );
-    provenance[`accounts.${account.canonicalId}.monthlyContributionToday`] =
-      contributionSource === "local_configuration"
-        ? localValue(monthlyContribution, `Manual monthly contribution for ${account.canonicalId}`, window.endDate)
-        : derivedValue(
-            monthlyContribution,
-            `Trailing ${window.trailingMonths}-month average contribution for ${account.canonicalId}`,
-            window.endDate,
-          );
-    if (contributionFunding) {
-      provenance[`accounts.${account.canonicalId}.contributionFunding`] =
-        mapping.contributionFunding === undefined
+    for (const phase of contributionPhases) {
+      const prefix = `accounts.${account.canonicalId}.contributionPhases.${phase.id}`;
+      const configuredPhase = mapping.contributionPhases?.find((item) => item.id === phase.id);
+      const fallbackDescription =
+        "Legacy account-level contribution was normalized into a resolved contribution phase";
+      provenance[`${prefix}.label`] = localValue(
+        phase.label,
+        configuredPhase
+          ? `Contribution phase label for ${account.canonicalId}`
+          : `${fallbackDescription} for ${account.canonicalId}`,
+        window.endDate,
+      );
+      provenance[`${prefix}.startAge`] = localValue(
+        phase.startAge,
+        configuredPhase
+          ? `Contribution phase start age for ${account.canonicalId}`
+          : `${fallbackDescription}; start age uses currentAge`,
+        window.endDate,
+      );
+      provenance[`${prefix}.endAge`] = localValue(
+        phase.endAge,
+        configuredPhase
+          ? `Contribution phase end age for ${account.canonicalId}`
+          : `${fallbackDescription}; end age uses retirementAge`,
+        window.endDate,
+      );
+      provenance[`${prefix}.monthlyAmountToday`] =
+        configuredPhase?.monthlyAmountToday === "live_baseline" ||
+        (!configuredPhase && contributionSource === "lunchmoney_derived")
           ? derivedValue(
-              contributionFunding,
-              `Transaction-derived contributions for ${account.canonicalId} are cash-funded`,
-              window.endDate,
+              phase.monthlyAmountToday,
+              configuredPhase
+                ? `Live trailing ${window.trailingMonths}-month contribution average resolved for ${account.canonicalId}`
+                : `${fallbackDescription} from the trailing ${window.trailingMonths}-month contribution average`,
+              dataThrough || window.endDate,
             )
           : localValue(
-              contributionFunding,
-              `Contribution funding for ${account.canonicalId}`,
+              phase.monthlyAmountToday,
+              configuredPhase
+                ? `Configured contribution amount for ${account.canonicalId}`
+                : `${fallbackDescription} from the configured monthly contribution`,
               window.endDate,
             );
+      provenance[`${prefix}.funding`] = localValue(
+        phase.funding,
+        configuredPhase
+          ? `Contribution phase funding for ${account.canonicalId}`
+          : `${fallbackDescription}; funding preserves the legacy setting`,
+        window.endDate,
+      );
+      provenance[`${prefix}.indexingRate`] = localValue(
+        phase.indexingRate,
+        configuredPhase
+          ? `Contribution phase indexing for ${account.canonicalId}`
+          : `${fallbackDescription}; indexing preserves the legacy global assumption`,
+        window.endDate,
+      );
     }
     provenance[`accounts.${account.canonicalId}.label`] = derivedValue(
       account.name,
@@ -610,21 +677,91 @@ export function deriveCurrentBaseline(
       `Withdrawal priority for ${account.canonicalId}`,
       window.endDate,
     );
-    provenance[`accounts.${account.canonicalId}.contributionIndexingRate`] = localValue(
-      config.assumptions.contributionIndexing,
-      `Contribution indexing assumption for ${account.canonicalId}`,
+  }
+
+  const employmentIncomePhases: ProjectionInputs["person"]["employmentIncomePhases"] =
+    config.employmentIncomePhases?.map((phase) => ({
+      id: phase.id,
+      label: phase.label,
+      startAge: phase.startAge,
+      endAge: phase.endAge,
+      annualNetCashToday:
+        phase.annualNetCashToday === "live_baseline"
+          ? annualEmploymentNetCashToday
+          : phase.annualNetCashToday,
+      annualGrowth: phase.annualGrowth,
+    })) ?? [
+      {
+        id: "legacy-current-income",
+        label: "Current employment income",
+        startAge: config.currentAge,
+        endAge: config.retirementAge,
+        annualNetCashToday: annualEmploymentNetCashToday,
+        annualGrowth: config.assumptions.incomeGrowth,
+      },
+    ];
+  for (const phase of employmentIncomePhases) {
+    const prefix = `person.employmentIncomePhases.${phase.id}`;
+    const configuredPhase = config.employmentIncomePhases?.find((item) => item.id === phase.id);
+    const fallbackDescription =
+      "Legacy scalar employment income was normalized into a resolved employment phase";
+    provenance[`${prefix}.label`] = localValue(
+      phase.label,
+      configuredPhase ? "Employment income phase label" : fallbackDescription,
       window.endDate,
     );
+    provenance[`${prefix}.startAge`] = localValue(
+      phase.startAge,
+      configuredPhase ? "Employment income phase start age" : `${fallbackDescription}; start age uses currentAge`,
+      window.endDate,
+    );
+    provenance[`${prefix}.endAge`] = localValue(
+      phase.endAge,
+      configuredPhase ? "Employment income phase end age" : `${fallbackDescription}; end age uses retirementAge`,
+      window.endDate,
+    );
+    provenance[`${prefix}.annualNetCashToday`] =
+      configuredPhase?.annualNetCashToday === "live_baseline" || !configuredPhase
+        ? derivedValue(
+            phase.annualNetCashToday,
+            configuredPhase
+              ? `Live annualized net deposited employment income from the trailing ${window.trailingMonths}-month transaction window`
+              : `${fallbackDescription} from annualized trailing Lunch Money income`,
+            dataThrough || window.endDate,
+          )
+        : localValue(
+            phase.annualNetCashToday,
+            "Configured employment income for this phase",
+            window.endDate,
+          );
+    provenance[`${prefix}.annualGrowth`] = localValue(
+      phase.annualGrowth,
+      configuredPhase
+        ? "Employment income growth configured for this phase"
+        : `${fallbackDescription}; growth preserves assumptions.incomeGrowth`,
+      window.endDate,
+    );
+  }
+  const longLiveBaselinePhase = employmentIncomePhases.find((phase) => {
+    const configured = config.employmentIncomePhases?.find((item) => item.id === phase.id);
+    return (
+      phase.endAge - phase.startAge > 5 &&
+      (!configured || configured.annualNetCashToday === "live_baseline")
+    );
+  });
+  if (longLiveBaselinePhase) {
+    const years = round(longLiveBaselinePhase.endAge - longLiveBaselinePhase.startAge);
+    warnings.push({
+      code: "long_live_baseline_income",
+      severity: "warning",
+      message: `Current Lunch Money employment income is assumed to continue for ${years} years. Consider configuring future employment-income phases.`,
+    });
   }
 
   const blocking =
     unmappedAccounts.length > 0 ||
     unmappedCategories.length > 0 ||
     warnings.some((warning) => warning.severity === "error");
-  const dataThrough = transactions.reduce(
-    (latest, transaction) => (transaction.date > latest ? transaction.date : latest),
-    "",
-  ) || window.endDate;
   const connection = {
     status: "connected" as const,
     checkedAt,
@@ -654,7 +791,6 @@ export function deriveCurrentBaseline(
     );
   }
 
-  const monthlyIncome = round(incomeTotal / window.trailingMonths);
   const monthlyEssential = round(essentialTotal / window.trailingMonths);
   const monthlyDiscretionary = round(discretionaryTotal / window.trailingMonths);
   const contributionAccounts = accountBaselines
@@ -685,12 +821,6 @@ export function deriveCurrentBaseline(
     `Trailing ${window.trailingMonths}-month average of discretionary transactions`,
     dataThrough,
   );
-  provenance["person.annualEmploymentNetCashToday"] = derivedValue(
-    round(monthlyIncome * 12),
-    `Annualized trailing ${window.trailingMonths}-month average of net deposited income transactions; no additional employment tax is applied`,
-    dataThrough,
-  );
-
   const localFields: Record<string, number> = {
     currentAge: config.currentAge,
     retirementAge: config.retirementAge,
@@ -706,7 +836,6 @@ export function deriveCurrentBaseline(
     oasRecoveryRate: config.assumptions.oasRecoveryRate,
     "person.currentAge": config.currentAge,
     "person.retirementAge": config.retirementAge,
-    "person.annualIncomeGrowth": config.assumptions.incomeGrowth,
     "person.annualPensionToday": config.assumptions.pensionAnnualIncome,
     "person.pensionStartAge": config.assumptions.pensionStartAge,
     "person.pensionIndexingRate": config.assumptions.pensionIndexing,
@@ -751,8 +880,7 @@ export function deriveCurrentBaseline(
     person: {
       currentAge: config.currentAge,
       retirementAge: config.retirementAge,
-      annualEmploymentNetCashToday: round(monthlyIncome * 12),
-      annualIncomeGrowth: config.assumptions.incomeGrowth,
+      employmentIncomePhases,
       annualPensionToday: config.assumptions.pensionAnnualIncome,
       pensionStartAge: config.assumptions.pensionStartAge,
       pensionIndexingRate: config.assumptions.pensionIndexing,
@@ -773,7 +901,7 @@ export function deriveCurrentBaseline(
   });
 
   return {
-    schemaVersion: "1.1",
+    schemaVersion: "1.2",
     connection,
     projectionInputs,
     provenance,

@@ -1,5 +1,8 @@
 import type { BaselineValue } from "@/src/domain/defaults/types";
-import type { ProjectionInputs } from "@/src/domain/projection/types";
+import type {
+  ContributionFunding,
+  ProjectionInputs,
+} from "@/src/domain/projection/types";
 
 export type ConnectionStatus = {
   status: "connected";
@@ -40,7 +43,7 @@ export type AccountBaseline = {
   balanceAsOf: string;
   monthlyContribution: number;
   contributionSource: "lunchmoney_derived" | "local_configuration";
-  contributionFunding: ProjectionInputs["accounts"][number]["contributionFunding"];
+  contributionFunding: ContributionFunding | undefined;
 };
 
 export type DerivedMetric = {
@@ -110,7 +113,7 @@ export type DerivedBaseline = {
       accountId: string;
       monthlyAverage: number;
       source: "lunchmoney_derived" | "local_configuration";
-      funding: NonNullable<ProjectionInputs["accounts"][number]["contributionFunding"]>;
+      funding: ContributionFunding;
     }>;
   };
   recurringExpenses: {
@@ -121,7 +124,7 @@ export type DerivedBaseline = {
 };
 
 export type CurrentBaseline = {
-  schemaVersion: "1.1";
+  schemaVersion: "1.2";
   connection: ConnectionStatus;
   projectionInputs: ProjectionInputs;
   provenance: Record<string, BaselineValue<unknown>>;

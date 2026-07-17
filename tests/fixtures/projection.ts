@@ -19,8 +19,16 @@ export const projectionFixture: ProjectionInputs = {
   person: {
     currentAge: 40,
     retirementAge: 65,
-    annualEmploymentNetCashToday: 84000,
-    annualIncomeGrowth: 0.02,
+    employmentIncomePhases: [
+      {
+        id: "current-income",
+        label: "Current income",
+        startAge: 40,
+        endAge: 65,
+        annualNetCashToday: 84000,
+        annualGrowth: 0.02,
+      },
+    ],
     annualPensionToday: 0,
     pensionStartAge: 65,
     pensionIndexingRate: 0.02,
@@ -35,8 +43,7 @@ export const projectionFixture: ProjectionInputs = {
       type: "cash",
       openingBalance: 20000,
       annualReturn: 0.02,
-      monthlyContributionToday: 0,
-      contributionIndexingRate: 0,
+      contributionPhases: [],
       withdrawalPriority: 1,
       allocation: { cash: 1, fixedIncome: 0, equity: 0 },
     },
@@ -46,9 +53,17 @@ export const projectionFixture: ProjectionInputs = {
       type: "rrsp_rrif",
       openingBalance: 180000,
       annualReturn: 0.05,
-      monthlyContributionToday: 1000,
-      contributionFunding: "cash",
-      contributionIndexingRate: 0.02,
+      contributionPhases: [
+        {
+          id: "current-saving",
+          label: "Current saving",
+          startAge: 40,
+          endAge: 65,
+          monthlyAmountToday: 1000,
+          funding: "cash",
+          indexingRate: 0.02,
+        },
+      ],
       withdrawalPriority: 2,
       allocation: { cash: 0, fixedIncome: 0.3, equity: 0.7 },
     },
@@ -135,7 +150,7 @@ export const baselineContextFixture: BaselineExportContext = {
 
 export const currentBaselineFixture: CurrentBaseline = {
   ...baselineContextFixture,
-  schemaVersion: "1.1",
+  schemaVersion: "1.2",
   provenance: {
     ...baselineContextFixture.provenance,
     monthlyDiscretionarySpendingToday: {
@@ -144,7 +159,7 @@ export const currentBaselineFixture: CurrentBaseline = {
       sourceDescription: "Trailing transaction average",
       effectiveDate: "2026-07-14",
     },
-    "person.annualEmploymentNetCashToday": {
+    "person.employmentIncomePhases.current-income.annualNetCashToday": {
       value: 84000,
       sourceType: "lunchmoney_derived",
       sourceDescription: "Annualized net deposited income",

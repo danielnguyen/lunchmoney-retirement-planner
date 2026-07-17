@@ -224,9 +224,30 @@ describe("live baseline derivation", () => {
     expect(baseline.derived.recurringExpenses.monthlyTotal).toBe(100);
     expect(baseline.dataThrough).toBe("2026-07-08");
     expect(baseline.projectionInputs.startDate).toBe("2026-07-08");
-    expect(baseline.projectionInputs.person.annualEmploymentNetCashToday).toBe(3000);
+    expect(
+      baseline.projectionInputs.person.employmentIncomePhases[0]!.annualNetCashToday,
+    ).toBe(3000);
+    expect(baseline.projectionInputs.person.employmentIncomePhases).toEqual([
+      expect.objectContaining({
+        id: "legacy-current-income",
+        startAge: 40,
+        endAge: 65,
+        annualGrowth: 0.02,
+      }),
+    ]);
+    expect(baseline.projectionInputs.accounts[1]!.contributionPhases).toEqual([
+      expect.objectContaining({
+        id: "legacy-current-contribution",
+        monthlyAmountToday: 20,
+        funding: "cash",
+        indexingRate: 0.02,
+      }),
+    ]);
     expect(baseline.recordsAnalyzed.transactions).toBe(8);
-    expect(baseline.schemaVersion).toBe("1.1");
+    expect(baseline.schemaVersion).toBe("1.2");
+    expect(baseline.warnings).toContainEqual(
+      expect.objectContaining({ code: "long_live_baseline_income" }),
+    );
   });
 
   it("retains reconciled category and account audit evidence without raw transactions", () => {
@@ -303,5 +324,76 @@ describe("live baseline derivation", () => {
         expect.arrayContaining([expect.objectContaining({ id: "11", name: "Wants" })]),
       );
     }
+  });
+
+  it("resolves explicit live-baseline employment and contribution phases to numbers", () => {
+    const phased = structuredClone(configFixture);
+    phased.employmentIncomePhases = [
+      {
+        id: "current",
+        label: "Current",
+        startAge: 40,
+        endAge: 42,
+        annualNetCashToday: "live_baseline",
+        annualGrowth: 0,
+      },
+      {
+        id: "future",
+        label: "Future",
+        startAge: 42,
+        endAge: 65,
+        annualNetCashToday: 60000,
+        annualGrowth: 0.01,
+      },
+    ];
+    phased.accountMappings["plaid:2"]!.contributionPhases = [
+      {
+        id: "current",
+        label: "Current",
+        startAge: 40,
+        endAge: 42,
+        monthlyAmountToday: "live_baseline",
+        funding: "income_withheld",
+        indexingRate: 0,
+      },
+      {
+        id: "future",
+        label: "Future",
+        startAge: 42,
+        endAge: 65,
+        monthlyAmountToday: 500,
+        funding: "cash",
+        indexingRate: 0.02,
+      },
+    ];
+
+    const baseline = deriveCurrentBaseline(
+      phased,
+      lunchMoneyData(),
+      window,
+      "2026-07-14T12:00:00.000Z",
+    );
+
+    expect(baseline.projectionInputs.person.employmentIncomePhases).toEqual([
+      expect.objectContaining({ id: "current", annualNetCashToday: 3000 }),
+      expect.objectContaining({ id: "future", annualNetCashToday: 60000 }),
+    ]);
+    expect(baseline.projectionInputs.accounts[1]!.contributionPhases).toEqual([
+      expect.objectContaining({
+        id: "current",
+        monthlyAmountToday: 20,
+        funding: "income_withheld",
+      }),
+      expect.objectContaining({
+        id: "future",
+        monthlyAmountToday: 500,
+        funding: "cash",
+      }),
+    ]);
+    expect(
+      baseline.provenance[
+        "person.employmentIncomePhases.current.annualNetCashToday"
+      ]?.sourceType,
+    ).toBe("lunchmoney_derived");
   });
 });

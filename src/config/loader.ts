@@ -13,12 +13,16 @@ import {
   transactionClassifications,
   type AccountMapping,
   type CategoryMapping,
+  type ContributionPhaseConfig,
+  type EmploymentIncomePhaseConfig,
+  type LiveBaselineAmount,
   type PlannerAssumptions,
   type PlannerConfig,
   type TransactionClassification,
 } from "./types";
 
 export const DEFAULT_CONFIG_PATH = "config/planner.local.yaml";
+const PHASE_AGE_TOLERANCE = 1e-6;
 
 function record(value: unknown, field: string): Record<string, unknown> {
   if (!value || typeof value !== "object" || Array.isArray(value)) {
@@ -76,6 +80,68 @@ function allocation(value: unknown, field: string): AssetAllocation {
   };
 }
 
+function nonEmptyString(value: unknown, field: string): string {
+  if (typeof value !== "string" || value.trim().length === 0) {
+    throw new PlannerRuntimeError(
+      "invalid_planner_config",
+      `${field} must be a non-empty string.`,
+      422,
+    );
+  }
+  return value;
+}
+
+function liveBaselineAmount(value: unknown, field: string): LiveBaselineAmount {
+  if (value === "live_baseline") return value;
+  if (typeof value === "string") {
+    throw new PlannerRuntimeError(
+      "invalid_planner_config",
+      `${field} must be a non-negative number or the exact string live_baseline.`,
+      422,
+    );
+  }
+  return number(value, field, { min: 0 });
+}
+
+function contributionPhases(value: unknown, field: string): ContributionPhaseConfig[] {
+  if (!Array.isArray(value)) {
+    throw new PlannerRuntimeError(
+      "invalid_planner_config",
+      `${field} must be an array.`,
+      422,
+    );
+  }
+  return value.map((raw, index) => {
+    const phaseField = `${field}[${index}]`;
+    const item = record(raw, phaseField);
+    if (
+      typeof item.funding !== "string" ||
+      !contributionFundingTypes.includes(item.funding as never)
+    ) {
+      throw new PlannerRuntimeError(
+        "invalid_planner_config",
+        `${phaseField}.funding must be cash or income_withheld.`,
+        422,
+      );
+    }
+    return {
+      id: nonEmptyString(item.id, `${phaseField}.id`),
+      label: nonEmptyString(item.label, `${phaseField}.label`),
+      startAge: number(item.startAge, `${phaseField}.startAge`, { min: 18, max: 100 }),
+      endAge: number(item.endAge, `${phaseField}.endAge`, { min: 18, max: 100 }),
+      monthlyAmountToday: liveBaselineAmount(
+        item.monthlyAmountToday,
+        `${phaseField}.monthlyAmountToday`,
+      ),
+      funding: item.funding as ContributionPhaseConfig["funding"],
+      indexingRate: number(item.indexingRate, `${phaseField}.indexingRate`, {
+        min: -0.2,
+        max: 0.5,
+      }),
+    };
+  });
+}
+
 function accountMapping(value: unknown, field: string): AccountMapping {
   const item = record(value, field);
   if (typeof item.include !== "boolean") {
@@ -100,6 +166,23 @@ function accountMapping(value: unknown, field: string): AccountMapping {
     );
   }
   const investmentTypes = ["tfsa", "rrsp", "non_registered"];
+  if (
+    item.contributionPhases !== undefined &&
+    (item.monthlyContribution !== undefined || item.contributionFunding !== undefined)
+  ) {
+    throw new PlannerRuntimeError(
+      "invalid_planner_config",
+      `${field} cannot combine contributionPhases with legacy monthlyContribution or contributionFunding fields.`,
+      422,
+    );
+  }
+  if (item.contributionPhases !== undefined && !investmentTypes.includes(item.type)) {
+    throw new PlannerRuntimeError(
+      "invalid_planner_config",
+      `${field}.contributionPhases may only be configured for a TFSA, RRSP/RRIF, or non-registered account.`,
+      422,
+    );
+  }
   if (item.monthlyContribution !== undefined && !investmentTypes.includes(item.type)) {
     throw new PlannerRuntimeError(
       "invalid_planner_config",
@@ -145,6 +228,14 @@ function accountMapping(value: unknown, field: string): AccountMapping {
     ...(item.contributionFunding === undefined
       ? {}
       : { contributionFunding: item.contributionFunding as AccountMapping["contributionFunding"] }),
+    ...(item.contributionPhases === undefined
+      ? {}
+      : {
+          contributionPhases: contributionPhases(
+            item.contributionPhases,
+            `${field}.contributionPhases`,
+          ),
+        }),
     ...(item.annualReturn === undefined
       ? {}
       : { annualReturn: number(item.annualReturn, `${field}.annualReturn`, { min: -0.99, max: 1 }) }),
@@ -223,11 +314,17 @@ function assumptions(value: unknown): PlannerAssumptions {
       max: 1,
     }),
     debtReturn: number(item.debtReturn, "assumptions.debtReturn", { min: -0.99, max: 1 }),
-    incomeGrowth: number(item.incomeGrowth, "assumptions.incomeGrowth", { min: -0.2, max: 0.5 }),
-    contributionIndexing: number(item.contributionIndexing, "assumptions.contributionIndexing", {
-      min: -0.2,
-      max: 0.5,
-    }),
+    incomeGrowth:
+      item.incomeGrowth === undefined
+        ? 0
+        : number(item.incomeGrowth, "assumptions.incomeGrowth", { min: -0.2, max: 0.5 }),
+    contributionIndexing:
+      item.contributionIndexing === undefined
+        ? 0
+        : number(item.contributionIndexing, "assumptions.contributionIndexing", {
+            min: -0.2,
+            max: 0.5,
+          }),
     cppIndexing: number(item.cppIndexing, "assumptions.cppIndexing", { min: -0.2, max: 0.5 }),
     oasIndexing: number(item.oasIndexing, "assumptions.oasIndexing", { min: -0.2, max: 0.5 }),
     effectiveTaxRate: number(item.effectiveTaxRate, "assumptions.effectiveTaxRate", {
@@ -264,6 +361,165 @@ function assumptions(value: unknown): PlannerAssumptions {
       debt: allocation(allocations.debt, "assumptions.allocations.debt"),
     },
   };
+}
+
+function employmentIncomePhases(value: unknown): EmploymentIncomePhaseConfig[] {
+  if (!Array.isArray(value) || value.length === 0) {
+    throw new PlannerRuntimeError(
+      "invalid_planner_config",
+      "employmentIncomePhases must contain at least one phase when configured.",
+      422,
+    );
+  }
+  return value.map((raw, index) => {
+    const field = `employmentIncomePhases[${index}]`;
+    const item = record(raw, field);
+    return {
+      id: nonEmptyString(item.id, `${field}.id`),
+      label: nonEmptyString(item.label, `${field}.label`),
+      startAge: number(item.startAge, `${field}.startAge`, { min: 18, max: 100 }),
+      endAge: number(item.endAge, `${field}.endAge`, { min: 18, max: 100 }),
+      annualNetCashToday: liveBaselineAmount(
+        item.annualNetCashToday,
+        `${field}.annualNetCashToday`,
+      ),
+      annualGrowth: number(item.annualGrowth, `${field}.annualGrowth`, {
+        min: -0.2,
+        max: 0.5,
+      }),
+    };
+  });
+}
+
+function sameAge(left: number, right: number): boolean {
+  return Math.abs(left - right) <= PHASE_AGE_TOLERANCE;
+}
+
+function assertMonthAligned(age: number, currentAge: number, field: string): void {
+  const elapsedMonths = (age - currentAge) * 12;
+  if (Math.abs(elapsedMonths - Math.round(elapsedMonths)) > PHASE_AGE_TOLERANCE) {
+    throw new PlannerRuntimeError(
+      "invalid_planner_config",
+      `${field} must align to a projection month relative to currentAge.`,
+      422,
+    );
+  }
+}
+
+function validateEmploymentPhaseRanges(config: PlannerConfig): void {
+  const phases = config.employmentIncomePhases;
+  if (!phases) return;
+  const ids = new Set<string>();
+  for (const [index, phase] of phases.entries()) {
+    const field = `employmentIncomePhases[${index}]`;
+    if (ids.has(phase.id)) {
+      throw new PlannerRuntimeError(
+        "invalid_planner_config",
+        `employmentIncomePhases contains duplicate phase id "${phase.id}".`,
+        422,
+      );
+    }
+    ids.add(phase.id);
+    if (phase.startAge < config.currentAge - PHASE_AGE_TOLERANCE) {
+      throw new PlannerRuntimeError(
+        "invalid_planner_config",
+        `${field}.startAge must not be before currentAge.`,
+        422,
+      );
+    }
+    if (phase.endAge > config.retirementAge + PHASE_AGE_TOLERANCE) {
+      throw new PlannerRuntimeError(
+        "invalid_planner_config",
+        `${field}.endAge must not be after retirementAge.`,
+        422,
+      );
+    }
+    if (phase.endAge <= phase.startAge + PHASE_AGE_TOLERANCE) {
+      throw new PlannerRuntimeError(
+        "invalid_planner_config",
+        `${field}.endAge must be greater than startAge.`,
+        422,
+      );
+    }
+    assertMonthAligned(phase.startAge, config.currentAge, `${field}.startAge`);
+    assertMonthAligned(phase.endAge, config.currentAge, `${field}.endAge`);
+    const previous = phases[index - 1];
+    if (!previous) continue;
+    if (phase.startAge < previous.endAge - PHASE_AGE_TOLERANCE) {
+      throw new PlannerRuntimeError(
+        "invalid_planner_config",
+        `employmentIncomePhases overlap between "${previous.id}" and "${phase.id}".`,
+        422,
+      );
+    }
+    if (phase.startAge > previous.endAge + PHASE_AGE_TOLERANCE) {
+      throw new PlannerRuntimeError(
+        "invalid_planner_config",
+        `employmentIncomePhases have a gap between "${previous.id}" and "${phase.id}".`,
+        422,
+      );
+    }
+  }
+  if (!sameAge(phases[0]!.startAge, config.currentAge)) {
+    throw new PlannerRuntimeError(
+      "invalid_planner_config",
+      "The first employmentIncomePhase must begin at currentAge.",
+      422,
+    );
+  }
+  if (!sameAge(phases.at(-1)!.endAge, config.retirementAge)) {
+    throw new PlannerRuntimeError(
+      "invalid_planner_config",
+      "The final employmentIncomePhase must end at retirementAge.",
+      422,
+    );
+  }
+}
+
+function validateContributionPhaseRanges(config: PlannerConfig): void {
+  for (const [accountId, mapping] of Object.entries(config.accountMappings)) {
+    const phases = mapping.contributionPhases;
+    if (!phases) continue;
+    const ids = new Set<string>();
+    for (const [index, phase] of phases.entries()) {
+      const field = `accountMappings.${accountId}.contributionPhases[${index}]`;
+      if (ids.has(phase.id)) {
+        throw new PlannerRuntimeError(
+          "invalid_planner_config",
+          `${field} duplicates contribution phase id "${phase.id}".`,
+          422,
+        );
+      }
+      ids.add(phase.id);
+      if (
+        phase.startAge < config.currentAge - PHASE_AGE_TOLERANCE ||
+        phase.endAge > config.retirementAge + PHASE_AGE_TOLERANCE
+      ) {
+        throw new PlannerRuntimeError(
+          "invalid_planner_config",
+          `${field} must stay within currentAge and retirementAge.`,
+          422,
+        );
+      }
+      if (phase.endAge <= phase.startAge + PHASE_AGE_TOLERANCE) {
+        throw new PlannerRuntimeError(
+          "invalid_planner_config",
+          `${field}.endAge must be greater than startAge.`,
+          422,
+        );
+      }
+      assertMonthAligned(phase.startAge, config.currentAge, `${field}.startAge`);
+      assertMonthAligned(phase.endAge, config.currentAge, `${field}.endAge`);
+      const previous = phases[index - 1];
+      if (previous && phase.startAge < previous.endAge - PHASE_AGE_TOLERANCE) {
+        throw new PlannerRuntimeError(
+          "invalid_planner_config",
+          `${field} overlaps contribution phase "${previous.id}".`,
+          422,
+        );
+      }
+    }
+  }
 }
 
 function events(value: unknown): ProjectionEventInput[] {
@@ -312,12 +568,11 @@ export function validatePlannerConfig(value: unknown): PlannerConfig {
   const rawAccountMappings = record(item.accountMappings, "accountMappings");
   const rawCategoryMappings = record(item.categoryMappings, "categoryMappings");
   const config: PlannerConfig = {
-    currentAge: number(item.currentAge, "currentAge", { min: 18, max: 100, integer: true }),
-    retirementAge: number(item.retirementAge, "retirementAge", { min: 19, max: 100, integer: true }),
+    currentAge: number(item.currentAge, "currentAge", { min: 18, max: 100 }),
+    retirementAge: number(item.retirementAge, "retirementAge", { min: 19, max: 100 }),
     projectionEndAge: number(item.projectionEndAge, "projectionEndAge", {
       min: 19,
       max: 120,
-      integer: true,
     }),
     cppStartAge: number(item.cppStartAge, "cppStartAge", { min: 60, max: 70, integer: true }),
     oasStartAge: number(item.oasStartAge, "oasStartAge", { min: 65, max: 70, integer: true }),
@@ -329,6 +584,13 @@ export function validatePlannerConfig(value: unknown): PlannerConfig {
       max: 60,
       integer: true,
     }),
+    ...(item.employmentIncomePhases === undefined
+      ? {}
+      : {
+          employmentIncomePhases: employmentIncomePhases(
+            item.employmentIncomePhases,
+          ),
+        }),
     accountMappings: Object.fromEntries(
       Object.entries(rawAccountMappings).map(([id, mapping]) => [
         id,
@@ -359,6 +621,10 @@ export function validatePlannerConfig(value: unknown): PlannerConfig {
       422,
     );
   }
+  assertMonthAligned(config.retirementAge, config.currentAge, "retirementAge");
+  assertMonthAligned(config.projectionEndAge, config.currentAge, "projectionEndAge");
+  validateEmploymentPhaseRanges(config);
+  validateContributionPhaseRanges(config);
   return config;
 }
 

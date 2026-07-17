@@ -22,6 +22,7 @@ import {
   ExplainableHeading,
   ExplanationDrawer,
 } from "@/components/explanations";
+import { resolveActiveScenarioWarnings } from "@/src/domain/baseline/scenario-warnings";
 import type { CurrentBaseline } from "@/src/domain/baseline/types";
 import { buildExplanation } from "@/src/domain/explanations/build";
 import type { ExplanationTarget } from "@/src/domain/explanations/types";
@@ -89,19 +90,6 @@ function fixed(value: number): (inputs: ProjectionInputs) => number {
 
 function buildControls(baseline: ProjectionInputs): ControlDefinition[] {
   const controls: ControlDefinition[] = [
-    {
-      key: "retirementAge",
-      sourceKey: "retirementAge",
-      label: "Retirement age",
-      min: (inputs) => inputs.person.currentAge + 1,
-      max: (inputs) => inputs.endAge,
-      step: 1,
-      format: String,
-      get: (inputs) => inputs.person.retirementAge,
-      set: (inputs, value) => {
-        inputs.person.retirementAge = value;
-      },
-    },
     {
       key: "cppStartAge",
       sourceKey: "cppStartAge",
@@ -182,21 +170,90 @@ function buildControls(baseline: ProjectionInputs): ControlDefinition[] {
     },
   ];
 
+  for (const phase of baseline.person.employmentIncomePhases) {
+    controls.push(
+      {
+        key: `employmentPhase.${phase.id}.annualNetCashToday`,
+        sourceKey: `person.employmentIncomePhases.${phase.id}.annualNetCashToday`,
+        label: `${phase.label} annual net cash`,
+        min: fixed(0),
+        max: fixed(Math.max(250000, phase.annualNetCashToday * 3)),
+        step: 1000,
+        format: currency.format,
+        get: (inputs) =>
+          inputs.person.employmentIncomePhases.find((item) => item.id === phase.id)!
+            .annualNetCashToday,
+        set: (inputs, value) => {
+          inputs.person.employmentIncomePhases.find(
+            (item) => item.id === phase.id,
+          )!.annualNetCashToday = value;
+        },
+      },
+      {
+        key: `employmentPhase.${phase.id}.annualGrowth`,
+        sourceKey: `person.employmentIncomePhases.${phase.id}.annualGrowth`,
+        label: `${phase.label} annual income growth`,
+        min: fixed(-0.2),
+        max: fixed(0.5),
+        step: 0.001,
+        format: percent.format,
+        get: (inputs) =>
+          inputs.person.employmentIncomePhases.find((item) => item.id === phase.id)!
+            .annualGrowth,
+        set: (inputs, value) => {
+          inputs.person.employmentIncomePhases.find(
+            (item) => item.id === phase.id,
+          )!.annualGrowth = value;
+        },
+      },
+    );
+  }
+
   for (const account of baseline.accounts) {
     if (!["tfsa", "rrsp_rrif", "non_registered"].includes(account.type)) continue;
-    controls.push({
-      key: `contribution.${account.id}`,
-      sourceKey: `accounts.${account.id}.monthlyContributionToday`,
-      label: `${account.label} monthly contribution (${account.contributionFunding === "income_withheld" ? "income-withheld" : "cash-funded"})`,
-      min: fixed(0),
-      max: fixed(Math.max(5000, account.monthlyContributionToday * 3)),
-      step: 25,
-      format: currency.format,
-      get: (inputs) => inputs.accounts.find((item) => item.id === account.id)!.monthlyContributionToday,
-      set: (inputs, value) => {
-        inputs.accounts.find((item) => item.id === account.id)!.monthlyContributionToday = value;
-      },
-    });
+    for (const phase of account.contributionPhases) {
+      controls.push(
+        {
+          key: `contributionPhase.${account.id}.${phase.id}.monthlyAmountToday`,
+          sourceKey: `accounts.${account.id}.contributionPhases.${phase.id}.monthlyAmountToday`,
+          label: `${account.label} · ${phase.label} monthly contribution`,
+          min: fixed(0),
+          max: fixed(Math.max(5000, phase.monthlyAmountToday * 3)),
+          step: 25,
+          format: currency.format,
+          get: (inputs) =>
+            inputs.accounts
+              .find((item) => item.id === account.id)!
+              .contributionPhases.find((item) => item.id === phase.id)!.monthlyAmountToday,
+          set: (inputs, value) => {
+            inputs.accounts
+              .find((item) => item.id === account.id)!
+              .contributionPhases.find(
+                (item) => item.id === phase.id,
+              )!.monthlyAmountToday = value;
+          },
+        },
+        {
+          key: `contributionPhase.${account.id}.${phase.id}.indexingRate`,
+          sourceKey: `accounts.${account.id}.contributionPhases.${phase.id}.indexingRate`,
+          label: `${account.label} · ${phase.label} contribution indexing`,
+          min: fixed(-0.2),
+          max: fixed(0.5),
+          step: 0.001,
+          format: percent.format,
+          get: (inputs) =>
+            inputs.accounts
+              .find((item) => item.id === account.id)!
+              .contributionPhases.find((item) => item.id === phase.id)!.indexingRate,
+          set: (inputs, value) => {
+            inputs.accounts
+              .find((item) => item.id === account.id)!
+              .contributionPhases.find((item) => item.id === phase.id)!.indexingRate =
+              value;
+          },
+        },
+      );
+    }
   }
 
   const typeLabels: Record<AccountType, string> = {
@@ -467,6 +524,7 @@ export function PlannerDashboard() {
   );
   const activeMonthlyIncome = monthlyEmploymentNetCash(inputs);
   const activeMonthlyContributions = monthlyInvestmentContributions(inputs);
+  const activeWarnings = resolveActiveScenarioWarnings(baseline, inputs);
   const explanationDocument =
     projection && activeExplanation
       ? buildExplanation(activeExplanation.target, {
@@ -525,9 +583,9 @@ export function PlannerDashboard() {
         <button className="button secondary no-print" onClick={() => void refresh()}>Refresh Lunch Money</button>
       </section>
 
-      {baseline.warnings.length > 0 ? (
+      {activeWarnings.length > 0 ? (
         <section className="warning-panel" aria-label="Baseline warnings">
-          {baseline.warnings.map((warning, index) => (
+          {activeWarnings.map((warning, index) => (
             <p key={`${warning.code}-${index}`}>{warning.message}</p>
           ))}
         </section>
@@ -577,7 +635,7 @@ export function PlannerDashboard() {
                 onExplain={openExplanation}
               />
               <strong>{currency.format(projection.summary.financialAssetsAtRetirementToday)}</strong>
-              <small>{projection.summary.retirementYear} · financial assets only</small>
+              <small>{projection.summary.retirementDate} · financial assets only</small>
             </article>
             <article className="metric-card">
               <ExplainableHeading
@@ -876,6 +934,30 @@ export function PlannerDashboard() {
                     <dt><ExplainableHeading compact headingLevel="span" target="baseline-recurring" title="Recurring expenses" onExplain={openExplanation} /></dt>
                     <dd>{currency.format(baseline.derived.recurringExpenses.monthlyTotal)}</dd>
                   </div>
+                </dl>
+              </div>
+              <div>
+                <h3>Employment income path</h3>
+                <dl>
+                  {inputs.person.employmentIncomePhases.map((phase) => {
+                    const overrideKey =
+                      `employmentPhase.${phase.id}.annualNetCashToday`;
+                    const provenanceKey =
+                      `person.employmentIncomePhases.${phase.id}.annualNetCashToday`;
+                    return (
+                      <div key={phase.id}>
+                        <dt>
+                          {phase.label} · age {phase.startAge}–{phase.endAge} (end exclusive)
+                        </dt>
+                        <dd>
+                          {currency.format(phase.annualNetCashToday)} ·{" "}
+                          {overrides[overrideKey] !== undefined
+                            ? "temporary override"
+                            : sourceLabel(baseline, provenanceKey)}
+                        </dd>
+                      </div>
+                    );
+                  })}
                 </dl>
               </div>
               <div>
