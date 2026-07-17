@@ -21,7 +21,7 @@ Do not introduce roadmap-oriented names such as `Phase1`, `PhaseA`, `government-
 
 Implementation names must describe the actual financial or product concept, such as government benefits, surplus policy, contribution room, debt schedules, spending phases, RRIF withdrawals, or tax calculation.
 
-The word `phase` remains appropriate only where it is already part of the financial domain model—for example, employment-income phases, contribution phases, or future spending phases with explicit time boundaries. Roadmap sequencing must not spread that term into unrelated code.
+The word `phase` remains appropriate only where it is part of the financial domain model—for example, employment-income phases, contribution phases, or spending phases with explicit time boundaries. Roadmap sequencing must not spread that term into unrelated code.
 
 Branches, pull-request titles, commits, tests, documentation headings, types, functions, files, and directories should use capability-specific language rather than sequence numbers.
 
