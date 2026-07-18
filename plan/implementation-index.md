@@ -13,8 +13,8 @@ Public content must remain generic. Do not add private financial values, account
 - Active capability: Surplus allocation policy
 - Status: In progress
 - Branch: `agent/add-surplus-allocation-policy`
-- Latest validated implementation head: `8470359cbc5cbda8954bb43cc946cc493ee8cc2a`
-- Synthetic validation: Passed — 10 test files and 130 tests, typecheck, lint, production build, Docker build, Compose configuration, export privacy, and diff checks
+- Latest validated implementation head: `28594dfe2553e3bb95c0d25dd728e7f6fc1d4b76`
+- Synthetic validation: Passed — 10 test files and 134 tests, including multi-account reserve and refill routing coverage, typecheck, lint, production build, Docker build, Compose configuration, export privacy, and diff checks
 - Remaining step: repository-owner private surplus-policy configuration and live smoke test
 - Next action: migrate the private surplus policy, smoke-test it, then review draft PR #9
 - Last completed capability: Government benefits
