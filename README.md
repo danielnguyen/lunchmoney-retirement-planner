@@ -10,8 +10,8 @@ The end-to-end MVP is defined in [plan/README.md](plan/README.md). The runtime n
 - Fetches manual accounts, Plaid accounts, categories, recurring items, and paginated trailing transactions on demand
 - Derives account balances, net deposited employment cash, essential and discretionary spending, investment contributions, recurring expenses, and a data-through date
 - Requires explicit account and category mappings; unmapped live records are shown with the identifiers needed to configure them
-- Runs a deterministic monthly, single-person retirement projection with explicit employment-income and account-contribution phases
-- Shows annual spending, cash inflow, cash outflow, account-level financial assets, allocation, milestones, and an annual ledger
+- Runs a deterministic monthly, single-person retirement projection with explicit employment-income phases, account-contribution phases, and surplus allocation
+- Shows annual spending, cash inflow, cash outflow, surplus allocation, account-level financial assets, allocation, milestones, and an annual ledger
 - Explains every major summary, chart, ledger, cash-flow input, and account section with reconciled formulas, values, dates, and provenance
 - Supports temporary browser overrides, per-field reset, reset all, and explicit refresh
 - Exports an automatically anonymized resolved baseline, provenance, warnings, active overrides, and projection as JSON or CSV
@@ -55,7 +55,7 @@ The easiest configuration workflow is:
 3. Map every account to `cash`, `tfsa`, `rrsp`, `non_registered`, `debt`, or `exclude`.
 4. Refresh again. The blocking state lists categories used by included accounts in the trailing window and reviewed recurring items.
 5. Map each listed category to `essential`, `discretionary`, `income`, `investment_contribution`, `transfer`, or `exclude`.
-6. Replace the generic ages, government-benefit sources, goal, returns, allocation, tax, pension, and milestone assumptions.
+6. Replace the generic ages, government-benefit sources, surplus policy, projection-only accounts, goal, returns, allocation, tax, pension, and milestone assumptions.
 
 Credit-card payments and internal movements must be mapped as `transfer` or `exclude`; the planner does not infer them from a payee or account name. Categories marked “exclude from totals” in Lunch Money are ignored automatically.
 
@@ -116,7 +116,7 @@ Within explicit `contributionPhases`, `live_baseline` resolves only from mapped 
 
 Every contribution increases its target investment balance. Only cash-funded contributions reduce available cash. Income-withheld contributions are external additions that were withheld before the net employment deposit reached Lunch Money.
 
-Existing YAML and JSON files remain compatible. Without employment phases, the runtime normalizes current Lunch Money income plus `assumptions.incomeGrowth` into one phase through retirement. When `contributionPhases` are omitted, a positive account-level `monthlyContribution`, `contributionFunding`, and `assumptions.contributionIndexing` become one compatibility phase. These scalar fields are migration inputs, not an alternate source for an explicit phase. A current-income fallback or explicit `live_baseline` phase longer than five years produces a visible warning while its active amount still matches the refreshed Lunch Money baseline.
+Existing employment and contribution scalar fields remain compatibility inputs after the required surplus policy is added. Without employment phases, the runtime normalizes current Lunch Money income plus `assumptions.incomeGrowth` into one phase through retirement. When `contributionPhases` are omitted, a positive account-level `monthlyContribution`, `contributionFunding`, and `assumptions.contributionIndexing` become one compatibility phase. These scalar fields are migration inputs, not an alternate source for an explicit phase. A current-income fallback or explicit `live_baseline` phase longer than five years produces a visible warning while its active amount still matches the refreshed Lunch Money baseline.
 
 ### Government benefits
 
@@ -147,6 +147,14 @@ Legacy CPP/OAS scalar fields remain compatibility inputs only. A complete legacy
 
 For migration, replace the legacy top-level ages and amounts plus `assumptions.cppIndexing` / `assumptions.oasIndexing` with one canonical block. A non-zero legacy CPP amount becomes `amountAt65.source: configured_amount` with the same amount and an explicit effective date; a non-zero legacy OAS amount becomes `fullAmountAt65.source: configured_amount`, with eligibility stated separately. Use `explicit_zero` for intentional zero CPP and `eligibility.mode: none` for intentional zero OAS. Do not copy statement filenames, account numbers, document IDs, or identifying descriptions into the configuration.
 
+### Surplus allocation and projection-only accounts
+
+`surplusAllocation` is required. There is no compatibility default and no first-cash-account fallback. The policy names one cash reserve account, a target reserve in today’s dollars, its indexing rate, and either `retain_as_cash` or an explicit non-registered excess destination. Automatic excess routing to TFSA or RRSP/RRIF accounts is blocked until registered-account room is modelled.
+
+Optional `projectionAccounts` are explicit planner accounts appended after imported accounts. Their IDs begin with `projection:`, their opening balance is fixed at zero, and their label, type, return, withdrawal priority, allocation, and contribution phases are all configured. They participate in projection returns, contributions, withdrawals, charts, explanations, and exports, but never appear as imported Lunch Money balances.
+
+Each positive month refills the indexed reserve shortfall first. Remaining excess stays in the reserve or moves to the configured non-registered account. A targeted event inflow deposits only its own amount into its target; unrelated employment cash and untargeted inflows continue through the surplus policy. Routing is an internal allocation of external net cash, so it does not add a bridge term or change total financial assets at the allocation moment. Account-specific returns can change future assets after routing.
+
 ## Refresh and reset behavior
 
 The baseline endpoint fetches Lunch Money again on every request. The dashboard’s refresh action rebuilds the baseline and clears all browser overrides. Resetting a field or using Reset all restores values from the most recently refreshed baseline, never compiled constants.
@@ -159,11 +167,11 @@ Explanations are deterministic documents built from the same current baseline, a
 
 The exact `retirementSnapshot` keeps end-of-final-working-month balances and allocation. Its flow fields describe only that final working month, identified by `flowPeriod`; cumulative activity from today through retirement belongs to `financialAssetsBridge`.
 
-Baseline schema `1.3` includes aggregate cash-flow audit evidence, resolved employment and contribution phases, and concrete CPP/OAS inputs with field-level provenance. It contains category/account names and reconciled aggregates—not raw transactions, transaction IDs, credentials, tokens, or private benefit-statement metadata. The typed export allowlist does not automatically export the audit structure or raw Lunch Money identifiers.
+Baseline schema `1.4` includes aggregate cash-flow audit evidence, resolved employment and contribution phases, concrete CPP/OAS inputs, projection-only accounts, and the resolved surplus policy with field-level provenance. It contains category/account names and reconciled aggregates—not raw transactions, transaction IDs, credentials, tokens, or private benefit-statement metadata. The typed export allowlist does not automatically export the audit structure or raw Lunch Money identifiers.
 
 The Assets at retirement explanation uses the exact end-of-final-working-month snapshot. It shows both the account-type sum and a today-dollar accumulation bridge from starting financial assets through income, public benefits, income-withheld contributions, returns, spending, events, and taxes. Cash-funded contributions are internal transfers and do not change the bridge total. A success label appears only when the bridge and displayed card value agree within one cent.
 
-Covered targets are the five summary cards, five main charts, annual ledger, five cash-flow provenance rows, Lunch Money account section, and concrete CPP and OAS benefit calculations. Individual ledger cells, account rows, and chart bars intentionally do not receive separate controls in this iteration.
+Covered targets are the summary cards, main charts including annual surplus allocation, annual ledger, cash-flow provenance rows, imported and projection-only account sections, surplus policy, and concrete CPP and OAS benefit calculations. Individual ledger cells, account rows, and chart bars intentionally do not receive separate controls.
 
 ## API
 
@@ -180,7 +188,7 @@ POST /api/v1/exports/projection-csv
 
 `GET /api/v1/lunchmoney/status` validates the token with a read-only categories request and returns a sanitized result.
 
-`GET /api/v1/baseline/current` returns schema `1.3` projection inputs, phase and government-benefit provenance, derived values, aggregate cash-flow audit evidence, transaction window, records analysed, warnings, and mapping details. Missing mappings return HTTP 422. An invalid token returns a sanitized HTTP 401 response.
+`GET /api/v1/baseline/current` returns schema `1.4` projection inputs, phase, government-benefit, projection-account, and surplus-policy provenance, derived values, aggregate cash-flow audit evidence, transaction window, records analysed, warnings, and mapping details. Missing mappings return HTTP 422. An invalid token returns a sanitized HTTP 401 response.
 
 Projection requests use this shape:
 
@@ -200,9 +208,9 @@ Export requests use the current baseline response, active inputs, and browser ov
 }
 ```
 
-Every normal JSON and CSV export is automatically anonymized; there is no raw or private export mode. Financial amounts, dates, account types, assumptions, CPP/OAS calculation summaries, public Canadian reference metadata, the exact retirement snapshot, and both accumulation bridges remain available for analysis. Account, institution, employer, category, event, recurring-expense, warning, and employment/contribution-phase text is replaced with stable generic aliases based only on record type and order.
+Every normal JSON and CSV export is automatically anonymized; there is no raw or private export mode. Financial amounts, dates, account types and origins, assumptions, CPP/OAS and surplus calculation summaries, public Canadian reference metadata, the exact retirement snapshot, and both accumulation bridges remain available for analysis. Imported and projection-only account IDs, policy references, account and institution labels, employer, category, event, recurring-expense, warning, and employment/contribution-phase text are replaced with stable generic aliases based only on record type and order.
 
-Schema `5.0` JSON is the complete analysis document and uses a typed allowlist with export-local keys such as `cash_1`, `employment_phase_1`, `event_1`, and `recurring_expense_1`; it never recursively copies source objects. The flat CSV keeps one row per annual period, generic phase aliases, separate cash-funded and income-withheld contribution totals, and flat CPP/OAS basis columns without embedding arrays or JSON. Both formats are designed to be shared for external financial analysis without manually editing identifiers. Downloads use `retirement-projection-<date>.json`, `retirement-projection-real-<date>.csv`, and `retirement-projection-nominal-<date>.csv`.
+Schema `6.0` JSON is the complete analysis document and uses a typed allowlist with export-local keys such as `cash_1`, `non_registered_1`, `employment_phase_1`, `event_1`, and `recurring_expense_1`; it never recursively copies source objects. The flat CSV keeps one row per annual period, generic phase and account aliases, separate contribution totals, flat CPP/OAS basis columns, surplus flows, policy fields, reserve target, and per-account policy allocations without embedding arrays or JSON. Both formats are designed to be shared for external financial analysis without manually editing identifiers. Downloads use `retirement-projection-<date>.json`, `retirement-projection-real-<date>.csv`, and `retirement-projection-nominal-<date>.csv`.
 
 ## Docker Compose
 

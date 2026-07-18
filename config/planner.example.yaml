@@ -56,6 +56,33 @@ employmentIncomePhases:
     annualNetCashToday: 72000
     annualGrowth: 0.02
 
+# Projection-only accounts are planner assumptions, not imported Lunch Money
+# balances. Their opening balance is fixed at zero and cannot be configured.
+# Every return, withdrawal, allocation, and contribution assumption is explicit.
+projectionAccounts:
+  "projection:future-taxable":
+    label: Future taxable investment account
+    type: non_registered
+    annualReturn: 0.05
+    withdrawalPriority: 4
+    allocation: { cash: 0, fixedIncome: 0.2, equity: 0.8 }
+    contributionPhases: []
+
+# Positive unassigned monthly cash first refills this explicit indexed reserve.
+# Remaining excess is sent only to the configured non-registered destination.
+# Automatic TFSA and RRSP/RRIF routing is unavailable until contribution room
+# is modelled. To keep all surplus in cash, use:
+# excess:
+#   mode: retain_as_cash
+# and omit destinationAccountId.
+surplusAllocation:
+  reserveAccountId: "manual:replace-with-cash-account-id"
+  targetCashReserveToday: 30000
+  reserveIndexingRate: 0.02
+  excess:
+    mode: allocate_to_account
+    destinationAccountId: "projection:future-taxable"
+
 accountMappings:
   # Set include: true and choose a financial type for every account used by the
   # projection. Set include: false with type: exclude for every ignored account.

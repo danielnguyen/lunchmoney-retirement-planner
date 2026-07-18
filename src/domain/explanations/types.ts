@@ -22,6 +22,7 @@ export const explanationTargets = [
   "lunchmoney-accounts",
   "cpp-benefit",
   "oas-benefit",
+  "surplus-allocation",
 ] as const;
 
 export type ExplanationTarget = (typeof explanationTargets)[number];

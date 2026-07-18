@@ -121,6 +121,21 @@ employmentIncomePhases:
     endAge: 62
     annualNetCashToday: 72000
     annualGrowth: 0.02
+projectionAccounts:
+  "projection:future-taxable":
+    label: Future taxable investment account
+    type: non_registered
+    annualReturn: 0.05
+    withdrawalPriority: 4
+    allocation: { cash: 0, fixedIncome: 0.2, equity: 0.8 }
+    contributionPhases: []
+surplusAllocation:
+  reserveAccountId: "manual:lunch-money-cash-account-id"
+  targetCashReserveToday: 30000
+  reserveIndexingRate: 0.02
+  excess:
+    mode: allocate_to_account
+    destinationAccountId: "projection:future-taxable"
 accountMappings:
   "manual:lunch-money-account-id": # Synthetic retirement account
     include: true
@@ -298,7 +313,11 @@ The existing simplified tax model may remain for the MVP, but the interface and 
 
 The first projected month is the calendar month containing the live baseline data-through date. Employment and contribution phases are selected from each month’s working-age interval, use phase-local growth/indexing, and stop at retirement. Future events, retirement, CPP, OAS, RRIF milestones, calendar years, and annual ledger rows use the real calendar anchor. The first and last annual rows may therefore represent partial calendar years.
 
-The exact retirement snapshot is captured at the end of the final working month, immediately before the first fully retired month. The Assets at retirement summary uses this real-dollar snapshot rather than the next December row. The projection also emits nominal and real accumulation bridges from starting financial assets to this boundary. Cash-funded contributions are internal transfers; income-withheld contributions are external additions. Both bridges must reconcile within one cent.
+The exact retirement snapshot is captured at the end of the final working month, immediately before the first fully retired month. The Assets at retirement summary uses this real-dollar snapshot rather than the next December row. The projection also emits nominal and real accumulation bridges from starting financial assets to this boundary. Cash-funded contributions and surplus routing are internal transfers; income-withheld contributions are external additions. Both bridges must reconcile within one cent.
+
+Positive unassigned monthly cash uses the required resolved `surplusAllocation` policy. The explicit cash reserve is refilled to its indexed target before remaining excess is retained as cash or sent to one explicit non-registered destination. Account ordering never selects the reserve or destination. Targeted event inflows deposit only their own amounts into their targets. TFSA and RRSP/RRIF routing remains unavailable until registered-account room is modelled.
+
+Optional projection-only accounts are appended after imported accounts with origin `projection_configuration` and a fixed zero opening balance. They have explicit return, withdrawal, allocation, and contribution assumptions and remain distinct from Lunch Money balances in the dashboard, explanations, and exports.
 
 ## Dashboard
 
@@ -354,7 +373,7 @@ Every major summary card, main chart, annual ledger, resolved cash-flow value, a
 
 Explanation documents are typed domain output. They consume the same current baseline, active phase inputs, overrides, projection result, dollar mode, and selected allocation year as the report. Shared presentation-data builders feed both chart/ledger rendering and explanation tables. The Assets at retirement explanation includes the exact snapshot, accumulation bridge, employment path, contribution path, and any long-current-income warning. A reconciliation confirmation is shown only after exact model-precision agreement.
 
-The baseline API schema `1.3` includes aggregate cash-flow audit evidence, resolved phase provenance, and concrete CPP/OAS inputs with dated source and statutory-rule provenance:
+The baseline API schema `1.4` includes aggregate cash-flow audit evidence, resolved phase provenance, concrete CPP/OAS inputs with dated source and statutory-rule provenance, projection-only account provenance, and surplus-policy provenance:
 
 - income, essential spending, and discretionary spending grouped by category and account
 - investment contributions grouped by account with funding and derivation source
@@ -440,7 +459,7 @@ The JSON transformation is typed and allowlisted. It must not copy arbitrary sou
 
 Financial context is preserved through analytical amounts, balances, dates, ages, account types, classifications, directions, growth and return assumptions, contribution funding, warning codes and severities, provenance source types and effective dates, benefit calculation summaries, safe public Canadian references, and reconciliation bridges. Private account, institution, employer, category, event, recurring, warning, and phase text is replaced with generic aliases. Provenance descriptions use fixed safe wording derived from source type and compatibility state.
 
-Schema `5.0` JSON remains the complete analysis export and includes resolved aliased phases, concrete CPP/OAS inputs and calculation summaries, safe public reference metadata, the exact retirement snapshot, accumulation bridges, and metadata confirming automatic anonymization. CSV is one conventional flat annual table with exactly one header and one row per projection period. It includes the partial-period label, generic employment-phase alias, annual employment cash, flat CPP/OAS basis columns, separate cash-funded and income-withheld contribution totals, withdrawals, spending, tax, aggregate balances, financial assets, net worth, milestones, and optional per-account balance columns keyed only by export-local account references. CSV must not contain metadata preambles, blank section separators, phase arrays, embedded JSON, private labels, or multiple table schemas. Both formats are designed for external financial analysis without manual identifier editing.
+Schema `6.0` JSON remains the complete analysis export and includes resolved aliased phases and accounts, account origins, concrete CPP/OAS and surplus-policy calculation summaries, safe public reference metadata, the exact retirement snapshot, accumulation bridges, and metadata confirming automatic anonymization. CSV is one conventional flat annual table with exactly one header and one row per projection period. It includes the partial-period label, generic employment-phase alias, annual employment cash, flat CPP/OAS basis columns, contribution totals, withdrawals, spending, tax, surplus flows, policy settings, reserve target, per-account policy allocations, aggregate balances, financial assets, net worth, milestones, and per-account balance columns keyed only by export-local account references. CSV must not contain metadata preambles, blank section separators, phase arrays, embedded JSON, private labels, or multiple table schemas. Both formats are designed for external financial analysis without manual identifier editing.
 
 ## Docker runtime
 
@@ -515,6 +534,9 @@ The MVP is complete only when all criteria below pass.
 - [ ] CPP and OAS appear as separate income streams at their configured start ages.
 - [ ] Lunch Money-derived employment income is identified as net deposited cash and is not taxed a second time.
 - [ ] Projection calendar years, future events, milestones, and annual rows align with the live data-through month.
+- [ ] Positive cash uses the explicit surplus reserve and excess strategy, never account ordering.
+- [ ] Targeted event inflows deposit only their own amount and are not allocated twice.
+- [ ] Projection-only accounts remain distinct from imported Lunch Money balances and open at zero.
 - [ ] The main goal comparison uses financial assets rather than total net worth including real assets.
 - [ ] Calculator reset returns to the currently loaded live baseline.
 - [ ] Refreshing after Lunch Money data changes produces a changed baseline.

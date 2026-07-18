@@ -20,6 +20,7 @@ import {
   type ProjectionInputs,
   type ProjectionResult,
   type ProjectionView,
+  type SurplusAllocationTotals,
 } from "./types";
 
 export type ProjectionExportRequest = {
@@ -93,7 +94,7 @@ export type ShareSafeDerivedBaseline = {
 };
 
 export type ProjectionSnapshot = {
-  schemaVersion: "5.0";
+  schemaVersion: "6.0";
   generatedAt: string;
   exportMetadata: {
     transformation: "typed_allowlist_and_automatic_anonymization";
@@ -168,6 +169,7 @@ type ShareSafeContext = {
 type ProvenanceField = {
   reference: string;
   account?: AccountAlias;
+  accountReference?: AccountAlias;
   accountField?: string;
   employmentPhase?: RecordAlias;
   contributionPhase?: RecordAlias;
@@ -202,6 +204,7 @@ const ACCOUNT_PROVENANCE_FIELDS = new Set([
   "openingBalance",
   "annualReturn",
   "label",
+  "origin",
   "type",
   "allocation",
   "withdrawalPriority",
@@ -266,6 +269,9 @@ const SAFE_PROVENANCE_FIELDS = new Set([
   "transactionTrailingMonths",
   "startDate",
   "events",
+  "surplusAllocation.targetCashReserveToday",
+  "surplusAllocation.reserveIndexingRate",
+  "surplusAllocation.excess.mode",
 ]);
 
 const SIMPLE_OVERRIDE_KEYS = new Set([
@@ -276,6 +282,8 @@ const SIMPLE_OVERRIDE_KEYS = new Set([
   "monthlyDiscretionarySpendingToday",
   "annualInflation",
   "endAge",
+  "surplusAllocation.targetCashReserveToday",
+  "surplusAllocation.reserveIndexingRate",
 ]);
 
 const SAFE_MILESTONES = new Set([
@@ -585,6 +593,7 @@ function safeAccountInput(
   return {
     id: alias.key,
     label: alias.label,
+    origin: account.origin,
     type: account.type,
     openingBalance: account.openingBalance,
     annualReturn: account.annualReturn,
@@ -681,6 +690,25 @@ function safeProjectionInputs(
       rrifConversionAge: inputs.person.rrifConversionAge,
     },
     accounts: inputs.accounts.map((account) => safeAccountInput(account, context)),
+    surplusAllocation: {
+      reserveAccountId: requiredAccountAlias(
+        inputs.surplusAllocation.reserveAccountId,
+        context,
+      ).key,
+      targetCashReserveToday:
+        inputs.surplusAllocation.targetCashReserveToday,
+      reserveIndexingRate: inputs.surplusAllocation.reserveIndexingRate,
+      excess:
+        inputs.surplusAllocation.excess.mode === "retain_as_cash"
+          ? { mode: "retain_as_cash" }
+          : {
+              mode: "allocate_to_account",
+              destinationAccountId: requiredAccountAlias(
+                inputs.surplusAllocation.excess.destinationAccountId,
+                context,
+              ).key,
+            },
+    },
     events: inputs.events.map((event) => safeEventInput(event, context)),
   };
 }
@@ -693,6 +721,13 @@ function safeProjectionView(view: ProjectionView, context: ShareSafeContext): Pr
   const accountContributions: Record<string, number> = {};
   for (const [rawId, value] of Object.entries(view.accountContributions)) {
     accountContributions[requiredAccountAlias(rawId, context).key] = value;
+  }
+  const accountSurplusAllocations: Record<string, number> = {};
+  for (const [rawId, value] of Object.entries(
+    view.accountSurplusAllocations,
+  )) {
+    accountSurplusAllocations[requiredAccountAlias(rawId, context).key] =
+      value;
   }
   return {
     income: {
@@ -736,7 +771,33 @@ function safeProjectionView(view: ProjectionView, context: ShareSafeContext): Pr
     },
     accountBalances,
     accountContributions,
+    surplusAllocation: {
+      generated: view.surplusAllocation.generated,
+      reserveRefill: view.surplusAllocation.reserveRefill,
+      retainedAsCash: view.surplusAllocation.retainedAsCash,
+      redirected: view.surplusAllocation.redirected,
+      reserveTarget: view.surplusAllocation.reserveTarget,
+    },
+    accountSurplusAllocations,
     allocation: safeAllocation(view.allocation),
+  };
+}
+
+function safeSurplusTotals(
+  totals: SurplusAllocationTotals,
+  context: ShareSafeContext,
+): SurplusAllocationTotals {
+  return {
+    generated: totals.generated,
+    reserveRefill: totals.reserveRefill,
+    retainedAsCash: totals.retainedAsCash,
+    redirected: totals.redirected,
+    accountAllocations: Object.fromEntries(
+      Object.entries(totals.accountAllocations).map(([rawId, value]) => [
+        requiredAccountAlias(rawId, context).key,
+        value,
+      ]),
+    ),
   };
 }
 
@@ -776,7 +837,7 @@ function safeProjectionResult(
   context: ShareSafeContext,
 ): ProjectionResult {
   return {
-    schemaVersion: "5.0",
+    schemaVersion: "6.0",
     inputs: safeProjectionInputs(projection.inputs, context),
     summary: {
       retirementYear: projection.summary.retirementYear,
@@ -808,6 +869,49 @@ function safeProjectionResult(
       oas: {
         ...projection.governmentBenefits.oas,
       },
+    },
+    surplusAllocation: {
+      policy: {
+        reserveAccountId: requiredAccountAlias(
+          projection.surplusAllocation.policy.reserveAccountId,
+          context,
+        ).key,
+        targetCashReserveToday:
+          projection.surplusAllocation.policy.targetCashReserveToday,
+        reserveIndexingRate:
+          projection.surplusAllocation.policy.reserveIndexingRate,
+        excessMode: projection.surplusAllocation.policy.excessMode,
+        destinationAccountId:
+          projection.surplusAllocation.policy.destinationAccountId === null
+            ? null
+            : requiredAccountAlias(
+                projection.surplusAllocation.policy.destinationAccountId,
+                context,
+              ).key,
+      },
+      throughRetirement: {
+        nominal: safeSurplusTotals(
+          projection.surplusAllocation.throughRetirement.nominal,
+          context,
+        ),
+        real: safeSurplusTotals(
+          projection.surplusAllocation.throughRetirement.real,
+          context,
+        ),
+      },
+      reserveTargetAtRetirement: {
+        ...projection.surplusAllocation.reserveTargetAtRetirement,
+      },
+      reserveAccountBalanceAtRetirement: {
+        ...projection.surplusAllocation.reserveAccountBalanceAtRetirement,
+      },
+      destinationAccountBalanceAtRetirement:
+        projection.surplusAllocation.destinationAccountBalanceAtRetirement
+          ? {
+              ...projection.surplusAllocation
+                .destinationAccountBalanceAtRetirement,
+            }
+          : null,
     },
     annual: projection.annual.map((point) => ({
       calendarYear: point.calendarYear,
@@ -952,7 +1056,21 @@ function safeWarnings(
 function provenanceField(
   rawField: string,
   context: ShareSafeContext,
+  rawValue: unknown,
 ): ProvenanceField | undefined {
+  if (
+    rawField === "surplusAllocation.reserveAccountId" ||
+    rawField === "surplusAllocation.excess.destinationAccountId"
+  ) {
+    if (typeof rawValue !== "string") return undefined;
+    const accountReference = context.accountByRawId.get(rawValue);
+    if (!accountReference) return undefined;
+    return {
+      reference: rawField,
+      accountReference,
+      finalField: rawField.slice(rawField.lastIndexOf(".") + 1),
+    };
+  }
   if (SAFE_PROVENANCE_FIELDS.has(rawField)) {
     return {
       reference: rawField,
@@ -1038,6 +1156,7 @@ function safeProvenanceValue(
   safeEvents: ProjectionEventInput[],
 ): ShareSafeProvenanceData {
   if (field.reference === "events") return safeEvents;
+  if (field.accountReference) return field.accountReference.key;
   if (field.accountField === "label" && field.account) {
     return field.account.label;
   }
@@ -1055,6 +1174,19 @@ function safeProvenanceValue(
     }
     if (field.accountField === "type") {
       return allowedValue(value, ACCOUNT_TYPE_ORDER, "provenance account type");
+    }
+    if (field.accountField === "origin") {
+      return allowedValue(
+        value,
+        ["lunchmoney", "projection_configuration"] as const,
+        "provenance account origin",
+      );
+    }
+    if (
+      field.reference === "surplusAllocation.excess.mode" &&
+      ["retain_as_cash", "allocate_to_account"].includes(value)
+    ) {
+      return value;
     }
     if (
       field.reference === "person.cpp.amountSourceMode" &&
@@ -1124,7 +1256,7 @@ function safeProvenance(
   for (const [rawField, source] of Object.entries(provenance).sort(([left], [right]) =>
     left.localeCompare(right),
   )) {
-    const field = provenanceField(rawField, context);
+    const field = provenanceField(rawField, context, source.value);
     if (!field) continue;
     const sourceType = safeSourceType(source.sourceType);
     const referenceKind = safeReferenceKind(source.referenceKind);
@@ -1261,7 +1393,7 @@ export function createProjectionSnapshot(
   const dataThrough = safeDateLike(baseline.dataThrough, projection.inputs.startDate);
   const safeGeneratedAt = requireIsoTimestamp(generatedAt);
   return {
-    schemaVersion: "5.0",
+    schemaVersion: "6.0",
     generatedAt: safeGeneratedAt,
     exportMetadata: {
       transformation: "typed_allowlist_and_automatic_anonymization",
@@ -1392,6 +1524,16 @@ export function projectionSnapshotToCsv(
     "pensionIncome",
     "otherIncome",
     "totalIncome",
+    "surplus_generated",
+    "surplus_reserve_refill",
+    "surplus_retained_as_cash",
+    "surplus_redirected",
+    "surplus_reserve_target",
+    "surplus_reserve_target_today",
+    "surplus_reserve_indexing_rate",
+    "surplus_excess_mode",
+    "surplus_reserve_account",
+    "surplus_destination_account",
     "cashWithdrawals",
     "tfsaWithdrawals",
     "rrspRrifWithdrawals",
@@ -1414,6 +1556,9 @@ export function projectionSnapshotToCsv(
     "financialAssets",
     "netWorth",
     ...accountAliases.map((account) => `account_${account.key}`),
+    ...accountAliases.map(
+      (account) => `surplus_allocation_${account.key}`,
+    ),
     "milestones",
   ];
 
@@ -1441,6 +1586,17 @@ export function projectionSnapshotToCsv(
       view.income.pension,
       view.income.other,
       view.income.total,
+      view.surplusAllocation.generated,
+      view.surplusAllocation.reserveRefill,
+      view.surplusAllocation.retainedAsCash,
+      view.surplusAllocation.redirected,
+      view.surplusAllocation.reserveTarget,
+      snapshot.projection.surplusAllocation.policy
+        .targetCashReserveToday,
+      snapshot.projection.surplusAllocation.policy.reserveIndexingRate,
+      snapshot.projection.surplusAllocation.policy.excessMode,
+      snapshot.projection.surplusAllocation.policy.reserveAccountId,
+      snapshot.projection.surplusAllocation.policy.destinationAccountId ?? "",
       view.withdrawals.cash,
       view.withdrawals.tfsa,
       view.withdrawals.rrspRrif,
@@ -1463,6 +1619,9 @@ export function projectionSnapshotToCsv(
       view.balances.financialAssets,
       view.balances.netWorth,
       ...accountAliases.map((account) => view.accountBalances[account.key] ?? 0),
+      ...accountAliases.map(
+        (account) => view.accountSurplusAllocations[account.key] ?? 0,
+      ),
       point.milestones.join("; "),
     ]
       .map(csvCell)

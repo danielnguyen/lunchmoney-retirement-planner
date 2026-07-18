@@ -2,6 +2,7 @@ import type {
   AssetAllocation,
   ContributionFunding,
   ProjectionEventInput,
+  SurplusAllocationPolicyInput,
 } from "@/src/domain/projection/types";
 
 export const plannerAccountTypes = [
@@ -56,6 +57,15 @@ export type AccountMapping = {
   annualReturn?: number;
   withdrawalPriority?: number;
   allocation?: AssetAllocation;
+};
+
+export type ProjectionAccountConfig = {
+  label: string;
+  type: Exclude<PlannerAccountType, "debt" | "exclude">;
+  annualReturn: number;
+  withdrawalPriority: number;
+  allocation: AssetAllocation;
+  contributionPhases: ContributionPhaseConfig[];
 };
 
 export type CategoryMapping =
@@ -149,6 +159,8 @@ export type PlannerConfig = {
   transactionTrailingMonths: number;
   employmentIncomePhases?: EmploymentIncomePhaseConfig[];
   accountMappings: Record<string, AccountMapping>;
+  projectionAccounts?: Record<string, ProjectionAccountConfig>;
+  surplusAllocation: SurplusAllocationPolicyInput;
   categoryMappings: Record<string, CategoryMapping>;
   assumptions: PlannerAssumptions;
   futureEvents: ProjectionEventInput[];

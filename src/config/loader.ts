@@ -8,6 +8,7 @@ import {
   projectionMonthOffset,
   type AssetAllocation,
   type ProjectionEventInput,
+  type SurplusAllocationPolicyInput,
 } from "@/src/domain/projection/types";
 import { PlannerRuntimeError } from "@/src/runtime/errors";
 import {
@@ -24,6 +25,7 @@ import {
   type OasFullAmountAt65Config,
   type PlannerAssumptions,
   type PlannerConfig,
+  type ProjectionAccountConfig,
   type TransactionClassification,
 } from "./types";
 
@@ -280,6 +282,123 @@ function contributionPhases(value: unknown, field: string): ContributionPhaseCon
       }),
     };
   });
+}
+
+function projectionAccount(
+  value: unknown,
+  field: string,
+): ProjectionAccountConfig {
+  const item = record(value, field);
+  if ("openingBalance" in item) {
+    throw new PlannerRuntimeError(
+      "invalid_planner_config",
+      `${field}.openingBalance is not configurable; projection-only accounts always open at zero.`,
+      422,
+    );
+  }
+  if (
+    item.type !== "cash" &&
+    item.type !== "tfsa" &&
+    item.type !== "rrsp" &&
+    item.type !== "non_registered"
+  ) {
+    throw new PlannerRuntimeError(
+      "invalid_planner_config",
+      `${field}.type must be cash, tfsa, rrsp, or non_registered; debt and exclude are not supported.`,
+      422,
+    );
+  }
+  const phases = contributionPhases(
+    item.contributionPhases,
+    `${field}.contributionPhases`,
+  );
+  if (phases.some((phase) => phase.monthlyAmountToday === "live_baseline")) {
+    throw new PlannerRuntimeError(
+      "invalid_planner_config",
+      `${field}.contributionPhases must use explicit numeric amounts because projection-only accounts have no imported contribution baseline.`,
+      422,
+    );
+  }
+  if (
+    phases.length > 0 &&
+    !["tfsa", "rrsp", "non_registered"].includes(item.type)
+  ) {
+    throw new PlannerRuntimeError(
+      "invalid_planner_config",
+      `${field}.contributionPhases may only be configured for a TFSA, RRSP/RRIF, or non-registered account.`,
+      422,
+    );
+  }
+  return {
+    label: nonEmptyString(item.label, `${field}.label`),
+    type: item.type,
+    annualReturn: number(item.annualReturn, `${field}.annualReturn`, {
+      min: -0.99,
+      max: 1,
+    }),
+    withdrawalPriority: number(
+      item.withdrawalPriority,
+      `${field}.withdrawalPriority`,
+      { min: 1, integer: true },
+    ),
+    allocation: allocation(item.allocation, `${field}.allocation`),
+    contributionPhases: phases,
+  };
+}
+
+function surplusAllocation(value: unknown): SurplusAllocationPolicyInput {
+  if (value === undefined) {
+    throw new PlannerRuntimeError(
+      "invalid_planner_config",
+      "surplusAllocation is required. Configure an explicit reserve account, reserve target, indexing rate, and excess strategy.",
+      422,
+    );
+  }
+  const item = record(value, "surplusAllocation");
+  const excess = record(item.excess, "surplusAllocation.excess");
+  const policy = {
+    reserveAccountId: nonEmptyString(
+      item.reserveAccountId,
+      "surplusAllocation.reserveAccountId",
+    ),
+    targetCashReserveToday: number(
+      item.targetCashReserveToday,
+      "surplusAllocation.targetCashReserveToday",
+      { min: 0 },
+    ),
+    reserveIndexingRate: number(
+      item.reserveIndexingRate,
+      "surplusAllocation.reserveIndexingRate",
+      { min: -0.2, max: 0.5 },
+    ),
+  };
+  if (excess.mode === "retain_as_cash") {
+    if ("destinationAccountId" in excess) {
+      throw new PlannerRuntimeError(
+        "invalid_planner_config",
+        "surplusAllocation.excess.destinationAccountId is not allowed when mode is retain_as_cash.",
+        422,
+      );
+    }
+    return { ...policy, excess: { mode: "retain_as_cash" } };
+  }
+  if (excess.mode === "allocate_to_account") {
+    return {
+      ...policy,
+      excess: {
+        mode: "allocate_to_account",
+        destinationAccountId: nonEmptyString(
+          excess.destinationAccountId,
+          "surplusAllocation.excess.destinationAccountId",
+        ),
+      },
+    };
+  }
+  throw new PlannerRuntimeError(
+    "invalid_planner_config",
+    "surplusAllocation.excess.mode must be retain_as_cash or allocate_to_account.",
+    422,
+  );
 }
 
 function accountMapping(value: unknown, field: string): AccountMapping {
@@ -630,12 +749,23 @@ function validateEmploymentPhaseRanges(config: PlannerConfig): void {
 }
 
 function validateContributionPhaseRanges(config: PlannerConfig): void {
-  for (const [accountId, mapping] of Object.entries(config.accountMappings)) {
-    const phases = mapping.contributionPhases;
+  const configuredAccounts = [
+    ...Object.entries(config.accountMappings).map(([accountId, mapping]) => ({
+      fieldPrefix: `accountMappings.${accountId}`,
+      phases: mapping.contributionPhases,
+    })),
+    ...Object.entries(config.projectionAccounts ?? {}).map(
+      ([accountId, account]) => ({
+        fieldPrefix: `projectionAccounts.${accountId}`,
+        phases: account.contributionPhases,
+      }),
+    ),
+  ];
+  for (const { fieldPrefix, phases } of configuredAccounts) {
     if (!phases) continue;
     const ids = new Set<string>();
     for (const [index, phase] of phases.entries()) {
-      const field = `accountMappings.${accountId}.contributionPhases[${index}]`;
+      const field = `${fieldPrefix}.contributionPhases[${index}]`;
       if (ids.has(phase.id)) {
         throw new PlannerRuntimeError(
           "invalid_planner_config",
@@ -753,7 +883,27 @@ export function validatePlannerConfig(value: unknown): PlannerConfig {
     );
   }
   const rawAccountMappings = record(item.accountMappings, "accountMappings");
+  const rawProjectionAccounts =
+    item.projectionAccounts === undefined
+      ? {}
+      : record(item.projectionAccounts, "projectionAccounts");
   const rawCategoryMappings = record(item.categoryMappings, "categoryMappings");
+  for (const id of Object.keys(rawProjectionAccounts)) {
+    if (!id.startsWith("projection:")) {
+      throw new PlannerRuntimeError(
+        "invalid_planner_config",
+        `projectionAccounts key "${id}" must begin with projection:.`,
+        422,
+      );
+    }
+    if (id in rawAccountMappings) {
+      throw new PlannerRuntimeError(
+        "invalid_planner_config",
+        `Account id "${id}" cannot appear in both accountMappings and projectionAccounts.`,
+        422,
+      );
+    }
+  }
   const config: PlannerConfig = {
     currentAge: number(item.currentAge, "currentAge", { min: 18, max: 100 }),
     retirementAge: number(item.retirementAge, "retirementAge", { min: 19, max: 100 }),
@@ -804,6 +954,17 @@ export function validatePlannerConfig(value: unknown): PlannerConfig {
         accountMapping(mapping, `accountMappings.${id}`),
       ]),
     ),
+    ...(Object.keys(rawProjectionAccounts).length === 0
+      ? {}
+      : {
+          projectionAccounts: Object.fromEntries(
+            Object.entries(rawProjectionAccounts).map(([id, account]) => [
+              id,
+              projectionAccount(account, `projectionAccounts.${id}`),
+            ]),
+          ),
+        }),
+    surplusAllocation: surplusAllocation(item.surplusAllocation),
     categoryMappings: Object.fromEntries(
       Object.entries(rawCategoryMappings).map(([id, mapping]) => [
         id,

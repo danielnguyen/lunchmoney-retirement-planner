@@ -101,6 +101,11 @@ export type AnnualChartRow = {
   tfsaWithdrawal: number;
   rrspWithdrawal: number;
   nonRegisteredWithdrawal: number;
+  surplusGenerated: number;
+  surplusReserveRefill: number;
+  surplusRetainedAsCash: number;
+  surplusRedirected: number;
+  surplusReserveTarget: number;
   financialAssets: number;
   goal: number;
   milestones: string;
@@ -114,6 +119,11 @@ export type AnnualLedgerRow = {
   withdrawals: number;
   tax: number;
   spending: number;
+  surplusGenerated: number;
+  surplusReserveRefill: number;
+  surplusRetainedAsCash: number;
+  surplusRedirected: number;
+  surplusReserveTarget: number;
   financialAssets: number;
   milestones: string;
 };
@@ -149,6 +159,11 @@ export function buildAnnualChartData(
       tfsaWithdrawal: view.withdrawals.tfsa,
       rrspWithdrawal: view.withdrawals.rrspRrif,
       nonRegisteredWithdrawal: view.withdrawals.nonRegistered,
+      surplusGenerated: view.surplusAllocation.generated,
+      surplusReserveRefill: view.surplusAllocation.reserveRefill,
+      surplusRetainedAsCash: view.surplusAllocation.retainedAsCash,
+      surplusRedirected: view.surplusAllocation.redirected,
+      surplusReserveTarget: view.surplusAllocation.reserveTarget,
       financialAssets: view.balances.financialAssets,
       goal:
         mode === "real"
@@ -162,6 +177,12 @@ export function buildAnnualChartData(
       ...Object.fromEntries(
         Object.entries(view.accountContributions).map(([id, value]) => [
           `contribution:${id}`,
+          value,
+        ]),
+      ),
+      ...Object.fromEntries(
+        Object.entries(view.accountSurplusAllocations).map(([id, value]) => [
+          `surplusAllocation:${id}`,
           value,
         ]),
       ),
@@ -186,6 +207,11 @@ export function buildAnnualLedgerData(
       spending: roundCurrency(
         view.outflows.essential + view.outflows.discretionary + view.outflows.oneTime,
       ),
+      surplusGenerated: view.surplusAllocation.generated,
+      surplusReserveRefill: view.surplusAllocation.reserveRefill,
+      surplusRetainedAsCash: view.surplusAllocation.retainedAsCash,
+      surplusRedirected: view.surplusAllocation.redirected,
+      surplusReserveTarget: view.surplusAllocation.reserveTarget,
       financialAssets: view.balances.financialAssets,
       milestones: point.milestones.join(" · ") || "—",
     };

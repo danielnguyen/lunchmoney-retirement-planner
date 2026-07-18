@@ -16,6 +16,8 @@ import type {
   ProjectionResult,
   ProjectionView,
   RetirementSnapshot,
+  SurplusAllocationBreakdown,
+  SurplusAllocationTotals,
   WithdrawalBreakdown,
 } from "./types";
 import { validateProjectionInputs } from "./types";
@@ -171,6 +173,26 @@ function emptyBalances(): BalanceBreakdown {
   };
 }
 
+function emptySurplusAllocation(): SurplusAllocationBreakdown {
+  return {
+    generated: 0,
+    reserveRefill: 0,
+    retainedAsCash: 0,
+    redirected: 0,
+    reserveTarget: 0,
+  };
+}
+
+function emptySurplusTotals(): SurplusAllocationTotals {
+  return {
+    generated: 0,
+    reserveRefill: 0,
+    retainedAsCash: 0,
+    redirected: 0,
+    accountAllocations: {},
+  };
+}
+
 function emptyView(): ProjectionView {
   return {
     income: emptyIncome(),
@@ -180,6 +202,8 @@ function emptyView(): ProjectionView {
     balances: emptyBalances(),
     accountBalances: {},
     accountContributions: {},
+    surplusAllocation: emptySurplusAllocation(),
+    accountSurplusAllocations: {},
     allocation: { ...ZERO_ALLOCATION },
   };
 }
@@ -319,6 +343,19 @@ function snapshotView(
     accountContributions: Object.fromEntries(
       Object.entries(flow.accountContributions).map(([id, amount]) => [id, round(amount)]),
     ),
+    surplusAllocation: {
+      generated: round(flow.surplusAllocation.generated),
+      reserveRefill: round(flow.surplusAllocation.reserveRefill),
+      retainedAsCash: round(flow.surplusAllocation.retainedAsCash),
+      redirected: round(flow.surplusAllocation.redirected),
+      reserveTarget: round(flow.surplusAllocation.reserveTarget),
+    },
+    accountSurplusAllocations: Object.fromEntries(
+      Object.entries(flow.accountSurplusAllocations).map(([id, amount]) => [
+        id,
+        round(amount),
+      ]),
+    ),
     allocation: {
       cash: divide(allocationAtSnapshot.cash),
       fixedIncome: divide(allocationAtSnapshot.fixedIncome),
@@ -344,6 +381,83 @@ function addMonthlyFlow(target: ProjectionView, monthly: ProjectionView, factor:
     target.accountContributions[accountId] =
       (target.accountContributions[accountId] ?? 0) + amount / factor;
   }
+  target.surplusAllocation.generated +=
+    monthly.surplusAllocation.generated / factor;
+  target.surplusAllocation.reserveRefill +=
+    monthly.surplusAllocation.reserveRefill / factor;
+  target.surplusAllocation.retainedAsCash +=
+    monthly.surplusAllocation.retainedAsCash / factor;
+  target.surplusAllocation.redirected +=
+    monthly.surplusAllocation.redirected / factor;
+  target.surplusAllocation.reserveTarget =
+    monthly.surplusAllocation.reserveTarget / factor;
+  for (const [accountId, amount] of Object.entries(
+    monthly.accountSurplusAllocations,
+  )) {
+    target.accountSurplusAllocations[accountId] =
+      (target.accountSurplusAllocations[accountId] ?? 0) + amount / factor;
+  }
+}
+
+function addSurplusTotals(
+  target: SurplusAllocationTotals,
+  monthly: ProjectionView,
+  factor: number,
+): void {
+  target.generated += monthly.surplusAllocation.generated / factor;
+  target.reserveRefill += monthly.surplusAllocation.reserveRefill / factor;
+  target.retainedAsCash +=
+    monthly.surplusAllocation.retainedAsCash / factor;
+  target.redirected += monthly.surplusAllocation.redirected / factor;
+  for (const [accountId, amount] of Object.entries(
+    monthly.accountSurplusAllocations,
+  )) {
+    target.accountAllocations[accountId] =
+      (target.accountAllocations[accountId] ?? 0) + amount / factor;
+  }
+}
+
+function assertSurplusReconciled(view: ProjectionView, period: string): void {
+  const generatedDifference =
+    view.surplusAllocation.generated -
+    view.surplusAllocation.retainedAsCash -
+    view.surplusAllocation.redirected;
+  const accountDifference =
+    Object.values(view.accountSurplusAllocations).reduce(
+      (total, value) => total + value,
+      0,
+    ) - view.surplusAllocation.generated;
+  if (
+    round(Math.abs(generatedDifference)) > 0.01 ||
+    round(Math.abs(accountDifference)) > 0.01 ||
+    round(
+      view.surplusAllocation.reserveRefill -
+        view.surplusAllocation.retainedAsCash,
+    ) > 0.01
+  ) {
+    throw new Error(`Surplus allocation failed to reconcile for ${period}`);
+  }
+}
+
+function assertSurplusTotalsReconciled(
+  totals: SurplusAllocationTotals,
+  period: string,
+): void {
+  const routed =
+    totals.retainedAsCash + totals.redirected;
+  const allocated = Object.values(totals.accountAllocations).reduce(
+    (sum, value) => sum + value,
+    0,
+  );
+  if (
+    round(Math.abs(totals.generated - routed)) > 0.01 ||
+    round(Math.abs(totals.generated - allocated)) > 0.01 ||
+    round(totals.reserveRefill - totals.retainedAsCash) > 0.01
+  ) {
+    throw new Error(
+      `Surplus allocation totals failed to reconcile for ${period}`,
+    );
+  }
 }
 
 function milestoneLabels(inputs: ProjectionInputs, previousMonth: number, month: number): string[] {
@@ -368,6 +482,19 @@ export function calculateProjection(rawInputs: ProjectionInputs): ProjectionResu
     (inputs.person.retirementAge - inputs.person.currentAge) * MONTHS_PER_YEAR,
   );
   const balances = new Map(inputs.accounts.map((account) => [account.id, account.openingBalance]));
+  const reserveAccount = inputs.accounts.find(
+    (account) => account.id === inputs.surplusAllocation.reserveAccountId,
+  )!;
+  const destinationAccountId =
+    inputs.surplusAllocation.excess.mode === "allocate_to_account"
+      ? inputs.surplusAllocation.excess.destinationAccountId
+      : null;
+  const destinationAccount =
+    destinationAccountId
+      ? inputs.accounts.find(
+          (account) => account.id === destinationAccountId,
+        )!
+      : null;
   const annual: AnnualProjection[] = [];
   const observations: ProjectionObservation[] = [];
   const startingFinancialAssets = accountBalances(inputs.accounts, balances).financialAssets;
@@ -380,16 +507,28 @@ export function calculateProjection(rawInputs: ProjectionInputs): ProjectionResu
   let financialAssetsDepletionAge: number | null = null;
   let previousSnapshotMonth = 0;
   let retirementSnapshot: RetirementSnapshot | undefined;
+  const nominalSurplusThroughRetirement = emptySurplusTotals();
+  const realSurplusThroughRetirement = emptySurplusTotals();
+  let reserveTargetAtRetirementNominal = 0;
+  let reserveTargetAtRetirementReal = 0;
+  let reserveBalanceAtRetirementNominal = 0;
+  let reserveBalanceAtRetirementReal = 0;
+  let destinationBalanceAtRetirementNominal = 0;
+  let destinationBalanceAtRetirementReal = 0;
 
   function snapshot(month: number, previousMonth: number, calendarYear: number): void {
     const factor = indexedFactor(inputs.annualInflation, month);
     const age = inputs.person.currentAge + month / MONTHS_PER_YEAR;
+    const nominal = snapshotView(annualNominalFlow, inputs.accounts, balances, 1);
+    const real = snapshotView(annualRealFlow, inputs.accounts, balances, factor);
+    assertSurplusReconciled(nominal, `${calendarYear} nominal`);
+    assertSurplusReconciled(real, `${calendarYear} real`);
     annual.push({
       calendarYear,
       age: round(age),
       phase: age < inputs.person.retirementAge ? "accumulation" : "retirement",
-      nominal: snapshotView(annualNominalFlow, inputs.accounts, balances, 1),
-      real: snapshotView(annualRealFlow, inputs.accounts, balances, factor),
+      nominal,
+      real,
       milestones: milestoneLabels(inputs, previousMonth, month),
       employmentPhaseLabels: [...annualEmploymentPhaseLabels],
       contributionPhaseLabels: Object.fromEntries(
@@ -415,6 +554,9 @@ export function calculateProjection(rawInputs: ProjectionInputs): ProjectionResu
     const calendarYear = startYear + Math.floor(calendarMonthIndex / MONTHS_PER_YEAR);
     const calendarMonth = (calendarMonthIndex % MONTHS_PER_YEAR) + 1;
     const monthlyFlow = emptyView();
+    monthlyFlow.surplusAllocation.reserveTarget =
+      inputs.surplusAllocation.targetCashReserveToday *
+      indexedFactor(inputs.surplusAllocation.reserveIndexingRate, month);
 
     const balancesBeforeReturn = accountBalances(inputs.accounts, balances).financialAssets;
     for (const account of inputs.accounts) {
@@ -526,6 +668,7 @@ export function calculateProjection(rawInputs: ProjectionInputs): ProjectionResu
     }
 
     let eventInflows = 0;
+    let unassignedEventInflows = 0;
     let eventOutflows = 0;
     const matchingEvents = inputs.events.filter(
       (event) => event.calendarYear === calendarYear && event.month === calendarMonth,
@@ -536,6 +679,14 @@ export function calculateProjection(rawInputs: ProjectionInputs): ProjectionResu
         eventInflows += amount;
         monthlyFlow.income.other += amount;
         monthlyFlow.income.total += amount;
+        if (event.targetAccountId) {
+          balances.set(
+            event.targetAccountId,
+            (balances.get(event.targetAccountId) ?? 0) + amount,
+          );
+        } else {
+          unassignedEventInflows += amount;
+        }
       } else {
         eventOutflows += amount;
         monthlyFlow.outflows.oneTime += amount;
@@ -544,7 +695,7 @@ export function calculateProjection(rawInputs: ProjectionInputs): ProjectionResu
 
     let cashPosition =
       income.total +
-      eventInflows -
+      unassignedEventInflows -
       essential -
       discretionary -
       regularTax -
@@ -553,13 +704,47 @@ export function calculateProjection(rawInputs: ProjectionInputs): ProjectionResu
       eventOutflows;
 
     if (cashPosition > 0) {
-      const targetEvent = matchingEvents.find(
-        (event) => event.direction === "inflow" && event.targetAccountId,
+      const generated = cashPosition;
+      const reserveBalance = balances.get(reserveAccount.id) ?? 0;
+      const reserveShortfall = Math.max(
+        0,
+        monthlyFlow.surplusAllocation.reserveTarget - reserveBalance,
       );
-      const target = targetEvent
-        ? inputs.accounts.find((account) => account.id === targetEvent.targetAccountId)
-        : inputs.accounts.find((account) => account.type === "cash");
-      if (target) balances.set(target.id, (balances.get(target.id) ?? 0) + cashPosition);
+      const reserveRefill = Math.min(generated, reserveShortfall);
+      if (reserveRefill > 0) {
+        balances.set(reserveAccount.id, reserveBalance + reserveRefill);
+        monthlyFlow.accountSurplusAllocations[reserveAccount.id] =
+          reserveRefill;
+      }
+      const excess = generated - reserveRefill;
+      let retainedAsCash = reserveRefill;
+      let redirected = 0;
+      if (inputs.surplusAllocation.excess.mode === "retain_as_cash") {
+        if (excess > 0) {
+          balances.set(
+            reserveAccount.id,
+            (balances.get(reserveAccount.id) ?? 0) + excess,
+          );
+          monthlyFlow.accountSurplusAllocations[reserveAccount.id] =
+            (monthlyFlow.accountSurplusAllocations[reserveAccount.id] ?? 0) +
+            excess;
+        }
+        retainedAsCash += excess;
+      } else {
+        if (excess > 0) {
+          balances.set(
+            destinationAccount!.id,
+            (balances.get(destinationAccount!.id) ?? 0) + excess,
+          );
+          monthlyFlow.accountSurplusAllocations[destinationAccount!.id] =
+            excess;
+        }
+        redirected = excess;
+      }
+      monthlyFlow.surplusAllocation.generated = generated;
+      monthlyFlow.surplusAllocation.reserveRefill = reserveRefill;
+      monthlyFlow.surplusAllocation.retainedAsCash = retainedAsCash;
+      monthlyFlow.surplusAllocation.redirected = redirected;
       cashPosition = 0;
     }
 
@@ -598,6 +783,8 @@ export function calculateProjection(rawInputs: ProjectionInputs): ProjectionResu
     addMonthlyFlow(annualNominalFlow, monthlyFlow, 1);
     addMonthlyFlow(annualRealFlow, monthlyFlow, factor);
     if (month <= retirementMonth) {
+      addSurplusTotals(nominalSurplusThroughRetirement, monthlyFlow, 1);
+      addSurplusTotals(realSurplusThroughRetirement, monthlyFlow, factor);
       const requestedExternalOutflows =
         monthlyFlow.outflows.essential +
         monthlyFlow.outflows.discretionary +
@@ -652,6 +839,28 @@ export function calculateProjection(rawInputs: ProjectionInputs): ProjectionResu
         nominal: snapshotView(monthlyFlow, inputs.accounts, balances, 1),
         real: snapshotView(retirementRealMonthlyFlow, inputs.accounts, balances, factor),
       };
+      assertSurplusReconciled(
+        retirementSnapshot.nominal,
+        "retirement snapshot nominal",
+      );
+      assertSurplusReconciled(
+        retirementSnapshot.real,
+        "retirement snapshot real",
+      );
+      reserveTargetAtRetirementNominal =
+        monthlyFlow.surplusAllocation.reserveTarget;
+      reserveTargetAtRetirementReal =
+        reserveTargetAtRetirementNominal / factor;
+      reserveBalanceAtRetirementNominal =
+        balances.get(reserveAccount.id) ?? 0;
+      reserveBalanceAtRetirementReal =
+        reserveBalanceAtRetirementNominal / factor;
+      if (destinationAccount) {
+        destinationBalanceAtRetirementNominal =
+          balances.get(destinationAccount.id) ?? 0;
+        destinationBalanceAtRetirementReal =
+          destinationBalanceAtRetirementNominal / factor;
+      }
       nominalBridge.endingFinancialAssets =
         retirementSnapshot.nominal.balances.financialAssets;
       realBridge.endingFinancialAssets = retirementSnapshot.real.balances.financialAssets;
@@ -664,6 +873,14 @@ export function calculateProjection(rawInputs: ProjectionInputs): ProjectionResu
   if (!retirementSnapshot) {
     throw new Error("The exact retirement snapshot could not be captured");
   }
+  assertSurplusTotalsReconciled(
+    nominalSurplusThroughRetirement,
+    "through retirement nominal",
+  );
+  assertSurplusTotalsReconciled(
+    realSurplusThroughRetirement,
+    "through retirement real",
+  );
   const nominalBridgeDifference =
     bridgeCalculatedEnding(nominalBridge) - nominalBridge.endingFinancialAssets;
   const realBridgeDifference =
@@ -707,7 +924,7 @@ export function calculateProjection(rawInputs: ProjectionInputs): ProjectionResu
   });
 
   return {
-    schemaVersion: "5.0",
+    schemaVersion: "6.0",
     inputs,
     summary: {
       retirementYear,
@@ -725,6 +942,34 @@ export function calculateProjection(rawInputs: ProjectionInputs): ProjectionResu
       real: realBridge,
     },
     governmentBenefits: benefits,
+    surplusAllocation: {
+      policy: {
+        reserveAccountId: reserveAccount.id,
+        targetCashReserveToday:
+          inputs.surplusAllocation.targetCashReserveToday,
+        reserveIndexingRate: inputs.surplusAllocation.reserveIndexingRate,
+        excessMode: inputs.surplusAllocation.excess.mode,
+        destinationAccountId: destinationAccount?.id ?? null,
+      },
+      throughRetirement: {
+        nominal: nominalSurplusThroughRetirement,
+        real: realSurplusThroughRetirement,
+      },
+      reserveTargetAtRetirement: {
+        nominal: reserveTargetAtRetirementNominal,
+        real: reserveTargetAtRetirementReal,
+      },
+      reserveAccountBalanceAtRetirement: {
+        nominal: reserveBalanceAtRetirementNominal,
+        real: reserveBalanceAtRetirementReal,
+      },
+      destinationAccountBalanceAtRetirement: destinationAccount
+        ? {
+            nominal: destinationBalanceAtRetirementNominal,
+            real: destinationBalanceAtRetirementReal,
+          }
+        : null,
+    },
     annual,
     observations,
   };

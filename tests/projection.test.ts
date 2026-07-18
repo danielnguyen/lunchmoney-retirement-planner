@@ -56,6 +56,79 @@ function bridgeEnding(result: ReturnType<typeof calculateProjection>, mode: "rea
   );
 }
 
+function surplusFixture(months = 1): ProjectionInputs {
+  const input = structuredClone(projectionFixture);
+  const retirementAge = 40 + 1 / 12;
+  input.startDate = "2026-01-15";
+  input.person.currentAge = 40;
+  input.person.retirementAge = retirementAge;
+  input.endAge = 40 + months / 12;
+  input.annualInflation = 0;
+  input.monthlyEssentialSpendingToday = 0;
+  input.monthlyDiscretionarySpendingToday = 0;
+  input.tax.effectiveTaxRate = 0;
+  input.tax.oasRecoveryRate = 0;
+  input.person.employmentIncomePhases = [
+    {
+      id: "one-month-income",
+      label: "One month income",
+      startAge: 40,
+      endAge: retirementAge,
+      annualNetCashToday: 12000,
+      annualGrowth: 0,
+    },
+  ];
+  input.person.annualPensionToday = 0;
+  input.person.cpp.startAge = 65;
+  input.person.oas.startAge = 65;
+  input.accounts = [
+    {
+      id: "manual:first-cash",
+      label: "First cash",
+      origin: "lunchmoney",
+      type: "cash",
+      openingBalance: 0,
+      annualReturn: 0,
+      contributionPhases: [],
+      withdrawalPriority: 1,
+      allocation: { cash: 1, fixedIncome: 0, equity: 0 },
+    },
+    {
+      id: "manual:reserve",
+      label: "Explicit reserve",
+      origin: "lunchmoney",
+      type: "cash",
+      openingBalance: 0,
+      annualReturn: 0,
+      contributionPhases: [],
+      withdrawalPriority: 2,
+      allocation: { cash: 1, fixedIncome: 0, equity: 0 },
+    },
+    {
+      id: "projection:future-taxable",
+      label: "Future taxable",
+      origin: "projection_configuration",
+      type: "non_registered",
+      openingBalance: 0,
+      annualReturn: 0,
+      contributionPhases: [],
+      withdrawalPriority: 3,
+      allocation: { cash: 0, fixedIncome: 0.2, equity: 0.8 },
+    },
+  ];
+  input.surplusAllocation = {
+    reserveAccountId: "manual:reserve",
+    targetCashReserveToday: 500,
+    reserveIndexingRate: 0,
+    excess: {
+      mode: "allocate_to_account",
+      destinationAccountId: "projection:future-taxable",
+    },
+  };
+  input.events = [];
+  return input;
+}
+
 describe("public benefit timing", () => {
   it("applies current CPP early and delayed-claim factors", () => {
     expect(cppClaimFactor(60)).toBeCloseTo(0.64);
@@ -422,6 +495,7 @@ describe("resolved contribution phases", () => {
     input.accounts.push({
       id: "manual:later-tfsa",
       label: "Later TFSA",
+      origin: "lunchmoney",
       type: "tfsa",
       openingBalance: 0,
       annualReturn: 0,
@@ -522,7 +596,7 @@ describe("exact retirement snapshot and accumulation bridge", () => {
   it("captures an integer-age retirement after the final working month", () => {
     const result = calculateProjection(oneYearFixture());
 
-    expect(result.schemaVersion).toBe("5.0");
+    expect(result.schemaVersion).toBe("6.0");
     expect(result.retirementSnapshot.calendarDate).toBe("2026-12-31");
     expect(result.retirementSnapshot.age).toBe(41);
     expect(result.retirementSnapshot.flowPeriod).toEqual({
@@ -657,6 +731,261 @@ describe("exact retirement snapshot and accumulation bridge", () => {
   });
 });
 
+describe("explicit surplus allocation policy", () => {
+  it("uses the explicit reserve account even when another cash account is first and is order-independent", () => {
+    const input = surplusFixture();
+    const result = calculateProjection(input);
+    expect(
+      result.retirementSnapshot.nominal.accountBalances[
+        "manual:first-cash"
+      ],
+    ).toBe(0);
+    expect(
+      result.retirementSnapshot.nominal.accountBalances["manual:reserve"],
+    ).toBe(500);
+    expect(
+      result.retirementSnapshot.nominal.accountBalances[
+        "projection:future-taxable"
+      ],
+    ).toBe(500);
+
+    const reordered = structuredClone(input);
+    reordered.accounts.reverse();
+    const reorderedResult = calculateProjection(reordered);
+    expect(reorderedResult.surplusAllocation).toEqual(
+      result.surplusAllocation,
+    );
+    expect(reorderedResult.retirementSnapshot.nominal.accountBalances).toEqual(
+      result.retirementSnapshot.nominal.accountBalances,
+    );
+  });
+
+  it("refills the reserve first, redirects only excess, and redirects all surplus when already above target", () => {
+    const below = calculateProjection(surplusFixture());
+    expect(below.retirementSnapshot.nominal.surplusAllocation).toEqual({
+      generated: 1000,
+      reserveRefill: 500,
+      retainedAsCash: 500,
+      redirected: 500,
+      reserveTarget: 500,
+    });
+
+    const aboveInput = surplusFixture();
+    aboveInput.accounts.find((account) => account.id === "manual:reserve")!
+      .openingBalance = 600;
+    const above = calculateProjection(aboveInput);
+    expect(above.retirementSnapshot.nominal.surplusAllocation).toMatchObject({
+      generated: 1000,
+      reserveRefill: 0,
+      retainedAsCash: 0,
+      redirected: 1000,
+    });
+  });
+
+  it("retains all generated surplus in the reserve for retain-as-cash mode", () => {
+    const input = surplusFixture();
+    input.surplusAllocation.excess = { mode: "retain_as_cash" };
+    const result = calculateProjection(input);
+    const view = result.retirementSnapshot.nominal;
+
+    expect(view.surplusAllocation).toMatchObject({
+      generated: 1000,
+      reserveRefill: 500,
+      retainedAsCash: 1000,
+      redirected: 0,
+    });
+    expect(view.accountSurplusAllocations).toEqual({
+      "manual:reserve": 1000,
+    });
+  });
+
+  it("reconciles generated, retained, redirected, and per-account allocations in monthly and annual output", () => {
+    const result = calculateProjection(surplusFixture());
+    for (const view of [
+      result.retirementSnapshot.nominal,
+      result.retirementSnapshot.real,
+      result.annual[0]!.nominal,
+      result.annual[0]!.real,
+    ]) {
+      expect(
+        view.surplusAllocation.retainedAsCash +
+          view.surplusAllocation.redirected,
+      ).toBeCloseTo(view.surplusAllocation.generated, 2);
+      expect(
+        Object.values(view.accountSurplusAllocations).reduce(
+          (sum, value) => sum + value,
+          0,
+        ),
+      ).toBeCloseTo(view.surplusAllocation.generated, 2);
+      expect(view.surplusAllocation.reserveRefill).toBeLessThanOrEqual(
+        view.surplusAllocation.retainedAsCash,
+      );
+    }
+  });
+
+  it("continues applying the policy after retirement", () => {
+    const input = surplusFixture(13);
+    input.events = [
+      {
+        id: "retirement-inflow",
+        label: "Synthetic retirement inflow",
+        calendarYear: 2027,
+        month: 1,
+        amountToday: 1200,
+        direction: "inflow",
+      },
+    ];
+    const result = calculateProjection(input);
+    const retirementYear = result.annual.find(
+      (point) => point.calendarYear === 2027,
+    )!;
+
+    expect(retirementYear.phase).toBe("retirement");
+    expect(retirementYear.nominal.surplusAllocation.generated).toBe(1200);
+    expect(retirementYear.nominal.surplusAllocation.redirected).toBe(1200);
+  });
+
+  it("indexes the reserve target at exact monthly and annual boundaries", () => {
+    const monthlyInput = surplusFixture();
+    monthlyInput.surplusAllocation.targetCashReserveToday = 12000;
+    monthlyInput.surplusAllocation.reserveIndexingRate = 0.12;
+    const monthly = calculateProjection(monthlyInput);
+    expect(
+      monthly.surplusAllocation.reserveTargetAtRetirement.nominal,
+    ).toBeCloseTo(12000 * Math.pow(1.12, 1 / 12), 8);
+
+    const annualInput = surplusFixture(12);
+    annualInput.person.retirementAge = 41;
+    annualInput.person.employmentIncomePhases[0]!.endAge = 41;
+    annualInput.surplusAllocation.targetCashReserveToday = 12000;
+    annualInput.surplusAllocation.reserveIndexingRate = 0.12;
+    const annual = calculateProjection(annualInput);
+    expect(annual.annual[0]!.nominal.surplusAllocation.reserveTarget).toBe(
+      13440,
+    );
+  });
+
+  it("isolates each targeted inflow while unrelated employment and untargeted inflows follow the policy", () => {
+    const input = surplusFixture();
+    input.events = [
+      {
+        id: "target-one",
+        label: "Target one",
+        calendarYear: 2026,
+        month: 1,
+        amountToday: 200,
+        direction: "inflow",
+        targetAccountId: "projection:future-taxable",
+      },
+      {
+        id: "target-two",
+        label: "Target two",
+        calendarYear: 2026,
+        month: 1,
+        amountToday: 300,
+        direction: "inflow",
+        targetAccountId: "manual:first-cash",
+      },
+      {
+        id: "untargeted",
+        label: "Untargeted",
+        calendarYear: 2026,
+        month: 1,
+        amountToday: 400,
+        direction: "inflow",
+      },
+    ];
+    const result = calculateProjection(input);
+    const view = result.retirementSnapshot.nominal;
+
+    expect(view.income.other).toBe(900);
+    expect(view.surplusAllocation.generated).toBe(1400);
+    expect(view.accountBalances["manual:first-cash"]).toBe(300);
+    expect(view.accountBalances["manual:reserve"]).toBe(500);
+    expect(view.accountBalances["projection:future-taxable"]).toBe(1100);
+    expect(view.accountSurplusAllocations).toEqual({
+      "manual:reserve": 500,
+      "projection:future-taxable": 900,
+    });
+  });
+
+  it("keeps internal routing asset-neutral at allocation and reflects later account-specific returns", () => {
+    const retain = surplusFixture(12);
+    retain.person.retirementAge = 41;
+    retain.person.employmentIncomePhases[0]!.endAge = 41;
+    retain.surplusAllocation.targetCashReserveToday = 0;
+    retain.surplusAllocation.excess = { mode: "retain_as_cash" };
+    for (const account of retain.accounts) account.annualReturn = 0.05;
+
+    const allocate = structuredClone(retain);
+    allocate.surplusAllocation.excess = {
+      mode: "allocate_to_account",
+      destinationAccountId: "projection:future-taxable",
+    };
+    const retainedResult = calculateProjection(retain);
+    const allocatedResult = calculateProjection(allocate);
+    expect(
+      allocatedResult.retirementSnapshot.nominal.balances.financialAssets,
+    ).toBeCloseTo(
+      retainedResult.retirementSnapshot.nominal.balances.financialAssets,
+      2,
+    );
+    expect(
+      allocatedResult.retirementSnapshot.nominal.accountBalances[
+        "projection:future-taxable"
+      ],
+    ).toBeGreaterThan(0);
+    expect(
+      retainedResult.retirementSnapshot.nominal.accountBalances[
+        "projection:future-taxable"
+      ],
+    ).toBe(0);
+
+    const higherReturn = structuredClone(allocate);
+    higherReturn.accounts.find(
+      (account) => account.id === "projection:future-taxable",
+    )!.annualReturn = 0.1;
+    const higherReturnResult = calculateProjection(higherReturn);
+    expect(
+      higherReturnResult.retirementSnapshot.nominal.balances.financialAssets,
+    ).toBeGreaterThan(
+      allocatedResult.retirementSnapshot.nominal.balances.financialAssets,
+    );
+    for (const result of [
+      retainedResult,
+      allocatedResult,
+      higherReturnResult,
+    ]) {
+      expect(bridgeEnding(result, "nominal")).toBeCloseTo(
+        result.financialAssetsBridge.nominal.endingFinancialAssets,
+        2,
+      );
+      expect(bridgeEnding(result, "real")).toBeCloseTo(
+        result.financialAssetsBridge.real.endingFinancialAssets,
+        2,
+      );
+    }
+  });
+
+  it("uses exact retirement flow values in the result-level summary", () => {
+    const result = calculateProjection(surplusFixture());
+    const monthly = result.retirementSnapshot.nominal.surplusAllocation;
+    const summary = result.surplusAllocation;
+
+    expect(summary.throughRetirement.nominal).toMatchObject({
+      generated: monthly.generated,
+      reserveRefill: monthly.reserveRefill,
+      retainedAsCash: monthly.retainedAsCash,
+      redirected: monthly.redirected,
+    });
+    expect(
+      summary.throughRetirement.nominal.accountAllocations,
+    ).toEqual(result.retirementSnapshot.nominal.accountSurplusAllocations);
+    expect(summary.reserveAccountBalanceAtRetirement.nominal).toBe(500);
+    expect(summary.destinationAccountBalanceAtRetirement?.nominal).toBe(500);
+  });
+});
+
 describe("annual presentation compatibility", () => {
   it("retains account balances, benefit streams, milestones, and partial-year rows", () => {
     const result = calculateProjection(projectionFixture);
@@ -675,6 +1004,7 @@ describe("annual presentation compatibility", () => {
     input.accounts.push({
       id: "manual:3",
       label: "Debt",
+      origin: "lunchmoney",
       type: "debt",
       openingBalance: 50000,
       annualReturn: 0,

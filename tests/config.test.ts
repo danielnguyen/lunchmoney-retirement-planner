@@ -469,4 +469,142 @@ describe("private planner configuration", () => {
       expect(contents).toContain("config/planner.local.json");
     }
   });
+
+  it("requires an explicit surplus allocation policy", async () => {
+    const value = structuredClone(
+      await loadPlannerConfig(EXAMPLE_CONFIG_PATH),
+    ) as unknown as Record<string, unknown>;
+    delete value.surplusAllocation;
+
+    expect(() => validatePlannerConfig(value)).toThrow(
+      "surplusAllocation is required",
+    );
+  });
+
+  it("validates retain-as-cash and allocate-to-account discriminator fields", async () => {
+    const retain = structuredClone(
+      await loadPlannerConfig(EXAMPLE_CONFIG_PATH),
+    ) as unknown as Record<string, unknown>;
+    retain.surplusAllocation = {
+      reserveAccountId: "manual:reserve",
+      targetCashReserveToday: 10000,
+      reserveIndexingRate: 0.02,
+      excess: { mode: "retain_as_cash" },
+    };
+    expect(() => validatePlannerConfig(retain)).not.toThrow();
+
+    const retainWithDestination = structuredClone(retain);
+    (
+      (retainWithDestination.surplusAllocation as Record<string, unknown>)
+        .excess as Record<string, unknown>
+    ).destinationAccountId = "projection:destination";
+    expect(() => validatePlannerConfig(retainWithDestination)).toThrow(
+      "not allowed when mode is retain_as_cash",
+    );
+
+    const missingDestination = structuredClone(retain);
+    (
+      missingDestination.surplusAllocation as Record<string, unknown>
+    ).excess = { mode: "allocate_to_account" };
+    expect(() => validatePlannerConfig(missingDestination)).toThrow(
+      "destinationAccountId must be a non-empty string",
+    );
+  });
+
+  it("requires explicit projection-only account assumptions and projection-prefixed ids", async () => {
+    const valid = await loadPlannerConfig(EXAMPLE_CONFIG_PATH);
+    expect(valid.projectionAccounts?.["projection:future-taxable"]).toEqual({
+      label: "Future taxable investment account",
+      type: "non_registered",
+      annualReturn: 0.05,
+      withdrawalPriority: 4,
+      allocation: { cash: 0, fixedIncome: 0.2, equity: 0.8 },
+      contributionPhases: [],
+    });
+
+    const badPrefix = structuredClone(valid) as unknown as Record<
+      string,
+      unknown
+    >;
+    const accounts = badPrefix.projectionAccounts as Record<string, unknown>;
+    accounts["future-taxable"] = accounts["projection:future-taxable"];
+    delete accounts["projection:future-taxable"];
+    expect(() => validatePlannerConfig(badPrefix)).toThrow(
+      "must begin with projection:",
+    );
+
+    for (const field of [
+      "label",
+      "annualReturn",
+      "withdrawalPriority",
+      "allocation",
+      "contributionPhases",
+    ]) {
+      const missing = structuredClone(valid) as unknown as Record<
+        string,
+        unknown
+      >;
+      delete (
+        (missing.projectionAccounts as Record<string, Record<string, unknown>>)[
+          "projection:future-taxable"
+        ]!
+      )[field];
+      expect(() => validatePlannerConfig(missing)).toThrow();
+    }
+
+    const openingBalance = structuredClone(valid) as unknown as Record<
+      string,
+      unknown
+    >;
+    (
+      (openingBalance.projectionAccounts as Record<
+        string,
+        Record<string, unknown>
+      >)["projection:future-taxable"]!
+    ).openingBalance = 1;
+    expect(() => validatePlannerConfig(openingBalance)).toThrow(
+      "openingBalance is not configurable",
+    );
+  });
+
+  it("rejects projection-only debt, duplicate ids, and unresolved live-baseline contributions", async () => {
+    const debt = structuredClone(
+      await loadPlannerConfig(EXAMPLE_CONFIG_PATH),
+    );
+    debt.projectionAccounts!["projection:future-taxable"]!.type =
+      "debt" as never;
+    expect(() => validatePlannerConfig(debt)).toThrow(
+      "debt and exclude are not supported",
+    );
+
+    const collision = structuredClone(
+      await loadPlannerConfig(EXAMPLE_CONFIG_PATH),
+    );
+    collision.accountMappings["projection:future-taxable"] = {
+      include: false,
+      type: "exclude",
+    };
+    expect(() => validatePlannerConfig(collision)).toThrow(
+      "cannot appear in both",
+    );
+
+    const live = structuredClone(
+      await loadPlannerConfig(EXAMPLE_CONFIG_PATH),
+    );
+    live.projectionAccounts!["projection:future-taxable"]!
+      .contributionPhases = [
+      {
+        id: "invalid-live",
+        label: "Invalid live phase",
+        startAge: 38,
+        endAge: 41,
+        monthlyAmountToday: "live_baseline",
+        funding: "cash",
+        indexingRate: 0,
+      },
+    ];
+    expect(() => validatePlannerConfig(live)).toThrow(
+      "no imported contribution baseline",
+    );
+  });
 });

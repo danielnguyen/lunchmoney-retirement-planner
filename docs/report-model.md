@@ -7,6 +7,7 @@ Each annual row contains:
 - the active employment-phase label and net deposited employment cash, CPP, OAS, pension, and one-time income
 - withdrawals from cash, TFSA, RRSP/RRIF, and non-registered accounts
 - essential spending, discretionary spending, one-time outflows, simplified tax, contributions, and unmet spending
+- generated surplus, reserve refill, retained cash, redirected surplus, active reserve target, and per-account policy allocations
 - pooled balances and each included account’s balance
 - financial assets, debt, and net worth
 - cash, fixed-income, and equity allocation
@@ -18,6 +19,7 @@ The dashboard retains these live-data-backed reports:
 - annual spending projection
 - stacked annual cash inflow
 - stacked annual cash outflow
+- annual surplus allocation with retained/redirected bars and the active reserve-target line
 - account-level financial-asset burndown
 - asset allocation at a selected year
 - deterministic observations
@@ -41,9 +43,11 @@ Within an explicit contribution phase, `live_baseline` resolves only from mapped
 
 Human-maintained account mappings, category mappings, assumptions, allocations, and future events use the canonical commented YAML planner configuration. YAML and legacy JSON inputs pass through the same validation and produce the same report model.
 
-Cash-flow audit evidence records the aggregate category/account contribution to each derived value without retaining raw transactions. Lunch Money amounts and names remain distinguishable from local YAML assumptions, compatibility fallbacks, temporary browser overrides, Canadian references, and projection output. The baseline schema is `1.3`; the projection and export schemas are `5.0`.
+Cash-flow audit evidence records the aggregate category/account contribution to each derived value without retaining raw transactions. Lunch Money amounts and names remain distinguishable from local YAML assumptions, compatibility fallbacks, temporary browser overrides, Canadian references, and projection output. Imported accounts use origin `lunchmoney`; projection-only configured accounts use origin `projection_configuration`, have a fixed zero opening balance, and never appear in imported baseline balances. The baseline schema is `1.4`; the projection and export schemas are `6.0`.
 
 Government benefits are concrete resolved inputs. CPP retains a dated amount-at-65 basis, claim age, indexing, and the statutory claim factor. OAS retains a dated full amount, explicit `full`, `partial`, or `none` eligibility, claim age, indexing, and the permanent age-75 increase. Partial eligibility is qualifying residence years divided by 40; special residence rules and international agreements are not evaluated. The calculation result—not React code—produces the base, factors, monthly and annual claim amounts, and OAS age-75 amount used in the dashboard explanations.
+
+Surplus allocation is also a concrete resolved input. The engine never selects the first cash account. Each positive unassigned month refills the explicit reserve to `targetCashReserveToday × indexedFactor(reserveIndexingRate, month)`, then retains remaining excess as cash or sends it to one explicit non-registered destination. TFSA, RRSP/RRIF, debt, and cash destinations are rejected. Targeted event inflows deposit only their own amounts into their targets; untargeted inflows and unrelated employment cash continue through the policy.
 
 The retirement summary uses an exact snapshot at the end of the final working month, immediately before the first fully retired month. Snapshot balances, account balances, and allocation are point-in-time values. Snapshot income, withdrawals, outflows, contributions, and account contributions cover only the final working month; `flowPeriod` identifies that `YYYY-MM` period. The cumulative start-to-retirement activity remains in the financial-assets bridge. The explanation first reconciles cash + TFSA + RRSP/RRIF + non-registered balances, then shows the scenario’s employment and contribution paths and a today-dollar accumulation bridge:
 
@@ -61,10 +65,10 @@ starting financial assets
 = assets at retirement
 ```
 
-Cash-funded contributions do not appear in this bridge because they are transfers between financial accounts. An explanation claims reconciliation only when both the account sum and bridge match the exact displayed value within one cent.
+Cash-funded contributions and surplus routing do not appear as additive terms in this bridge because they are transfers between financial accounts. Routing is asset-neutral at the allocation moment, while later account-specific returns can change future financial assets. An explanation claims reconciliation only when the account sum, bridge, and surplus flows match the exact displayed values within one cent.
 
-JSON is the canonical, complete analysis export and includes the resolved baseline, derived baseline, provenance, warnings, active inputs, overrides, and complete projection. It is built by a typed allowlist and is automatically anonymized on every request. Account references are replaced consistently with export-local keys such as `tfsa_1`; employment phases, contribution phases, events, recurring expenses, categories, warnings, and unmapped records receive deterministic generic aliases based only on type and order.
+JSON is the canonical, complete analysis export and includes the resolved baseline, derived baseline, provenance, warnings, active inputs, overrides, and complete projection. It is built by a typed allowlist and is automatically anonymized on every request. Imported and projection-only account IDs, labels, surplus policy references, period allocation maps, result summaries, provenance, and override keys use consistent export-local aliases such as `cash_1` and `non_registered_1`; employment phases, contribution phases, events, recurring expenses, categories, warnings, and unmapped records receive deterministic generic aliases based only on type and order.
 
-CSV is a conventional automatically anonymized annual analysis table: exactly one header and one row per projection period. It includes the partial-period label, generic active-employment-phase alias, income streams, flat CPP/OAS basis and factor columns, withdrawals, spending, tax, separate cash-funded and income-withheld contribution totals, aggregate balances, financial assets, net worth, milestones, and optional `account_tfsa_1`-style balance columns. It has no metadata preamble, blank section, embedded phase arrays or JSON, or second schema.
+CSV is a conventional automatically anonymized annual analysis table: exactly one header and one row per projection period. It includes the partial-period label, generic active-employment-phase alias, income streams, flat CPP/OAS basis and factor columns, withdrawals, spending, tax, contribution totals, surplus flows, reserve policy fields, aggregate balances, financial assets, net worth, milestones, `account_tfsa_1`-style balance columns, and `surplus_allocation_non_registered_1`-style policy-allocation columns. Policy account cells contain generic aliases only. It has no metadata preamble, blank section, embedded phase arrays or JSON, or second schema.
 
 Both formats preserve financial values, assumptions, dates, benefit calculations, reconciliation bridges, and allowlisted public Canadian reference metadata while removing raw source-system IDs, credentials, and user-authored descriptive text. Account, institution, employer, category, event, recurring, warning, and phase text is replaced with generic aliases; provenance descriptions come from a small safe vocabulary. There is no raw or private export mode. The files are intended to be shareable for external financial analysis without manual identifier editing.

@@ -26,6 +26,12 @@ const configFixture: PlannerConfig = {
     "plaid:2": { include: true, type: "tfsa", withdrawalPriority: 2 },
     "manual:3": { include: false, type: "exclude" },
   },
+  surplusAllocation: {
+    reserveAccountId: "manual:1",
+    targetCashReserveToday: 1000,
+    reserveIndexingRate: 0.02,
+    excess: { mode: "retain_as_cash" },
+  },
   categoryMappings: {
     "10": "essential",
     "11": "discretionary",
@@ -244,7 +250,7 @@ describe("live baseline derivation", () => {
       }),
     ]);
     expect(baseline.recordsAnalyzed.transactions).toBe(8);
-    expect(baseline.schemaVersion).toBe("1.3");
+    expect(baseline.schemaVersion).toBe("1.4");
     expect(baseline.warnings).toContainEqual(
       expect.objectContaining({ code: "long_live_baseline_income" }),
     );
@@ -545,5 +551,189 @@ describe("live baseline derivation", () => {
       baseline.provenance["person.cpp.monthlyAmountAt65Today"]
         ?.sourceDescription,
     ).toContain("compatibility");
+  });
+
+  it("appends projection-only accounts at fixed zero with complete provenance and no imported baseline balance", () => {
+    const configured = structuredClone(configFixture);
+    configured.projectionAccounts = {
+      "projection:future-taxable": {
+        label: "Synthetic future taxable",
+        type: "non_registered",
+        annualReturn: 0.06,
+        withdrawalPriority: 4,
+        allocation: { cash: 0, fixedIncome: 0.2, equity: 0.8 },
+        contributionPhases: [],
+      },
+    };
+    configured.surplusAllocation = {
+      reserveAccountId: "manual:1",
+      targetCashReserveToday: 5000,
+      reserveIndexingRate: 0.02,
+      excess: {
+        mode: "allocate_to_account",
+        destinationAccountId: "projection:future-taxable",
+      },
+    };
+
+    const baseline = deriveCurrentBaseline(
+      configured,
+      lunchMoneyData(),
+      window,
+      "2026-07-14T12:00:00.000Z",
+    );
+    const projectionAccount = baseline.projectionInputs.accounts.at(-1)!;
+
+    expect(projectionAccount).toMatchObject({
+      id: "projection:future-taxable",
+      origin: "projection_configuration",
+      openingBalance: 0,
+      type: "non_registered",
+      annualReturn: 0.06,
+      contributionPhases: [],
+    });
+    expect(
+      baseline.derived.accountBalances.some(
+        (account) => account.id === projectionAccount.id,
+      ),
+    ).toBe(false);
+    expect(
+      baseline.provenance[
+        "accounts.projection:future-taxable.openingBalance"
+      ],
+    ).toMatchObject({
+      value: 0,
+      sourceType: "local_configuration",
+      sourceDescription: expect.stringContaining("not an imported balance"),
+    });
+    expect(
+      baseline.provenance["accounts.projection:future-taxable.origin"]?.value,
+    ).toBe("projection_configuration");
+    expect(
+      baseline.provenance[
+        "surplusAllocation.excess.destinationAccountId"
+      ]?.value,
+    ).toBe("projection:future-taxable");
+    expect(
+      baseline.projectionInputs.accounts.slice(0, 2).map(({ origin }) => origin),
+    ).toEqual(["lunchmoney", "lunchmoney"]);
+  });
+
+  it("resolves a valid imported non-registered excess destination", () => {
+    const configured = structuredClone(configFixture);
+    configured.accountMappings["plaid:2"]!.type = "non_registered";
+    configured.surplusAllocation = {
+      reserveAccountId: "manual:1",
+      targetCashReserveToday: 5000,
+      reserveIndexingRate: 0,
+      excess: {
+        mode: "allocate_to_account",
+        destinationAccountId: "plaid:2",
+      },
+    };
+
+    const baseline = deriveCurrentBaseline(
+      configured,
+      lunchMoneyData(),
+      window,
+      "2026-07-14T12:00:00.000Z",
+    );
+    expect(baseline.projectionInputs.surplusAllocation.excess).toEqual({
+      mode: "allocate_to_account",
+      destinationAccountId: "plaid:2",
+    });
+  });
+
+  it("blocks missing, non-cash reserve, and missing or registered excess destinations", () => {
+    const cases: Array<[string, (config: PlannerConfig) => void, string]> = [
+      [
+        "missing reserve",
+        (config) => {
+          config.surplusAllocation.reserveAccountId = "manual:missing";
+        },
+        "Unknown surplusAllocation reserve account",
+      ],
+      [
+        "non-cash reserve",
+        (config) => {
+          config.surplusAllocation.reserveAccountId = "plaid:2";
+        },
+        "must be a cash account",
+      ],
+      [
+        "missing destination",
+        (config) => {
+          config.surplusAllocation = {
+            reserveAccountId: "manual:1",
+            targetCashReserveToday: 0,
+            reserveIndexingRate: 0,
+            excess: {
+              mode: "allocate_to_account",
+              destinationAccountId: "manual:missing",
+            },
+          };
+        },
+        "Unknown surplusAllocation excess destination",
+      ],
+      [
+        "TFSA destination",
+        (config) => {
+          config.surplusAllocation = {
+            reserveAccountId: "manual:1",
+            targetCashReserveToday: 0,
+            reserveIndexingRate: 0,
+            excess: {
+              mode: "allocate_to_account",
+              destinationAccountId: "plaid:2",
+            },
+          };
+        },
+        "must be a non-registered account",
+      ],
+      [
+        "RRSP destination",
+        (config) => {
+          config.accountMappings["plaid:2"]!.type = "rrsp";
+          config.surplusAllocation = {
+            reserveAccountId: "manual:1",
+            targetCashReserveToday: 0,
+            reserveIndexingRate: 0,
+            excess: {
+              mode: "allocate_to_account",
+              destinationAccountId: "plaid:2",
+            },
+          };
+        },
+        "must be a non-registered account",
+      ],
+      [
+        "debt destination",
+        (config) => {
+          config.accountMappings["plaid:2"]!.type = "debt";
+          config.surplusAllocation = {
+            reserveAccountId: "manual:1",
+            targetCashReserveToday: 0,
+            reserveIndexingRate: 0,
+            excess: {
+              mode: "allocate_to_account",
+              destinationAccountId: "plaid:2",
+            },
+          };
+        },
+        "must be a non-registered account",
+      ],
+    ];
+
+    for (const [, mutate, message] of cases) {
+      const configured = structuredClone(configFixture);
+      mutate(configured);
+      expect(() =>
+        deriveCurrentBaseline(
+          configured,
+          lunchMoneyData(),
+          window,
+          "2026-07-14T12:00:00.000Z",
+        ),
+      ).toThrow(message);
+    }
   });
 });

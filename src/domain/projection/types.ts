@@ -61,15 +61,32 @@ export type ContributionPhase = {
   indexingRate: number;
 };
 
+export type FinancialAccountOrigin =
+  | "lunchmoney"
+  | "projection_configuration";
+
 export type FinancialAccountInput = {
   id: string;
   label: string;
+  origin: FinancialAccountOrigin;
   type: AccountType;
   openingBalance: number;
   annualReturn: number;
   contributionPhases: ContributionPhase[];
   withdrawalPriority: number;
   allocation: AssetAllocation;
+};
+
+export type SurplusAllocationPolicyInput = {
+  reserveAccountId: string;
+  targetCashReserveToday: number;
+  reserveIndexingRate: number;
+  excess:
+    | { mode: "retain_as_cash" }
+    | {
+        mode: "allocate_to_account";
+        destinationAccountId: string;
+      };
 };
 
 export type ProjectionEventInput = {
@@ -98,6 +115,7 @@ export type ProjectionInputs = {
   tax: TaxAssumptions;
   person: PersonInput;
   accounts: FinancialAccountInput[];
+  surplusAllocation: SurplusAllocationPolicyInput;
   events: ProjectionEventInput[];
 };
 
@@ -145,6 +163,14 @@ export type BalanceBreakdown = {
   netWorth: number;
 };
 
+export type SurplusAllocationBreakdown = {
+  generated: number;
+  reserveRefill: number;
+  retainedAsCash: number;
+  redirected: number;
+  reserveTarget: number;
+};
+
 export type ProjectionView = {
   income: IncomeBreakdown;
   withdrawals: WithdrawalBreakdown;
@@ -153,6 +179,8 @@ export type ProjectionView = {
   balances: BalanceBreakdown;
   accountBalances: Record<string, number>;
   accountContributions: Record<string, number>;
+  surplusAllocation: SurplusAllocationBreakdown;
+  accountSurplusAllocations: Record<string, number>;
   allocation: AssetAllocation;
 };
 
@@ -231,8 +259,42 @@ export type GovernmentBenefitCalculationSummary = {
   };
 };
 
+export type SurplusAllocationTotals = {
+  generated: number;
+  reserveRefill: number;
+  retainedAsCash: number;
+  redirected: number;
+  accountAllocations: Record<string, number>;
+};
+
+export type SurplusAllocationCalculationSummary = {
+  policy: {
+    reserveAccountId: string;
+    targetCashReserveToday: number;
+    reserveIndexingRate: number;
+    excessMode: "retain_as_cash" | "allocate_to_account";
+    destinationAccountId: string | null;
+  };
+  throughRetirement: {
+    nominal: SurplusAllocationTotals;
+    real: SurplusAllocationTotals;
+  };
+  reserveTargetAtRetirement: {
+    nominal: number;
+    real: number;
+  };
+  reserveAccountBalanceAtRetirement: {
+    nominal: number;
+    real: number;
+  };
+  destinationAccountBalanceAtRetirement: {
+    nominal: number;
+    real: number;
+  } | null;
+};
+
 export type ProjectionResult = {
-  schemaVersion: "5.0";
+  schemaVersion: "6.0";
   inputs: ProjectionInputs;
   summary: ProjectionSummary;
   retirementSnapshot: RetirementSnapshot;
@@ -241,6 +303,7 @@ export type ProjectionResult = {
     real: FinancialAssetsBridge;
   };
   governmentBenefits: GovernmentBenefitCalculationSummary;
+  surplusAllocation: SurplusAllocationCalculationSummary;
   annual: AnnualProjection[];
   observations: ProjectionObservation[];
 };
@@ -450,12 +513,38 @@ export function validateProjectionInputs(value: unknown): ProjectionInputs {
   }
 
   const accountIds = new Set<string>();
+  const accountsById = new Map<string, FinancialAccountInput>();
   let hasCashAccount = false;
   for (const account of input.accounts) {
     if (!account.id || accountIds.has(account.id)) {
       throw new Error("Financial account ids must be unique and non-empty");
     }
     accountIds.add(account.id);
+    accountsById.set(account.id, account);
+    assertNonEmptyString(`label for ${account.id}`, account.label);
+    if (
+      account.origin !== "lunchmoney" &&
+      account.origin !== "projection_configuration"
+    ) {
+      throw new Error(`Unsupported account origin for ${account.id}`);
+    }
+    if (account.origin === "projection_configuration") {
+      if (!account.id.startsWith("projection:")) {
+        throw new Error(
+          `Projection-configured account ${account.id} must use an id beginning with projection:`,
+        );
+      }
+      if (account.openingBalance !== 0) {
+        throw new Error(
+          `Projection-configured account ${account.id} must have a fixed zero opening balance`,
+        );
+      }
+      if (account.type === "debt") {
+        throw new Error(
+          `Projection-configured account ${account.id} cannot use debt`,
+        );
+      }
+    }
     if (!accountTypes.includes(account.type)) {
       throw new Error(`Unsupported account type ${account.type}`);
     }
@@ -518,6 +607,26 @@ export function validateProjectionInputs(value: unknown): ProjectionInputs {
       }
     }
     assertRate(`annualReturn for ${account.id}`, account.annualReturn);
+    if (
+      !Number.isInteger(account.withdrawalPriority) ||
+      account.withdrawalPriority < 1
+    ) {
+      throw new Error(
+        `withdrawalPriority for ${account.id} must be a positive integer`,
+      );
+    }
+    if (!account.allocation || typeof account.allocation !== "object") {
+      throw new Error(`allocation is required for ${account.id}`);
+    }
+    assertNonNegative(`allocation.cash for ${account.id}`, account.allocation.cash);
+    assertNonNegative(
+      `allocation.fixedIncome for ${account.id}`,
+      account.allocation.fixedIncome,
+    );
+    assertNonNegative(
+      `allocation.equity for ${account.id}`,
+      account.allocation.equity,
+    );
     const allocationTotal =
       account.allocation.cash + account.allocation.fixedIncome + account.allocation.equity;
     if (account.type !== "debt" && Math.abs(allocationTotal - 1) > 0.001) {
@@ -529,6 +638,78 @@ export function validateProjectionInputs(value: unknown): ProjectionInputs {
   }
   if (!hasCashAccount) {
     throw new Error("At least one included cash account is required for cash-flow projection");
+  }
+
+  const surplus = input.surplusAllocation;
+  if (!surplus || typeof surplus !== "object") {
+    throw new Error(
+      "surplusAllocation is required; configure an explicit reserve account and excess strategy",
+    );
+  }
+  assertNonEmptyString(
+    "surplusAllocation.reserveAccountId",
+    surplus.reserveAccountId,
+  );
+  assertNonNegative(
+    "surplusAllocation.targetCashReserveToday",
+    surplus.targetCashReserveToday,
+  );
+  assertRate(
+    "surplusAllocation.reserveIndexingRate",
+    surplus.reserveIndexingRate,
+    -0.2,
+    0.5,
+  );
+  if (!surplus.excess || typeof surplus.excess !== "object") {
+    throw new Error("surplusAllocation.excess is required");
+  }
+  const excess = surplus.excess as SurplusAllocationPolicyInput["excess"] &
+    Record<string, unknown>;
+  if (
+    excess.mode !== "retain_as_cash" &&
+    excess.mode !== "allocate_to_account"
+  ) {
+    throw new Error(
+      "surplusAllocation.excess.mode must be retain_as_cash or allocate_to_account",
+    );
+  }
+  if (excess.mode === "retain_as_cash" && "destinationAccountId" in excess) {
+    throw new Error(
+      "surplusAllocation.excess.destinationAccountId is not allowed for retain_as_cash",
+    );
+  }
+  if (excess.mode === "allocate_to_account") {
+    assertNonEmptyString(
+      "surplusAllocation.excess.destinationAccountId",
+      excess.destinationAccountId,
+    );
+    if (excess.destinationAccountId === surplus.reserveAccountId) {
+      throw new Error(
+        "surplusAllocation reserve and destination accounts must be different",
+      );
+    }
+    const destination = accountsById.get(excess.destinationAccountId);
+    if (!destination) {
+      throw new Error(
+        `Unknown surplusAllocation excess destination account ${excess.destinationAccountId}`,
+      );
+    }
+    if (destination.type !== "non_registered") {
+      throw new Error(
+        `Surplus allocation destination ${destination.id} must be a non-registered account; automatic TFSA, RRSP/RRIF, cash, and debt routing is unavailable`,
+      );
+    }
+  }
+  const reserveAccount = accountsById.get(surplus.reserveAccountId);
+  if (!reserveAccount) {
+    throw new Error(
+      `Unknown surplusAllocation reserve account ${surplus.reserveAccountId}`,
+    );
+  }
+  if (reserveAccount.type !== "cash") {
+    throw new Error(
+      `Surplus allocation reserve account ${reserveAccount.id} must be a cash account`,
+    );
   }
 
   for (const event of input.events) {
