@@ -753,6 +753,61 @@ describe("calculation explanations", () => {
     expect(document.caveats.join(" ")).toContain(
       "does not change total financial assets at the allocation moment",
     );
+    expect(
+      document.steps.find(
+        (step) => step.label === "Routed difference from generated",
+      )?.rawValue,
+    ).toBe(0);
+    expect(
+      document.steps.find(
+        (step) =>
+          step.label === "Account-deposit difference from generated",
+      )?.rawValue,
+    ).toBe(0);
+  });
+
+  it("does not reconcile surplus when account deposits differ from generated", () => {
+    const value = context((draft) => {
+      const totals =
+        draft.projection.surplusAllocation.throughRetirement.real;
+      const [accountId] = Object.keys(totals.accountAllocations);
+      totals.accountAllocations[accountId!] += 1;
+    });
+    const document = buildExplanation("surplus-allocation", value);
+
+    expect(
+      document.steps.find(
+        (step) => step.label === "Routed difference from generated",
+      )?.rawValue,
+    ).toBe(0);
+    expect(
+      document.steps.find(
+        (step) =>
+          step.label === "Account-deposit difference from generated",
+      )?.rawValue,
+    ).toBe(1);
+    expect(document.reconciliation?.matched).toBe(false);
+  });
+
+  it("does not reconcile surplus when routed totals differ from generated", () => {
+    const value = context((draft) => {
+      draft.projection.surplusAllocation.throughRetirement.real
+        .retainedAsCash += 1;
+    });
+    const document = buildExplanation("surplus-allocation", value);
+
+    expect(
+      document.steps.find(
+        (step) => step.label === "Routed difference from generated",
+      )?.rawValue,
+    ).toBe(1);
+    expect(
+      document.steps.find(
+        (step) =>
+          step.label === "Account-deposit difference from generated",
+      )?.rawValue,
+    ).toBe(0);
+    expect(document.reconciliation?.matched).toBe(false);
   });
 
   it("shows active reserve overrides and reset evidence without duplicating policy formulas", () => {

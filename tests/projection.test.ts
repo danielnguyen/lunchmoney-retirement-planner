@@ -775,6 +775,131 @@ describe("explicit surplus allocation policy", () => {
     );
   });
 
+  it("aggregates three reserve accounts without funding any account to the full target", () => {
+    const input = surplusFixture();
+    input.accounts.find(
+      (account) => account.id === "manual:first-cash",
+    )!.openingBalance = 100;
+    input.accounts.find(
+      (account) => account.id === "manual:reserve",
+    )!.openingBalance = 150;
+    input.accounts.push({
+      id: "manual:third-cash",
+      label: "Third cash",
+      origin: "lunchmoney",
+      type: "cash",
+      openingBalance: 200,
+      annualReturn: 0,
+      contributionPhases: [],
+      withdrawalPriority: 4,
+      allocation: { cash: 1, fixedIncome: 0, equity: 0 },
+    });
+    input.surplusAllocation.reserveAccountIds = [
+      "manual:first-cash",
+      "manual:reserve",
+      "manual:third-cash",
+    ];
+
+    const result = calculateProjection(input);
+    const view = result.retirementSnapshot.nominal;
+
+    expect(view.surplusAllocation).toMatchObject({
+      generated: 1000,
+      reserveRefill: 50,
+      retainedAsCash: 50,
+      redirected: 950,
+    });
+    expect(view.accountBalances).toMatchObject({
+      "manual:first-cash": 100,
+      "manual:reserve": 200,
+      "manual:third-cash": 200,
+      "projection:future-taxable": 950,
+    });
+    expect(view.accountSurplusAllocations).toEqual({
+      "manual:reserve": 50,
+      "projection:future-taxable": 950,
+    });
+    expect(
+      result.surplusAllocation.reserveAccountsBalanceAtRetirement.nominal,
+    ).toBe(500);
+
+    const reordered = structuredClone(input);
+    reordered.accounts.reverse();
+    const reorderedResult = calculateProjection(reordered);
+    expect(reorderedResult.retirementSnapshot.nominal.surplusAllocation).toEqual(
+      view.surplusAllocation,
+    );
+    expect(reorderedResult.retirementSnapshot.nominal.accountBalances).toEqual(
+      view.accountBalances,
+    );
+  });
+
+  it("uses every reserve account return in the same month's aggregate shortfall", () => {
+    const input = surplusFixture();
+    const firstReserve = input.accounts.find(
+      (account) => account.id === "manual:first-cash",
+    )!;
+    const refillReserve = input.accounts.find(
+      (account) => account.id === "manual:reserve",
+    )!;
+    firstReserve.openingBalance = 100;
+    firstReserve.annualReturn = Math.pow(1.01, 12) - 1;
+    refillReserve.openingBalance = 200;
+    refillReserve.annualReturn = Math.pow(1.02, 12) - 1;
+    input.surplusAllocation.reserveAccountIds = [
+      firstReserve.id,
+      refillReserve.id,
+    ];
+
+    const result = calculateProjection(input);
+    const view = result.retirementSnapshot.nominal;
+    const aggregateAfterReturns = 101 + 204;
+    const expectedRefill = 500 - aggregateAfterReturns;
+    const refillIfOnlyRefillAccountCounted = 500 - 204;
+
+    expect(result.financialAssetsBridge.nominal.investmentReturns).toBeCloseTo(
+      5,
+      8,
+    );
+    expect(view.surplusAllocation).toMatchObject({
+      generated: 1000,
+      retainedAsCash: expectedRefill,
+      redirected: 1000 - expectedRefill,
+    });
+    expect(view.surplusAllocation.reserveRefill).toBeCloseTo(
+      expectedRefill,
+      8,
+    );
+    expect(view.surplusAllocation.reserveRefill).not.toBeCloseTo(
+      refillIfOnlyRefillAccountCounted,
+      8,
+    );
+    expect(view.accountBalances["manual:first-cash"]).toBeCloseTo(101, 8);
+    expect(view.accountBalances["manual:reserve"]).toBeCloseTo(399, 8);
+    expect(
+      result.surplusAllocation.reserveAccountsBalanceAtRetirement.nominal,
+    ).toBeCloseTo(500, 8);
+
+    const noReturns = structuredClone(input);
+    for (const accountId of noReturns.surplusAllocation.reserveAccountIds) {
+      noReturns.accounts.find((account) => account.id === accountId)!
+        .annualReturn = 0;
+    }
+    expect(
+      calculateProjection(noReturns).retirementSnapshot.nominal
+        .surplusAllocation.reserveRefill,
+    ).toBe(200);
+
+    expect(bridgeEnding(result, "nominal")).toBeCloseTo(
+      result.financialAssetsBridge.nominal.endingFinancialAssets,
+      2,
+    );
+    expect(bridgeEnding(result, "real")).toBeCloseTo(
+      result.financialAssetsBridge.real.endingFinancialAssets,
+      2,
+    );
+  });
+
   it("counts a targeted inflow to any reserve member before calculating the refill", () => {
     const input = surplusFixture();
     input.surplusAllocation.reserveAccountIds = [

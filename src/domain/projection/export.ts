@@ -1532,6 +1532,9 @@ export function projectionSnapshotToCsv(
     throw new Error("CSV export requires an automatically anonymized projection snapshot");
   }
   const accountAliases = snapshot.exportMetadata.accountAliases;
+  const reserveAccountIds = new Set(
+    snapshot.projection.surplusAllocation.policy.reserveAccountIds,
+  );
   const headers = [
     "period",
     "calendarYear",
@@ -1561,9 +1564,11 @@ export function projectionSnapshotToCsv(
     "surplus_reserve_target_today",
     "surplus_reserve_indexing_rate",
     "surplus_excess_mode",
-    "surplus_reserve_accounts",
     "surplus_reserve_refill_account",
     "surplus_destination_account",
+    ...accountAliases.map(
+      (account) => `surplus_reserve_member_${account.key}`,
+    ),
     "cashWithdrawals",
     "tfsaWithdrawals",
     "rrspRrifWithdrawals",
@@ -1625,9 +1630,11 @@ export function projectionSnapshotToCsv(
         .targetCashReserveToday,
       snapshot.projection.surplusAllocation.policy.reserveIndexingRate,
       snapshot.projection.surplusAllocation.policy.excessMode,
-      snapshot.projection.surplusAllocation.policy.reserveAccountIds.join("; "),
       snapshot.projection.surplusAllocation.policy.reserveRefillAccountId,
       snapshot.projection.surplusAllocation.policy.destinationAccountId ?? "",
+      ...accountAliases.map((account) =>
+        reserveAccountIds.has(account.key) ? 1 : 0,
+      ),
       view.withdrawals.cash,
       view.withdrawals.tfsa,
       view.withdrawals.rrspRrif,

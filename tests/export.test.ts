@@ -980,23 +980,50 @@ describe("automatically anonymized projection exports", () => {
           "surplus_reserve_target_today",
           "surplus_reserve_indexing_rate",
           "surplus_excess_mode",
-          "surplus_reserve_accounts",
           "surplus_reserve_refill_account",
           "surplus_destination_account",
+          "surplus_reserve_member_cash_1",
+          "surplus_reserve_member_cash_2",
+          "surplus_reserve_member_rrsp_1",
+          "surplus_reserve_member_non_registered_1",
           "surplus_allocation_cash_1",
           "surplus_allocation_cash_2",
           "surplus_allocation_non_registered_1",
         ]),
       );
+      expect(header).not.toContain("surplus_reserve_accounts");
       expect(
-        lines[1]![header.indexOf("surplus_reserve_accounts")],
-      ).toBe("cash_1; cash_2");
-      expect(
-        lines[1]![header.indexOf("surplus_reserve_refill_account")],
-      ).toBe("cash_1");
+        header.filter((column) =>
+          column.startsWith("surplus_reserve_member_"),
+        ),
+      ).toEqual(
+        snapshot.exportMetadata.accountAliases.map(
+          (account) => `surplus_reserve_member_${account.key}`,
+        ),
+      );
+      const membershipExpectations = {
+        surplus_reserve_member_cash_1: "1",
+        surplus_reserve_member_cash_2: "1",
+        surplus_reserve_member_rrsp_1: "0",
+        surplus_reserve_member_non_registered_1: "0",
+      };
+      for (const row of lines.slice(1)) {
+        for (const [column, expected] of Object.entries(
+          membershipExpectations,
+        )) {
+          expect(row[header.indexOf(column)]).toBe(expected);
+        }
+        expect(
+          row[header.indexOf("surplus_reserve_refill_account")],
+        ).toBe("cash_1");
+        expect(
+          row[header.indexOf("surplus_destination_account")],
+        ).toBe("non_registered_1");
+      }
       expect(new Set(lines.map((line) => line.length))).toEqual(
         new Set([header.length]),
       );
+      expect(csv).not.toContain("cash_1; cash_2");
       expect(csv).not.toContain(projectionAccountId);
       expect(csv).not.toContain(projectionLabel);
       expect(csv).not.toContain("projection:");
