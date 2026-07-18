@@ -879,6 +879,7 @@ export function PlannerDashboard() {
                     target="registered-account-room"
                     title="Annual registered room and contributions"
                     onExplain={openExplanation}
+                    trailing={<span className="pill">Nominal regulatory dollars</span>}
                   />
                   <div className="chart-shell medium">
                     <ResponsiveContainer width="100%" height="100%">
@@ -1088,12 +1089,12 @@ export function PlannerDashboard() {
                 />
                 <div className="table-shell">
                   <table>
-                    <thead><tr><th>Year</th><th>Age</th><th>Income</th><th>Withdrawals</th><th>Tax</th><th>Spending</th><th>Financial assets</th><th>Milestones</th></tr></thead>
+                    <thead><tr><th>Year</th><th>Age</th><th>Income</th><th>Withdrawals</th><th>Tax</th><th>Spending</th><th>Actual contributions</th><th>Surplus funded</th><th>Financial assets</th><th>Milestones</th></tr></thead>
                     <tbody>
                       {ledgerData.map((row) => (
                         <tr key={row.year}>
                           <td>{row.periodLabel}</td><td>{row.age}</td><td>{currency.format(row.income)}</td><td>{currency.format(row.withdrawals)}</td><td>{currency.format(row.tax)}</td>
-                          <td>{currency.format(row.spending)}</td><td>{currency.format(row.financialAssets)}</td><td>{row.milestones}</td>
+                          <td>{currency.format(row.spending)}</td><td>{currency.format(row.actualContributions)}</td><td>{currency.format(row.surplusFundedContributions)}</td><td>{currency.format(row.financialAssets)}</td><td>{row.milestones}</td>
                         </tr>
                       ))}
                     </tbody>
@@ -1268,11 +1269,14 @@ export function PlannerDashboard() {
                     <div><dt>TFSA annual-limit source</dt><dd>Published Canadian reference through 2026; later years are configured forecasts</dd></div>
                     <div><dt>RRSP annual-cap source</dt><dd>Published Canadian references through 2027; later years are configured forecasts</dd></div>
                     <div><dt>Current-period planned</dt><dd>{currency.format(projection.annual[0]?.[mode].contributions.planned ?? 0)}</dd></div>
-                    <div><dt>Current-period allowed</dt><dd>{currency.format(projection.annual[0]?.[mode].contributions.total ?? 0)}</dd></div>
+                    <div><dt>Current-period allowed from planned routes</dt><dd>{currency.format(projection.annual[0]?.[mode].contributions.allowed ?? 0)}</dd></div>
+                    <div><dt>Current-period surplus funded</dt><dd>{currency.format(projection.annual[0]?.[mode].contributions.surplusFunded ?? 0)}</dd></div>
+                    <div><dt>Current-period total actual</dt><dd>{currency.format(projection.annual[0]?.[mode].contributions.total ?? 0)}</dd></div>
                     <div><dt>Current-period redirected</dt><dd>{currency.format(projection.annual[0]?.[mode].contributions.redirected ?? 0)}</dd></div>
                     <div><dt>Current-period unallocated</dt><dd>{currency.format(projection.annual[0]?.[mode].contributions.unallocated ?? 0)}</dd></div>
                     <div><dt>TFSA closing room</dt><dd>{currency.format(projection.annual[0]?.[mode].registeredAccountRoom.tfsa.closingRoom ?? 0)}</dd></div>
                     <div><dt>RRSP closing room</dt><dd>{currency.format(projection.annual[0]?.[mode].registeredAccountRoom.rrsp.closingRoom ?? 0)}</dd></div>
+                    <div><dt>Room denomination</dt><dd>Nominal regulatory dollars · unaffected by display mode</dd></div>
                   </dl>
                 </div>
               ) : null}

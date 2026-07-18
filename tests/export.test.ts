@@ -767,6 +767,9 @@ describe("automatically anonymized projection exports", () => {
     expect(header).toContain("account_rrsp_1");
     expect(header).toContain("employmentPhase");
     expect(header).toContain("incomeWithheldContributions");
+    expect(header).toContain("allowedContributions");
+    expect(header).toContain("surplusFundedContributions");
+    expect(header).toContain("registered_room_basis");
     expect(header).toEqual(expect.arrayContaining([
       "cpp_base_monthly_at_65_today",
       "cpp_claim_age",
@@ -801,6 +804,55 @@ describe("automatically anonymized projection exports", () => {
     expect(nominalRows).toHaveLength(snapshot.projection.annual.length + 1);
     expect(nominalRows.every((row) => row.length === nominalRows[0]!.length)).toBe(true);
     expect(nominalRows[1]![header.indexOf("dollarMode")]).toBe("nominal");
+    const roomColumns = [
+      "tfsa_room_opening",
+      "tfsa_room_new",
+      "tfsa_room_withdrawal_restored",
+      "tfsa_contribution_allowed",
+      "tfsa_room_closing",
+      "rrsp_room_opening",
+      "rrsp_room_new",
+      "rrsp_contribution_allowed",
+      "rrsp_room_closing",
+    ];
+    for (let rowIndex = 1; rowIndex < parsed.length; rowIndex += 1) {
+      for (const column of roomColumns) {
+        expect(parsed[rowIndex]![header.indexOf(column)]).toBe(
+          nominalRows[rowIndex]![header.indexOf(column)],
+        );
+      }
+      expect(
+        parsed[rowIndex]![header.indexOf("registered_room_basis")],
+      ).toBe("nominal_regulatory_dollars");
+      const numberAt = (column: string) =>
+        Number(parsed[rowIndex]![header.indexOf(column)]);
+      expect(
+        numberAt("tfsa_room_opening") +
+          numberAt("tfsa_room_new") +
+          numberAt("tfsa_room_withdrawal_restored") -
+          numberAt("tfsa_contribution_allowed") -
+          numberAt("tfsa_room_closing"),
+      ).toBeCloseTo(0, 2);
+      expect(
+        numberAt("rrsp_room_opening") +
+          numberAt("rrsp_room_new") -
+          numberAt("rrsp_contribution_allowed") -
+          numberAt("rrsp_room_closing"),
+      ).toBeCloseTo(0, 2);
+    }
+    expect(
+      parsed.slice(1).some(
+        (row, index) =>
+          row[header.indexOf("employmentNetCash")] !==
+          nominalRows[index + 1]![header.indexOf("employmentNetCash")],
+      ),
+    ).toBe(true);
+    expect(snapshot.projection.registeredAccountRoom.denomination).toBe(
+      "nominal_regulatory_dollars",
+    );
+    expect(
+      snapshot.projection.annual[0]!.real.contributions,
+    ).toHaveProperty("surplusFunded");
   });
 
   it("produces deterministic aliases across repeated exports of the same input", () => {

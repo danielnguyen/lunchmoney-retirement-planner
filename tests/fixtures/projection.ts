@@ -119,7 +119,7 @@ export const projectionFixture: ProjectionInputs = {
         },
         startYearBeforeProjectionMonth: {
           calendarYear: 2026,
-          eligibleEarnedIncome: 50000,
+          eligibleEarnedIncome: 0,
           pensionAdjustment: 0,
           otherRoomReduction: 0,
         },

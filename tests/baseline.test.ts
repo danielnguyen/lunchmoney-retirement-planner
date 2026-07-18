@@ -364,6 +364,56 @@ describe("live baseline derivation", () => {
     ).toThrow("registeredAccountRoom is required");
   });
 
+  it("blocks missing RRSP generation when RRSP is reachable only by overflow or surplus", () => {
+    const projectionRrsp = {
+      label: "Synthetic future RRSP",
+      type: "rrsp" as const,
+      annualReturn: 0.05,
+      withdrawalPriority: 3,
+      allocation: { cash: 0, fixedIncome: 0.2, equity: 0.8 },
+      contributionPhases: [],
+    };
+
+    const overflow = structuredClone(configFixture);
+    overflow.projectionAccounts = {
+      "projection:future-rrsp": projectionRrsp,
+    };
+    overflow.contributionWaterfall!.routes[0]!.destinationAccountIds.push(
+      "projection:future-rrsp",
+    );
+    expect(() =>
+      deriveCurrentBaseline(
+        overflow,
+        lunchMoneyData(),
+        window,
+        "2026-07-14T12:00:00.000Z",
+      ),
+    ).toThrow(
+      "rrspRoomGeneration is required whenever RRSP/RRIF can receive contributions",
+    );
+
+    const surplusOnly = structuredClone(configFixture);
+    surplusOnly.projectionAccounts = {
+      "projection:future-rrsp": projectionRrsp,
+    };
+    surplusOnly.contributionWaterfall!.surplusDestinationAccountIds = [
+      "projection:future-rrsp",
+    ];
+    surplusOnly.surplusAllocation.excess = {
+      mode: "allocate_through_contribution_waterfall",
+    };
+    expect(() =>
+      deriveCurrentBaseline(
+        surplusOnly,
+        lunchMoneyData(),
+        window,
+        "2026-07-14T12:00:00.000Z",
+      ),
+    ).toThrow(
+      "rrspRoomGeneration is required whenever RRSP/RRIF can receive contributions",
+    );
+  });
+
   it("normalizes omitted waterfall configuration visibly without inventing overflow", () => {
     const config = structuredClone(configFixture);
     delete config.contributionWaterfall;

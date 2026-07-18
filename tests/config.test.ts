@@ -724,4 +724,70 @@ describe("private planner configuration", () => {
       "does not accept destinationAccountId",
     );
   });
+
+  it("requires RRSP generation for overflow and active surplus destinations", async () => {
+    const withRrsp = await loadPlannerConfig(EXAMPLE_CONFIG_PATH);
+    withRrsp.projectionAccounts!["projection:future-rrsp"] = {
+      label: "Synthetic future RRSP",
+      type: "rrsp",
+      annualReturn: 0.05,
+      withdrawalPriority: 3,
+      allocation: { cash: 0, fixedIncome: 0.2, equity: 0.8 },
+      contributionPhases: [],
+    };
+    for (const phase of withRrsp.employmentIncomePhases!) {
+      delete phase.rrspRoomGeneration;
+    }
+
+    const overflow = structuredClone(withRrsp);
+    overflow.contributionWaterfall!.routes[0]!.destinationAccountIds.splice(
+      1,
+      0,
+      "projection:future-rrsp",
+    );
+    expect(() => validatePlannerConfig(overflow)).toThrow(
+      "requires explicit rrspRoomGeneration",
+    );
+
+    const surplus = structuredClone(withRrsp);
+    surplus.contributionWaterfall!.surplusDestinationAccountIds = [
+      "projection:future-rrsp",
+      "projection:future-taxable",
+    ];
+    expect(() => validatePlannerConfig(surplus)).toThrow(
+      "requires explicit rrspRoomGeneration",
+    );
+  });
+
+  it("accepts explicit zero RRSP generation and omits irrelevant generation", async () => {
+    const explicitZero = await loadPlannerConfig(EXAMPLE_CONFIG_PATH);
+    explicitZero.projectionAccounts!["projection:future-rrsp"] = {
+      label: "Synthetic future RRSP",
+      type: "rrsp",
+      annualReturn: 0.05,
+      withdrawalPriority: 3,
+      allocation: { cash: 0, fixedIncome: 0.2, equity: 0.8 },
+      contributionPhases: [],
+    };
+    explicitZero.contributionWaterfall!.routes[0]!.destinationAccountIds.splice(
+      1,
+      0,
+      "projection:future-rrsp",
+    );
+    for (const phase of explicitZero.employmentIncomePhases!) {
+      phase.rrspRoomGeneration = {
+        annualEligibleEarnedIncomeToday: 0,
+        annualPensionAdjustmentToday: 0,
+        annualOtherRoomReductionToday: 0,
+        annualGrowth: 0,
+      };
+    }
+    expect(() => validatePlannerConfig(explicitZero)).not.toThrow();
+
+    const unreachable = await loadPlannerConfig(EXAMPLE_CONFIG_PATH);
+    for (const phase of unreachable.employmentIncomePhases!) {
+      delete phase.rrspRoomGeneration;
+    }
+    expect(() => validatePlannerConfig(unreachable)).not.toThrow();
+  });
 });

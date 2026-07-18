@@ -1110,6 +1110,75 @@ function validateContributionPhaseRanges(config: PlannerConfig): void {
   }
 }
 
+function validateRrspRoomGenerationReachability(
+  config: PlannerConfig,
+): void {
+  const plannerType = (accountId: string) =>
+    config.projectionAccounts?.[accountId]?.type ??
+    config.accountMappings[accountId]?.type;
+  const hasPositiveContribution = (accountId: string) => {
+    const projection = config.projectionAccounts?.[accountId];
+    const mapping = config.accountMappings[accountId];
+    return (
+      projection?.contributionPhases.some(
+        (phase) =>
+          phase.monthlyAmountToday === "live_baseline" ||
+          phase.monthlyAmountToday > 0,
+      ) ??
+      mapping?.contributionPhases?.some(
+        (phase) =>
+          phase.monthlyAmountToday === "live_baseline" ||
+          phase.monthlyAmountToday > 0,
+      ) ??
+      ((mapping?.monthlyContribution ?? 0) > 0)
+    );
+  };
+  const rrspMayReceiveContributions =
+    Object.keys({
+      ...config.accountMappings,
+      ...config.projectionAccounts,
+    }).some(
+      (accountId) =>
+        plannerType(accountId) === "rrsp" &&
+        hasPositiveContribution(accountId),
+    ) ||
+    Boolean(
+      config.contributionWaterfall?.routes.some((route) =>
+        route.destinationAccountIds.some(
+          (accountId) => plannerType(accountId) === "rrsp",
+        ),
+      ),
+    ) ||
+    (config.surplusAllocation.excess.mode ===
+      "allocate_through_contribution_waterfall" &&
+      Boolean(
+        config.contributionWaterfall?.surplusDestinationAccountIds.some(
+          (accountId) => plannerType(accountId) === "rrsp",
+        ),
+      ));
+
+  if (!rrspMayReceiveContributions) return;
+  if (!config.registeredAccountRoom) {
+    throw new PlannerRuntimeError(
+      "invalid_planner_config",
+      "registeredAccountRoom is required whenever RRSP/RRIF can receive contributions.",
+      422,
+    );
+  }
+  if (
+    !config.employmentIncomePhases ||
+    config.employmentIncomePhases.some(
+      (phase) => phase.rrspRoomGeneration === undefined,
+    )
+  ) {
+    throw new PlannerRuntimeError(
+      "invalid_planner_config",
+      "Every employmentIncomePhase requires explicit rrspRoomGeneration values whenever RRSP/RRIF can receive contributions; configure numeric values, including zeros.",
+      422,
+    );
+  }
+}
+
 function events(value: unknown): ProjectionEventInput[] {
   if (value === undefined) return [];
   if (!Array.isArray(value)) {
@@ -1324,6 +1393,7 @@ export function validatePlannerConfig(value: unknown): PlannerConfig {
   }
   validateEmploymentPhaseRanges(config);
   validateContributionPhaseRanges(config);
+  validateRrspRoomGenerationReachability(config);
   return config;
 }
 

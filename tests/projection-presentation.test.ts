@@ -80,6 +80,12 @@ describe("projection presentation metadata", () => {
     );
 
     expect(chart[0]).toMatchObject({
+      allowedContributions:
+        projection.annual[0]!.real.contributions.allowed,
+      surplusFundedContributions:
+        projection.annual[0]!.real.contributions.surplusFunded,
+      actualContributions:
+        projection.annual[0]!.real.contributions.total,
       surplusGenerated: projection.annual[0]!.real.surplusAllocation
         .generated,
       surplusReserveRefill: projection.annual[0]!.real.surplusAllocation
@@ -93,6 +99,9 @@ describe("projection presentation metadata", () => {
     });
     expect(chart[0]).toHaveProperty("surplusAllocation:manual:1");
     expect(ledger[0]).toMatchObject({
+      actualContributions: chart[0]!.actualContributions,
+      surplusFundedContributions:
+        chart[0]!.surplusFundedContributions,
       surplusGenerated: chart[0]!.surplusGenerated,
       surplusReserveRefill: chart[0]!.surplusReserveRefill,
       surplusRetainedAsCash: chart[0]!.surplusRetainedAsCash,

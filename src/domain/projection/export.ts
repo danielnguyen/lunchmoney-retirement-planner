@@ -846,6 +846,7 @@ function safeProjectionView(view: ProjectionView, context: ShareSafeContext): Pr
     contributions: {
       planned: view.contributions.planned,
       allowed: view.contributions.allowed,
+      surplusFunded: view.contributions.surplusFunded,
       sourceAccount: view.contributions.sourceAccount,
       redirected: view.contributions.redirected,
       cashFunded: view.contributions.cashFunded,
@@ -1020,6 +1021,7 @@ function safeProjectionResult(
     },
     registeredAccountRoom: {
       modelled: projection.registeredAccountRoom.modelled,
+      denomination: projection.registeredAccountRoom.denomination,
       policy: {
         tfsaStartingRoomSource:
           projection.registeredAccountRoom.policy.tfsaStartingRoomSource
@@ -1859,6 +1861,8 @@ export function projectionSnapshotToCsv(
     "cashFundedContributions",
     "incomeWithheldContributions",
     "plannedContributions",
+    "allowedContributions",
+    "surplusFundedContributions",
     "actualContributions",
     "redirectedContributions",
     "unallocatedContributions",
@@ -1887,6 +1891,7 @@ export function projectionSnapshotToCsv(
     "rrsp_surplus_contribution",
     "rrsp_contribution_unallocated",
     "rrsp_room_closing",
+    "registered_room_basis",
     "unmetSpending",
     "totalOutflows",
     "cashBalance",
@@ -1976,6 +1981,8 @@ export function projectionSnapshotToCsv(
       view.outflows.contributions,
       view.contributions.incomeWithheld,
       view.contributions.planned,
+      view.contributions.allowed,
+      view.contributions.surplusFunded,
       view.contributions.total,
       view.contributions.redirected,
       view.contributions.unallocated,
@@ -2004,6 +2011,7 @@ export function projectionSnapshotToCsv(
       view.registeredAccountRoom.rrsp.surplusFundedContributions,
       view.registeredAccountRoom.rrsp.unallocatedContributions,
       view.registeredAccountRoom.rrsp.closingRoom,
+      snapshot.projection.registeredAccountRoom.denomination,
       view.outflows.unmetSpending,
       view.outflows.total,
       view.balances.cash,

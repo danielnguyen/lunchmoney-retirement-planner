@@ -1764,6 +1764,8 @@ function ledgerDocument(context: ExplanationContext): ExplanationDocument {
           { column: "Withdrawals", meaning: "Gross amounts withdrawn from financial accounts during the period." },
           { column: "Tax", meaning: "Simplified retirement and RRSP/RRIF withdrawal tax during the period." },
           { column: "Spending", meaning: "Essential, discretionary, and one-time spending during the period." },
+          { column: "Actual contributions", meaning: "All investment deposits, including planned-route and surplus-funded deposits." },
+          { column: "Surplus funded", meaning: "Cash-funded investment deposits originating from the surplus waterfall." },
           { column: "Surplus generated", meaning: "Positive unassigned monthly cash generated during the period after targeted inflows are isolated." },
           { column: "Reserve refill", meaning: "Policy-generated surplus used to close the indexed reserve shortfall." },
           { column: "Retained as cash", meaning: "Policy-generated surplus deposited into the reserve refill account." },
@@ -1783,6 +1785,8 @@ function ledgerDocument(context: ExplanationContext): ExplanationDocument {
           { key: "withdrawals", label: "Withdrawals" },
           { key: "tax", label: "Tax" },
           { key: "spending", label: "Spending" },
+          { key: "actualContributions", label: "Actual contributions" },
+          { key: "surplusFundedContributions", label: "Surplus funded" },
           { key: "surplusGenerated", label: "Surplus generated" },
           { key: "surplusReserveRefill", label: "Reserve refill" },
           { key: "surplusRetainedAsCash", label: "Retained as cash" },
@@ -2567,21 +2571,58 @@ function registeredAccountRoomDocument(
     context.projection,
     context.displayMode,
   );
-  const nominal = context.projection.annual.map((point) => point.nominal);
-  const planned = nominal.reduce(
+  const displayedViews = context.projection.annual.map(
+    (point) => point[context.displayMode],
+  );
+  const planned = displayedViews.reduce(
     (total, view) => total + view.contributions.planned,
     0,
   );
-  const actual = nominal.reduce(
+  const allowed = displayedViews.reduce(
+    (total, view) => total + view.contributions.allowed,
+    0,
+  );
+  const surplusFunded = displayedViews.reduce(
+    (total, view) => total + view.contributions.surplusFunded,
+    0,
+  );
+  const actual = displayedViews.reduce(
     (total, view) => total + view.contributions.total,
     0,
   );
-  const unallocated = nominal.reduce(
+  const unallocated = displayedViews.reduce(
     (total, view) => total + view.contributions.unallocated,
     0,
   );
-  let maximumDifference = Math.abs(planned - actual - unallocated);
-  for (const view of nominal) {
+  const cashFunded = displayedViews.reduce(
+    (total, view) => total + view.contributions.cashFunded,
+    0,
+  );
+  const incomeWithheld = displayedViews.reduce(
+    (total, view) => total + view.contributions.incomeWithheld,
+    0,
+  );
+  const accountDeposits = displayedViews.reduce(
+    (total, view) =>
+      total +
+      Object.values(view.accountContributionDetails).reduce(
+        (accountTotal, detail) =>
+          accountTotal + detail.depositedIntoAccount,
+        0,
+      ),
+    0,
+  );
+  const plannedDifference = planned - allowed - unallocated;
+  const totalDifference = actual - allowed - surplusFunded;
+  const fundingDifference = cashFunded + incomeWithheld - actual;
+  const accountDepositDifference = accountDeposits - actual;
+  let maximumDifference = Math.max(
+    Math.abs(plannedDifference),
+    Math.abs(totalDifference),
+    Math.abs(fundingDifference),
+    Math.abs(accountDepositDifference),
+  );
+  for (const view of displayedViews) {
     const tfsa = view.registeredAccountRoom.tfsa;
     const rrsp = view.registeredAccountRoom.rrsp;
     maximumDifference = Math.max(
@@ -2601,6 +2642,15 @@ function registeredAccountRoomDocument(
       ),
     );
     for (const detail of Object.values(view.accountContributionDetails)) {
+      maximumDifference = Math.max(
+        maximumDifference,
+        Math.abs(
+          detail.depositedIntoAccount -
+            detail.sourceAccountDeposit -
+            detail.redirectedIn -
+            detail.surplusFundedDeposit,
+        ),
+      );
       if (detail.plannedFromAccount === 0) continue;
       maximumDifference = Math.max(
         maximumDifference,
@@ -2623,10 +2673,10 @@ function registeredAccountRoomDocument(
     displayedResult: {
       label: "Closing registered room at projection end",
       value: `${exactCurrency.format(last?.registeredAccountRoom.tfsa.closingRoom ?? 0)} TFSA · ${exactCurrency.format(last?.registeredAccountRoom.rrsp.closingRoom ?? 0)} RRSP`,
-      dollarMode: context.displayMode,
+      period: "Nominal regulatory dollars",
     },
     formula:
-      "Planned = actual deposited + unallocated; closing room = opening + new + restored withdrawals − room-consuming contributions",
+      "Planned = allowed + unallocated; total actual = allowed + surplus funded = cash funded + income withheld = sum of account deposits; each source and destination route reconciles; closing room = opening + new + restored withdrawals − room-consuming contributions",
     steps: [
       {
         label: "Starting TFSA room",
@@ -2708,10 +2758,24 @@ function registeredAccountRoomDocument(
         sourceType: "projection",
       },
       {
-        label: "Actual deposited contributions",
+        label: "Allowed from planned routes",
+        value: exactCurrency.format(allowed),
+        rawValue: allowed,
+        operation: "subtract",
+        sourceType: "projection",
+      },
+      {
+        label: "Surplus-funded deposits",
+        value: exactCurrency.format(surplusFunded),
+        rawValue: surplusFunded,
+        operation: "add",
+        sourceType: "projection",
+      },
+      {
+        label: "Total actual deposited contributions",
         value: exactCurrency.format(actual),
         rawValue: actual,
-        operation: "subtract",
+        operation: "result",
         sourceType: "projection",
       },
       {
@@ -2719,6 +2783,55 @@ function registeredAccountRoomDocument(
         value: exactCurrency.format(unallocated),
         rawValue: unallocated,
         operation: "result",
+        sourceType: "projection",
+      },
+      {
+        label: "Cash-funded actual deposits",
+        value: exactCurrency.format(cashFunded),
+        rawValue: cashFunded,
+        operation: "input",
+        sourceType: "projection",
+      },
+      {
+        label: "Income-withheld actual deposits",
+        value: exactCurrency.format(incomeWithheld),
+        rawValue: incomeWithheld,
+        operation: "add",
+        sourceType: "projection",
+      },
+      {
+        label: "Sum of account deposits",
+        value: exactCurrency.format(accountDeposits),
+        rawValue: accountDeposits,
+        operation: "result",
+        sourceType: "projection",
+      },
+      {
+        label: "Planned-routing difference",
+        value: exactCurrency.format(plannedDifference),
+        rawValue: plannedDifference,
+        operation: "subtract",
+        sourceType: "projection",
+      },
+      {
+        label: "Total-actual difference",
+        value: exactCurrency.format(totalDifference),
+        rawValue: totalDifference,
+        operation: "subtract",
+        sourceType: "projection",
+      },
+      {
+        label: "Funding-split difference",
+        value: exactCurrency.format(fundingDifference),
+        rawValue: fundingDifference,
+        operation: "subtract",
+        sourceType: "projection",
+      },
+      {
+        label: "Account-deposit difference",
+        value: exactCurrency.format(accountDepositDifference),
+        rawValue: accountDepositDifference,
+        operation: "subtract",
         sourceType: "projection",
       },
       {
@@ -2733,11 +2846,16 @@ function registeredAccountRoomDocument(
       {
         title: "Annual registered room and routing",
         description:
-          "Shared presentation rows used by the dashboard and exports.",
+          "Shared nominal-regulatory room rows and display-mode contribution flows used by the dashboard and exports.",
         columns: [
           { key: "period", label: "Period" },
           { key: "planned", label: "Planned" },
-          { key: "actual", label: "Actual" },
+          { key: "allowed", label: "Allowed from planned routes" },
+          { key: "surplusFunded", label: "Surplus funded" },
+          { key: "actual", label: "Total actual" },
+          { key: "cashFunded", label: "Cash funded" },
+          { key: "incomeWithheld", label: "Income withheld" },
+          { key: "accountDeposits", label: "Account deposits" },
           { key: "redirected", label: "Redirected" },
           { key: "unallocated", label: "Unallocated" },
           { key: "tfsaOpening", label: "TFSA opening" },
@@ -2755,29 +2873,57 @@ function registeredAccountRoomDocument(
           { key: "rrspNew", label: "RRSP new" },
           { key: "rrspAllowed", label: "RRSP allowed" },
           { key: "rrspClosing", label: "RRSP closing" },
+          { key: "tfsaRoomDifference", label: "TFSA room difference" },
+          { key: "rrspRoomDifference", label: "RRSP room difference" },
         ],
-        rows: rows.map((row) => ({
-          period: row.periodLabel,
-          planned: row.plannedContributions,
-          actual: row.actualContributions,
-          redirected: row.redirectedContributions,
-          unallocated: row.unallocatedContributions,
-          tfsaOpening: row.tfsaRoomOpening,
-          tfsaNew: row.tfsaRoomNew,
-          tfsaRestored: row.tfsaRoomWithdrawalRestored,
-          tfsaClosing: row.tfsaRoomClosing,
-          tfsaAllowed: row.tfsaAllowedContributions,
-          rrspOpening: row.rrspRoomOpening,
-          rrspPriorIncome: row.rrspPreviousYearEligibleEarnedIncome,
-          rrspRate: row.rrspEarnedIncomeRate,
-          rrspCap: row.rrspAnnualCap,
-          rrspPensionAdjustment: row.rrspPensionAdjustment,
-          rrspOtherReduction: row.rrspOtherRoomReduction,
-          rrspGross: row.rrspGrossGeneratedRoom,
-          rrspNew: row.rrspRoomNew,
-          rrspAllowed: row.rrspAllowedContributions,
-          rrspClosing: row.rrspRoomClosing,
-        })),
+        rows: rows.map((row, index) => {
+          const view = displayedViews[index]!;
+          const tfsa = view.registeredAccountRoom.tfsa;
+          const rrsp = view.registeredAccountRoom.rrsp;
+          return {
+            period: row.periodLabel,
+            planned: row.plannedContributions,
+            allowed: row.allowedContributions,
+            surplusFunded: row.surplusFundedContributions,
+            actual: row.actualContributions,
+            cashFunded: row.cashFundedContributions,
+            incomeWithheld: row.incomeWithheldContributions,
+            accountDeposits: Object.values(
+              view.accountContributionDetails,
+            ).reduce(
+              (total, detail) => total + detail.depositedIntoAccount,
+              0,
+            ),
+            redirected: row.redirectedContributions,
+            unallocated: row.unallocatedContributions,
+            tfsaOpening: row.tfsaRoomOpening,
+            tfsaNew: row.tfsaRoomNew,
+            tfsaRestored: row.tfsaRoomWithdrawalRestored,
+            tfsaClosing: row.tfsaRoomClosing,
+            tfsaAllowed: row.tfsaAllowedContributions,
+            rrspOpening: row.rrspRoomOpening,
+            rrspPriorIncome: row.rrspPreviousYearEligibleEarnedIncome,
+            rrspRate: row.rrspEarnedIncomeRate,
+            rrspCap: row.rrspAnnualCap,
+            rrspPensionAdjustment: row.rrspPensionAdjustment,
+            rrspOtherReduction: row.rrspOtherRoomReduction,
+            rrspGross: row.rrspGrossGeneratedRoom,
+            rrspNew: row.rrspRoomNew,
+            rrspAllowed: row.rrspAllowedContributions,
+            rrspClosing: row.rrspRoomClosing,
+            tfsaRoomDifference:
+              tfsa.openingRoom +
+              tfsa.annualNewRoom +
+              tfsa.withdrawalRoomRestored -
+              tfsa.allowedContributions -
+              tfsa.closingRoom,
+            rrspRoomDifference:
+              rrsp.openingRoom +
+              rrsp.annualNewRoom -
+              rrsp.allowedContributions -
+              rrsp.closingRoom,
+          };
+        }),
       },
       {
         title: "Configured route order",
@@ -2852,6 +2998,8 @@ function registeredAccountRoomDocument(
           { key: "cashFunded", label: "Cash funded" },
           { key: "incomeWithheld", label: "Income withheld" },
           { key: "unallocated", label: "Unallocated" },
+          { key: "sourceDifference", label: "Source difference" },
+          { key: "destinationDifference", label: "Destination difference" },
         ],
         rows: context.projection.annual.flatMap((point) =>
           Object.entries(
@@ -2870,6 +3018,16 @@ function registeredAccountRoomDocument(
             cashFunded: detail.cashFunded,
             incomeWithheld: detail.incomeWithheld,
             unallocated: detail.unallocatedFromAccount,
+            sourceDifference:
+              detail.plannedFromAccount -
+              detail.sourceAccountDeposit -
+              detail.redirectedOut -
+              detail.unallocatedFromAccount,
+            destinationDifference:
+              detail.depositedIntoAccount -
+              detail.sourceAccountDeposit -
+              detail.redirectedIn -
+              detail.surplusFundedDeposit,
           })),
         ),
       },
@@ -2939,6 +3097,7 @@ function registeredAccountRoomDocument(
       ),
     ],
     caveats: [
+      "Registered-room ledgers, annual limits, caps, adjustments, reductions, and room-consuming contributions are nominal regulatory dollars. They are not deflated by the Today’s/Future dollar toggle.",
       "Net deposited employment cash is never treated as RRSP-eligible earned income; room generation uses the explicit nested employment-phase inputs.",
       "TFSA withdrawals restore room only at the next January boundary. RRSP withdrawals do not restore room.",
       "Cash-funded unallocated contributions remain in monthly cash; income-withheld unallocated amounts enter neither cash nor financial assets.",
@@ -2946,9 +3105,9 @@ function registeredAccountRoomDocument(
       "RRSP first-60-days elections, unused undeducted contributions, spousal rules, HBP/LLP repayments, detailed pension adjustments, CRA reassessments, tax refunds, and RRIF minimum withdrawals are not modelled.",
     ],
     reconciliation: {
-      matched: maximumDifference <= 0.01,
-      calculatedValue: planned,
-      displayedValue: actual + unallocated,
+      matched: round(maximumDifference) <= 0.01,
+      calculatedValue: actual,
+      displayedValue: accountDeposits,
     },
   };
 }

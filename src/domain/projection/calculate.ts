@@ -172,6 +172,7 @@ function emptyContributions(): ContributionBreakdown {
   return {
     planned: 0,
     allowed: 0,
+    surplusFunded: 0,
     sourceAccount: 0,
     redirected: 0,
     cashFunded: 0,
@@ -390,6 +391,7 @@ function snapshotView(
     contributions: {
       planned: round(flow.contributions.planned),
       allowed: round(flow.contributions.allowed),
+      surplusFunded: round(flow.contributions.surplusFunded),
       sourceAccount: round(flow.contributions.sourceAccount),
       redirected: round(flow.contributions.redirected),
       cashFunded: round(flow.contributions.cashFunded),
@@ -495,7 +497,7 @@ function addMonthlyFlow(target: ProjectionView, monthly: ProjectionView, factor:
     for (const key of flowFields) {
       const value = source[key];
       if (typeof value === "number") {
-        (destination[key] as number) += value / factor;
+        (destination[key] as number) += value;
       }
     }
     const pointFields: Array<keyof RegisteredProgramAnnualBreakdown> = [
@@ -509,11 +511,11 @@ function addMonthlyFlow(target: ProjectionView, monthly: ProjectionView, factor:
     for (const key of pointFields) {
       const value = source[key];
       if (typeof value === "number" && value !== 0) {
-        (destination[key] as number) = value / factor;
+        (destination[key] as number) = value;
       }
     }
     destination.earnedIncomeRate = source.earnedIncomeRate;
-    destination.closingRoom = source.closingRoom / factor;
+    destination.closingRoom = source.closingRoom;
     destination.carryForwardUnusedRoom = source.carryForwardUnusedRoom;
     destination.sourceKind = source.sourceKind;
   }
@@ -620,6 +622,61 @@ function assertRegisteredRoomReconciled(
     throw new Error(
       `Registered account room failed to reconcile for ${period}`,
     );
+  }
+}
+
+function assertContributionsReconciled(
+  view: ProjectionView,
+  period: string,
+): void {
+  const plannedDifference =
+    view.contributions.planned -
+    view.contributions.allowed -
+    view.contributions.unallocated;
+  const totalDifference =
+    view.contributions.total -
+    view.contributions.allowed -
+    view.contributions.surplusFunded;
+  const fundingDifference =
+    view.contributions.cashFunded +
+    view.contributions.incomeWithheld -
+    view.contributions.total;
+  const outflowDifference =
+    view.outflows.contributions - view.contributions.cashFunded;
+  const accountDepositDifference =
+    Object.values(view.accountContributionDetails).reduce(
+      (total, detail) => total + detail.depositedIntoAccount,
+      0,
+    ) - view.contributions.total;
+  let accountDifference = 0;
+  for (const detail of Object.values(view.accountContributionDetails)) {
+    accountDifference = Math.max(
+      accountDifference,
+      Math.abs(
+        detail.depositedIntoAccount -
+          detail.sourceAccountDeposit -
+          detail.redirectedIn -
+          detail.surplusFundedDeposit,
+      ),
+      detail.plannedFromAccount > 0
+        ? Math.abs(
+            detail.plannedFromAccount -
+              detail.sourceAccountDeposit -
+              detail.redirectedOut -
+              detail.unallocatedFromAccount,
+          )
+        : 0,
+    );
+  }
+  if (
+    round(Math.abs(plannedDifference)) > 0.01 ||
+    round(Math.abs(totalDifference)) > 0.01 ||
+    round(Math.abs(fundingDifference)) > 0.01 ||
+    round(Math.abs(outflowDifference)) > 0.01 ||
+    round(Math.abs(accountDepositDifference)) > 0.01 ||
+    round(accountDifference) > 0.01
+  ) {
+    throw new Error(`Contribution routing failed to reconcile for ${period}`);
   }
 }
 
@@ -742,8 +799,11 @@ export function calculateProjection(rawInputs: ProjectionInputs): ProjectionResu
     const real = snapshotView(annualRealFlow, inputs.accounts, balances, factor);
     assertSurplusReconciled(nominal, `${calendarYear} nominal`);
     assertSurplusReconciled(real, `${calendarYear} real`);
+    assertContributionsReconciled(nominal, `${calendarYear} nominal`);
+    assertContributionsReconciled(real, `${calendarYear} real`);
     if (inputs.registeredAccountRoom) {
       assertRegisteredRoomReconciled(nominal, `${calendarYear} nominal`);
+      assertRegisteredRoomReconciled(real, `${calendarYear} real`);
     }
     annual.push({
       calendarYear,
@@ -1175,6 +1235,10 @@ export function calculateProjection(rawInputs: ProjectionInputs): ProjectionResu
           detail.depositedIntoAccount += amount;
           detail.surplusFundedDeposit += amount;
           detail.cashFunded += amount;
+          monthlyFlow.contributions.surplusFunded += amount;
+          monthlyFlow.contributions.cashFunded += amount;
+          monthlyFlow.contributions.total += amount;
+          monthlyFlow.outflows.contributions += amount;
           if (waterfallDestination.type === "tfsa") {
             monthlyFlow.registeredAccountRoom.tfsa
               .surplusFundedContributions += amount;
@@ -1249,40 +1313,10 @@ export function calculateProjection(rawInputs: ProjectionInputs): ProjectionResu
     monthlyFlow.registeredAccountRoom.tfsa.closingRoom = tfsaRoom;
     monthlyFlow.registeredAccountRoom.rrsp.closingRoom = rrspRoom;
 
-    const contributionDifference =
-      monthlyFlow.contributions.planned -
-      monthlyFlow.contributions.total -
-      monthlyFlow.contributions.unallocated;
-    if (Math.abs(contributionDifference) > 0.01) {
-      throw new Error(
-        `Contribution routing failed to reconcile for ${calendarYear}-${String(calendarMonth).padStart(2, "0")}`,
-      );
-    }
-    for (const [sourceId, detail] of Object.entries(
-      monthlyFlow.accountContributionDetails,
-    )) {
-      const destinationDifference =
-        detail.depositedIntoAccount -
-        detail.sourceAccountDeposit -
-        detail.redirectedIn -
-        detail.surplusFundedDeposit;
-      if (Math.abs(destinationDifference) > 0.01) {
-        throw new Error(
-          `Contribution destination ${sourceId} failed to reconcile`,
-        );
-      }
-      if (detail.plannedFromAccount <= 0) continue;
-      const sourceDifference =
-        detail.plannedFromAccount -
-        detail.sourceAccountDeposit -
-        detail.redirectedOut -
-        detail.unallocatedFromAccount;
-      if (Math.abs(sourceDifference) > 0.01) {
-        throw new Error(
-          `Contribution source ${sourceId} failed to reconcile`,
-        );
-      }
-    }
+    assertContributionsReconciled(
+      monthlyFlow,
+      `${calendarYear}-${String(calendarMonth).padStart(2, "0")}`,
+    );
 
     addMonthlyFlow(annualNominalFlow, monthlyFlow, 1);
     addMonthlyFlow(annualRealFlow, monthlyFlow, factor);
@@ -1479,6 +1513,7 @@ export function calculateProjection(rawInputs: ProjectionInputs): ProjectionResu
     },
     registeredAccountRoom: {
       modelled: Boolean(inputs.registeredAccountRoom),
+      denomination: "nominal_regulatory_dollars",
       policy: {
         tfsaStartingRoomSource:
           inputs.registeredAccountRoom?.tfsa.startingAvailableRoom ?? null,

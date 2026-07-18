@@ -925,6 +925,8 @@ describe("calculation explanations", () => {
     expect(rows[0]).toMatchObject({
       period: chartRows[0]!.periodLabel,
       planned: chartRows[0]!.plannedContributions,
+      allowed: chartRows[0]!.allowedContributions,
+      surplusFunded: chartRows[0]!.surplusFundedContributions,
       actual: chartRows[0]!.actualContributions,
       unallocated: chartRows[0]!.unallocatedContributions,
       tfsaClosing: chartRows[0]!.tfsaRoomClosing,
@@ -936,28 +938,102 @@ describe("calculation explanations", () => {
     expect(document.caveats.join(" ")).toContain(
       "next January boundary",
     );
+    expect(document.caveats.join(" ")).toContain(
+      "nominal regulatory dollars",
+    );
   });
 
-  it("marks registered-room reconciliation unmatched for routing or room mismatches", () => {
-    const routingMismatch = context();
-    routingMismatch.projection.annual[0]!.nominal.contributions.unallocated +=
-      10;
-    expect(
-      buildExplanation(
-        "registered-account-room",
-        routingMismatch,
-      ).reconciliation?.matched,
-    ).toBe(false);
+  it("marks every registered-room contribution and room mismatch unmatched", () => {
+    const mutations: Array<(value: ReturnType<typeof context>) => void> = [
+      (value) => {
+        value.projection.annual[0]!.real.contributions.unallocated += 10;
+      },
+      (value) => {
+        value.projection.annual[0]!.real.contributions.total += 10;
+      },
+      (value) => {
+        value.projection.annual[0]!.real.contributions.surplusFunded += 10;
+      },
+      (value) => {
+        value.projection.annual[0]!.real.contributions.cashFunded += 10;
+      },
+      (value) => {
+        Object.values(
+          value.projection.annual[0]!.real.accountContributionDetails,
+        )[0]!.depositedIntoAccount += 10;
+      },
+      (value) => {
+        Object.values(
+          value.projection.annual[0]!.real.accountContributionDetails,
+        )[0]!.redirectedIn += 10;
+      },
+      (value) => {
+        Object.values(
+          value.projection.annual[0]!.real.accountContributionDetails,
+        )[0]!.redirectedOut += 10;
+      },
+      (value) => {
+        value.projection.annual[0]!.real.registeredAccountRoom.tfsa
+          .closingRoom += 10;
+      },
+    ];
 
-    const roomMismatch = context();
-    roomMismatch.projection.annual[0]!.nominal.registeredAccountRoom.tfsa
-      .closingRoom += 10;
+    for (const mutate of mutations) {
+      const mismatch = context();
+      mutate(mismatch);
+      expect(
+        buildExplanation(
+          "registered-account-room",
+          mismatch,
+        ).reconciliation?.matched,
+      ).toBe(false);
+    }
+  });
+
+  it("uses the active displayed room rows for reconciliation in both modes", () => {
+    const real = context();
+    const nominal = context((draft) => {
+      draft.displayMode = "nominal";
+    });
+    const realDocument = buildExplanation("registered-account-room", real);
+    const nominalDocument = buildExplanation(
+      "registered-account-room",
+      nominal,
+    );
+    const realRows = section(
+      realDocument,
+      "Annual registered room and routing",
+    ).rows;
+    const nominalRows = section(
+      nominalDocument,
+      "Annual registered room and routing",
+    ).rows;
+
+    expect(realDocument.reconciliation?.matched).toBe(true);
+    expect(nominalDocument.reconciliation?.matched).toBe(true);
     expect(
-      buildExplanation(
-        "registered-account-room",
-        roomMismatch,
-      ).reconciliation?.matched,
-    ).toBe(false);
+      realRows.map(
+        ({ tfsaOpening, tfsaNew, tfsaClosing, rrspOpening, rrspNew, rrspClosing }) => ({
+          tfsaOpening,
+          tfsaNew,
+          tfsaClosing,
+          rrspOpening,
+          rrspNew,
+          rrspClosing,
+        }),
+      ),
+    ).toEqual(
+      nominalRows.map(
+        ({ tfsaOpening, tfsaNew, tfsaClosing, rrspOpening, rrspNew, rrspClosing }) => ({
+          tfsaOpening,
+          tfsaNew,
+          tfsaClosing,
+          rrspOpening,
+          rrspNew,
+          rrspClosing,
+        }),
+      ),
+    );
   });
 
   it("shows active starting-room overrides and reset values deterministically", () => {

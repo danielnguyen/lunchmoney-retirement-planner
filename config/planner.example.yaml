@@ -47,6 +47,8 @@ employmentIncomePhases:
     # Growth starts at the beginning of this phase.
     annualGrowth: 0
     # RRSP room uses explicit eligible earned income, never net deposited cash.
+    # These fields are required whenever any active route can reach RRSP/RRIF;
+    # omit the block only when RRSP/RRIF cannot receive contributions at all.
     rrspRoomGeneration:
       annualEligibleEarnedIncomeToday: 100000
       annualPensionAdjustmentToday: 0
@@ -125,6 +127,7 @@ registeredAccountRoom:
         futureRoundingIncrement: 10
       # Synthetic January-through-June totals because this example starts in
       # 2026. The calendar year must match the live projection start year.
+      # If the live projection starts in January, all three totals must be zero.
       startYearBeforeProjectionMonth:
         calendarYear: 2026
         eligibleEarnedIncome: 50000

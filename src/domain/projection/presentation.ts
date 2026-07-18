@@ -91,6 +91,8 @@ export type AnnualChartRow = {
   cashFundedContributions: number;
   incomeWithheldContributions: number;
   plannedContributions: number;
+  allowedContributions: number;
+  surplusFundedContributions: number;
   actualContributions: number;
   redirectedContributions: number;
   unallocatedContributions: number;
@@ -115,6 +117,7 @@ export type AnnualChartRow = {
   rrspAllowedContributions: number;
   rrspSurplusContributions: number;
   rrspUnallocatedContributions: number;
+  registeredRoomDenomination: "nominal_regulatory_dollars";
   employmentNetCash: number;
   employmentPhase: string;
   contributionPhases: string;
@@ -144,6 +147,8 @@ export type AnnualLedgerRow = {
   withdrawals: number;
   tax: number;
   spending: number;
+  actualContributions: number;
+  surplusFundedContributions: number;
   surplusGenerated: number;
   surplusReserveRefill: number;
   surplusRetainedAsCash: number;
@@ -172,6 +177,8 @@ export function buildAnnualChartData(
       cashFundedContributions: view.contributions.cashFunded,
       incomeWithheldContributions: view.contributions.incomeWithheld,
       plannedContributions: view.contributions.planned,
+      allowedContributions: view.contributions.allowed,
+      surplusFundedContributions: view.contributions.surplusFunded,
       actualContributions: view.contributions.total,
       redirectedContributions: view.contributions.redirected,
       unallocatedContributions: view.contributions.unallocated,
@@ -210,6 +217,8 @@ export function buildAnnualChartData(
         view.registeredAccountRoom.rrsp.surplusFundedContributions,
       rrspUnallocatedContributions:
         view.registeredAccountRoom.rrsp.unallocatedContributions,
+      registeredRoomDenomination:
+        projection.registeredAccountRoom.denomination,
       employmentNetCash: view.income.employment,
       employmentPhase: point.employmentPhaseLabels.join(" → "),
       contributionPhases: Object.values(point.contributionPhaseLabels)
@@ -282,6 +291,8 @@ export function buildAnnualLedgerData(
       spending: roundCurrency(
         view.outflows.essential + view.outflows.discretionary + view.outflows.oneTime,
       ),
+      actualContributions: view.contributions.total,
+      surplusFundedContributions: view.contributions.surplusFunded,
       surplusGenerated: view.surplusAllocation.generated,
       surplusReserveRefill: view.surplusAllocation.reserveRefill,
       surplusRetainedAsCash: view.surplusAllocation.retainedAsCash,

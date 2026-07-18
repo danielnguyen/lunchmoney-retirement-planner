@@ -526,6 +526,164 @@ describe("contribution waterfall and funding semantics", () => {
         first.surplusAllocation.redirected,
       2,
     );
+    expect(first.contributions).toMatchObject({
+      planned: 4800,
+      allowed: 4800,
+      surplusFunded: first.surplusAllocation.redirected,
+      total: 4800 + first.surplusAllocation.redirected,
+    });
+    expect(first.contributions.cashFunded).toBe(first.contributions.total);
+    expect(first.outflows.contributions).toBe(first.contributions.cashFunded);
+    expect(
+      Object.values(first.accountContributionDetails).reduce(
+        (total, detail) => total + detail.depositedIntoAccount,
+        0,
+      ),
+    ).toBeCloseTo(first.contributions.total, 8);
+  });
+
+  it.each([
+    ["TFSA", "tfsa:one"],
+    ["RRSP", "rrsp:one"],
+    ["non-registered", "projection:taxable"],
+  ] as const)(
+    "includes %s surplus deposits in canonical actual and cash-funded totals",
+    (_label, destinationId) => {
+      const input = roomFixture();
+      input.person.employmentIncomePhases[0]!.annualNetCashToday = 1200;
+      input.accounts.find((account) => account.id === "cash:reserve")!
+        .openingBalance = 0;
+      input.accounts.find((account) => account.id === "tfsa:one")!
+        .contributionPhases = [];
+      input.contributionWaterfall.routes = [];
+      input.contributionWaterfall.surplusDestinationAccountIds = [
+        destinationId,
+      ];
+      input.surplusAllocation.excess = {
+        mode: "allocate_through_contribution_waterfall",
+      };
+
+      const result = calculateProjection(input);
+      const first = result.annual[0]!.nominal;
+      const detail = first.accountContributionDetails[destinationId]!;
+
+      expect(first.contributions).toMatchObject({
+        planned: 0,
+        allowed: 0,
+        surplusFunded: 600,
+        cashFunded: 600,
+        incomeWithheld: 0,
+        unallocated: 0,
+        total: 600,
+      });
+      expect(first.outflows.contributions).toBe(600);
+      expect(detail).toMatchObject({
+        depositedIntoAccount: 600,
+        surplusFundedDeposit: 600,
+        cashFunded: 600,
+      });
+      expect(
+        Object.values(first.accountContributionDetails).reduce(
+          (total, account) => total + account.depositedIntoAccount,
+          0,
+        ),
+      ).toBe(600);
+      expect(first.balances.financialAssets).toBe(600);
+      expect(result.financialAssetsBridge.nominal.endingFinancialAssets).toBe(
+        2400,
+      );
+      if (destinationId === "tfsa:one") {
+        expect(
+          first.registeredAccountRoom.tfsa.allowedContributions,
+        ).toBe(600);
+        expect(
+          first.registeredAccountRoom.tfsa.surplusFundedContributions,
+        ).toBe(600);
+      }
+      if (destinationId === "rrsp:one") {
+        expect(
+          first.registeredAccountRoom.rrsp.allowedContributions,
+        ).toBe(600);
+        expect(
+          first.registeredAccountRoom.rrsp.surplusFundedContributions,
+        ).toBe(600);
+      }
+    },
+  );
+
+  it("keeps no-surplus totals unchanged and reconciles mixed planned and surplus deposits", () => {
+    const noSurplus = roomFixture();
+    const plannedOnly = calculateProjection(noSurplus).annual[0]!.nominal;
+    expect(plannedOnly.contributions.surplusFunded).toBe(0);
+    expect(plannedOnly.contributions.total).toBe(
+      plannedOnly.contributions.allowed,
+    );
+
+    const mixed = roomFixture();
+    mixed.person.employmentIncomePhases[0]!.annualNetCashToday = 2400;
+    mixed.accounts.find((account) => account.id === "cash:reserve")!
+      .openingBalance = 0;
+    mixed.accounts.find((account) => account.id === "tfsa:one")!
+      .contributionPhases[0]!.monthlyAmountToday = 100;
+    mixed.registeredAccountRoom!.tfsa.startingAvailableRoom.amount = 5000;
+    mixed.contributionWaterfall.routes[0]!.destinationAccountIds = [
+      "tfsa:one",
+    ];
+    mixed.contributionWaterfall.surplusDestinationAccountIds = ["tfsa:two"];
+    mixed.surplusAllocation.excess = {
+      mode: "allocate_through_contribution_waterfall",
+    };
+    const result = calculateProjection(mixed);
+    const first = result.annual[0]!.nominal;
+    expect(first.contributions).toMatchObject({
+      planned: 600,
+      allowed: 600,
+      surplusFunded: 600,
+      total: 1200,
+      cashFunded: 1200,
+    });
+    expect(first.outflows.contributions).toBe(1200);
+    expect(first.balances.financialAssets).toBe(1200);
+    expect(
+      Object.values(first.accountContributionDetails).reduce(
+        (total, detail) => total + detail.depositedIntoAccount,
+        0,
+      ),
+    ).toBe(1200);
+    for (const mode of ["nominal", "real"] as const) {
+      const bridge = result.financialAssetsBridge[mode];
+      const ending =
+        bridge.startingFinancialAssets +
+        bridge.employmentNetCash +
+        bridge.publicBenefitsAndPension +
+        bridge.otherInflows +
+        bridge.incomeWithheldContributions +
+        bridge.investmentReturns -
+        bridge.essentialSpending -
+        bridge.discretionarySpending -
+        bridge.oneTimeOutflows -
+        bridge.taxes;
+      expect(ending).toBeCloseTo(bridge.endingFinancialAssets, 2);
+    }
+  });
+
+  it("keeps regulatory room nominal while ordinary flows follow display mode", () => {
+    const input = roomFixture();
+    input.annualInflation = 0.12;
+    input.person.employmentIncomePhases[0]!.annualNetCashToday = 24000;
+    const result = calculateProjection(input);
+
+    expect(result.registeredAccountRoom.denomination).toBe(
+      "nominal_regulatory_dollars",
+    );
+    for (const point of result.annual) {
+      expect(point.real.registeredAccountRoom).toEqual(
+        point.nominal.registeredAccountRoom,
+      );
+    }
+    expect(result.annual[1]!.real.income.employment).not.toBe(
+      result.annual[1]!.nominal.income.employment,
+    );
   });
 
   it("retains surplus fallback as cash when registered room is exhausted", () => {
@@ -608,6 +766,99 @@ describe("registered-room validation boundaries", () => {
     expect(() => validateProjectionInputs(input)).toThrow(
       "registeredAccountRoom is required",
     );
+  });
+
+  it("requires explicit RRSP generation for overflow and active surplus reachability", () => {
+    const overflow = roomFixture();
+    delete overflow.person.employmentIncomePhases[0]!.rrspRoomGeneration;
+    expect(() => validateProjectionInputs(overflow)).toThrow(
+      "rrspRoomGeneration is required whenever RRSP/RRIF can receive contributions",
+    );
+
+    const surplusOnly = roomFixture();
+    surplusOnly.accounts.find((account) => account.id === "tfsa:one")!
+      .contributionPhases = [];
+    surplusOnly.contributionWaterfall.routes = [];
+    surplusOnly.contributionWaterfall.surplusDestinationAccountIds = [
+      "rrsp:one",
+    ];
+    surplusOnly.surplusAllocation.excess = {
+      mode: "allocate_through_contribution_waterfall",
+    };
+    delete surplusOnly.person.employmentIncomePhases[0]!.rrspRoomGeneration;
+    expect(() => validateProjectionInputs(surplusOnly)).toThrow(
+      "rrspRoomGeneration is required whenever RRSP/RRIF can receive contributions",
+    );
+  });
+
+  it("accepts explicit zero RRSP generation and omits it when RRSP is unreachable", () => {
+    const explicitZero = roomFixture();
+    explicitZero.person.employmentIncomePhases[0]!.rrspRoomGeneration = {
+      annualEligibleEarnedIncomeToday: 0,
+      annualPensionAdjustmentToday: 0,
+      annualOtherRoomReductionToday: 0,
+      annualGrowth: 0,
+    };
+    expect(() => validateProjectionInputs(explicitZero)).not.toThrow();
+
+    const unreachable = roomFixture();
+    unreachable.contributionWaterfall.routes[0]!.destinationAccountIds = [
+      "tfsa:one",
+      "projection:taxable",
+    ];
+    unreachable.contributionWaterfall.surplusDestinationAccountIds = [
+      "tfsa:two",
+      "projection:taxable",
+    ];
+    delete unreachable.person.employmentIncomePhases[0]!.rrspRoomGeneration;
+    expect(() => validateProjectionInputs(unreachable)).not.toThrow();
+  });
+
+  it("never substitutes net deposited cash for eligible earned income", () => {
+    const input = roomFixture();
+    input.person.employmentIncomePhases[0]!.annualNetCashToday = 999999;
+    input.person.employmentIncomePhases[0]!.rrspRoomGeneration = {
+      annualEligibleEarnedIncomeToday: 0,
+      annualPensionAdjustmentToday: 0,
+      annualOtherRoomReductionToday: 0,
+      annualGrowth: 0,
+    };
+    input.registeredAccountRoom!.rrsp.newRoom.startYearBeforeProjectionMonth = {
+      calendarYear: 2026,
+      eligibleEarnedIncome: 0,
+      pensionAdjustment: 0,
+      otherRoomReduction: 0,
+    };
+    expect(
+      calculateProjection(input).annual[1]!.nominal.registeredAccountRoom.rrsp
+        .annualNewRoom,
+    ).toBe(0);
+  });
+
+  it("requires January pre-start RRSP totals to be zero", () => {
+    const january = roomFixture();
+    january.startDate = "2026-01-01";
+    january.registeredAccountRoom!.rrsp.newRoom
+      .startYearBeforeProjectionMonth = {
+      calendarYear: 2026,
+      eligibleEarnedIncome: 0,
+      pensionAdjustment: 0,
+      otherRoomReduction: 0,
+    };
+    expect(() => validateProjectionInputs(january)).not.toThrow();
+
+    for (const field of [
+      "eligibleEarnedIncome",
+      "pensionAdjustment",
+      "otherRoomReduction",
+    ] as const) {
+      const invalid = structuredClone(january);
+      invalid.registeredAccountRoom!.rrsp.newRoom
+        .startYearBeforeProjectionMonth[field] = 1;
+      expect(() => validateProjectionInputs(invalid)).toThrow(
+        "January has no pre-projection months",
+      );
+    }
   });
 
   it("rejects duplicate sources, duplicate destinations, unknown, cash, debt, and non-registered-before-room routes", () => {

@@ -211,6 +211,7 @@ export type OutflowBreakdown = {
 export type ContributionBreakdown = {
   planned: number;
   allowed: number;
+  surplusFunded: number;
   sourceAccount: number;
   redirected: number;
   cashFunded: number;
@@ -407,6 +408,7 @@ export type SurplusAllocationCalculationSummary = {
 
 export type RegisteredAccountRoomCalculationSummary = {
   modelled: boolean;
+  denomination: "nominal_regulatory_dollars";
   policy: {
     tfsaStartingRoomSource: StartingRoomSource | null;
     rrspStartingRoomSource: StartingRoomSource | null;
@@ -884,19 +886,15 @@ export function validateProjectionInputs(value: unknown): ProjectionInputs {
     assertNonNegative("RRSP pre-start eligible earned income", preStart.eligibleEarnedIncome);
     assertNonNegative("RRSP pre-start pension adjustment", preStart.pensionAdjustment);
     assertNonNegative("RRSP pre-start other room reduction", preStart.otherRoomReduction);
-    const rrspRoomIsUsed = input.accounts.some(
-      (account) =>
-        account.type === "rrsp_rrif" &&
-        account.contributionPhases.some((phase) => phase.monthlyAmountToday > 0),
-    );
-    if (rrspRoomIsUsed) {
-      for (const [index, phase] of input.person.employmentIncomePhases.entries()) {
-        if (!phase.rrspRoomGeneration) {
-          throw new Error(
-            `employmentIncomePhases[${index}].rrspRoomGeneration is required when RRSP room uses earned income`,
-          );
-        }
-      }
+    if (
+      Number(input.startDate.slice(5, 7)) === 1 &&
+      (preStart.eligibleEarnedIncome !== 0 ||
+        preStart.pensionAdjustment !== 0 ||
+        preStart.otherRoomReduction !== 0)
+    ) {
+      throw new Error(
+        "RRSP startYearBeforeProjectionMonth values must all be zero when projection starts in January because January has no pre-projection months",
+      );
     }
   }
 
@@ -1091,6 +1089,38 @@ export function validateProjectionInputs(value: unknown): ProjectionInputs {
       throw new Error(
         `Surplus allocation destination ${destination.id} must be a non-registered account; automatic TFSA, RRSP/RRIF, cash, and debt routing is unavailable`,
       );
+    }
+  }
+
+  const rrspMayReceiveContributions =
+    input.accounts.some(
+      (account) =>
+        account.type === "rrsp_rrif" &&
+        account.contributionPhases.some(
+          (phase) => phase.monthlyAmountToday > 0,
+        ),
+    ) ||
+    waterfall.routes.some((route) =>
+      route.destinationAccountIds.some(
+        (accountId) => accountsById.get(accountId)?.type === "rrsp_rrif",
+      ),
+    ) ||
+    (excess.mode === "allocate_through_contribution_waterfall" &&
+      waterfall.surplusDestinationAccountIds.some(
+        (accountId) => accountsById.get(accountId)?.type === "rrsp_rrif",
+      ));
+  if (rrspMayReceiveContributions && !input.registeredAccountRoom) {
+    throw new Error(
+      "registeredAccountRoom is required whenever RRSP/RRIF can receive contributions",
+    );
+  }
+  if (rrspMayReceiveContributions) {
+    for (const [index, phase] of input.person.employmentIncomePhases.entries()) {
+      if (!phase.rrspRoomGeneration) {
+        throw new Error(
+          `employmentIncomePhases[${index}].rrspRoomGeneration is required whenever RRSP/RRIF can receive contributions; configure explicit values, including zeros`,
+        );
+      }
     }
   }
   for (const reserveAccountId of surplus.reserveAccountIds) {
