@@ -24,6 +24,12 @@ function oneYearFixture(): ProjectionInputs {
       endAge: 41,
       annualNetCashToday: 0,
       annualGrowth: 0,
+      rrspRoomGeneration: {
+        annualEligibleEarnedIncomeToday: 0,
+        annualPensionAdjustmentToday: 0,
+        annualOtherRoomReductionToday: 0,
+        annualGrowth: 0,
+      },
     },
   ];
   input.person.annualPensionToday = 0;
@@ -423,6 +429,12 @@ describe("resolved employment-income phases", () => {
         endAge: 42,
         annualNetCashToday: 84000,
         annualGrowth: 0.02,
+        rrspRoomGeneration: {
+          annualEligibleEarnedIncomeToday: 100000,
+          annualPensionAdjustmentToday: 0,
+          annualOtherRoomReductionToday: 0,
+          annualGrowth: 0.02,
+        },
       },
       {
         id: "future",
@@ -431,6 +443,12 @@ describe("resolved employment-income phases", () => {
         endAge: 65,
         annualNetCashToday: 50000,
         annualGrowth: 0,
+        rrspRoomGeneration: {
+          annualEligibleEarnedIncomeToday: 70000,
+          annualPensionAdjustmentToday: 0,
+          annualOtherRoomReductionToday: 0,
+          annualGrowth: 0,
+        },
       },
     ];
 
@@ -597,7 +615,7 @@ describe("exact retirement snapshot and accumulation bridge", () => {
   it("captures an integer-age retirement after the final working month", () => {
     const result = calculateProjection(oneYearFixture());
 
-    expect(result.schemaVersion).toBe("6.0");
+    expect(result.schemaVersion).toBe("7.0");
     expect(result.retirementSnapshot.calendarDate).toBe("2026-12-31");
     expect(result.retirementSnapshot.age).toBe(41);
     expect(result.retirementSnapshot.flowPeriod).toEqual({
@@ -618,6 +636,12 @@ describe("exact retirement snapshot and accumulation bridge", () => {
       endAge: 55,
       annualNetCashToday: 12000,
       annualGrowth: 0,
+      rrspRoomGeneration: {
+        annualEligibleEarnedIncomeToday: 12000,
+        annualPensionAdjustmentToday: 0,
+        annualOtherRoomReductionToday: 0,
+        annualGrowth: 0,
+      },
     }];
     input.accounts[1]!.contributionPhases = [{
       id: "fifteen-saving-years",

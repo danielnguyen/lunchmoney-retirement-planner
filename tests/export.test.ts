@@ -365,8 +365,8 @@ describe("automatically anonymized projection exports", () => {
     const { snapshot } = buildExportFixture();
     const serialized = JSON.stringify(snapshot);
 
-    expect(snapshot.schemaVersion).toBe("6.0");
-    expect(snapshot.projection.schemaVersion).toBe("6.0");
+    expect(snapshot.schemaVersion).toBe("7.0");
+    expect(snapshot.projection.schemaVersion).toBe("7.0");
     expect(snapshot.exportMetadata).toEqual({
       transformation: "typed_allowlist_and_automatic_anonymization",
       automaticSanitizationApplied: true,
@@ -706,6 +706,12 @@ describe("automatically anonymized projection exports", () => {
         endAge: 65,
         annualNetCashToday: 84000,
         annualGrowth: 0.02,
+        rrspRoomGeneration: {
+          annualEligibleEarnedIncomeToday: 100000,
+          annualPensionAdjustmentToday: 0,
+          annualOtherRoomReductionToday: 0,
+          annualGrowth: 0.02,
+        },
       },
     ];
     for (const account of inputs.accounts) {
@@ -736,9 +742,14 @@ describe("automatically anonymized projection exports", () => {
     expect(JSON.stringify(snapshot)).toContain('"OAS begins"');
 
     const csv = projectionSnapshotToCsv(snapshot, "real");
-    const milestoneRow = csv.split("\n").find((row) => row.includes("CPP begins"));
-    expect(milestoneRow).toContain("CPP begins");
-    expect(milestoneRow).toContain("OAS begins");
+    const rows = csv.split("\n").map(parseCsvLine);
+    const header = rows[0]!;
+    const milestoneRow = rows.slice(1).find(
+      (row) =>
+        row[header.indexOf("milestone_cpp")] === "1" &&
+        row[header.indexOf("milestone_oas")] === "1",
+    );
+    expect(milestoneRow).toBeDefined();
   });
 
   it("emits automatically anonymized rectangular real and nominal CSV tables", () => {
@@ -930,7 +941,7 @@ describe("automatically anonymized projection exports", () => {
     );
     const serialized = JSON.stringify(snapshot);
 
-    expect(snapshot.schemaVersion).toBe("6.0");
+    expect(snapshot.schemaVersion).toBe("7.0");
     expect(snapshot.projection.inputs.accounts.at(-1)).toMatchObject({
       id: "non_registered_1",
       label: "Non-registered account 1",
@@ -989,6 +1000,23 @@ describe("automatically anonymized projection exports", () => {
           "surplus_allocation_cash_1",
           "surplus_allocation_cash_2",
           "surplus_allocation_non_registered_1",
+          "tfsa_room_opening",
+          "tfsa_room_new",
+          "tfsa_room_withdrawal_restored",
+          "tfsa_contribution_planned",
+          "tfsa_contribution_allowed",
+          "tfsa_room_closing",
+          "rrsp_room_opening",
+          "rrsp_previous_year_eligible_earned_income",
+          "rrsp_earned_income_rate",
+          "rrsp_annual_cap",
+          "rrsp_room_new",
+          "rrsp_room_closing",
+          "planned_contribution_rrsp_1",
+          "actual_contribution_rrsp_1",
+          "redirected_in_rrsp_1",
+          "redirected_out_rrsp_1",
+          "surplus_contribution_rrsp_1",
         ]),
       );
       expect(header).not.toContain("surplus_reserve_accounts");
@@ -1040,5 +1068,133 @@ describe("automatically anonymized projection exports", () => {
     expect(realCsv).toBe("retirement-projection-real-2026-07-15.csv");
     expect(nominalCsv).toBe("retirement-projection-nominal-2026-07-15.csv");
     expect([json, realCsv, nominalCsv].join(" ")).not.toMatch(/share-safe|anonymized/i);
+  });
+
+  it("aliases registered-room routes, provenance, overrides, and flat account contribution columns", () => {
+    const fixture = buildExportFixture();
+    const inputs = structuredClone(fixture.inputs);
+    const baseline = structuredClone(fixture.baseline);
+    inputs.registeredAccountRoom!.tfsa.startingAvailableRoom.sourceDescription =
+      `${PRIVATE_TEXT.personalName} TFSA notice from ${PRIVATE_TEXT.institution}`;
+    inputs.registeredAccountRoom!.rrsp.startingAvailableDeductionRoom.sourceDescription =
+      `${PRIVATE_TEXT.employer} RRSP notice at ${PRIVATE_TEXT.streetAddress}`;
+    inputs.contributionWaterfall = {
+      mode: "canonical",
+      routes: [
+        {
+          sourceAccountId: RAW_IDS.rrsp,
+          destinationAccountIds: [RAW_IDS.rrsp],
+        },
+      ],
+      surplusDestinationAccountIds: [RAW_IDS.rrsp],
+    };
+    baseline.projectionInputs = structuredClone(inputs);
+    baseline.provenance = {
+      ...baseline.provenance,
+      "registeredAccountRoom.tfsa.startingAvailableRoom.amount": {
+        value:
+          inputs.registeredAccountRoom!.tfsa.startingAvailableRoom.amount,
+        sourceType: "local_configuration",
+        sourceDescription: `${PRIVATE_TEXT.personalName} ${PRIVATE_TEXT.email}`,
+        effectiveDate: baseline.dataThrough,
+      },
+      [`person.employmentIncomePhases.${RAW_IDS.employmentPhase}.rrspRoomGeneration.annualEligibleEarnedIncomeToday`]:
+        {
+          value:
+            inputs.person.employmentIncomePhases[0]!
+              .rrspRoomGeneration!.annualEligibleEarnedIncomeToday,
+          sourceType: "local_configuration",
+          sourceDescription: `${PRIVATE_TEXT.employer} payroll statement`,
+          effectiveDate: baseline.dataThrough,
+        },
+      "contributionWaterfall.routes.0.sourceAccountId": {
+        value: RAW_IDS.rrsp,
+        sourceType: "local_configuration",
+        sourceDescription: RAW_ACCOUNT_NAMES.rrsp,
+        effectiveDate: baseline.dataThrough,
+      },
+      "contributionWaterfall.routes.0.destinationAccountIds": {
+        value: [RAW_IDS.rrsp],
+        sourceType: "local_configuration",
+        sourceDescription: PRIVATE_TEXT.note,
+        effectiveDate: baseline.dataThrough,
+      },
+    };
+    const projection = calculateProjection(inputs);
+    const snapshot = createProjectionSnapshot(
+      projection,
+      baseline,
+      {
+        "registeredAccountRoom.tfsa.startingAvailableRoom.amount": 4321,
+        [`employmentPhase.${RAW_IDS.employmentPhase}.rrspRoomGeneration.annualEligibleEarnedIncomeToday`]:
+          123456,
+      },
+      "2026-07-14T00:00:00.000Z",
+    );
+    const serialized = JSON.stringify(snapshot);
+
+    expect(snapshot.projection.inputs.contributionWaterfall.routes).toEqual([
+      {
+        sourceAccountId: "rrsp_1",
+        destinationAccountIds: ["rrsp_1"],
+      },
+    ]);
+    expect(
+      snapshot.projection.inputs.registeredAccountRoom!.tfsa
+        .startingAvailableRoom.sourceDescription,
+    ).toBe("Personal TFSA room supplied through private configuration");
+    expect(
+      snapshot.provenance[
+        "contributionWaterfall.routes.0.sourceAccountId"
+      ]?.value,
+    ).toBe("rrsp_1");
+    expect(
+      snapshot.provenance[
+        "contributionWaterfall.routes.0.destinationAccountIds"
+      ]?.value,
+    ).toEqual(["rrsp_1"]);
+    expect(snapshot.activeOverrides).toHaveProperty(
+      "registeredAccountRoom.tfsa.startingAvailableRoom.amount",
+      4321,
+    );
+    expect(snapshot.activeOverrides).toHaveProperty(
+      "employmentPhase.employment_phase_1.rrspRoomGeneration.annualEligibleEarnedIncomeToday",
+      123456,
+    );
+    for (const value of [
+      RAW_IDS.rrsp,
+      PRIVATE_TEXT.personalName,
+      PRIVATE_TEXT.employer,
+      PRIVATE_TEXT.institution,
+      PRIVATE_TEXT.streetAddress,
+      PRIVATE_TEXT.email,
+    ]) {
+      expect(serialized).not.toContain(value);
+    }
+
+    for (const mode of ["real", "nominal"] as const) {
+      const lines = projectionSnapshotToCsv(snapshot, mode)
+        .split("\n")
+        .map(parseCsvLine);
+      const header = lines[0]!;
+      expect(header).toEqual(
+        expect.arrayContaining([
+          "tfsa_room_opening",
+          "tfsa_room_closing",
+          "rrsp_room_opening",
+          "rrsp_room_closing",
+          "planned_contribution_rrsp_1",
+          "actual_contribution_rrsp_1",
+          "redirected_in_rrsp_1",
+          "redirected_out_rrsp_1",
+          "surplus_contribution_rrsp_1",
+        ]),
+      );
+      expect(new Set(lines.map((row) => row.length))).toEqual(
+        new Set([header.length]),
+      );
+      expect(lines.flat().some((cell) => /[\[\]{}]/.test(cell))).toBe(false);
+      expect(lines.flat().some((cell) => cell.includes(";"))).toBe(false);
+    }
   });
 });

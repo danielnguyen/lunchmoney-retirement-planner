@@ -907,4 +907,83 @@ describe("calculation explanations", () => {
     expect(serialized).not.toContain("synthetic-secret");
     expect(serialized).not.toMatch(/LUNCHMONEY_API_TOKEN|authorization|password/i);
   });
+
+  it("builds registered-room explanations from shared annual presentation rows", () => {
+    const value = context();
+    const document = buildExplanation("registered-account-room", value);
+    const rows = section(
+      document,
+      "Annual registered room and routing",
+    ).rows;
+    const chartRows = buildAnnualChartData(
+      value.inputs,
+      value.projection,
+      value.displayMode,
+    );
+
+    expect(document.reconciliation?.matched).toBe(true);
+    expect(rows[0]).toMatchObject({
+      period: chartRows[0]!.periodLabel,
+      planned: chartRows[0]!.plannedContributions,
+      actual: chartRows[0]!.actualContributions,
+      unallocated: chartRows[0]!.unallocatedContributions,
+      tfsaClosing: chartRows[0]!.tfsaRoomClosing,
+      rrspClosing: chartRows[0]!.rrspRoomClosing,
+    });
+    expect(document.caveats.join(" ")).toContain(
+      "Net deposited employment cash is never treated as RRSP-eligible earned income",
+    );
+    expect(document.caveats.join(" ")).toContain(
+      "next January boundary",
+    );
+  });
+
+  it("marks registered-room reconciliation unmatched for routing or room mismatches", () => {
+    const routingMismatch = context();
+    routingMismatch.projection.annual[0]!.nominal.contributions.unallocated +=
+      10;
+    expect(
+      buildExplanation(
+        "registered-account-room",
+        routingMismatch,
+      ).reconciliation?.matched,
+    ).toBe(false);
+
+    const roomMismatch = context();
+    roomMismatch.projection.annual[0]!.nominal.registeredAccountRoom.tfsa
+      .closingRoom += 10;
+    expect(
+      buildExplanation(
+        "registered-account-room",
+        roomMismatch,
+      ).reconciliation?.matched,
+    ).toBe(false);
+  });
+
+  it("shows active starting-room overrides and reset values deterministically", () => {
+    const active = context((draft) => {
+      draft.inputs.registeredAccountRoom!.tfsa.startingAvailableRoom.amount =
+        12345;
+      draft.overrides[
+        "registeredAccountRoom.tfsa.startingAvailableRoom.amount"
+      ] = 12345;
+      draft.projection = calculateProjection(draft.inputs);
+    });
+    const document = buildExplanation("registered-account-room", active);
+    expect(
+      document.steps.find((step) => step.label === "Starting TFSA room"),
+    ).toMatchObject({
+      rawValue: 12345,
+      sourceType: "override",
+    });
+
+    const reset = buildExplanation(
+      "registered-account-room",
+      context(),
+    );
+    expect(
+      reset.steps.find((step) => step.label === "Starting TFSA room")
+        ?.sourceType,
+    ).toBe("configuration");
+  });
 });

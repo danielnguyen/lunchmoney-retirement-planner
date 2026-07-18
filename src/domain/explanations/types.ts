@@ -23,6 +23,7 @@ export const explanationTargets = [
   "cpp-benefit",
   "oas-benefit",
   "surplus-allocation",
+  "registered-account-room",
 ] as const;
 
 export type ExplanationTarget = (typeof explanationTargets)[number];

@@ -41,4 +41,6 @@ export const explanationTooltips: Record<ExplanationTarget, string> = {
     "The modelled OAS amount after applying explicit eligibility and claim-age adjustments to the dated full amount.",
   "surplus-allocation":
     "How positive unassigned monthly cash refills the explicit indexed reserve and then remains in cash or moves to the configured non-registered account.",
+  "registered-account-room":
+    "How one shared TFSA pool and one shared RRSP pool constrain planned and surplus-funded contributions, redirects, and unallocated amounts.",
 };

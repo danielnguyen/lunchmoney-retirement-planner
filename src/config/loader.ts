@@ -8,6 +8,8 @@ import {
   projectionMonthOffset,
   type AssetAllocation,
   type ProjectionEventInput,
+  type RegisteredAccountRoomInput,
+  type ContributionWaterfallInput,
   type SurplusAllocationPolicyInput,
 } from "@/src/domain/projection/types";
 import { PlannerRuntimeError } from "@/src/runtime/errors";
@@ -426,11 +428,252 @@ function surplusAllocation(value: unknown): SurplusAllocationPolicyInput {
       },
     };
   }
+  if (excess.mode === "allocate_through_contribution_waterfall") {
+    rejectFields(excess, "surplusAllocation.excess", [
+      "destinationAccountId",
+    ]);
+    return {
+      ...policy,
+      excess: { mode: "allocate_through_contribution_waterfall" },
+    };
+  }
   throw new PlannerRuntimeError(
     "invalid_planner_config",
-    "surplusAllocation.excess.mode must be retain_as_cash or allocate_to_account.",
+    "surplusAllocation.excess.mode must be retain_as_cash, allocate_to_account, or allocate_through_contribution_waterfall.",
     422,
   );
+}
+
+function startingRoomSource(
+  value: unknown,
+  field: string,
+): RegisteredAccountRoomInput["tfsa"]["startingAvailableRoom"] {
+  const item = record(value, field);
+  if (item.source === "explicit_zero") {
+    if (item.amount !== undefined && item.amount !== 0) {
+      throw new PlannerRuntimeError(
+        "invalid_planner_config",
+        `${field}.amount must be zero for explicit_zero.`,
+        422,
+      );
+    }
+    return {
+      source: "explicit_zero",
+      amount: 0,
+      sourceDescription: "Explicit zero starting room",
+      effectiveDate: "1970-01-01",
+    };
+  }
+  if (
+    item.source !== "official_estimate" &&
+    item.source !== "configured_amount"
+  ) {
+    throw new PlannerRuntimeError(
+      "invalid_planner_config",
+      `${field}.source must be official_estimate, configured_amount, or explicit_zero.`,
+      422,
+    );
+  }
+  return {
+    source: item.source,
+    amount: number(item.amount, `${field}.amount`, { min: 0 }),
+    sourceDescription: nonEmptyString(
+      item.sourceDescription,
+      `${field}.sourceDescription`,
+    ),
+    effectiveDate: isoCalendarDate(
+      item.effectiveDate,
+      `${field}.effectiveDate`,
+    ),
+  };
+}
+
+function registeredAccountRoom(value: unknown): RegisteredAccountRoomInput {
+  const item = record(value, "registeredAccountRoom");
+  const tfsa = record(item.tfsa, "registeredAccountRoom.tfsa");
+  const annualNewRoom = record(
+    tfsa.annualNewRoom,
+    "registeredAccountRoom.tfsa.annualNewRoom",
+  );
+  const rrsp = record(item.rrsp, "registeredAccountRoom.rrsp");
+  const newRoom = record(
+    rrsp.newRoom,
+    "registeredAccountRoom.rrsp.newRoom",
+  );
+  const annualCap = record(
+    newRoom.annualCap,
+    "registeredAccountRoom.rrsp.newRoom.annualCap",
+  );
+  const startYear = record(
+    newRoom.startYearBeforeProjectionMonth,
+    "registeredAccountRoom.rrsp.newRoom.startYearBeforeProjectionMonth",
+  );
+  if (annualNewRoom.source !== "canadian_reference") {
+    throw new PlannerRuntimeError(
+      "invalid_planner_config",
+      "registeredAccountRoom.tfsa.annualNewRoom.source must be canadian_reference.",
+      422,
+    );
+  }
+  if (newRoom.source !== "earned_income") {
+    throw new PlannerRuntimeError(
+      "invalid_planner_config",
+      "registeredAccountRoom.rrsp.newRoom.source must be earned_income.",
+      422,
+    );
+  }
+  if (annualCap.source !== "canadian_reference") {
+    throw new PlannerRuntimeError(
+      "invalid_planner_config",
+      "registeredAccountRoom.rrsp.newRoom.annualCap.source must be canadian_reference.",
+      422,
+    );
+  }
+  if (typeof tfsa.carryForwardUnusedRoom !== "boolean") {
+    throw new PlannerRuntimeError(
+      "invalid_planner_config",
+      "registeredAccountRoom.tfsa.carryForwardUnusedRoom must be a boolean.",
+      422,
+    );
+  }
+  if (tfsa.withdrawalRoomRecredit !== "next_calendar_year") {
+    throw new PlannerRuntimeError(
+      "invalid_planner_config",
+      "registeredAccountRoom.tfsa.withdrawalRoomRecredit must be next_calendar_year.",
+      422,
+    );
+  }
+  if (typeof rrsp.carryForwardUnusedRoom !== "boolean") {
+    throw new PlannerRuntimeError(
+      "invalid_planner_config",
+      "registeredAccountRoom.rrsp.carryForwardUnusedRoom must be a boolean.",
+      422,
+    );
+  }
+  return {
+    tfsa: {
+      startingAvailableRoom: startingRoomSource(
+        tfsa.startingAvailableRoom,
+        "registeredAccountRoom.tfsa.startingAvailableRoom",
+      ),
+      annualNewRoom: {
+        source: "canadian_reference",
+        futureIndexingRate: number(
+          annualNewRoom.futureIndexingRate,
+          "registeredAccountRoom.tfsa.annualNewRoom.futureIndexingRate",
+          { min: -0.2, max: 0.5 },
+        ),
+        roundingIncrement: number(
+          annualNewRoom.roundingIncrement,
+          "registeredAccountRoom.tfsa.annualNewRoom.roundingIncrement",
+          { min: 1 },
+        ),
+      },
+      carryForwardUnusedRoom: tfsa.carryForwardUnusedRoom,
+      withdrawalRoomRecredit: "next_calendar_year",
+    },
+    rrsp: {
+      startingAvailableDeductionRoom: startingRoomSource(
+        rrsp.startingAvailableDeductionRoom,
+        "registeredAccountRoom.rrsp.startingAvailableDeductionRoom",
+      ),
+      carryForwardUnusedRoom: rrsp.carryForwardUnusedRoom,
+      newRoom: {
+        source: "earned_income",
+        annualCap: {
+          source: "canadian_reference",
+          futureGrowthRate: number(
+            annualCap.futureGrowthRate,
+            "registeredAccountRoom.rrsp.newRoom.annualCap.futureGrowthRate",
+            { min: -0.2, max: 0.5 },
+          ),
+          futureRoundingIncrement: number(
+            annualCap.futureRoundingIncrement,
+            "registeredAccountRoom.rrsp.newRoom.annualCap.futureRoundingIncrement",
+            { min: 1 },
+          ),
+        },
+        startYearBeforeProjectionMonth: {
+          calendarYear: number(
+            startYear.calendarYear,
+            "registeredAccountRoom.rrsp.newRoom.startYearBeforeProjectionMonth.calendarYear",
+            { min: 1900, max: 2300, integer: true },
+          ),
+          eligibleEarnedIncome: number(
+            startYear.eligibleEarnedIncome,
+            "registeredAccountRoom.rrsp.newRoom.startYearBeforeProjectionMonth.eligibleEarnedIncome",
+            { min: 0 },
+          ),
+          pensionAdjustment: number(
+            startYear.pensionAdjustment,
+            "registeredAccountRoom.rrsp.newRoom.startYearBeforeProjectionMonth.pensionAdjustment",
+            { min: 0 },
+          ),
+          otherRoomReduction: number(
+            startYear.otherRoomReduction,
+            "registeredAccountRoom.rrsp.newRoom.startYearBeforeProjectionMonth.otherRoomReduction",
+            { min: 0 },
+          ),
+        },
+      },
+    },
+  };
+}
+
+function contributionWaterfall(
+  value: unknown,
+): Omit<ContributionWaterfallInput, "mode"> {
+  const item = record(value, "contributionWaterfall");
+  if (!Array.isArray(item.routes)) {
+    throw new PlannerRuntimeError(
+      "invalid_planner_config",
+      "contributionWaterfall.routes must be an array.",
+      422,
+    );
+  }
+  if (!Array.isArray(item.surplusDestinationAccountIds)) {
+    throw new PlannerRuntimeError(
+      "invalid_planner_config",
+      "contributionWaterfall.surplusDestinationAccountIds must be an array.",
+      422,
+    );
+  }
+  return {
+    routes: item.routes.map((raw, index) => {
+      const field = `contributionWaterfall.routes[${index}]`;
+      const route = record(raw, field);
+      if (
+        !Array.isArray(route.destinationAccountIds) ||
+        route.destinationAccountIds.length === 0
+      ) {
+        throw new PlannerRuntimeError(
+          "invalid_planner_config",
+          `${field}.destinationAccountIds must be a non-empty array.`,
+          422,
+        );
+      }
+      return {
+        sourceAccountId: nonEmptyString(
+          route.sourceAccountId,
+          `${field}.sourceAccountId`,
+        ),
+        destinationAccountIds: route.destinationAccountIds.map(
+          (destination, destinationIndex) =>
+            nonEmptyString(
+              destination,
+              `${field}.destinationAccountIds[${destinationIndex}]`,
+            ),
+        ),
+      };
+    }),
+    surplusDestinationAccountIds: item.surplusDestinationAccountIds.map(
+      (destination, index) =>
+        nonEmptyString(
+          destination,
+          `contributionWaterfall.surplusDestinationAccountIds[${index}]`,
+        ),
+    ),
+  };
 }
 
 function accountMapping(value: unknown, field: string): AccountMapping {
@@ -679,6 +922,10 @@ function employmentIncomePhases(value: unknown): EmploymentIncomePhaseConfig[] {
   return value.map((raw, index) => {
     const field = `employmentIncomePhases[${index}]`;
     const item = record(raw, field);
+    const rrspRoomGeneration =
+      item.rrspRoomGeneration === undefined
+        ? undefined
+        : record(item.rrspRoomGeneration, `${field}.rrspRoomGeneration`);
     return {
       id: nonEmptyString(item.id, `${field}.id`),
       label: nonEmptyString(item.label, `${field}.label`),
@@ -692,6 +939,32 @@ function employmentIncomePhases(value: unknown): EmploymentIncomePhaseConfig[] {
         min: -0.2,
         max: 0.5,
       }),
+      ...(rrspRoomGeneration
+        ? {
+            rrspRoomGeneration: {
+              annualEligibleEarnedIncomeToday: number(
+                rrspRoomGeneration.annualEligibleEarnedIncomeToday,
+                `${field}.rrspRoomGeneration.annualEligibleEarnedIncomeToday`,
+                { min: 0 },
+              ),
+              annualPensionAdjustmentToday: number(
+                rrspRoomGeneration.annualPensionAdjustmentToday,
+                `${field}.rrspRoomGeneration.annualPensionAdjustmentToday`,
+                { min: 0 },
+              ),
+              annualOtherRoomReductionToday: number(
+                rrspRoomGeneration.annualOtherRoomReductionToday,
+                `${field}.rrspRoomGeneration.annualOtherRoomReductionToday`,
+                { min: 0 },
+              ),
+              annualGrowth: number(
+                rrspRoomGeneration.annualGrowth,
+                `${field}.rrspRoomGeneration.annualGrowth`,
+                { min: -0.2, max: 0.5 },
+              ),
+            },
+          }
+        : {}),
     };
   });
 }
@@ -994,6 +1267,20 @@ export function validatePlannerConfig(value: unknown): PlannerConfig {
               id,
               projectionAccount(account, `projectionAccounts.${id}`),
             ]),
+          ),
+        }),
+    ...(item.registeredAccountRoom === undefined
+      ? {}
+      : {
+          registeredAccountRoom: registeredAccountRoom(
+            item.registeredAccountRoom,
+          ),
+        }),
+    ...(item.contributionWaterfall === undefined
+      ? {}
+      : {
+          contributionWaterfall: contributionWaterfall(
+            item.contributionWaterfall,
           ),
         }),
     surplusAllocation: surplusAllocation(item.surplusAllocation),

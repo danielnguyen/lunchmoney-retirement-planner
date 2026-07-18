@@ -95,7 +95,7 @@ export type ShareSafeDerivedBaseline = {
 };
 
 export type ProjectionSnapshot = {
-  schemaVersion: "6.0";
+  schemaVersion: "7.0";
   generatedAt: string;
   exportMetadata: {
     transformation: "typed_allowlist_and_automatic_anonymization";
@@ -226,6 +226,12 @@ const EMPLOYMENT_PHASE_PROVENANCE_FIELDS = new Set([
   "annualNetCashToday",
   "annualGrowth",
 ]);
+const RRSP_ROOM_GENERATION_PROVENANCE_FIELDS = new Set([
+  "annualEligibleEarnedIncomeToday",
+  "annualPensionAdjustmentToday",
+  "annualOtherRoomReductionToday",
+  "annualGrowth",
+]);
 
 const SAFE_PROVENANCE_FIELDS = new Set([
   "monthlyEssentialSpendingToday",
@@ -274,6 +280,28 @@ const SAFE_PROVENANCE_FIELDS = new Set([
   "surplusAllocation.targetCashReserveToday",
   "surplusAllocation.reserveIndexingRate",
   "surplusAllocation.excess.mode",
+  "registeredAccountRoom.tfsa.startingAvailableRoom.source",
+  "registeredAccountRoom.tfsa.startingAvailableRoom.amount",
+  "registeredAccountRoom.tfsa.startingAvailableRoom.effectiveDate",
+  "registeredAccountRoom.tfsa.annualNewRoom.futureIndexingRate",
+  "registeredAccountRoom.tfsa.annualNewRoom.roundingIncrement",
+  "registeredAccountRoom.tfsa.annualNewRoom.2026",
+  "registeredAccountRoom.tfsa.carryForwardUnusedRoom",
+  "registeredAccountRoom.tfsa.withdrawalRoomRecredit",
+  "registeredAccountRoom.rrsp.startingAvailableDeductionRoom.source",
+  "registeredAccountRoom.rrsp.startingAvailableDeductionRoom.amount",
+  "registeredAccountRoom.rrsp.startingAvailableDeductionRoom.effectiveDate",
+  "registeredAccountRoom.rrsp.newRoom.earnedIncomeRate",
+  "registeredAccountRoom.rrsp.newRoom.annualCap.2026",
+  "registeredAccountRoom.rrsp.newRoom.annualCap.2027",
+  "registeredAccountRoom.rrsp.newRoom.annualCap.futureGrowthRate",
+  "registeredAccountRoom.rrsp.newRoom.annualCap.futureRoundingIncrement",
+  "registeredAccountRoom.rrsp.carryForwardUnusedRoom",
+  "registeredAccountRoom.rrsp.newRoom.startYearBeforeProjectionMonth.calendarYear",
+  "registeredAccountRoom.rrsp.newRoom.startYearBeforeProjectionMonth.eligibleEarnedIncome",
+  "registeredAccountRoom.rrsp.newRoom.startYearBeforeProjectionMonth.pensionAdjustment",
+  "registeredAccountRoom.rrsp.newRoom.startYearBeforeProjectionMonth.otherRoomReduction",
+  "contributionWaterfall.mode",
 ]);
 
 const SIMPLE_OVERRIDE_KEYS = new Set([
@@ -286,6 +314,8 @@ const SIMPLE_OVERRIDE_KEYS = new Set([
   "endAge",
   "surplusAllocation.targetCashReserveToday",
   "surplusAllocation.reserveIndexingRate",
+  "registeredAccountRoom.tfsa.startingAvailableRoom.amount",
+  "registeredAccountRoom.rrsp.startingAvailableDeductionRoom.amount",
 ]);
 
 const SAFE_MILESTONES = new Set([
@@ -334,12 +364,15 @@ const SAFE_WARNING_MESSAGES: Record<BaselineWarningCode, string> = {
     "A legacy zero CPP amount remains in effect until canonical configuration is supplied.",
   legacy_zero_oas_amount:
     "A legacy zero OAS amount remains in effect until canonical configuration is supplied.",
+  contribution_waterfall_compatibility:
+    "Contribution plans use fixed source-only compatibility routes.",
 };
 
 const REFERENCE_KINDS = new Set<CanadianReferenceKind>([
   "population_median",
   "population_average",
   "statutory_program_default",
+  "statutory_annual_limit",
   "published_planning_assumption",
 ]);
 
@@ -666,6 +699,9 @@ function safeProjectionInputs(
           endAge: phase.endAge,
           annualNetCashToday: phase.annualNetCashToday,
           annualGrowth: phase.annualGrowth,
+          ...(phase.rrspRoomGeneration
+            ? { rrspRoomGeneration: { ...phase.rrspRoomGeneration } }
+            : {}),
         };
       }),
       annualPensionToday: inputs.person.annualPensionToday,
@@ -692,6 +728,45 @@ function safeProjectionInputs(
       rrifConversionAge: inputs.person.rrifConversionAge,
     },
     accounts: inputs.accounts.map((account) => safeAccountInput(account, context)),
+    ...(inputs.registeredAccountRoom
+      ? {
+          registeredAccountRoom: {
+            tfsa: {
+              ...inputs.registeredAccountRoom.tfsa,
+              startingAvailableRoom: {
+                ...inputs.registeredAccountRoom.tfsa.startingAvailableRoom,
+                sourceDescription:
+                  "Personal TFSA room supplied through private configuration",
+              },
+            },
+            rrsp: {
+              ...inputs.registeredAccountRoom.rrsp,
+              startingAvailableDeductionRoom: {
+                ...inputs.registeredAccountRoom.rrsp
+                  .startingAvailableDeductionRoom,
+                sourceDescription:
+                  "Personal RRSP room supplied through private configuration",
+              },
+            },
+          },
+        }
+      : {}),
+    contributionWaterfall: {
+      mode: inputs.contributionWaterfall.mode,
+      routes: inputs.contributionWaterfall.routes.map((route) => ({
+        sourceAccountId: requiredAccountAlias(
+          route.sourceAccountId,
+          context,
+        ).key,
+        destinationAccountIds: route.destinationAccountIds.map(
+          (accountId) => requiredAccountAlias(accountId, context).key,
+        ),
+      })),
+      surplusDestinationAccountIds:
+        inputs.contributionWaterfall.surplusDestinationAccountIds.map(
+          (accountId) => requiredAccountAlias(accountId, context).key,
+        ),
+    },
     surplusAllocation: {
       reserveAccountIds: inputs.surplusAllocation.reserveAccountIds.map(
         (accountId) => requiredAccountAlias(accountId, context).key,
@@ -706,13 +781,15 @@ function safeProjectionInputs(
       excess:
         inputs.surplusAllocation.excess.mode === "retain_as_cash"
           ? { mode: "retain_as_cash" }
-          : {
+          : inputs.surplusAllocation.excess.mode === "allocate_to_account"
+            ? {
               mode: "allocate_to_account",
               destinationAccountId: requiredAccountAlias(
                 inputs.surplusAllocation.excess.destinationAccountId,
                 context,
               ).key,
-            },
+              }
+            : { mode: "allocate_through_contribution_waterfall" },
     },
     events: inputs.events.map((event) => safeEventInput(event, context)),
   };
@@ -734,6 +811,12 @@ function safeProjectionView(view: ProjectionView, context: ShareSafeContext): Pr
     accountSurplusAllocations[requiredAccountAlias(rawId, context).key] =
       value;
   }
+  const accountContributionDetails = Object.fromEntries(
+    Object.entries(view.accountContributionDetails).map(([rawId, detail]) => [
+      requiredAccountAlias(rawId, context).key,
+      { ...detail },
+    ]),
+  );
   return {
     income: {
       employment: view.income.employment,
@@ -761,8 +844,16 @@ function safeProjectionView(view: ProjectionView, context: ShareSafeContext): Pr
       total: view.outflows.total,
     },
     contributions: {
+      planned: view.contributions.planned,
+      allowed: view.contributions.allowed,
+      sourceAccount: view.contributions.sourceAccount,
+      redirected: view.contributions.redirected,
       cashFunded: view.contributions.cashFunded,
       incomeWithheld: view.contributions.incomeWithheld,
+      unallocatedCashFunded: view.contributions.unallocatedCashFunded,
+      unallocatedIncomeWithheld:
+        view.contributions.unallocatedIncomeWithheld,
+      unallocated: view.contributions.unallocated,
       total: view.contributions.total,
     },
     balances: {
@@ -776,6 +867,11 @@ function safeProjectionView(view: ProjectionView, context: ShareSafeContext): Pr
     },
     accountBalances,
     accountContributions,
+    accountContributionDetails,
+    registeredAccountRoom: {
+      tfsa: { ...view.registeredAccountRoom.tfsa },
+      rrsp: { ...view.registeredAccountRoom.rrsp },
+    },
     surplusAllocation: {
       generated: view.surplusAllocation.generated,
       reserveRefill: view.surplusAllocation.reserveRefill,
@@ -842,7 +938,7 @@ function safeProjectionResult(
   context: ShareSafeContext,
 ): ProjectionResult {
   return {
-    schemaVersion: "6.0",
+    schemaVersion: "7.0",
     inputs: safeProjectionInputs(projection.inputs, context),
     summary: {
       retirementYear: projection.summary.retirementYear,
@@ -921,6 +1017,80 @@ function safeProjectionResult(
                 .destinationAccountBalanceAtRetirement,
             }
           : null,
+    },
+    registeredAccountRoom: {
+      modelled: projection.registeredAccountRoom.modelled,
+      policy: {
+        tfsaStartingRoomSource:
+          projection.registeredAccountRoom.policy.tfsaStartingRoomSource
+            ? {
+                ...projection.registeredAccountRoom.policy
+                  .tfsaStartingRoomSource,
+                sourceDescription:
+                  "Personal TFSA room supplied through private configuration",
+              }
+            : null,
+        rrspStartingRoomSource:
+          projection.registeredAccountRoom.policy.rrspStartingRoomSource
+            ? {
+                ...projection.registeredAccountRoom.policy
+                  .rrspStartingRoomSource,
+                sourceDescription:
+                  "Personal RRSP room supplied through private configuration",
+              }
+            : null,
+        tfsaCarryForwardUnusedRoom:
+          projection.registeredAccountRoom.policy
+            .tfsaCarryForwardUnusedRoom,
+        rrspCarryForwardUnusedRoom:
+          projection.registeredAccountRoom.policy
+            .rrspCarryForwardUnusedRoom,
+        waterfallMode:
+          projection.registeredAccountRoom.policy.waterfallMode,
+        routes: projection.registeredAccountRoom.policy.routes.map(
+          (route) => ({
+            sourceAccountId: requiredAccountAlias(
+              route.sourceAccountId,
+              context,
+            ).key,
+            destinationAccountIds: route.destinationAccountIds.map(
+              (accountId) => requiredAccountAlias(accountId, context).key,
+            ),
+          }),
+        ),
+        surplusDestinationAccountIds:
+          projection.registeredAccountRoom.policy.surplusDestinationAccountIds.map(
+            (accountId) => requiredAccountAlias(accountId, context).key,
+          ),
+      },
+      references: {
+        tfsaAnnualLimit: {
+          ...projection.registeredAccountRoom.references.tfsaAnnualLimit,
+        },
+        rrspAnnualCaps:
+          projection.registeredAccountRoom.references.rrspAnnualCaps.map(
+            (reference) => ({ ...reference }),
+          ),
+        rrspEarnedIncomeRate:
+          projection.registeredAccountRoom.references.rrspEarnedIncomeRate,
+        rrspFormulaReferenceUrl:
+          projection.registeredAccountRoom.references
+            .rrspFormulaReferenceUrl,
+        tfsaWithdrawalReferenceUrl:
+          projection.registeredAccountRoom.references
+            .tfsaWithdrawalReferenceUrl,
+      },
+      annual: projection.registeredAccountRoom.annual.map((row) => ({
+        calendarYear: row.calendarYear,
+        nominal: {
+          tfsa: { ...row.nominal.tfsa },
+          rrsp: { ...row.nominal.rrsp },
+        },
+        real: {
+          tfsa: { ...row.real.tfsa },
+          rrsp: { ...row.real.rrsp },
+        },
+      })),
     },
     annual: projection.annual.map((point) => ({
       calendarYear: point.calendarYear,
@@ -1067,6 +1237,43 @@ function provenanceField(
   context: ShareSafeContext,
   rawValue: unknown,
 ): ProvenanceField | undefined {
+  if (
+    rawField === "contributionWaterfall.surplusDestinationAccountIds" ||
+    /^contributionWaterfall\.routes\.\d+\.destinationAccountIds$/.test(
+      rawField,
+    )
+  ) {
+    if (
+      !Array.isArray(rawValue) ||
+      rawValue.some((value) => typeof value !== "string")
+    ) {
+      return undefined;
+    }
+    const accountReferences = rawValue.map((value) =>
+      context.accountByRawId.get(value as string),
+    );
+    if (accountReferences.some((value) => !value)) return undefined;
+    return {
+      reference: rawField,
+      accountReferences: accountReferences as AccountAlias[],
+      finalField: "destinationAccountIds",
+    };
+  }
+  if (
+    /^contributionWaterfall\.routes\.\d+\.sourceAccountId$/.test(
+      rawField,
+    )
+  ) {
+    if (typeof rawValue !== "string") return undefined;
+    const accountReference = context.accountByRawId.get(rawValue);
+    return accountReference
+      ? {
+          reference: rawField,
+          accountReference,
+          finalField: "sourceAccountId",
+        }
+      : undefined;
+  }
   if (rawField === "surplusAllocation.reserveAccountIds") {
     if (
       !Array.isArray(rawValue) ||
@@ -1118,6 +1325,26 @@ function provenanceField(
         employmentPhase: phase,
         finalField,
       };
+    }
+    const roomMarker = ".rrspRoomGeneration.";
+    const roomMarkerIndex = remainder.indexOf(roomMarker);
+    if (roomMarkerIndex > 0) {
+      const roomPhaseId = remainder.slice(0, roomMarkerIndex);
+      const roomField = remainder.slice(
+        roomMarkerIndex + roomMarker.length,
+      );
+      const roomPhase =
+        context.employmentPhaseByRawId.get(roomPhaseId);
+      if (
+        roomPhase &&
+        RRSP_ROOM_GENERATION_PROVENANCE_FIELDS.has(roomField)
+      ) {
+        return {
+          reference: `${employmentPrefix}${roomPhase.key}.rrspRoomGeneration.${roomField}`,
+          employmentPhase: roomPhase,
+          finalField: roomField,
+        };
+      }
     }
   }
   for (const account of context.accounts) {
@@ -1198,6 +1425,12 @@ function safeProvenanceValue(
   if (typeof value === "number") return finiteNumber(value, `provenance ${field.reference}`);
   if (typeof value === "boolean" || value === null) return value;
   if (typeof value === "string") {
+    if (
+      field.reference.endsWith(".effectiveDate") &&
+      /^\d{4}-\d{2}-\d{2}$/.test(value)
+    ) {
+      return value;
+    }
     if (field.finalField === "funding") {
       return allowedValue(value, CONTRIBUTION_FUNDING, "provenance contribution funding");
     }
@@ -1213,7 +1446,35 @@ function safeProvenanceValue(
     }
     if (
       field.reference === "surplusAllocation.excess.mode" &&
-      ["retain_as_cash", "allocate_to_account"].includes(value)
+      [
+        "retain_as_cash",
+        "allocate_to_account",
+        "allocate_through_contribution_waterfall",
+      ].includes(value)
+    ) {
+      return value;
+    }
+    if (
+      (field.reference.endsWith(".startingAvailableRoom.source") ||
+        field.reference.endsWith(
+          ".startingAvailableDeductionRoom.source",
+        )) &&
+      ["official_estimate", "configured_amount", "explicit_zero"].includes(
+        value,
+      )
+    ) {
+      return value;
+    }
+    if (
+      field.reference === "contributionWaterfall.mode" &&
+      ["canonical", "fixed_source_compatibility"].includes(value)
+    ) {
+      return value;
+    }
+    if (
+      field.reference ===
+        "registeredAccountRoom.tfsa.withdrawalRoomRecredit" &&
+      value === "next_calendar_year"
     ) {
       return value;
     }
@@ -1318,9 +1579,25 @@ function safeOverrideKey(
     const rawPhaseId = remainder.slice(0, separator);
     const field = remainder.slice(separator + 1);
     const phase = context.employmentPhaseByRawId.get(rawPhaseId);
-    return phase && (field === "annualNetCashToday" || field === "annualGrowth")
-      ? `employmentPhase.${phase.key}.${field}`
-      : undefined;
+    if (
+      phase &&
+      (field === "annualNetCashToday" || field === "annualGrowth")
+    ) {
+      return `employmentPhase.${phase.key}.${field}`;
+    }
+    const roomMarker = ".rrspRoomGeneration.";
+    const markerIndex = remainder.indexOf(roomMarker);
+    if (markerIndex > 0) {
+      const roomPhaseId = remainder.slice(0, markerIndex);
+      const roomField = remainder.slice(markerIndex + roomMarker.length);
+      const roomPhase =
+        context.employmentPhaseByRawId.get(roomPhaseId);
+      return roomPhase &&
+        RRSP_ROOM_GENERATION_PROVENANCE_FIELDS.has(roomField)
+        ? `employmentPhase.${roomPhase.key}.rrspRoomGeneration.${roomField}`
+        : undefined;
+    }
+    return undefined;
   }
   if (rawKey.startsWith("contributionPhase.")) {
     for (const account of context.accounts) {
@@ -1422,7 +1699,7 @@ export function createProjectionSnapshot(
   const dataThrough = safeDateLike(baseline.dataThrough, projection.inputs.startDate);
   const safeGeneratedAt = requireIsoTimestamp(generatedAt);
   return {
-    schemaVersion: "6.0",
+    schemaVersion: "7.0",
     generatedAt: safeGeneratedAt,
     exportMetadata: {
       transformation: "typed_allowlist_and_automatic_anonymization",
@@ -1581,6 +1858,35 @@ export function projectionSnapshotToCsv(
     "oasRecoveryTax",
     "cashFundedContributions",
     "incomeWithheldContributions",
+    "plannedContributions",
+    "actualContributions",
+    "redirectedContributions",
+    "unallocatedContributions",
+    "tfsa_room_opening",
+    "tfsa_room_new",
+    "tfsa_room_withdrawal_restored",
+    "tfsa_contribution_planned",
+    "tfsa_contribution_allowed",
+    "tfsa_contribution_redirected_in",
+    "tfsa_contribution_redirected_out",
+    "tfsa_surplus_contribution",
+    "tfsa_contribution_unallocated",
+    "tfsa_room_closing",
+    "rrsp_room_opening",
+    "rrsp_previous_year_eligible_earned_income",
+    "rrsp_earned_income_rate",
+    "rrsp_annual_cap",
+    "rrsp_pension_adjustment",
+    "rrsp_other_room_reduction",
+    "rrsp_room_gross_generated",
+    "rrsp_room_new",
+    "rrsp_contribution_planned",
+    "rrsp_contribution_allowed",
+    "rrsp_contribution_redirected_in",
+    "rrsp_contribution_redirected_out",
+    "rrsp_surplus_contribution",
+    "rrsp_contribution_unallocated",
+    "rrsp_room_closing",
     "unmetSpending",
     "totalOutflows",
     "cashBalance",
@@ -1594,7 +1900,25 @@ export function projectionSnapshotToCsv(
     ...accountAliases.map(
       (account) => `surplus_allocation_${account.key}`,
     ),
-    "milestones",
+    ...accountAliases.map(
+      (account) => `planned_contribution_${account.key}`,
+    ),
+    ...accountAliases.map(
+      (account) => `actual_contribution_${account.key}`,
+    ),
+    ...accountAliases.map(
+      (account) => `redirected_in_${account.key}`,
+    ),
+    ...accountAliases.map(
+      (account) => `redirected_out_${account.key}`,
+    ),
+    ...accountAliases.map(
+      (account) => `surplus_contribution_${account.key}`,
+    ),
+    "milestone_retirement",
+    "milestone_cpp",
+    "milestone_oas",
+    "milestone_rrif_conversion",
   ];
 
   const rows = snapshot.projection.annual.map((point) => {
@@ -1605,7 +1929,11 @@ export function projectionSnapshotToCsv(
       point.age,
       point.phase,
       mode,
-      point.employmentPhaseLabels.join(" → "),
+      point.employmentPhaseLabels.length === 1
+        ? point.employmentPhaseLabels[0]!
+        : point.employmentPhaseLabels.length === 0
+          ? ""
+          : "multiple_employment_phases",
       view.income.employment,
       view.income.cpp,
       view.income.oas,
@@ -1647,6 +1975,35 @@ export function projectionSnapshotToCsv(
       view.outflows.oasRecoveryTax,
       view.outflows.contributions,
       view.contributions.incomeWithheld,
+      view.contributions.planned,
+      view.contributions.total,
+      view.contributions.redirected,
+      view.contributions.unallocated,
+      view.registeredAccountRoom.tfsa.openingRoom,
+      view.registeredAccountRoom.tfsa.annualNewRoom,
+      view.registeredAccountRoom.tfsa.withdrawalRoomRestored,
+      view.registeredAccountRoom.tfsa.plannedContributions,
+      view.registeredAccountRoom.tfsa.allowedContributions,
+      view.registeredAccountRoom.tfsa.redirectedIn,
+      view.registeredAccountRoom.tfsa.redirectedOut,
+      view.registeredAccountRoom.tfsa.surplusFundedContributions,
+      view.registeredAccountRoom.tfsa.unallocatedContributions,
+      view.registeredAccountRoom.tfsa.closingRoom,
+      view.registeredAccountRoom.rrsp.openingRoom,
+      view.registeredAccountRoom.rrsp.previousYearEligibleEarnedIncome,
+      view.registeredAccountRoom.rrsp.earnedIncomeRate,
+      view.registeredAccountRoom.rrsp.annualCap,
+      view.registeredAccountRoom.rrsp.pensionAdjustment,
+      view.registeredAccountRoom.rrsp.otherRoomReduction,
+      view.registeredAccountRoom.rrsp.grossGeneratedRoom,
+      view.registeredAccountRoom.rrsp.annualNewRoom,
+      view.registeredAccountRoom.rrsp.plannedContributions,
+      view.registeredAccountRoom.rrsp.allowedContributions,
+      view.registeredAccountRoom.rrsp.redirectedIn,
+      view.registeredAccountRoom.rrsp.redirectedOut,
+      view.registeredAccountRoom.rrsp.surplusFundedContributions,
+      view.registeredAccountRoom.rrsp.unallocatedContributions,
+      view.registeredAccountRoom.rrsp.closingRoom,
       view.outflows.unmetSpending,
       view.outflows.total,
       view.balances.cash,
@@ -1660,7 +2017,33 @@ export function projectionSnapshotToCsv(
       ...accountAliases.map(
         (account) => view.accountSurplusAllocations[account.key] ?? 0,
       ),
-      point.milestones.join("; "),
+      ...accountAliases.map(
+        (account) =>
+          view.accountContributionDetails[account.key]
+            ?.plannedFromAccount ?? 0,
+      ),
+      ...accountAliases.map(
+        (account) =>
+          view.accountContributionDetails[account.key]
+            ?.depositedIntoAccount ?? 0,
+      ),
+      ...accountAliases.map(
+        (account) =>
+          view.accountContributionDetails[account.key]?.redirectedIn ?? 0,
+      ),
+      ...accountAliases.map(
+        (account) =>
+          view.accountContributionDetails[account.key]?.redirectedOut ?? 0,
+      ),
+      ...accountAliases.map(
+        (account) =>
+          view.accountContributionDetails[account.key]
+            ?.surplusFundedDeposit ?? 0,
+      ),
+      point.milestones.includes("Retirement") ? 1 : 0,
+      point.milestones.includes("CPP begins") ? 1 : 0,
+      point.milestones.includes("OAS begins") ? 1 : 0,
+      point.milestones.includes("RRIF conversion age") ? 1 : 0,
     ]
       .map(csvCell)
       .join(",");

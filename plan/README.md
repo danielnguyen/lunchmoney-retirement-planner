@@ -258,6 +258,14 @@ Legacy `assumptions.incomeGrowth`, account-level `monthlyContribution`, `contrib
 
 Every contribution increases its investment account balance. A `cash` contribution also reduces available projected cash. An `income_withheld` contribution does not reduce projected cash because it was withheld before the net employment deposit reached Lunch Money. Transaction-derived contributions are cash-funded unless their account mapping explicitly identifies them as `income_withheld`.
 
+### Registered-account room and contribution routing
+
+TFSA room is one global pool shared by all TFSA accounts; RRSP deduction room is one global pool shared by all RRSP/RRIF accounts. Starting room is an explicit owner-supplied `official_estimate`, `configured_amount`, or `explicit_zero` and is never inferred from balances or transactions. It already includes the partial projection-start calendar-year position.
+
+At later January boundaries, the TFSA pool adds the dated or forecast annual limit and prior-year withdrawals; RRSP room uses explicit prior-year eligible earned income at the statutory 18%, the applicable cap, pension adjustment, and other reduction. Net deposited employment cash is not eligible earned income. Published references and configured forecasts remain distinguishable.
+
+Per-source routes preserve contribution-phase identity and funding. Route order is priority, registered deposits consume the global pool immediately, and non-registered overflow must be last. Planned, actual, redirected, surplus-funded, and unallocated amounts remain separate. Omitted canonical routing becomes a visible fixed-source compatibility route; it never restores unlimited registered contributions.
+
 ## Default resolution
 
 Each projection input resolves in this order:
@@ -318,7 +326,7 @@ The first projected month is the calendar month containing the live baseline dat
 
 The exact retirement snapshot is captured at the end of the final working month, immediately before the first fully retired month. The Assets at retirement summary uses this real-dollar snapshot rather than the next December row. The projection also emits nominal and real accumulation bridges from starting financial assets to this boundary. Cash-funded contributions and surplus routing are internal transfers; income-withheld contributions are external additions. Both bridges must reconcile within one cent.
 
-Positive unassigned monthly cash uses the required resolved `surplusAllocation` policy. The combined balance of the explicit cash reserve-account set is compared with the indexed target; any shortfall and retained excess are deposited into the explicit refill account before redirected excess is sent to one explicit non-registered destination. Account ordering never selects the reserve set, refill account, or destination. Targeted event inflows deposit only their own amounts into their targets. TFSA and RRSP/RRIF routing remains unavailable until registered-account room is modelled.
+Positive unassigned monthly cash uses the required resolved `surplusAllocation` policy. The combined balance of the explicit cash reserve-account set is compared with the indexed target; any shortfall and retained excess are deposited into the explicit refill account. Excess may remain cash, go to one non-registered account, or follow the room-constrained contribution waterfall after planned contributions consume room. Account ordering never selects a route. Targeted registered inflows are rejected.
 
 Optional projection-only accounts are appended after imported accounts with origin `projection_configuration` and a fixed zero opening balance. They have explicit return, withdrawal, allocation, and contribution assumptions and remain distinct from Lunch Money balances in the dashboard, explanations, and exports.
 
@@ -355,6 +363,8 @@ Required controls:
 - inflation
 - return assumption by planner account type
 - projection end age
+- starting TFSA and RRSP room amounts
+- RRSP-eligible earned income, pension adjustment, and other room reduction for each employment phase
 
 Resetting a field restores the currently loaded live baseline.
 
@@ -376,7 +386,7 @@ Every major summary card, main chart, annual ledger, resolved cash-flow value, a
 
 Explanation documents are typed domain output. They consume the same current baseline, active phase inputs, overrides, projection result, dollar mode, and selected allocation year as the report. Shared presentation-data builders feed both chart/ledger rendering and explanation tables. The Assets at retirement explanation includes the exact snapshot, accumulation bridge, employment path, contribution path, and any long-current-income warning. A reconciliation confirmation is shown only after exact model-precision agreement.
 
-The baseline API schema `1.4` includes aggregate cash-flow audit evidence, resolved phase provenance, concrete CPP/OAS inputs with dated source and statutory-rule provenance, projection-only account provenance, and surplus-policy provenance:
+The baseline API schema `1.5` includes aggregate cash-flow audit evidence, resolved phase provenance, concrete CPP/OAS inputs with dated source and statutory-rule provenance, projection-only account provenance, surplus-policy provenance, registered-room provenance, and resolved waterfall routes:
 
 - income, essential spending, and discretionary spending grouped by category and account
 - investment contributions grouped by account with funding and derivation source
@@ -388,7 +398,7 @@ Temporary overrides replace the active explanation input while retaining the ref
 
 Phase overrides affect an amount, growth, or indexing field only. Phase boundaries remain YAML-only to prevent browser-created gaps or overlaps. Refresh clears every override and re-resolves any `live_baseline` phase.
 
-Covered targets are the five summary cards, annual spending, annual funding, outflows, account burndown, asset allocation, the annual ledger, five resolved cash-flow rows, the account section, and dedicated CPP and OAS calculations. Per-cell, per-account-row, and per-chart-bar explanations remain intentionally deferred.
+Covered targets are the five summary cards, annual spending, annual funding, outflows, surplus allocation, registered room and contribution routing, account burndown, asset allocation, the annual ledger, resolved cash-flow rows, the account section, and dedicated CPP/OAS calculations.
 
 ## Reports
 
@@ -462,7 +472,7 @@ The JSON transformation is typed and allowlisted. It must not copy arbitrary sou
 
 Financial context is preserved through analytical amounts, balances, dates, ages, account types, classifications, directions, growth and return assumptions, contribution funding, warning codes and severities, provenance source types and effective dates, benefit calculation summaries, safe public Canadian references, and reconciliation bridges. Private account, institution, employer, category, event, recurring, warning, and phase text is replaced with generic aliases. Provenance descriptions use fixed safe wording derived from source type and compatibility state.
 
-Schema `6.0` JSON remains the complete analysis export and includes resolved aliased phases and accounts, account origins, concrete CPP/OAS and surplus-policy calculation summaries, safe public reference metadata, the exact retirement snapshot, accumulation bridges, and metadata confirming automatic anonymization. CSV is one conventional flat annual table with exactly one header and one row per projection period. It includes the partial-period label, generic employment-phase alias, annual employment cash, flat CPP/OAS basis columns, contribution totals, withdrawals, spending, tax, surplus flows, policy settings, reserve target, per-account policy allocations, aggregate balances, financial assets, net worth, milestones, and per-account balance columns keyed only by export-local account references. CSV must not contain metadata preambles, blank section separators, phase arrays, embedded JSON, private labels, or multiple table schemas. Both formats are designed for external financial analysis without manual identifier editing.
+Schema `7.0` JSON remains the complete analysis export and includes resolved aliased phases and accounts, account origins, registered-room assumptions and annual ledgers, aliased waterfall routes, concrete CPP/OAS and surplus-policy summaries, safe public references, the exact retirement snapshot, bridges, and automatic-anonymization metadata. CSV is one flat annual table with scalar TFSA/RRSP room fields and deterministic per-account planned, actual, redirected, surplus-funded, balance, reserve, and policy-allocation columns. CSV must not contain metadata preambles, blank separators, route or phase arrays, maps, JSON, delimited lists, private labels, or multiple schemas.
 
 ## Docker runtime
 

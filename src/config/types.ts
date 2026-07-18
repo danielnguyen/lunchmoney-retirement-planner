@@ -2,6 +2,8 @@ import type {
   AssetAllocation,
   ContributionFunding,
   ProjectionEventInput,
+  RegisteredAccountRoomInput,
+  ContributionWaterfallInput,
   SurplusAllocationPolicyInput,
 } from "@/src/domain/projection/types";
 
@@ -36,6 +38,12 @@ export type EmploymentIncomePhaseConfig = {
   endAge: number;
   annualNetCashToday: LiveBaselineAmount;
   annualGrowth: number;
+  rrspRoomGeneration?: {
+    annualEligibleEarnedIncomeToday: number;
+    annualPensionAdjustmentToday: number;
+    annualOtherRoomReductionToday: number;
+    annualGrowth: number;
+  };
 };
 
 export type ContributionPhaseConfig = {
@@ -160,6 +168,8 @@ export type PlannerConfig = {
   employmentIncomePhases?: EmploymentIncomePhaseConfig[];
   accountMappings: Record<string, AccountMapping>;
   projectionAccounts?: Record<string, ProjectionAccountConfig>;
+  registeredAccountRoom?: RegisteredAccountRoomInput;
+  contributionWaterfall?: Omit<ContributionWaterfallInput, "mode">;
   surplusAllocation: SurplusAllocationPolicyInput;
   categoryMappings: Record<string, CategoryMapping>;
   assumptions: PlannerAssumptions;

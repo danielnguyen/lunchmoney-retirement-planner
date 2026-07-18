@@ -33,6 +33,55 @@ const configFixture: PlannerConfig = {
     reserveIndexingRate: 0.02,
     excess: { mode: "retain_as_cash" },
   },
+  registeredAccountRoom: {
+    tfsa: {
+      startingAvailableRoom: {
+        source: "configured_amount",
+        amount: 10000,
+        sourceDescription: "Synthetic available TFSA room",
+        effectiveDate: "2026-07-01",
+      },
+      annualNewRoom: {
+        source: "canadian_reference",
+        futureIndexingRate: 0.02,
+        roundingIncrement: 500,
+      },
+      carryForwardUnusedRoom: true,
+      withdrawalRoomRecredit: "next_calendar_year",
+    },
+    rrsp: {
+      startingAvailableDeductionRoom: {
+        source: "explicit_zero",
+        amount: 0,
+        sourceDescription: "Explicit zero starting room",
+        effectiveDate: "1970-01-01",
+      },
+      carryForwardUnusedRoom: true,
+      newRoom: {
+        source: "earned_income",
+        annualCap: {
+          source: "canadian_reference",
+          futureGrowthRate: 0.03,
+          futureRoundingIncrement: 10,
+        },
+        startYearBeforeProjectionMonth: {
+          calendarYear: 2026,
+          eligibleEarnedIncome: 0,
+          pensionAdjustment: 0,
+          otherRoomReduction: 0,
+        },
+      },
+    },
+  },
+  contributionWaterfall: {
+    routes: [
+      {
+        sourceAccountId: "plaid:2",
+        destinationAccountIds: ["plaid:2"],
+      },
+    ],
+    surplusDestinationAccountIds: ["plaid:2"],
+  },
   categoryMappings: {
     "10": "essential",
     "11": "discretionary",
@@ -251,9 +300,94 @@ describe("live baseline derivation", () => {
       }),
     ]);
     expect(baseline.recordsAnalyzed.transactions).toBe(8);
-    expect(baseline.schemaVersion).toBe("1.4");
+    expect(baseline.schemaVersion).toBe("1.5");
     expect(baseline.warnings).toContainEqual(
       expect.objectContaining({ code: "long_live_baseline_income" }),
+    );
+  });
+
+  it("resolves registered room, waterfall routes, and material provenance", () => {
+    const baseline = deriveCurrentBaseline(
+      configFixture,
+      lunchMoneyData(),
+      window,
+      "2026-07-14T12:00:00.000Z",
+    );
+
+    expect(baseline.schemaVersion).toBe("1.5");
+    expect(
+      baseline.projectionInputs.registeredAccountRoom?.tfsa
+        .startingAvailableRoom.amount,
+    ).toBe(10000);
+    expect(baseline.projectionInputs.contributionWaterfall).toMatchObject({
+      mode: "canonical",
+      routes: [
+        {
+          sourceAccountId: "plaid:2",
+          destinationAccountIds: ["plaid:2"],
+        },
+      ],
+    });
+    expect(
+      baseline.provenance[
+        "registeredAccountRoom.tfsa.startingAvailableRoom.amount"
+      ],
+    ).toMatchObject({
+      sourceType: "local_configuration",
+      value: 10000,
+    });
+    expect(
+      baseline.provenance[
+        "registeredAccountRoom.rrsp.newRoom.earnedIncomeRate"
+      ],
+    ).toMatchObject({
+      sourceType: "canadian_reference",
+      value: 0.18,
+    });
+    expect(
+      baseline.provenance[
+        "contributionWaterfall.routes.0.destinationAccountIds"
+      ]?.value,
+    ).toEqual(["plaid:2"]);
+  });
+
+  it("blocks positive registered contributions when room is omitted", () => {
+    const config = structuredClone(configFixture);
+    delete config.registeredAccountRoom;
+    expect(() =>
+      deriveCurrentBaseline(
+        config,
+        lunchMoneyData(),
+        window,
+        "2026-07-14T12:00:00.000Z",
+      ),
+    ).toThrow("registeredAccountRoom is required");
+  });
+
+  it("normalizes omitted waterfall configuration visibly without inventing overflow", () => {
+    const config = structuredClone(configFixture);
+    delete config.contributionWaterfall;
+    const baseline = deriveCurrentBaseline(
+      config,
+      lunchMoneyData(),
+      window,
+      "2026-07-14T12:00:00.000Z",
+    );
+
+    expect(baseline.projectionInputs.contributionWaterfall).toEqual({
+      mode: "fixed_source_compatibility",
+      routes: [
+        {
+          sourceAccountId: "plaid:2",
+          destinationAccountIds: ["plaid:2"],
+        },
+      ],
+      surplusDestinationAccountIds: [],
+    });
+    expect(baseline.warnings).toContainEqual(
+      expect.objectContaining({
+        code: "contribution_waterfall_compatibility",
+      }),
     );
   });
 

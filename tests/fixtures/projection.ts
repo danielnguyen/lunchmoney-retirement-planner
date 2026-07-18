@@ -27,6 +27,12 @@ export const projectionFixture: ProjectionInputs = {
         endAge: 65,
         annualNetCashToday: 84000,
         annualGrowth: 0.02,
+        rrspRoomGeneration: {
+          annualEligibleEarnedIncomeToday: 100000,
+          annualPensionAdjustmentToday: 0,
+          annualOtherRoomReductionToday: 0,
+          annualGrowth: 0.02,
+        },
       },
     ],
     annualPensionToday: 0,
@@ -80,6 +86,56 @@ export const projectionFixture: ProjectionInputs = {
       allocation: { cash: 0, fixedIncome: 0.3, equity: 0.7 },
     },
   ],
+  registeredAccountRoom: {
+    tfsa: {
+      startingAvailableRoom: {
+        source: "configured_amount",
+        amount: 50000,
+        sourceDescription: "Synthetic TFSA room estimate",
+        effectiveDate: "2026-07-01",
+      },
+      annualNewRoom: {
+        source: "canadian_reference",
+        futureIndexingRate: 0.02,
+        roundingIncrement: 500,
+      },
+      carryForwardUnusedRoom: true,
+      withdrawalRoomRecredit: "next_calendar_year",
+    },
+    rrsp: {
+      startingAvailableDeductionRoom: {
+        source: "configured_amount",
+        amount: 50000,
+        sourceDescription: "Synthetic RRSP room estimate",
+        effectiveDate: "2026-07-01",
+      },
+      carryForwardUnusedRoom: true,
+      newRoom: {
+        source: "earned_income",
+        annualCap: {
+          source: "canadian_reference",
+          futureGrowthRate: 0.03,
+          futureRoundingIncrement: 10,
+        },
+        startYearBeforeProjectionMonth: {
+          calendarYear: 2026,
+          eligibleEarnedIncome: 50000,
+          pensionAdjustment: 0,
+          otherRoomReduction: 0,
+        },
+      },
+    },
+  },
+  contributionWaterfall: {
+    mode: "fixed_source_compatibility",
+    routes: [
+      {
+        sourceAccountId: "manual:2",
+        destinationAccountIds: ["manual:2"],
+      },
+    ],
+    surplusDestinationAccountIds: ["manual:2"],
+  },
   surplusAllocation: {
     reserveAccountIds: ["manual:1"],
     reserveRefillAccountId: "manual:1",
@@ -169,7 +225,7 @@ export const baselineContextFixture: BaselineExportContext = {
 
 export const currentBaselineFixture: CurrentBaseline = {
   ...baselineContextFixture,
-  schemaVersion: "1.4",
+  schemaVersion: "1.5",
   provenance: {
     ...baselineContextFixture.provenance,
     monthlyDiscretionarySpendingToday: {

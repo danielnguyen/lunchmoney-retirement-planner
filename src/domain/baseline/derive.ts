@@ -14,6 +14,13 @@ import {
   cppClaimRules,
   oasClaimRules,
 } from "@/src/domain/defaults/canadian-public-benefits";
+import {
+  RRSP_ANNUAL_LIMITS,
+  RRSP_EARNED_INCOME_RATE,
+  RRSP_FORMULA_REFERENCE_URL,
+  TFSA_ANNUAL_LIMITS,
+  TFSA_WITHDRAWAL_REFERENCE_URL,
+} from "@/src/domain/defaults/canadian-registered-account-room";
 import { validateProjectionInputs, type AccountType, type ProjectionInputs } from "@/src/domain/projection/types";
 import type { LunchMoneyData } from "@/src/integrations/lunchmoney/read-service";
 import { PlannerRuntimeError } from "@/src/runtime/errors";
@@ -887,6 +894,9 @@ export function deriveCurrentBaseline(
           ? annualEmploymentNetCashToday
           : phase.annualNetCashToday,
       annualGrowth: phase.annualGrowth,
+      ...(phase.rrspRoomGeneration
+        ? { rrspRoomGeneration: { ...phase.rrspRoomGeneration } }
+        : {}),
     })) ?? [
       {
         id: "legacy-current-income",
@@ -938,6 +948,17 @@ export function deriveCurrentBaseline(
         : `${fallbackDescription}; growth preserves assumptions.incomeGrowth`,
       window.endDate,
     );
+    if (phase.rrspRoomGeneration) {
+      for (const [field, value] of Object.entries(
+        phase.rrspRoomGeneration,
+      )) {
+        provenance[`${prefix}.rrspRoomGeneration.${field}`] = localValue(
+          value,
+          "Explicit RRSP room-generation assumption for this employment phase",
+          window.endDate,
+        );
+      }
+    }
   }
   const longLiveBaselinePhase = employmentIncomePhases.find((phase) => {
     const configured = config.employmentIncomePhases?.find((item) => item.id === phase.id);
@@ -1326,6 +1347,90 @@ export function deriveCurrentBaseline(
       window.endDate,
     );
   }
+  if (config.registeredAccountRoom) {
+    const room = config.registeredAccountRoom;
+    const roomProvenance: Array<[string, unknown, string, string]> = [
+      ["registeredAccountRoom.tfsa.startingAvailableRoom.source", room.tfsa.startingAvailableRoom.source, "Configured personal TFSA starting-room source", room.tfsa.startingAvailableRoom.effectiveDate],
+      ["registeredAccountRoom.tfsa.startingAvailableRoom.amount", room.tfsa.startingAvailableRoom.amount, "Configured personal TFSA room available at projection start", room.tfsa.startingAvailableRoom.effectiveDate],
+      ["registeredAccountRoom.tfsa.startingAvailableRoom.effectiveDate", room.tfsa.startingAvailableRoom.effectiveDate, "Effective date of configured personal TFSA room", room.tfsa.startingAvailableRoom.effectiveDate],
+      ["registeredAccountRoom.tfsa.annualNewRoom.futureIndexingRate", room.tfsa.annualNewRoom.futureIndexingRate, "Configured TFSA future-limit indexing", window.endDate],
+      ["registeredAccountRoom.tfsa.annualNewRoom.roundingIncrement", room.tfsa.annualNewRoom.roundingIncrement, "Configured TFSA future-limit rounding increment", window.endDate],
+      ["registeredAccountRoom.tfsa.carryForwardUnusedRoom", room.tfsa.carryForwardUnusedRoom, "Configured TFSA unused-room carry-forward assumption", window.endDate],
+      ["registeredAccountRoom.rrsp.startingAvailableDeductionRoom.source", room.rrsp.startingAvailableDeductionRoom.source, "Configured personal RRSP starting-room source", room.rrsp.startingAvailableDeductionRoom.effectiveDate],
+      ["registeredAccountRoom.rrsp.startingAvailableDeductionRoom.amount", room.rrsp.startingAvailableDeductionRoom.amount, "Configured personal RRSP deduction room available at projection start", room.rrsp.startingAvailableDeductionRoom.effectiveDate],
+      ["registeredAccountRoom.rrsp.startingAvailableDeductionRoom.effectiveDate", room.rrsp.startingAvailableDeductionRoom.effectiveDate, "Effective date of configured personal RRSP room", room.rrsp.startingAvailableDeductionRoom.effectiveDate],
+      ["registeredAccountRoom.rrsp.newRoom.annualCap.futureGrowthRate", room.rrsp.newRoom.annualCap.futureGrowthRate, "Configured future RRSP cap growth", window.endDate],
+      ["registeredAccountRoom.rrsp.newRoom.annualCap.futureRoundingIncrement", room.rrsp.newRoom.annualCap.futureRoundingIncrement, "Configured future RRSP cap rounding increment", window.endDate],
+      ["registeredAccountRoom.rrsp.carryForwardUnusedRoom", room.rrsp.carryForwardUnusedRoom, "Configured RRSP unused-room carry-forward assumption", window.endDate],
+      ["registeredAccountRoom.rrsp.newRoom.startYearBeforeProjectionMonth.calendarYear", room.rrsp.newRoom.startYearBeforeProjectionMonth.calendarYear, "Explicit pre-projection RRSP room-generation calendar year", window.endDate],
+      ["registeredAccountRoom.rrsp.newRoom.startYearBeforeProjectionMonth.eligibleEarnedIncome", room.rrsp.newRoom.startYearBeforeProjectionMonth.eligibleEarnedIncome, "Explicit pre-projection eligible earned income", window.endDate],
+      ["registeredAccountRoom.rrsp.newRoom.startYearBeforeProjectionMonth.pensionAdjustment", room.rrsp.newRoom.startYearBeforeProjectionMonth.pensionAdjustment, "Explicit pre-projection pension adjustment", window.endDate],
+      ["registeredAccountRoom.rrsp.newRoom.startYearBeforeProjectionMonth.otherRoomReduction", room.rrsp.newRoom.startYearBeforeProjectionMonth.otherRoomReduction, "Explicit pre-projection other room reduction", window.endDate],
+    ];
+    for (const [field, value, description, date] of roomProvenance) {
+      provenance[field] = localValue(value, description, date);
+    }
+    const tfsaLimit = TFSA_ANNUAL_LIMITS[0]!;
+    provenance[`registeredAccountRoom.tfsa.annualNewRoom.${tfsaLimit.calendarYear}`] =
+      canadianValue(tfsaLimit.amount, "Published TFSA annual dollar limit", tfsaLimit.effectiveDate, "statutory_annual_limit", tfsaLimit.referenceUrl);
+    provenance["registeredAccountRoom.tfsa.withdrawalRoomRecredit"] =
+      canadianValue("next_calendar_year", "TFSA withdrawal room is restored in the next calendar year", "2026-01-01", "statutory_program_default", TFSA_WITHDRAWAL_REFERENCE_URL);
+    provenance["registeredAccountRoom.rrsp.newRoom.earnedIncomeRate"] =
+      canadianValue(RRSP_EARNED_INCOME_RATE, "Statutory RRSP earned-income rate", "2026-01-01", "statutory_program_default", RRSP_FORMULA_REFERENCE_URL);
+    for (const cap of RRSP_ANNUAL_LIMITS) {
+      provenance[`registeredAccountRoom.rrsp.newRoom.annualCap.${cap.calendarYear}`] =
+        canadianValue(cap.amount, "Published RRSP annual dollar limit", cap.effectiveDate, "statutory_annual_limit", cap.referenceUrl);
+    }
+  }
+
+  const contributionWaterfall: ProjectionInputs["contributionWaterfall"] =
+    config.contributionWaterfall
+      ? {
+          mode: "canonical",
+          routes: config.contributionWaterfall.routes,
+          surplusDestinationAccountIds:
+            config.contributionWaterfall.surplusDestinationAccountIds,
+        }
+      : {
+          mode: "fixed_source_compatibility",
+          routes: projectionAccounts
+            .filter((account) => account.contributionPhases.length > 0)
+            .map((account) => ({
+              sourceAccountId: account.id,
+              destinationAccountIds: [account.id],
+            })),
+          surplusDestinationAccountIds: [],
+        };
+  if (
+    contributionWaterfall.mode === "fixed_source_compatibility" &&
+    contributionWaterfall.routes.length > 0
+  ) {
+    warnings.push({
+      code: "contribution_waterfall_compatibility",
+      severity: "warning",
+      message:
+        "Contribution waterfall configuration is omitted; each planned contribution uses a fixed source-only route and room-constrained overflow remains unallocated.",
+    });
+  }
+  provenance["contributionWaterfall.mode"] = localValue(
+    contributionWaterfall.mode,
+    contributionWaterfall.mode === "canonical"
+      ? "Explicit contribution waterfall from private planner configuration"
+      : "Contribution sources normalized to fixed source-only compatibility routes",
+    window.endDate,
+  );
+  for (const [index, route] of contributionWaterfall.routes.entries()) {
+    provenance[`contributionWaterfall.routes.${index}.sourceAccountId`] =
+      localValue(route.sourceAccountId, "Contribution waterfall route source", window.endDate);
+    provenance[`contributionWaterfall.routes.${index}.destinationAccountIds`] =
+      localValue(route.destinationAccountIds, "Ordered contribution waterfall destinations", window.endDate);
+  }
+  provenance["contributionWaterfall.surplusDestinationAccountIds"] =
+    localValue(
+      contributionWaterfall.surplusDestinationAccountIds,
+      "Ordered surplus contribution waterfall destinations",
+      window.endDate,
+    );
 
   const projectionInputs = validateProjectionInputs({
     startDate: dataThrough,
@@ -1361,12 +1466,16 @@ export function deriveCurrentBaseline(
       rrifConversionAge: config.assumptions.rrifConversionAge,
     },
     accounts: projectionAccounts,
+    ...(config.registeredAccountRoom
+      ? { registeredAccountRoom: config.registeredAccountRoom }
+      : {}),
+    contributionWaterfall,
     surplusAllocation: config.surplusAllocation,
     events: config.futureEvents,
   });
 
   return {
-    schemaVersion: "1.4",
+    schemaVersion: "1.5",
     connection,
     projectionInputs,
     provenance,

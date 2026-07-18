@@ -641,4 +641,87 @@ describe("private planner configuration", () => {
       "no imported contribution baseline",
     );
   });
+
+  it("validates every starting-room source without treating Canadian limits as personal room", async () => {
+    const base = await loadPlannerConfig(EXAMPLE_CONFIG_PATH);
+    for (const startingAvailableRoom of [
+      {
+        source: "official_estimate",
+        amount: 12345,
+        sourceDescription: "Synthetic owner-supplied estimate",
+        effectiveDate: "2026-06-30",
+      },
+      {
+        source: "configured_amount",
+        amount: 6789,
+        sourceDescription: "Synthetic configured amount",
+        effectiveDate: "2026-06-30",
+      },
+      { source: "explicit_zero" },
+    ]) {
+      const value = structuredClone(base) as unknown as Record<
+        string,
+        unknown
+      >;
+      const room = value.registeredAccountRoom as Record<
+        string,
+        Record<string, unknown>
+      >;
+      room.tfsa!.startingAvailableRoom = startingAvailableRoom;
+      expect(() => validatePlannerConfig(value)).not.toThrow();
+    }
+
+    const invalid = structuredClone(base) as unknown as Record<
+      string,
+      unknown
+    >;
+    const room = invalid.registeredAccountRoom as Record<
+      string,
+      Record<string, unknown>
+    >;
+    room.tfsa!.startingAvailableRoom = {
+      source: "official_estimate",
+      amount: 1000,
+      effectiveDate: "2026-06-30",
+    };
+    expect(() => validatePlannerConfig(invalid)).toThrow(
+      "sourceDescription must be a non-empty string",
+    );
+  });
+
+  it("requires explicit numeric RRSP room-generation inputs and accepts surplus waterfall mode", async () => {
+    const valid = await loadPlannerConfig(EXAMPLE_CONFIG_PATH);
+    expect(valid.surplusAllocation.excess).toEqual({
+      mode: "allocate_through_contribution_waterfall",
+    });
+    expect(valid.employmentIncomePhases?.every(
+      (phase) => phase.rrspRoomGeneration !== undefined,
+    )).toBe(true);
+
+    const liveBaseline = structuredClone(valid) as unknown as Record<
+      string,
+      unknown
+    >;
+    const phases = liveBaseline.employmentIncomePhases as Array<
+      Record<string, unknown>
+    >;
+    (
+      phases[0]!.rrspRoomGeneration as Record<string, unknown>
+    ).annualEligibleEarnedIncomeToday = "live_baseline";
+    expect(() => validatePlannerConfig(liveBaseline)).toThrow(
+      "must be a finite number",
+    );
+
+    const destinationField = structuredClone(valid) as unknown as Record<
+      string,
+      unknown
+    >;
+    (
+      (destinationField.surplusAllocation as Record<string, unknown>)
+        .excess as Record<string, unknown>
+    ).destinationAccountId = "projection:future-taxable";
+    expect(() => validatePlannerConfig(destinationField)).toThrow(
+      "does not accept destinationAccountId",
+    );
+  });
 });

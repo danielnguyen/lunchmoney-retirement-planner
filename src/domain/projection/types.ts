@@ -37,6 +37,12 @@ export type EmploymentIncomePhase = {
   endAge: number;
   annualNetCashToday: number;
   annualGrowth: number;
+  rrspRoomGeneration?: {
+    annualEligibleEarnedIncomeToday: number;
+    annualPensionAdjustmentToday: number;
+    annualOtherRoomReductionToday: number;
+    annualGrowth: number;
+  };
 };
 
 export type PersonInput = {
@@ -87,7 +93,59 @@ export type SurplusAllocationPolicyInput = {
     | {
         mode: "allocate_to_account";
         destinationAccountId: string;
+      }
+    | {
+        mode: "allocate_through_contribution_waterfall";
       };
+};
+
+export type StartingRoomSource = {
+  source: "official_estimate" | "configured_amount" | "explicit_zero";
+  amount: number;
+  sourceDescription: string;
+  effectiveDate: string;
+};
+
+export type RegisteredAccountRoomInput = {
+  tfsa: {
+    startingAvailableRoom: StartingRoomSource;
+    annualNewRoom: {
+      source: "canadian_reference";
+      futureIndexingRate: number;
+      roundingIncrement: number;
+    };
+    carryForwardUnusedRoom: boolean;
+    withdrawalRoomRecredit: "next_calendar_year";
+  };
+  rrsp: {
+    startingAvailableDeductionRoom: StartingRoomSource;
+    carryForwardUnusedRoom: boolean;
+    newRoom: {
+      source: "earned_income";
+      annualCap: {
+        source: "canadian_reference";
+        futureGrowthRate: number;
+        futureRoundingIncrement: number;
+      };
+      startYearBeforeProjectionMonth: {
+        calendarYear: number;
+        eligibleEarnedIncome: number;
+        pensionAdjustment: number;
+        otherRoomReduction: number;
+      };
+    };
+  };
+};
+
+export type ContributionWaterfallRoute = {
+  sourceAccountId: string;
+  destinationAccountIds: string[];
+};
+
+export type ContributionWaterfallInput = {
+  mode: "canonical" | "fixed_source_compatibility";
+  routes: ContributionWaterfallRoute[];
+  surplusDestinationAccountIds: string[];
 };
 
 export type ProjectionEventInput = {
@@ -116,6 +174,8 @@ export type ProjectionInputs = {
   tax: TaxAssumptions;
   person: PersonInput;
   accounts: FinancialAccountInput[];
+  registeredAccountRoom?: RegisteredAccountRoomInput;
+  contributionWaterfall: ContributionWaterfallInput;
   surplusAllocation: SurplusAllocationPolicyInput;
   events: ProjectionEventInput[];
 };
@@ -149,9 +209,54 @@ export type OutflowBreakdown = {
 };
 
 export type ContributionBreakdown = {
+  planned: number;
+  allowed: number;
+  sourceAccount: number;
+  redirected: number;
   cashFunded: number;
   incomeWithheld: number;
+  unallocatedCashFunded: number;
+  unallocatedIncomeWithheld: number;
+  unallocated: number;
   total: number;
+};
+
+export type AccountContributionDetail = {
+  plannedFromAccount: number;
+  depositedIntoAccount: number;
+  sourceAccountDeposit: number;
+  redirectedOut: number;
+  redirectedIn: number;
+  surplusFundedDeposit: number;
+  cashFunded: number;
+  incomeWithheld: number;
+  unallocatedFromAccount: number;
+};
+
+export type RegisteredProgramAnnualBreakdown = {
+  openingRoom: number;
+  annualNewRoom: number;
+  withdrawalRoomRestored: number;
+  previousYearEligibleEarnedIncome: number;
+  earnedIncomeRate: number;
+  annualCap: number;
+  pensionAdjustment: number;
+  otherRoomReduction: number;
+  grossGeneratedRoom: number;
+  plannedContributions: number;
+  allowedContributions: number;
+  redirectedIn: number;
+  redirectedOut: number;
+  surplusFundedContributions: number;
+  unallocatedContributions: number;
+  closingRoom: number;
+  carryForwardUnusedRoom: boolean;
+  sourceKind: "published_reference" | "configured_forecast" | "starting_room";
+};
+
+export type RegisteredAccountRoomBreakdown = {
+  tfsa: RegisteredProgramAnnualBreakdown;
+  rrsp: RegisteredProgramAnnualBreakdown;
 };
 
 export type BalanceBreakdown = {
@@ -180,6 +285,8 @@ export type ProjectionView = {
   balances: BalanceBreakdown;
   accountBalances: Record<string, number>;
   accountContributions: Record<string, number>;
+  accountContributionDetails: Record<string, AccountContributionDetail>;
+  registeredAccountRoom: RegisteredAccountRoomBreakdown;
   surplusAllocation: SurplusAllocationBreakdown;
   accountSurplusAllocations: Record<string, number>;
   allocation: AssetAllocation;
@@ -274,7 +381,10 @@ export type SurplusAllocationCalculationSummary = {
     reserveRefillAccountId: string;
     targetCashReserveToday: number;
     reserveIndexingRate: number;
-    excessMode: "retain_as_cash" | "allocate_to_account";
+    excessMode:
+      | "retain_as_cash"
+      | "allocate_to_account"
+      | "allocate_through_contribution_waterfall";
     destinationAccountId: string | null;
   };
   throughRetirement: {
@@ -295,8 +405,45 @@ export type SurplusAllocationCalculationSummary = {
   } | null;
 };
 
+export type RegisteredAccountRoomCalculationSummary = {
+  modelled: boolean;
+  policy: {
+    tfsaStartingRoomSource: StartingRoomSource | null;
+    rrspStartingRoomSource: StartingRoomSource | null;
+    tfsaCarryForwardUnusedRoom: boolean | null;
+    rrspCarryForwardUnusedRoom: boolean | null;
+    waterfallMode: ContributionWaterfallInput["mode"];
+    routes: ContributionWaterfallRoute[];
+    surplusDestinationAccountIds: string[];
+  };
+  references: {
+    tfsaAnnualLimit: {
+      calendarYear: 2026;
+      amount: 7000;
+      effectiveDate: "2026-01-01";
+      sourceKind: "published_reference";
+      referenceUrl: string;
+    };
+    rrspAnnualCaps: Array<{
+      calendarYear: number;
+      amount: number;
+      effectiveDate: string;
+      sourceKind: "published_reference";
+      referenceUrl: string;
+    }>;
+    rrspEarnedIncomeRate: 0.18;
+    rrspFormulaReferenceUrl: string;
+    tfsaWithdrawalReferenceUrl: string;
+  };
+  annual: Array<{
+    calendarYear: number;
+    nominal: RegisteredAccountRoomBreakdown;
+    real: RegisteredAccountRoomBreakdown;
+  }>;
+};
+
 export type ProjectionResult = {
-  schemaVersion: "6.0";
+  schemaVersion: "7.0";
   inputs: ProjectionInputs;
   summary: ProjectionSummary;
   retirementSnapshot: RetirementSnapshot;
@@ -306,6 +453,7 @@ export type ProjectionResult = {
   };
   governmentBenefits: GovernmentBenefitCalculationSummary;
   surplusAllocation: SurplusAllocationCalculationSummary;
+  registeredAccountRoom: RegisteredAccountRoomCalculationSummary;
   annual: AnnualProjection[];
   observations: ProjectionObservation[];
 };
@@ -472,6 +620,26 @@ export function validateProjectionInputs(value: unknown): ProjectionInputs {
     }
     assertNonNegative(`${field}.annualNetCashToday`, phase.annualNetCashToday);
     assertRate(`${field}.annualGrowth`, phase.annualGrowth, -0.2, 0.5);
+    if (phase.rrspRoomGeneration) {
+      assertNonNegative(
+        `${field}.rrspRoomGeneration.annualEligibleEarnedIncomeToday`,
+        phase.rrspRoomGeneration.annualEligibleEarnedIncomeToday,
+      );
+      assertNonNegative(
+        `${field}.rrspRoomGeneration.annualPensionAdjustmentToday`,
+        phase.rrspRoomGeneration.annualPensionAdjustmentToday,
+      );
+      assertNonNegative(
+        `${field}.rrspRoomGeneration.annualOtherRoomReductionToday`,
+        phase.rrspRoomGeneration.annualOtherRoomReductionToday,
+      );
+      assertRate(
+        `${field}.rrspRoomGeneration.annualGrowth`,
+        phase.rrspRoomGeneration.annualGrowth,
+        -0.2,
+        0.5,
+      );
+    }
     assertMonthAligned(`${field}.startAge`, phase.startAge, input.person.currentAge);
     assertMonthAligned(`${field}.endAge`, phase.endAge, input.person.currentAge);
     if (
@@ -642,6 +810,194 @@ export function validateProjectionInputs(value: unknown): ProjectionInputs {
     throw new Error("At least one included cash account is required for cash-flow projection");
   }
 
+  const registeredAccountIds = new Set(
+    input.accounts
+      .filter((account) => account.type === "tfsa" || account.type === "rrsp_rrif")
+      .map((account) => account.id),
+  );
+  const hasPositiveRegisteredContribution = input.accounts.some(
+    (account) =>
+      registeredAccountIds.has(account.id) &&
+      account.contributionPhases.some((phase) => phase.monthlyAmountToday > 0),
+  );
+  if (hasPositiveRegisteredContribution && !input.registeredAccountRoom) {
+    throw new Error(
+      "registeredAccountRoom is required when positive TFSA or RRSP/RRIF contributions are configured",
+    );
+  }
+  if (input.registeredAccountRoom) {
+    const room = input.registeredAccountRoom;
+    for (const [field, source] of [
+      ["TFSA starting room", room.tfsa.startingAvailableRoom],
+      ["RRSP starting deduction room", room.rrsp.startingAvailableDeductionRoom],
+    ] as const) {
+      if (
+        !["official_estimate", "configured_amount", "explicit_zero"].includes(
+          source.source,
+        )
+      ) {
+        throw new Error(`${field} source is invalid`);
+      }
+      assertNonNegative(`${field} amount`, source.amount);
+      assertNonEmptyString(`${field} sourceDescription`, source.sourceDescription);
+      if (!isIsoCalendarDate(source.effectiveDate)) {
+        throw new Error(`${field} effectiveDate must be a valid ISO calendar date`);
+      }
+      if (source.source === "explicit_zero" && source.amount !== 0) {
+        throw new Error(`${field} explicit_zero must resolve to zero`);
+      }
+    }
+    assertRate(
+      "TFSA futureIndexingRate",
+      room.tfsa.annualNewRoom.futureIndexingRate,
+      -0.2,
+      0.5,
+    );
+    assertNonNegative(
+      "TFSA roundingIncrement",
+      room.tfsa.annualNewRoom.roundingIncrement,
+    );
+    if (room.tfsa.annualNewRoom.roundingIncrement <= 0) {
+      throw new Error("TFSA roundingIncrement must be positive");
+    }
+    assertRate(
+      "RRSP futureGrowthRate",
+      room.rrsp.newRoom.annualCap.futureGrowthRate,
+      -0.2,
+      0.5,
+    );
+    if (room.rrsp.newRoom.annualCap.futureRoundingIncrement <= 0) {
+      throw new Error("RRSP futureRoundingIncrement must be positive");
+    }
+    const projectionStartYear = Number(input.startDate.slice(0, 4));
+    if (projectionStartYear < 2026) {
+      throw new Error(
+        "registeredAccountRoom requires a projection start year with bundled Canadian room references (2026 or later)",
+      );
+    }
+    const preStart = room.rrsp.newRoom.startYearBeforeProjectionMonth;
+    if (preStart.calendarYear !== projectionStartYear) {
+      throw new Error(
+        "RRSP startYearBeforeProjectionMonth.calendarYear must match the projection start year",
+      );
+    }
+    assertNonNegative("RRSP pre-start eligible earned income", preStart.eligibleEarnedIncome);
+    assertNonNegative("RRSP pre-start pension adjustment", preStart.pensionAdjustment);
+    assertNonNegative("RRSP pre-start other room reduction", preStart.otherRoomReduction);
+    const rrspRoomIsUsed = input.accounts.some(
+      (account) =>
+        account.type === "rrsp_rrif" &&
+        account.contributionPhases.some((phase) => phase.monthlyAmountToday > 0),
+    );
+    if (rrspRoomIsUsed) {
+      for (const [index, phase] of input.person.employmentIncomePhases.entries()) {
+        if (!phase.rrspRoomGeneration) {
+          throw new Error(
+            `employmentIncomePhases[${index}].rrspRoomGeneration is required when RRSP room uses earned income`,
+          );
+        }
+      }
+    }
+  }
+
+  if (!input.contributionWaterfall || typeof input.contributionWaterfall !== "object") {
+    throw new Error("contributionWaterfall must be resolved before projection");
+  }
+  const waterfall = input.contributionWaterfall;
+  if (
+    waterfall.mode !== "canonical" &&
+    waterfall.mode !== "fixed_source_compatibility"
+  ) {
+    throw new Error("contributionWaterfall.mode is invalid");
+  }
+  if (!Array.isArray(waterfall.routes) || !Array.isArray(waterfall.surplusDestinationAccountIds)) {
+    throw new Error("contributionWaterfall routes and surplus destinations must be arrays");
+  }
+  if (waterfall.mode === "fixed_source_compatibility") {
+    waterfall.routes = input.accounts
+      .filter((account) => account.contributionPhases.length > 0)
+      .map((account) => ({
+        sourceAccountId: account.id,
+        destinationAccountIds: [account.id],
+      }));
+    waterfall.surplusDestinationAccountIds = [];
+  }
+  const routeSources = new Set<string>();
+  for (const route of waterfall.routes) {
+    assertNonEmptyString("contributionWaterfall sourceAccountId", route.sourceAccountId);
+    if (routeSources.has(route.sourceAccountId)) {
+      throw new Error(`Duplicate contribution waterfall source ${route.sourceAccountId}`);
+    }
+    routeSources.add(route.sourceAccountId);
+    const source = accountsById.get(route.sourceAccountId);
+    if (!source) throw new Error(`Unknown contribution waterfall source ${route.sourceAccountId}`);
+    if (source.contributionPhases.length === 0) {
+      throw new Error(`Contribution waterfall source ${source.id} has no contribution phases`);
+    }
+    if (!Array.isArray(route.destinationAccountIds) || route.destinationAccountIds.length === 0) {
+      throw new Error(`Contribution waterfall route ${source.id} requires destinations`);
+    }
+    if (route.destinationAccountIds[0] !== source.id) {
+      throw new Error(`Contribution waterfall route ${source.id} must start with its source account`);
+    }
+    const destinations = new Set<string>();
+    for (const [index, destinationId] of route.destinationAccountIds.entries()) {
+      if (destinations.has(destinationId)) {
+        throw new Error(`Duplicate destination ${destinationId} in contribution route ${source.id}`);
+      }
+      destinations.add(destinationId);
+      const destination = accountsById.get(destinationId);
+      if (!destination) throw new Error(`Unknown contribution waterfall destination ${destinationId}`);
+      if (!["tfsa", "rrsp_rrif", "non_registered"].includes(destination.type)) {
+        throw new Error(`Contribution waterfall destination ${destinationId} must be an investment account`);
+      }
+      if (
+        destination.type === "non_registered" &&
+        index !== route.destinationAccountIds.length - 1
+      ) {
+        throw new Error(`Non-registered destination ${destinationId} must be last`);
+      }
+      if (
+        (destination.type === "tfsa" || destination.type === "rrsp_rrif") &&
+        !input.registeredAccountRoom
+      ) {
+        throw new Error(`Registered destination ${destinationId} requires registeredAccountRoom`);
+      }
+    }
+  }
+  if (waterfall.mode === "canonical") {
+    for (const account of input.accounts.filter((item) => item.contributionPhases.length > 0)) {
+      if (!routeSources.has(account.id)) {
+        throw new Error(`Canonical contribution waterfall requires a route for ${account.id}`);
+      }
+    }
+  }
+  const surplusDestinations = new Set<string>();
+  for (const [index, destinationId] of waterfall.surplusDestinationAccountIds.entries()) {
+    if (surplusDestinations.has(destinationId)) {
+      throw new Error(`Duplicate surplus waterfall destination ${destinationId}`);
+    }
+    surplusDestinations.add(destinationId);
+    const destination = accountsById.get(destinationId);
+    if (!destination || !["tfsa", "rrsp_rrif", "non_registered"].includes(destination.type)) {
+      throw new Error(`Invalid surplus waterfall destination ${destinationId}`);
+    }
+    if (
+      destination.type === "non_registered" &&
+      index !== waterfall.surplusDestinationAccountIds.length - 1
+    ) {
+      throw new Error(
+        `Non-registered surplus destination ${destinationId} must be last`,
+      );
+    }
+    if (
+      (destination.type === "tfsa" || destination.type === "rrsp_rrif") &&
+      !input.registeredAccountRoom
+    ) {
+      throw new Error(`Registered surplus destination ${destinationId} requires registeredAccountRoom`);
+    }
+  }
+
   const surplus = input.surplusAllocation;
   if (!surplus || typeof surplus !== "object") {
     throw new Error(
@@ -695,15 +1051,24 @@ export function validateProjectionInputs(value: unknown): ProjectionInputs {
     Record<string, unknown>;
   if (
     excess.mode !== "retain_as_cash" &&
-    excess.mode !== "allocate_to_account"
+    excess.mode !== "allocate_to_account" &&
+    excess.mode !== "allocate_through_contribution_waterfall"
   ) {
     throw new Error(
-      "surplusAllocation.excess.mode must be retain_as_cash or allocate_to_account",
+      "surplusAllocation.excess.mode must be retain_as_cash, allocate_to_account, or allocate_through_contribution_waterfall",
     );
   }
   if (excess.mode === "retain_as_cash" && "destinationAccountId" in excess) {
     throw new Error(
       "surplusAllocation.excess.destinationAccountId is not allowed for retain_as_cash",
+    );
+  }
+  if (
+    excess.mode === "allocate_through_contribution_waterfall" &&
+    waterfall.surplusDestinationAccountIds.length === 0
+  ) {
+    throw new Error(
+      "allocate_through_contribution_waterfall requires surplusDestinationAccountIds",
     );
   }
   if (excess.mode === "allocate_to_account") {
@@ -750,6 +1115,14 @@ export function validateProjectionInputs(value: unknown): ProjectionInputs {
     assertNonNegative(`amountToday for ${event.id}`, event.amountToday);
     if (event.targetAccountId && !accountIds.has(event.targetAccountId)) {
       throw new Error(`Unknown event target account ${event.targetAccountId}`);
+    }
+    if (event.direction === "inflow" && event.targetAccountId) {
+      const target = accountsById.get(event.targetAccountId);
+      if (target?.type === "tfsa" || target?.type === "rrsp_rrif") {
+        throw new Error(
+          `Targeted event inflow ${event.id} cannot deposit directly into a registered account because contribution-room treatment is not modelled`,
+        );
+      }
     }
   }
 

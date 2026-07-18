@@ -90,6 +90,31 @@ export type AnnualChartRow = {
   contributions: number;
   cashFundedContributions: number;
   incomeWithheldContributions: number;
+  plannedContributions: number;
+  actualContributions: number;
+  redirectedContributions: number;
+  unallocatedContributions: number;
+  tfsaRoomOpening: number;
+  tfsaRoomNew: number;
+  tfsaRoomWithdrawalRestored: number;
+  tfsaRoomClosing: number;
+  tfsaPlannedContributions: number;
+  tfsaAllowedContributions: number;
+  tfsaSurplusContributions: number;
+  tfsaUnallocatedContributions: number;
+  rrspRoomOpening: number;
+  rrspRoomNew: number;
+  rrspRoomClosing: number;
+  rrspPreviousYearEligibleEarnedIncome: number;
+  rrspEarnedIncomeRate: number;
+  rrspAnnualCap: number;
+  rrspPensionAdjustment: number;
+  rrspOtherRoomReduction: number;
+  rrspGrossGeneratedRoom: number;
+  rrspPlannedContributions: number;
+  rrspAllowedContributions: number;
+  rrspSurplusContributions: number;
+  rrspUnallocatedContributions: number;
   employmentNetCash: number;
   employmentPhase: string;
   contributionPhases: string;
@@ -146,6 +171,45 @@ export function buildAnnualChartData(
       contributions: view.outflows.contributions,
       cashFundedContributions: view.contributions.cashFunded,
       incomeWithheldContributions: view.contributions.incomeWithheld,
+      plannedContributions: view.contributions.planned,
+      actualContributions: view.contributions.total,
+      redirectedContributions: view.contributions.redirected,
+      unallocatedContributions: view.contributions.unallocated,
+      tfsaRoomOpening: view.registeredAccountRoom.tfsa.openingRoom,
+      tfsaRoomNew: view.registeredAccountRoom.tfsa.annualNewRoom,
+      tfsaRoomWithdrawalRestored:
+        view.registeredAccountRoom.tfsa.withdrawalRoomRestored,
+      tfsaRoomClosing: view.registeredAccountRoom.tfsa.closingRoom,
+      tfsaPlannedContributions:
+        view.registeredAccountRoom.tfsa.plannedContributions,
+      tfsaAllowedContributions:
+        view.registeredAccountRoom.tfsa.allowedContributions,
+      tfsaSurplusContributions:
+        view.registeredAccountRoom.tfsa.surplusFundedContributions,
+      tfsaUnallocatedContributions:
+        view.registeredAccountRoom.tfsa.unallocatedContributions,
+      rrspRoomOpening: view.registeredAccountRoom.rrsp.openingRoom,
+      rrspRoomNew: view.registeredAccountRoom.rrsp.annualNewRoom,
+      rrspRoomClosing: view.registeredAccountRoom.rrsp.closingRoom,
+      rrspPreviousYearEligibleEarnedIncome:
+        view.registeredAccountRoom.rrsp.previousYearEligibleEarnedIncome,
+      rrspEarnedIncomeRate:
+        view.registeredAccountRoom.rrsp.earnedIncomeRate,
+      rrspAnnualCap: view.registeredAccountRoom.rrsp.annualCap,
+      rrspPensionAdjustment:
+        view.registeredAccountRoom.rrsp.pensionAdjustment,
+      rrspOtherRoomReduction:
+        view.registeredAccountRoom.rrsp.otherRoomReduction,
+      rrspGrossGeneratedRoom:
+        view.registeredAccountRoom.rrsp.grossGeneratedRoom,
+      rrspPlannedContributions:
+        view.registeredAccountRoom.rrsp.plannedContributions,
+      rrspAllowedContributions:
+        view.registeredAccountRoom.rrsp.allowedContributions,
+      rrspSurplusContributions:
+        view.registeredAccountRoom.rrsp.surplusFundedContributions,
+      rrspUnallocatedContributions:
+        view.registeredAccountRoom.rrsp.unallocatedContributions,
       employmentNetCash: view.income.employment,
       employmentPhase: point.employmentPhaseLabels.join(" → "),
       contributionPhases: Object.values(point.contributionPhaseLabels)
@@ -185,6 +249,17 @@ export function buildAnnualChartData(
           `surplusAllocation:${id}`,
           value,
         ]),
+      ),
+      ...Object.fromEntries(
+        Object.entries(view.accountContributionDetails).flatMap(
+          ([id, detail]) => [
+            [`plannedContribution:${id}`, detail.plannedFromAccount],
+            [`actualContribution:${id}`, detail.depositedIntoAccount],
+            [`redirectedIn:${id}`, detail.redirectedIn],
+            [`redirectedOut:${id}`, detail.redirectedOut],
+            [`surplusContribution:${id}`, detail.surplusFundedDeposit],
+          ],
+        ),
       ),
     };
   });

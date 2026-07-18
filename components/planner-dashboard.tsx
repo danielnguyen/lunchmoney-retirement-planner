@@ -212,6 +212,59 @@ function buildControls(baseline: ProjectionInputs): ControlDefinition[] {
     },
   ];
 
+  if (baseline.registeredAccountRoom) {
+    controls.unshift(
+      {
+        key: "registeredAccountRoom.tfsa.startingAvailableRoom.amount",
+        sourceKey:
+          "registeredAccountRoom.tfsa.startingAvailableRoom.amount",
+        label: "Starting TFSA room",
+        min: fixed(0),
+        max: fixed(
+          Math.max(
+            250000,
+            baseline.registeredAccountRoom.tfsa.startingAvailableRoom.amount *
+              3,
+          ),
+        ),
+        step: 100,
+        format: currency.format,
+        get: (inputs) =>
+          inputs.registeredAccountRoom!.tfsa.startingAvailableRoom.amount,
+        set: (inputs, value) => {
+          inputs.registeredAccountRoom!.tfsa.startingAvailableRoom.amount =
+            value;
+        },
+        inputType: "number",
+      },
+      {
+        key:
+          "registeredAccountRoom.rrsp.startingAvailableDeductionRoom.amount",
+        sourceKey:
+          "registeredAccountRoom.rrsp.startingAvailableDeductionRoom.amount",
+        label: "Starting RRSP deduction room",
+        min: fixed(0),
+        max: fixed(
+          Math.max(
+            250000,
+            baseline.registeredAccountRoom.rrsp
+              .startingAvailableDeductionRoom.amount * 3,
+          ),
+        ),
+        step: 100,
+        format: currency.format,
+        get: (inputs) =>
+          inputs.registeredAccountRoom!.rrsp
+            .startingAvailableDeductionRoom.amount,
+        set: (inputs, value) => {
+          inputs.registeredAccountRoom!.rrsp.startingAvailableDeductionRoom.amount =
+            value;
+        },
+        inputType: "number",
+      },
+    );
+  }
+
   for (const phase of baseline.person.employmentIncomePhases) {
     controls.push(
       {
@@ -249,6 +302,41 @@ function buildControls(baseline: ProjectionInputs): ControlDefinition[] {
         },
       },
     );
+    if (phase.rrspRoomGeneration) {
+      for (const [
+        field,
+        label,
+      ] of [
+        [
+          "annualEligibleEarnedIncomeToday",
+          "annual RRSP-eligible earned income",
+        ],
+        ["annualPensionAdjustmentToday", "annual pension adjustment"],
+        ["annualOtherRoomReductionToday", "annual other room reduction"],
+      ] as const) {
+        controls.push({
+          key: `employmentPhase.${phase.id}.rrspRoomGeneration.${field}`,
+          sourceKey: `person.employmentIncomePhases.${phase.id}.rrspRoomGeneration.${field}`,
+          label: `${phase.label} ${label}`,
+          min: fixed(0),
+          max: fixed(
+            Math.max(250000, phase.rrspRoomGeneration[field] * 3),
+          ),
+          step: 100,
+          format: currency.format,
+          get: (inputs) =>
+            inputs.person.employmentIncomePhases.find(
+              (item) => item.id === phase.id,
+            )!.rrspRoomGeneration![field],
+          set: (inputs, value) => {
+            inputs.person.employmentIncomePhases.find(
+              (item) => item.id === phase.id,
+            )!.rrspRoomGeneration![field] = value;
+          },
+          inputType: "number",
+        });
+      }
+    }
   }
 
   for (const account of baseline.accounts) {
@@ -784,6 +872,32 @@ export function PlannerDashboard() {
                 </div>
               </article>
 
+              {inputs.registeredAccountRoom ? (
+                <article className="report-card wide-chart">
+                  <ExplainableHeading
+                    kicker="Registered room"
+                    target="registered-account-room"
+                    title="Annual registered room and contributions"
+                    onExplain={openExplanation}
+                  />
+                  <div className="chart-shell medium">
+                    <ResponsiveContainer width="100%" height="100%">
+                      <ComposedChart data={chartData}>
+                        <CartesianGrid stroke="#24364d" strokeDasharray="3 3" vertical={false} />
+                        <XAxis dataKey="year" stroke="#9eb0c4" minTickGap={28} />
+                        <YAxis stroke="#9eb0c4" tickFormatter={compactCurrency} width={72} />
+                        <Tooltip formatter={(value) => currency.format(Number(value))} />
+                        <Legend />
+                        <Bar dataKey="actualContributions" name="Actual contributions" fill="#70d6b2" />
+                        <Bar dataKey="unallocatedContributions" name="Unallocated" fill="#ef7d86" />
+                        <Line dataKey="tfsaRoomClosing" name="TFSA closing room" stroke="#55b8d8" strokeWidth={2} dot={false} />
+                        <Line dataKey="rrspRoomClosing" name="RRSP closing room" stroke="#d8bd65" strokeWidth={2} dot={false} />
+                      </ComposedChart>
+                    </ResponsiveContainer>
+                  </div>
+                </article>
+              ) : null}
+
               <article className="report-card wide-chart">
                 <ExplainableHeading
                   kicker="Surplus policy"
@@ -1136,13 +1250,32 @@ export function PlannerDashboard() {
                   <div><dt>Reserve refill account</dt><dd>{reserveRefillAccount?.label ?? "Unavailable"}</dd></div>
                   <div><dt>Target reserve today</dt><dd>{currency.format(inputs.surplusAllocation.targetCashReserveToday)}</dd></div>
                   <div><dt>Reserve indexing</dt><dd>{percent.format(inputs.surplusAllocation.reserveIndexingRate)}</dd></div>
-                  <div><dt>Excess mode</dt><dd>{inputs.surplusAllocation.excess.mode === "retain_as_cash" ? "Retain as cash" : "Allocate to account"}</dd></div>
+                  <div><dt>Excess mode</dt><dd>{inputs.surplusAllocation.excess.mode.replaceAll("_", " ")}</dd></div>
                   {destinationAccount ? <div><dt>Destination account</dt><dd>{destinationAccount.label}</dd></div> : null}
                   <div><dt>Surplus generated through retirement</dt><dd>{currency.format(surplusTotals?.generated ?? 0)}</dd></div>
                   <div><dt>Retained as cash through retirement</dt><dd>{currency.format(surplusTotals?.retainedAsCash ?? 0)}</dd></div>
                   <div><dt>Redirected through retirement</dt><dd>{currency.format(surplusTotals?.redirected ?? 0)}</dd></div>
                 </dl>
               </div>
+              {inputs.registeredAccountRoom ? (
+                <div>
+                  <h3>Registered room and contribution routing</h3>
+                  <dl>
+                    <div><dt>Starting TFSA room</dt><dd>{currency.format(inputs.registeredAccountRoom.tfsa.startingAvailableRoom.amount)} · {inputs.registeredAccountRoom.tfsa.startingAvailableRoom.source.replaceAll("_", " ")}</dd></div>
+                    <div><dt>Starting RRSP room</dt><dd>{currency.format(inputs.registeredAccountRoom.rrsp.startingAvailableDeductionRoom.amount)} · {inputs.registeredAccountRoom.rrsp.startingAvailableDeductionRoom.source.replaceAll("_", " ")}</dd></div>
+                    <div><dt>TFSA carry-forward</dt><dd>{inputs.registeredAccountRoom.tfsa.carryForwardUnusedRoom ? "Enabled" : "Disabled scenario"}</dd></div>
+                    <div><dt>RRSP carry-forward</dt><dd>{inputs.registeredAccountRoom.rrsp.carryForwardUnusedRoom ? "Enabled" : "Disabled scenario"}</dd></div>
+                    <div><dt>TFSA annual-limit source</dt><dd>Published Canadian reference through 2026; later years are configured forecasts</dd></div>
+                    <div><dt>RRSP annual-cap source</dt><dd>Published Canadian references through 2027; later years are configured forecasts</dd></div>
+                    <div><dt>Current-period planned</dt><dd>{currency.format(projection.annual[0]?.[mode].contributions.planned ?? 0)}</dd></div>
+                    <div><dt>Current-period allowed</dt><dd>{currency.format(projection.annual[0]?.[mode].contributions.total ?? 0)}</dd></div>
+                    <div><dt>Current-period redirected</dt><dd>{currency.format(projection.annual[0]?.[mode].contributions.redirected ?? 0)}</dd></div>
+                    <div><dt>Current-period unallocated</dt><dd>{currency.format(projection.annual[0]?.[mode].contributions.unallocated ?? 0)}</dd></div>
+                    <div><dt>TFSA closing room</dt><dd>{currency.format(projection.annual[0]?.[mode].registeredAccountRoom.tfsa.closingRoom ?? 0)}</dd></div>
+                    <div><dt>RRSP closing room</dt><dd>{currency.format(projection.annual[0]?.[mode].registeredAccountRoom.rrsp.closingRoom ?? 0)}</dd></div>
+                  </dl>
+                </div>
+              ) : null}
               <div>
                 <h3>Personal settings</h3>
                 <dl>

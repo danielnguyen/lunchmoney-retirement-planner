@@ -46,6 +46,12 @@ employmentIncomePhases:
     annualNetCashToday: live_baseline
     # Growth starts at the beginning of this phase.
     annualGrowth: 0
+    # RRSP room uses explicit eligible earned income, never net deposited cash.
+    rrspRoomGeneration:
+      annualEligibleEarnedIncomeToday: 100000
+      annualPensionAdjustmentToday: 0
+      annualOtherRoomReductionToday: 0
+      annualGrowth: 0
 
   - id: future-income
     label: Expected future income
@@ -55,6 +61,11 @@ employmentIncomePhases:
     # that today’s income continues indefinitely or forecast a future salary.
     annualNetCashToday: 72000
     annualGrowth: 0.02
+    rrspRoomGeneration:
+      annualEligibleEarnedIncomeToday: 110000
+      annualPensionAdjustmentToday: 0
+      annualOtherRoomReductionToday: 0
+      annualGrowth: 0.02
 
 # Projection-only accounts are planner assumptions, not imported Lunch Money
 # balances. Their opening balance is fixed at zero and cannot be configured.
@@ -70,9 +81,8 @@ projectionAccounts:
 
 # The combined balance of reserveAccountIds counts toward the indexed reserve.
 # Reserve refills and retained excess go only to reserveRefillAccountId.
-# Remaining excess is sent only to the configured non-registered destination.
-# Automatic TFSA and RRSP/RRIF routing is unavailable until contribution room
-# is modelled. To keep all surplus in cash, use:
+# Remaining excess follows the explicit registered-room waterfall below.
+# To keep all surplus in cash, use:
 # excess:
 #   mode: retain_as_cash
 # and omit destinationAccountId.
@@ -84,8 +94,55 @@ surplusAllocation:
   targetCashReserveToday: 50000
   reserveIndexingRate: 0.02
   excess:
-    mode: allocate_to_account
-    destinationAccountId: "projection:future-taxable"
+    mode: allocate_through_contribution_waterfall
+
+# Starting room is owner supplied and is never inferred from balances. The
+# starting amounts already include the partial 2026 calendar-year position; new
+# annual room is first added at the next January boundary. Official estimates
+# are private inputs supplied by the owner and are not fetched from CRA.
+registeredAccountRoom:
+  tfsa:
+    startingAvailableRoom:
+      source: configured_amount
+      amount: 10000
+      sourceDescription: Synthetic configured TFSA starting room
+      effectiveDate: "2026-01-01"
+    annualNewRoom:
+      source: canadian_reference
+      futureIndexingRate: 0.02
+      roundingIncrement: 500
+    carryForwardUnusedRoom: true
+    withdrawalRoomRecredit: next_calendar_year
+  rrsp:
+    startingAvailableDeductionRoom:
+      source: explicit_zero
+    carryForwardUnusedRoom: true
+    newRoom:
+      source: earned_income
+      annualCap:
+        source: canadian_reference
+        futureGrowthRate: 0.03
+        futureRoundingIncrement: 10
+      # Synthetic January-through-June totals because this example starts in
+      # 2026. The calendar year must match the live projection start year.
+      startYearBeforeProjectionMonth:
+        calendarYear: 2026
+        eligibleEarnedIncome: 50000
+        pensionAdjustment: 0
+        otherRoomReduction: 0
+
+# Route order is contribution priority. Each source must be first in its own
+# route. The non-registered destination is last and accepts overflow without a
+# registered-room constraint.
+contributionWaterfall:
+  routes:
+    - sourceAccountId: "plaid:replace-with-investment-account-id"
+      destinationAccountIds:
+        - "plaid:replace-with-investment-account-id"
+        - "projection:future-taxable"
+  surplusDestinationAccountIds:
+    - "plaid:replace-with-investment-account-id"
+    - "projection:future-taxable"
 
 accountMappings:
   # Set include: true and choose a financial type for every account used by the

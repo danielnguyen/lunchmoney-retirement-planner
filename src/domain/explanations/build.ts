@@ -3,6 +3,7 @@ import { resolveActiveScenarioWarnings } from "@/src/domain/baseline/scenario-wa
 import {
   buildAnnualChartData,
   buildAnnualLedgerData,
+  annualPeriodLabel,
   closestAnnualPoint,
   monthlyEmploymentNetCash,
   monthlyInvestmentContributions,
@@ -2543,6 +2544,415 @@ function oasBenefitDocument(context: ExplanationContext): ExplanationDocument {
   };
 }
 
+function registeredAccountRoomDocument(
+  context: ExplanationContext,
+): ExplanationDocument {
+  const room = context.inputs.registeredAccountRoom;
+  if (!room) {
+    return {
+      id: "registered-account-room",
+      title: "Registered-account room and contribution routing",
+      plainLanguage:
+        "Registered-account room is not applicable to this resolved scenario.",
+      steps: [],
+      dataSections: [],
+      assumptions: [],
+      caveats: [
+        "No positive registered contribution or registered surplus destination is active.",
+      ],
+    };
+  }
+  const rows = buildAnnualChartData(
+    context.inputs,
+    context.projection,
+    context.displayMode,
+  );
+  const nominal = context.projection.annual.map((point) => point.nominal);
+  const planned = nominal.reduce(
+    (total, view) => total + view.contributions.planned,
+    0,
+  );
+  const actual = nominal.reduce(
+    (total, view) => total + view.contributions.total,
+    0,
+  );
+  const unallocated = nominal.reduce(
+    (total, view) => total + view.contributions.unallocated,
+    0,
+  );
+  let maximumDifference = Math.abs(planned - actual - unallocated);
+  for (const view of nominal) {
+    const tfsa = view.registeredAccountRoom.tfsa;
+    const rrsp = view.registeredAccountRoom.rrsp;
+    maximumDifference = Math.max(
+      maximumDifference,
+      Math.abs(
+        tfsa.openingRoom +
+          tfsa.annualNewRoom +
+          tfsa.withdrawalRoomRestored -
+          tfsa.allowedContributions -
+          tfsa.closingRoom,
+      ),
+      Math.abs(
+        rrsp.openingRoom +
+          rrsp.annualNewRoom -
+          rrsp.allowedContributions -
+          rrsp.closingRoom,
+      ),
+    );
+    for (const detail of Object.values(view.accountContributionDetails)) {
+      if (detail.plannedFromAccount === 0) continue;
+      maximumDifference = Math.max(
+        maximumDifference,
+        Math.abs(
+          detail.plannedFromAccount -
+            detail.sourceAccountDeposit -
+            detail.redirectedOut -
+            detail.unallocatedFromAccount,
+        ),
+      );
+    }
+  }
+  const first = context.projection.annual[0]?.[context.displayMode];
+  const last = context.projection.annual.at(-1)?.[context.displayMode];
+  return {
+    id: "registered-account-room",
+    title: "Registered-account room and contribution routing",
+    plainLanguage:
+      "Every TFSA account shares one TFSA room pool and every RRSP/RRIF account shares one RRSP deduction-room pool. Planned routes run in configured order before additional surplus savings.",
+    displayedResult: {
+      label: "Closing registered room at projection end",
+      value: `${exactCurrency.format(last?.registeredAccountRoom.tfsa.closingRoom ?? 0)} TFSA · ${exactCurrency.format(last?.registeredAccountRoom.rrsp.closingRoom ?? 0)} RRSP`,
+      dollarMode: context.displayMode,
+    },
+    formula:
+      "Planned = actual deposited + unallocated; closing room = opening + new + restored withdrawals − room-consuming contributions",
+    steps: [
+      {
+        label: "Starting TFSA room",
+        value: exactCurrency.format(room.tfsa.startingAvailableRoom.amount),
+        rawValue: room.tfsa.startingAvailableRoom.amount,
+        operation: "input",
+        sourceType: context.overrides[
+          "registeredAccountRoom.tfsa.startingAvailableRoom.amount"
+        ] !== undefined ? "override" : "configuration",
+        sourceDescription: room.tfsa.startingAvailableRoom.sourceDescription,
+        effectiveDate: room.tfsa.startingAvailableRoom.effectiveDate,
+      },
+      {
+        label: "Starting RRSP deduction room",
+        value: exactCurrency.format(
+          room.rrsp.startingAvailableDeductionRoom.amount,
+        ),
+        rawValue: room.rrsp.startingAvailableDeductionRoom.amount,
+        operation: "input",
+        sourceType: context.overrides[
+          "registeredAccountRoom.rrsp.startingAvailableDeductionRoom.amount"
+        ] !== undefined ? "override" : "configuration",
+        sourceDescription:
+          room.rrsp.startingAvailableDeductionRoom.sourceDescription,
+        effectiveDate:
+          room.rrsp.startingAvailableDeductionRoom.effectiveDate,
+      },
+      {
+        label: "Statutory RRSP earned-income rate",
+        value: percent.format(
+          first?.registeredAccountRoom.rrsp.earnedIncomeRate ?? 0.18,
+        ),
+        rawValue:
+          first?.registeredAccountRoom.rrsp.earnedIncomeRate ?? 0.18,
+        operation: "multiply",
+        sourceType: "canadian_reference",
+      },
+      {
+        label: "Pre-projection eligible earned income",
+        value: exactCurrency.format(
+          room.rrsp.newRoom.startYearBeforeProjectionMonth
+            .eligibleEarnedIncome,
+        ),
+        rawValue:
+          room.rrsp.newRoom.startYearBeforeProjectionMonth
+            .eligibleEarnedIncome,
+        operation: "input",
+        sourceType: "configuration",
+      },
+      {
+        label: "Pre-projection pension adjustment",
+        value: exactCurrency.format(
+          room.rrsp.newRoom.startYearBeforeProjectionMonth
+            .pensionAdjustment,
+        ),
+        rawValue:
+          room.rrsp.newRoom.startYearBeforeProjectionMonth
+            .pensionAdjustment,
+        operation: "subtract",
+        sourceType: "configuration",
+      },
+      {
+        label: "Pre-projection other room reduction",
+        value: exactCurrency.format(
+          room.rrsp.newRoom.startYearBeforeProjectionMonth
+            .otherRoomReduction,
+        ),
+        rawValue:
+          room.rrsp.newRoom.startYearBeforeProjectionMonth
+            .otherRoomReduction,
+        operation: "subtract",
+        sourceType: "configuration",
+      },
+      {
+        label: "Planned contributions",
+        value: exactCurrency.format(planned),
+        rawValue: planned,
+        operation: "input",
+        sourceType: "projection",
+      },
+      {
+        label: "Actual deposited contributions",
+        value: exactCurrency.format(actual),
+        rawValue: actual,
+        operation: "subtract",
+        sourceType: "projection",
+      },
+      {
+        label: "Unallocated contributions",
+        value: exactCurrency.format(unallocated),
+        rawValue: unallocated,
+        operation: "result",
+        sourceType: "projection",
+      },
+      {
+        label: "Largest reconciliation difference",
+        value: exactCurrency.format(maximumDifference),
+        rawValue: maximumDifference,
+        operation: "result",
+        sourceType: "projection",
+      },
+    ],
+    dataSections: [
+      {
+        title: "Annual registered room and routing",
+        description:
+          "Shared presentation rows used by the dashboard and exports.",
+        columns: [
+          { key: "period", label: "Period" },
+          { key: "planned", label: "Planned" },
+          { key: "actual", label: "Actual" },
+          { key: "redirected", label: "Redirected" },
+          { key: "unallocated", label: "Unallocated" },
+          { key: "tfsaOpening", label: "TFSA opening" },
+          { key: "tfsaNew", label: "TFSA new" },
+          { key: "tfsaRestored", label: "TFSA withdrawal restored" },
+          { key: "tfsaClosing", label: "TFSA closing" },
+          { key: "tfsaAllowed", label: "TFSA allowed" },
+          { key: "rrspOpening", label: "RRSP opening" },
+          { key: "rrspPriorIncome", label: "RRSP prior eligible income" },
+          { key: "rrspRate", label: "RRSP earned-income rate" },
+          { key: "rrspCap", label: "RRSP annual cap" },
+          { key: "rrspPensionAdjustment", label: "Pension adjustment" },
+          { key: "rrspOtherReduction", label: "Other reduction" },
+          { key: "rrspGross", label: "Gross generated" },
+          { key: "rrspNew", label: "RRSP new" },
+          { key: "rrspAllowed", label: "RRSP allowed" },
+          { key: "rrspClosing", label: "RRSP closing" },
+        ],
+        rows: rows.map((row) => ({
+          period: row.periodLabel,
+          planned: row.plannedContributions,
+          actual: row.actualContributions,
+          redirected: row.redirectedContributions,
+          unallocated: row.unallocatedContributions,
+          tfsaOpening: row.tfsaRoomOpening,
+          tfsaNew: row.tfsaRoomNew,
+          tfsaRestored: row.tfsaRoomWithdrawalRestored,
+          tfsaClosing: row.tfsaRoomClosing,
+          tfsaAllowed: row.tfsaAllowedContributions,
+          rrspOpening: row.rrspRoomOpening,
+          rrspPriorIncome: row.rrspPreviousYearEligibleEarnedIncome,
+          rrspRate: row.rrspEarnedIncomeRate,
+          rrspCap: row.rrspAnnualCap,
+          rrspPensionAdjustment: row.rrspPensionAdjustment,
+          rrspOtherReduction: row.rrspOtherRoomReduction,
+          rrspGross: row.rrspGrossGeneratedRoom,
+          rrspNew: row.rrspRoomNew,
+          rrspAllowed: row.rrspAllowedContributions,
+          rrspClosing: row.rrspRoomClosing,
+        })),
+      },
+      {
+        title: "Configured route order",
+        columns: [
+          { key: "priority", label: "Priority" },
+          { key: "source", label: "Source" },
+          { key: "destinations", label: "Ordered destinations" },
+        ],
+        rows: context.inputs.contributionWaterfall.routes.map(
+          (route, index) => ({
+            priority: index + 1,
+            source:
+              context.inputs.accounts.find(
+                (account) => account.id === route.sourceAccountId,
+              )?.label ?? route.sourceAccountId,
+            destinations: route.destinationAccountIds
+              .map(
+                (id) =>
+                  context.inputs.accounts.find(
+                    (account) => account.id === id,
+                  )?.label ?? id,
+              )
+              .join(" → "),
+          }),
+        ),
+      },
+      {
+        title: "Canadian reference basis",
+        columns: [
+          { key: "program", label: "Program" },
+          { key: "year", label: "Year" },
+          { key: "amount", label: "Published amount" },
+          { key: "sourceKind", label: "Source kind" },
+          { key: "referenceUrl", label: "Public reference" },
+        ],
+        rows: [
+          {
+            program: "TFSA",
+            year:
+              context.projection.registeredAccountRoom.references
+                .tfsaAnnualLimit.calendarYear,
+            amount:
+              context.projection.registeredAccountRoom.references
+                .tfsaAnnualLimit.amount,
+            sourceKind: "Published reference; later years use configured indexing and rounding forecasts",
+            referenceUrl:
+              context.projection.registeredAccountRoom.references
+                .tfsaAnnualLimit.referenceUrl,
+          },
+          ...context.projection.registeredAccountRoom.references.rrspAnnualCaps.map(
+            (reference) => ({
+              program: "RRSP",
+              year: reference.calendarYear,
+              amount: reference.amount,
+              sourceKind:
+                "Published reference; later years use configured growth and rounding forecasts",
+              referenceUrl: reference.referenceUrl,
+            }),
+          ),
+        ],
+      },
+      {
+        title: "Annual account contribution routing",
+        columns: [
+          { key: "period", label: "Period" },
+          { key: "account", label: "Account" },
+          { key: "planned", label: "Planned from source" },
+          { key: "deposited", label: "Deposited" },
+          { key: "redirectedIn", label: "Redirected in" },
+          { key: "redirectedOut", label: "Redirected out" },
+          { key: "surplus", label: "Surplus funded" },
+          { key: "cashFunded", label: "Cash funded" },
+          { key: "incomeWithheld", label: "Income withheld" },
+          { key: "unallocated", label: "Unallocated" },
+        ],
+        rows: context.projection.annual.flatMap((point) =>
+          Object.entries(
+            point[context.displayMode].accountContributionDetails,
+          ).map(([accountId, detail]) => ({
+            period: annualPeriodLabel(context.inputs, point.calendarYear),
+            account:
+              context.inputs.accounts.find(
+                (account) => account.id === accountId,
+              )?.label ?? accountId,
+            planned: detail.plannedFromAccount,
+            deposited: detail.depositedIntoAccount,
+            redirectedIn: detail.redirectedIn,
+            redirectedOut: detail.redirectedOut,
+            surplus: detail.surplusFundedDeposit,
+            cashFunded: detail.cashFunded,
+            incomeWithheld: detail.incomeWithheld,
+            unallocated: detail.unallocatedFromAccount,
+          })),
+        ),
+      },
+    ],
+    assumptions: [
+      {
+        label: "TFSA carry-forward",
+        value: room.tfsa.carryForwardUnusedRoom ? "Enabled" : "Disabled scenario",
+        sourceType: "configuration",
+      },
+      {
+        label: "TFSA withdrawal restoration",
+        value: "Next calendar year",
+        sourceType: "canadian_reference",
+      },
+      {
+        label: "RRSP carry-forward",
+        value: room.rrsp.carryForwardUnusedRoom ? "Enabled" : "Disabled scenario",
+        sourceType: "configuration",
+      },
+      {
+        label: "Partial start year",
+        value: "Starting room already includes the current-year position",
+        sourceType: "configuration",
+      },
+      ...context.inputs.person.employmentIncomePhases.flatMap((phase) =>
+        phase.rrspRoomGeneration
+          ? [
+              {
+                label: `${phase.label} RRSP-eligible earned income`,
+                value: exactCurrency.format(
+                  phase.rrspRoomGeneration
+                    .annualEligibleEarnedIncomeToday,
+                ),
+                sourceType: (context.overrides[
+                  `employmentPhase.${phase.id}.rrspRoomGeneration.annualEligibleEarnedIncomeToday`
+                ] !== undefined
+                  ? "override"
+                  : "configuration") as ExplanationSourceType,
+              },
+              {
+                label: `${phase.label} pension adjustment`,
+                value: exactCurrency.format(
+                  phase.rrspRoomGeneration
+                    .annualPensionAdjustmentToday,
+                ),
+                sourceType: (context.overrides[
+                  `employmentPhase.${phase.id}.rrspRoomGeneration.annualPensionAdjustmentToday`
+                ] !== undefined
+                  ? "override"
+                  : "configuration") as ExplanationSourceType,
+              },
+              {
+                label: `${phase.label} other room reduction`,
+                value: exactCurrency.format(
+                  phase.rrspRoomGeneration
+                    .annualOtherRoomReductionToday,
+                ),
+                sourceType: (context.overrides[
+                  `employmentPhase.${phase.id}.rrspRoomGeneration.annualOtherRoomReductionToday`
+                ] !== undefined
+                  ? "override"
+                  : "configuration") as ExplanationSourceType,
+              },
+            ]
+          : [],
+      ),
+    ],
+    caveats: [
+      "Net deposited employment cash is never treated as RRSP-eligible earned income; room generation uses the explicit nested employment-phase inputs.",
+      "TFSA withdrawals restore room only at the next January boundary. RRSP withdrawals do not restore room.",
+      "Cash-funded unallocated contributions remain in monthly cash; income-withheld unallocated amounts enter neither cash nor financial assets.",
+      "Published limits are distinguished from deterministic configured forecasts.",
+      "RRSP first-60-days elections, unused undeducted contributions, spousal rules, HBP/LLP repayments, detailed pension adjustments, CRA reassessments, tax refunds, and RRIF minimum withdrawals are not modelled.",
+    ],
+    reconciliation: {
+      matched: maximumDifference <= 0.01,
+      calculatedValue: planned,
+      displayedValue: actual + unallocated,
+    },
+  };
+}
+
 export function buildExplanation(
   target: ExplanationTarget,
   context: ExplanationContext,
@@ -2562,6 +2972,9 @@ export function buildExplanation(
   if (target === "oas-benefit") return oasBenefitDocument(context);
   if (target === "surplus-allocation") {
     return surplusAllocationDocument(context);
+  }
+  if (target === "registered-account-room") {
+    return registeredAccountRoomDocument(context);
   }
   if (
     target === "baseline-income" ||
