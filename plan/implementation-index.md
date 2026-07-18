@@ -8,18 +8,18 @@ Public content must remain generic. Do not add private financial values, account
 
 ## Current position
 
-- Open implementation pull request: [#9 Add explicit surplus allocation policy](https://github.com/danielnguyen/lunchmoney-retirement-planner/pull/9)
-- Pull request state: Open draft
-- Active capability: Surplus allocation policy
-- Status: In progress
-- Branch: `agent/add-surplus-allocation-policy`
-- Latest validated implementation head: `88e8f0390c4d1268404590ab621235b3428271e2`
-- Synthetic validation: Passed — 10 test files and 138 tests, including scalar CSV reserve-membership columns, dual-equality explanation reconciliation, three-account reserve aggregation, reserve-return timing, typecheck, lint, production build, Docker build, Compose configuration, export privacy, and diff checks
-- Repository-owner private migration: Completed locally in ignored configuration; no private values or configuration were committed
-- Private live smoke test: Passed — configuration, live baseline and projection, dashboard and API routes, explanations, overrides and reset, nominal and real bridges, automatic JSON and CSV anonymization, and private denylist checks
-- Remaining step: review the open draft pull request
-- Next action: review draft PR #9; pull-request readiness remains a repository-owner decision
-- Last completed capability: Government benefits
+- Open implementation pull request: None
+- Pull request state: None
+- Active capability: Registered-account room and contribution waterfall
+- Status: Next
+- Branch: `agent/add-registered-account-room`
+- Latest validated implementation head: —
+- Synthetic validation: Not started
+- Repository-owner private migration: Not started
+- Private live smoke test: Not started
+- Remaining step: implement and validate Registered-account room and contribution waterfall
+- Next action: implement Registered-account room and contribution waterfall from latest merged `main`
+- Last completed capability: Surplus allocation policy
 
 ## Terminology boundary
 
@@ -38,8 +38,8 @@ Branches, pull-request titles, commits, tests, documentation headings, types, fu
 | Sequence | Capability | Primary dependency | Status | Pull request |
 |---|---|---|---|---|
 | 1 | Government benefits | Phased income model | Completed | [#8](https://github.com/danielnguyen/lunchmoney-retirement-planner/pull/8) |
-| 2 | Surplus allocation policy | Government benefits | In progress | [#9](https://github.com/danielnguyen/lunchmoney-retirement-planner/pull/9) |
-| 3 | Registered-account room and contribution waterfall | Surplus allocation policy | Planned | — |
+| 2 | Surplus allocation policy | Government benefits | Completed | [#9](https://github.com/danielnguyen/lunchmoney-retirement-planner/pull/9) |
+| 3 | Registered-account room and contribution waterfall | Surplus allocation policy | Next | — |
 | 4 | Debt amortization and spending phases | Phased contribution model | Planned | — |
 | 5 | RRIF minimum withdrawals and Canadian taxes | Surplus allocation policy and debt/spending model | Planned | — |
 
