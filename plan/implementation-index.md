@@ -8,21 +8,11 @@ Public content must remain generic. Do not add private financial values, account
 
 ## Current position
 
-- Open implementation pull request: [#8 Add explicit CPP and OAS modelling](https://github.com/danielnguyen/lunchmoney-retirement-planner/pull/8)
-- Pull request state: Open draft
-- Active capability: Government benefits
-- Status: In progress
-- Branch: `agent/add-government-benefits`
-- Latest validated implementation head: `9dd14456b57ed7cd2ee5bc45e1f8e7e480660417`
-- Private configuration migration: Passed
-- Live baseline and projection smoke test: Passed
-- Automatic JSON sanitization smoke test: Passed
-- Automatic real CSV sanitization smoke test: Passed
-- Automatic nominal CSV sanitization smoke test: Passed
-- Private denylist verification: Passed
-- Remaining step: final review and merge
-- Next action: review and merge PR #8
-- Last completed foundation: phased employment income and per-account contribution phases
+- Open implementation pull requests: None
+- Active capability: Surplus allocation policy
+- Status: Next
+- Next action: implement Surplus allocation policy from the latest merged `main`
+- Last completed capability: Government benefits
 
 ## Terminology boundary
 
@@ -40,8 +30,8 @@ Branches, pull-request titles, commits, tests, documentation headings, types, fu
 
 | Sequence | Capability | Primary dependency | Status | Pull request |
 |---|---|---|---|---|
-| 1 | Government benefits | Phased income model | In progress | [#8](https://github.com/danielnguyen/lunchmoney-retirement-planner/pull/8) |
-| 2 | Surplus allocation policy | Government benefits | Planned | — |
+| 1 | Government benefits | Phased income model | Completed | [#8](https://github.com/danielnguyen/lunchmoney-retirement-planner/pull/8) |
+| 2 | Surplus allocation policy | Government benefits | Next | — |
 | 3 | Registered-account room and contribution waterfall | Surplus allocation policy | Planned | — |
 | 4 | Debt amortization and spending phases | Phased contribution model | Planned | — |
 | 5 | RRIF minimum withdrawals and Canadian taxes | Surplus allocation policy and debt/spending model | Planned | — |
