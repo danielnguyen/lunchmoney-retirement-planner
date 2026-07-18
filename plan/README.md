@@ -67,10 +67,8 @@ Required personal assumptions:
 - current age
 - retirement age
 - projection end age
-- CPP start age
-- OAS start age
-- CPP amount at age 65 or an explicit reference default
-- OAS amount at age 65 or an explicit reference default
+- CPP claim age, indexing, and explicit dated amount source
+- OAS claim age, indexing, full-amount source, and explicit eligibility
 
 Household members, combined-household reporting, expense sharing, and member switching are out of scope.
 
@@ -97,8 +95,19 @@ Example shape:
 currentAge: 38
 retirementAge: 62
 projectionEndAge: 95
-cppStartAge: 65
-oasStartAge: 65
+governmentBenefits:
+  cpp:
+    startAge: 65
+    indexingRate: 0.02
+    amountAt65:
+      source: canadian_reference
+  oas:
+    startAge: 65
+    indexingRate: 0.02
+    fullAmountAt65:
+      source: canadian_reference
+    eligibility:
+      mode: full
 employmentIncomePhases:
   - id: current-income
     label: Current income
@@ -141,6 +150,8 @@ assumptions:
   rrspReturn: 0.05
   nonRegisteredReturn: 0.05
 ```
+
+CPP source modes distinguish a privately entered official estimate, an explicit planning amount, the dated Canadian average reference, and intentional zero. OAS resolves its full amount separately from explicit full, partial, or absent eligibility; partial eligibility is asserted qualifying residence years divided by 40. CPP and OAS claim adjustments and the permanent 10% OAS increase beginning after age 75 are calculated in the monthly projection. Legacy scalar benefit fields remain deterministic compatibility inputs but cannot be mixed with `governmentBenefits`.
 
 Supported planner account types:
 
@@ -338,12 +349,12 @@ Every major summary card, main chart, annual ledger, resolved cash-flow value, a
 - a one- or two-sentence accessible tooltip describing meaning
 - an `Explain` action that opens a focus-trapped modal drawer
 - deterministic formula steps and exact current values
-- Lunch Money, local configuration, temporary override, and projection source labels
+- Lunch Money, local configuration, Canadian reference, temporary override, and projection source labels
 - effective dates, the transaction window, assumptions, caveats, and data tables
 
 Explanation documents are typed domain output. They consume the same current baseline, active phase inputs, overrides, projection result, dollar mode, and selected allocation year as the report. Shared presentation-data builders feed both chart/ledger rendering and explanation tables. The Assets at retirement explanation includes the exact snapshot, accumulation bridge, employment path, contribution path, and any long-current-income warning. A reconciliation confirmation is shown only after exact model-precision agreement.
 
-The baseline API schema `1.2` includes aggregate cash-flow audit evidence and resolved phase provenance:
+The baseline API schema `1.3` includes aggregate cash-flow audit evidence, resolved phase provenance, and concrete CPP/OAS inputs with dated source and statutory-rule provenance:
 
 - income, essential spending, and discretionary spending grouped by category and account
 - investment contributions grouped by account with funding and derivation source
@@ -355,7 +366,7 @@ Temporary overrides replace the active explanation input while retaining the ref
 
 Phase overrides affect an amount, growth, or indexing field only. Phase boundaries remain YAML-only to prevent browser-created gaps or overlaps. Refresh clears every override and re-resolves any `live_baseline` phase.
 
-Covered targets are the five summary cards, annual spending, annual funding, outflows, account burndown, asset allocation, the annual ledger, five resolved cash-flow rows, and the account section. Per-cell, per-account-row, and per-chart-bar explanations remain intentionally deferred.
+Covered targets are the five summary cards, annual spending, annual funding, outflows, account burndown, asset allocation, the annual ledger, five resolved cash-flow rows, the account section, and dedicated CPP and OAS calculations. Per-cell, per-account-row, and per-chart-bar explanations remain intentionally deferred.
 
 ## Reports
 
@@ -423,13 +434,13 @@ Exports must include:
 
 They must not attach demonstration provenance.
 
-Both export formats omit raw Lunch Money and other source-system identifiers and credentials by default. A deterministic per-export account map replaces every included account ID with a cross-reference key such as `cash_1`, `tfsa_1`, or `rrsp_1`, while each account object and alias entry retains the original descriptive account label. Raw Lunch Money account identifiers, numeric account IDs, account numbers supplied as source metadata, credential values, and identifiers embedded in provenance keys, overrides, warning references, event targets, contribution targets, unmapped-record IDs, or annual account-balance maps must not appear.
+Both ordinary export formats are automatically anonymized. No raw or private export mode exists. A deterministic per-export alias context replaces included account, employment phase, contribution phase, event, recurring, category, warning, and unmapped-record identifiers and descriptive text with generic aliases based only on type and order.
 
-The JSON transformation is typed and allowlisted. It must not copy arbitrary source objects recursively. Every source-system record identifier—including recurring-item IDs—is replaced by a deterministic export-local alias such as `recurring_expense_1`, `event_1`, or `category_1`. No raw numeric or string source record ID is retained.
+The JSON transformation is typed and allowlisted. It must not copy arbitrary source objects recursively. Every source-system record identifier—including recurring-item IDs—is replaced by a deterministic export-local alias such as `employment_phase_1`, `contribution_phase_1`, `recurring_expense_1`, `event_1`, or `category_1`. No raw numeric or string source record ID is retained.
 
-Descriptive financial context is preserved. Account labels and names, future-event labels, recurring-item descriptions, warning names and messages, provenance descriptions, and other user-facing financial labels remain in JSON so the exported plan can be understood and analyzed. Known source-system identifiers and credentials are removed if they occur inside retained descriptions. The export also preserves analytical amounts, dates, classifications, directions, warning codes and severities, safe target references, provenance source types, effective dates, and safe field references.
+Financial context is preserved through analytical amounts, balances, dates, ages, account types, classifications, directions, growth and return assumptions, contribution funding, warning codes and severities, provenance source types and effective dates, benefit calculation summaries, safe public Canadian references, and reconciliation bridges. Private account, institution, employer, category, event, recurring, warning, and phase text is replaced with generic aliases. Provenance descriptions use fixed safe wording derived from source type and compatibility state.
 
-Schema `4.0` JSON remains the complete analysis export and includes resolved phases, exact retirement snapshot, accumulation bridges, and explicit metadata describing its typed identifier-removal transformation. Account references use export-local keys. CSV is one conventional flat annual table with exactly one header and one row per projection period. It includes the partial-period label, employment phase, annual employment cash, separate cash-funded and income-withheld contribution totals, withdrawals, spending, tax, aggregate balances, financial assets, net worth, milestones, and optional per-account balance columns keyed only by export-local account references. CSV must not contain metadata preambles, blank section separators, phase arrays, embedded JSON, or multiple table schemas.
+Schema `5.0` JSON remains the complete analysis export and includes resolved aliased phases, concrete CPP/OAS inputs and calculation summaries, safe public reference metadata, the exact retirement snapshot, accumulation bridges, and metadata confirming automatic anonymization. CSV is one conventional flat annual table with exactly one header and one row per projection period. It includes the partial-period label, generic employment-phase alias, annual employment cash, flat CPP/OAS basis columns, separate cash-funded and income-withheld contribution totals, withdrawals, spending, tax, aggregate balances, financial assets, net worth, milestones, and optional per-account balance columns keyed only by export-local account references. CSV must not contain metadata preambles, blank section separators, phase arrays, embedded JSON, private labels, or multiple table schemas. Both formats are designed for external financial analysis without manual identifier editing.
 
 ## Docker runtime
 
@@ -514,9 +525,9 @@ The MVP is complete only when all criteria below pass.
 - [ ] Exports include provenance, warnings, and data-through date.
 - [ ] No export contains the Lunch Money token.
 - [ ] Neither export contains raw Lunch Money identifiers, numeric account or category IDs, source record IDs, account numbers supplied as source metadata, or credentials.
-- [ ] JSON preserves descriptive account, event, recurring-expense, warning, and provenance text needed for analysis.
+- [ ] JSON and CSV automatically replace private account, institution, employer, category, event, recurring-expense, warning, and phase text with deterministic generic aliases.
 - [ ] The JSON export boundary uses an explicit typed allowlist rather than recursively copying arbitrary source objects.
-- [ ] JSON uses one consistent deterministic account-reference map throughout the document while retaining each original descriptive account label.
+- [ ] JSON uses one consistent deterministic alias context throughout the document without retaining original descriptive labels.
 - [ ] CSV contains exactly one header and one consistently shaped row per annual projection period, using only export-local per-account keys.
 - [ ] The application-facing Lunch Money integration exposes read operations only.
 - [ ] No Lunch Money mutation request is issued in tests or runtime code.

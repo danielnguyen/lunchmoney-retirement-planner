@@ -10,10 +10,24 @@ export type AssetAllocation = {
   equity: number;
 };
 
-export type PublicBenefitInput = {
+export type CppBenefitInput = {
   startAge: number;
   monthlyAmountAt65Today: number;
   indexingRate: number;
+};
+
+export type OasEligibilityInput = {
+  mode: "full" | "partial" | "none";
+  qualifyingResidenceYearsAfter18: number | null;
+  fraction: number;
+};
+
+export type OasBenefitInput = {
+  startAge: number;
+  fullMonthlyAmountAt65Today: number;
+  eligibility: OasEligibilityInput;
+  indexingRate: number;
+  age75IncreaseRate: number;
 };
 
 export type EmploymentIncomePhase = {
@@ -32,8 +46,8 @@ export type PersonInput = {
   annualPensionToday: number;
   pensionStartAge: number;
   pensionIndexingRate: number;
-  cpp: PublicBenefitInput;
-  oas: PublicBenefitInput;
+  cpp: CppBenefitInput;
+  oas: OasBenefitInput;
   rrifConversionAge: number;
 };
 
@@ -195,8 +209,30 @@ export type FinancialAssetsBridge = {
   endingFinancialAssets: number;
 };
 
+export type GovernmentBenefitCalculationSummary = {
+  cpp: {
+    baseMonthlyAmountAt65Today: number;
+    claimAge: number;
+    claimFactor: number;
+    monthlyAmountAtClaimToday: number;
+    annualAmountAtClaimToday: number;
+  };
+  oas: {
+    fullBaseMonthlyAmountAt65Today: number;
+    eligibilityMode: OasEligibilityInput["mode"];
+    qualifyingResidenceYearsAfter18: number | null;
+    eligibilityFraction: number;
+    claimAge: number;
+    claimFactor: number;
+    monthlyAmountAtClaimToday: number;
+    annualAmountAtClaimToday: number;
+    age75IncreaseRate: number;
+    monthlyAmountAfterAge75IncreaseToday: number;
+  };
+};
+
 export type ProjectionResult = {
-  schemaVersion: "4.0";
+  schemaVersion: "5.0";
   inputs: ProjectionInputs;
   summary: ProjectionSummary;
   retirementSnapshot: RetirementSnapshot;
@@ -204,6 +240,7 @@ export type ProjectionResult = {
     nominal: FinancialAssetsBridge;
     real: FinancialAssetsBridge;
   };
+  governmentBenefits: GovernmentBenefitCalculationSummary;
   annual: AnnualProjection[];
   observations: ProjectionObservation[];
 };
@@ -222,7 +259,19 @@ function assertRate(name: string, value: number, min = -0.99, max = 1): void {
   }
 }
 
-const PHASE_AGE_TOLERANCE = 1e-6;
+export const PROJECTION_AGE_TOLERANCE = 1e-6;
+
+export function projectionMonthOffset(
+  age: number,
+  referenceAge: number,
+): number | null {
+  if (!isFiniteNumber(age) || !isFiniteNumber(referenceAge)) return null;
+  const months = (age - referenceAge) * 12;
+  const roundedMonths = Math.round(months);
+  return Math.abs(months - roundedMonths) <= PROJECTION_AGE_TOLERANCE
+    ? roundedMonths
+    : null;
+}
 
 function assertNonEmptyString(name: string, value: unknown): asserts value is string {
   if (typeof value !== "string" || value.trim().length === 0) {
@@ -232,14 +281,13 @@ function assertNonEmptyString(name: string, value: unknown): asserts value is st
 
 function assertMonthAligned(name: string, age: number, currentAge: number): void {
   if (!isFiniteNumber(age)) throw new Error(`${name} must be a finite age`);
-  const months = (age - currentAge) * 12;
-  if (Math.abs(months - Math.round(months)) > PHASE_AGE_TOLERANCE) {
+  if (projectionMonthOffset(age, currentAge) === null) {
     throw new Error(`${name} must align to a projection month`);
   }
 }
 
 function sameAge(left: number, right: number): boolean {
-  return Math.abs(left - right) <= PHASE_AGE_TOLERANCE;
+  return Math.abs(left - right) <= PROJECTION_AGE_TOLERANCE;
 }
 
 function isIsoCalendarDate(value: unknown): value is string {
@@ -274,9 +322,11 @@ export function validateProjectionInputs(value: unknown): ProjectionInputs {
   }
   assertMonthAligned("retirementAge", input.person.retirementAge, input.person.currentAge);
   assertMonthAligned("endAge", input.endAge, input.person.currentAge);
+  assertMonthAligned("CPP start age", input.person.cpp.startAge, input.person.currentAge);
   if (input.person.cpp.startAge < 60 || input.person.cpp.startAge > 70) {
     throw new Error("CPP start age must be between 60 and 70");
   }
+  assertMonthAligned("OAS start age", input.person.oas.startAge, input.person.currentAge);
   if (input.person.oas.startAge < 65 || input.person.oas.startAge > 70) {
     throw new Error("OAS start age must be between 65 and 70");
   }
@@ -292,7 +342,41 @@ export function validateProjectionInputs(value: unknown): ProjectionInputs {
   assertNonNegative("retirementGoalToday", input.retirementGoalToday);
   assertNonNegative("annualPensionToday", input.person.annualPensionToday);
   assertNonNegative("CPP monthlyAmountAt65Today", input.person.cpp.monthlyAmountAt65Today);
-  assertNonNegative("OAS monthlyAmountAt65Today", input.person.oas.monthlyAmountAt65Today);
+  assertNonNegative(
+    "OAS fullMonthlyAmountAt65Today",
+    input.person.oas.fullMonthlyAmountAt65Today,
+  );
+  assertRate("OAS age75IncreaseRate", input.person.oas.age75IncreaseRate, 0, 1);
+  if (Math.abs(input.person.oas.age75IncreaseRate - 0.1) > PROJECTION_AGE_TOLERANCE) {
+    throw new Error("OAS age75IncreaseRate must use the statutory 10% increase");
+  }
+  const eligibility = input.person.oas.eligibility;
+  if (!eligibility || !["full", "partial", "none"].includes(eligibility.mode)) {
+    throw new Error("OAS eligibility mode must be full, partial, or none");
+  }
+  assertRate("OAS eligibility fraction", eligibility.fraction, 0, 1);
+  if (eligibility.mode === "full") {
+    if (eligibility.qualifyingResidenceYearsAfter18 !== null || eligibility.fraction !== 1) {
+      throw new Error("Full OAS eligibility must have no qualifying years and a fraction of 1");
+    }
+  } else if (eligibility.mode === "none") {
+    if (eligibility.qualifyingResidenceYearsAfter18 !== null || eligibility.fraction !== 0) {
+      throw new Error("No OAS eligibility must have no qualifying years and a fraction of 0");
+    }
+  } else {
+    const years = eligibility.qualifyingResidenceYearsAfter18;
+    if (
+      years === null ||
+      !Number.isInteger(years) ||
+      years < 1 ||
+      years > 39 ||
+      Math.abs(eligibility.fraction - years / 40) > PROJECTION_AGE_TOLERANCE
+    ) {
+      throw new Error(
+        "Partial OAS eligibility must use 1 through 39 qualifying years and years / 40",
+      );
+    }
+  }
 
   const personRecord = input.person as unknown as Record<string, unknown>;
   if (
@@ -326,22 +410,22 @@ export function validateProjectionInputs(value: unknown): ProjectionInputs {
     assertMonthAligned(`${field}.startAge`, phase.startAge, input.person.currentAge);
     assertMonthAligned(`${field}.endAge`, phase.endAge, input.person.currentAge);
     if (
-      phase.startAge < input.person.currentAge - PHASE_AGE_TOLERANCE ||
-      phase.endAge > input.person.retirementAge + PHASE_AGE_TOLERANCE
+      phase.startAge < input.person.currentAge - PROJECTION_AGE_TOLERANCE ||
+      phase.endAge > input.person.retirementAge + PROJECTION_AGE_TOLERANCE
     ) {
       throw new Error(`${field} must stay within currentAge and retirementAge`);
     }
-    if (phase.endAge <= phase.startAge + PHASE_AGE_TOLERANCE) {
+    if (phase.endAge <= phase.startAge + PROJECTION_AGE_TOLERANCE) {
       throw new Error(`${field}.endAge must be greater than startAge`);
     }
     const previous = input.person.employmentIncomePhases[index - 1];
     if (previous) {
-      if (phase.startAge < previous.endAge - PHASE_AGE_TOLERANCE) {
+      if (phase.startAge < previous.endAge - PROJECTION_AGE_TOLERANCE) {
         throw new Error(
           `Employment income phases overlap between ${previous.id} and ${phase.id}`,
         );
       }
-      if (phase.startAge > previous.endAge + PHASE_AGE_TOLERANCE) {
+      if (phase.startAge > previous.endAge + PROJECTION_AGE_TOLERANCE) {
         throw new Error(
           `Employment income phases have a gap between ${previous.id} and ${phase.id}`,
         );
@@ -418,16 +502,16 @@ export function validateProjectionInputs(value: unknown): ProjectionInputs {
       assertMonthAligned(`${field}.startAge`, phase.startAge, input.person.currentAge);
       assertMonthAligned(`${field}.endAge`, phase.endAge, input.person.currentAge);
       if (
-        phase.startAge < input.person.currentAge - PHASE_AGE_TOLERANCE ||
-        phase.endAge > input.person.retirementAge + PHASE_AGE_TOLERANCE
+        phase.startAge < input.person.currentAge - PROJECTION_AGE_TOLERANCE ||
+        phase.endAge > input.person.retirementAge + PROJECTION_AGE_TOLERANCE
       ) {
         throw new Error(`${field} must stay within currentAge and retirementAge`);
       }
-      if (phase.endAge <= phase.startAge + PHASE_AGE_TOLERANCE) {
+      if (phase.endAge <= phase.startAge + PROJECTION_AGE_TOLERANCE) {
         throw new Error(`${field}.endAge must be greater than startAge`);
       }
       const previous = account.contributionPhases[index - 1];
-      if (previous && phase.startAge < previous.endAge - PHASE_AGE_TOLERANCE) {
+      if (previous && phase.startAge < previous.endAge - PROJECTION_AGE_TOLERANCE) {
         throw new Error(
           `Contribution phases overlap between ${previous.id} and ${phase.id} for ${account.id}`,
         );

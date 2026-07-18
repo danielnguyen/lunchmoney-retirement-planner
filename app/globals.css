@@ -167,6 +167,7 @@ dd { margin: 0; text-align: right; font-size: 0.78rem; }
 .source-badge { display: inline-flex; width: fit-content; border: 1px solid var(--border); border-radius: 999px; padding: 4px 7px; font-size: 0.65rem; font-weight: 800; white-space: nowrap; }
 .source-badge.lunchmoney { color: #8edcf1; border-color: rgba(78, 181, 210, 0.48); }
 .source-badge.configuration { color: #e7ca79; border-color: rgba(216, 189, 101, 0.48); }
+.source-badge.canadian_reference { color: #d7b5f5; border-color: rgba(181, 132, 224, 0.52); }
 .source-badge.override { color: #f5aaaf; border-color: rgba(239, 125, 134, 0.55); }
 .source-badge.projection { color: #aee9d4; border-color: rgba(112, 214, 178, 0.48); }
 .reconciliation { margin: 10px 0 0; color: var(--accent); font-size: 0.78rem; font-weight: 800; }

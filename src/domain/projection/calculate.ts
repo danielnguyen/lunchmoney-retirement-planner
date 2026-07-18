@@ -8,6 +8,7 @@ import type {
   EmploymentIncomePhase,
   FinancialAccountInput,
   FinancialAssetsBridge,
+  GovernmentBenefitCalculationSummary,
   IncomeBreakdown,
   OutflowBreakdown,
   ProjectionInputs,
@@ -18,6 +19,10 @@ import type {
   WithdrawalBreakdown,
 } from "./types";
 import { validateProjectionInputs } from "./types";
+import {
+  cppClaimRules,
+  oasClaimRules,
+} from "@/src/domain/defaults/canadian-public-benefits";
 
 const MONTHS_PER_YEAR = 12;
 const AGE_TOLERANCE = 1e-6;
@@ -66,14 +71,67 @@ function lastDayOfMonth(calendarYear: number, calendarMonth: number): string {
 }
 
 export function cppClaimFactor(startAge: number): number {
-  if (startAge < 65) {
-    return Math.max(0, 1 - (65 - startAge) * MONTHS_PER_YEAR * 0.006);
+  if (startAge < cppClaimRules.standardAge) {
+    return Math.max(
+      0,
+      1 -
+        (cppClaimRules.standardAge - startAge) *
+          MONTHS_PER_YEAR *
+          cppClaimRules.reductionPerMonth,
+    );
   }
-  return 1 + (startAge - 65) * MONTHS_PER_YEAR * 0.007;
+  return (
+    1 +
+    (startAge - cppClaimRules.standardAge) *
+      MONTHS_PER_YEAR *
+      cppClaimRules.increasePerMonth
+  );
 }
 
 export function oasClaimFactor(startAge: number): number {
-  return 1 + Math.max(0, startAge - 65) * MONTHS_PER_YEAR * 0.006;
+  return (
+    1 +
+    Math.max(0, startAge - oasClaimRules.earliestAge) *
+      MONTHS_PER_YEAR *
+      oasClaimRules.increasePerMonth
+  );
+}
+
+function governmentBenefitSummary(
+  inputs: ProjectionInputs,
+): GovernmentBenefitCalculationSummary {
+  const cppFactor = cppClaimFactor(inputs.person.cpp.startAge);
+  const cppMonthly =
+    inputs.person.cpp.monthlyAmountAt65Today * cppFactor;
+  const oasFactor = oasClaimFactor(inputs.person.oas.startAge);
+  const oasMonthly =
+    inputs.person.oas.fullMonthlyAmountAt65Today *
+    inputs.person.oas.eligibility.fraction *
+    oasFactor;
+  return {
+    cpp: {
+      baseMonthlyAmountAt65Today: inputs.person.cpp.monthlyAmountAt65Today,
+      claimAge: inputs.person.cpp.startAge,
+      claimFactor: cppFactor,
+      monthlyAmountAtClaimToday: cppMonthly,
+      annualAmountAtClaimToday: cppMonthly * MONTHS_PER_YEAR,
+    },
+    oas: {
+      fullBaseMonthlyAmountAt65Today:
+        inputs.person.oas.fullMonthlyAmountAt65Today,
+      eligibilityMode: inputs.person.oas.eligibility.mode,
+      qualifyingResidenceYearsAfter18:
+        inputs.person.oas.eligibility.qualifyingResidenceYearsAfter18,
+      eligibilityFraction: inputs.person.oas.eligibility.fraction,
+      claimAge: inputs.person.oas.startAge,
+      claimFactor: oasFactor,
+      monthlyAmountAtClaimToday: oasMonthly,
+      annualAmountAtClaimToday: oasMonthly * MONTHS_PER_YEAR,
+      age75IncreaseRate: inputs.person.oas.age75IncreaseRate,
+      monthlyAmountAfterAge75IncreaseToday:
+        oasMonthly * (1 + inputs.person.oas.age75IncreaseRate),
+    },
+  };
 }
 
 function emptyIncome(): IncomeBreakdown {
@@ -302,6 +360,7 @@ function milestoneLabels(inputs: ProjectionInputs, previousMonth: number, month:
 
 export function calculateProjection(rawInputs: ProjectionInputs): ProjectionResult {
   const inputs = validateProjectionInputs(rawInputs);
+  const benefits = governmentBenefitSummary(inputs);
   const startYear = Number(inputs.startDate.slice(0, 4));
   const startMonth = Number(inputs.startDate.slice(5, 7));
   const totalMonths = Math.round((inputs.endAge - inputs.person.currentAge) * MONTHS_PER_YEAR);
@@ -386,14 +445,17 @@ export function calculateProjection(rawInputs: ProjectionInputs): ProjectionResu
     }
     if (age >= inputs.person.cpp.startAge) {
       income.cpp =
-        inputs.person.cpp.monthlyAmountAt65Today *
-        cppClaimFactor(inputs.person.cpp.startAge) *
+        benefits.cpp.monthlyAmountAtClaimToday *
         indexedFactor(inputs.person.cpp.indexingRate, month);
     }
     if (age >= inputs.person.oas.startAge) {
+      const age75Factor =
+        age > 75 + AGE_TOLERANCE
+          ? 1 + inputs.person.oas.age75IncreaseRate
+          : 1;
       income.oas =
-        inputs.person.oas.monthlyAmountAt65Today *
-        oasClaimFactor(inputs.person.oas.startAge) *
+        benefits.oas.monthlyAmountAtClaimToday *
+        age75Factor *
         indexedFactor(inputs.person.oas.indexingRate, month);
     }
     if (age >= inputs.person.pensionStartAge) {
@@ -645,7 +707,7 @@ export function calculateProjection(rawInputs: ProjectionInputs): ProjectionResu
   });
 
   return {
-    schemaVersion: "4.0",
+    schemaVersion: "5.0",
     inputs,
     summary: {
       retirementYear,
@@ -662,6 +724,7 @@ export function calculateProjection(rawInputs: ProjectionInputs): ProjectionResu
       nominal: nominalBridge,
       real: realBridge,
     },
+    governmentBenefits: benefits,
     annual,
     observations,
   };

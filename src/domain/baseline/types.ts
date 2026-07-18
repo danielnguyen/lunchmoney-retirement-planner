@@ -10,8 +10,28 @@ export type ConnectionStatus = {
   message: string;
 };
 
+export const baselineWarningCodes = [
+  "transactions_skipped",
+  "no_transactions",
+  "unused_account_mapping",
+  "contribution_target_required",
+  "suggested_recurring_ignored",
+  "negative_derived_total",
+  "cash_account_required",
+  "invalid_manual_contribution",
+  "withdrawal_priority_required",
+  "negative_asset_balance",
+  "long_live_baseline_income",
+  "cpp_canadian_reference_in_use",
+  "oas_canadian_reference_in_use",
+  "legacy_zero_cpp_amount",
+  "legacy_zero_oas_amount",
+] as const;
+
+export type BaselineWarningCode = (typeof baselineWarningCodes)[number];
+
 export type BaselineWarning = {
-  code: string;
+  code: BaselineWarningCode;
   severity: "warning" | "error";
   message: string;
   identifier?: string;
@@ -124,7 +144,7 @@ export type DerivedBaseline = {
 };
 
 export type CurrentBaseline = {
-  schemaVersion: "1.2";
+  schemaVersion: "1.3";
   connection: ConnectionStatus;
   projectionInputs: ProjectionInputs;
   provenance: Record<string, BaselineValue<unknown>>;

@@ -8,9 +8,20 @@ Public content must remain generic. Do not add private financial values, account
 
 ## Current position
 
-- Open implementation pull requests: none
-- Next capability: Government benefits
-- Next action: prepare and execute the government-benefits implementation prompt from the latest `main`
+- Open implementation pull request: [#8 Add explicit CPP and OAS modelling](https://github.com/danielnguyen/lunchmoney-retirement-planner/pull/8)
+- Pull request state: Open draft
+- Active capability: Government benefits
+- Status: In progress
+- Branch: `agent/add-government-benefits`
+- Latest validated implementation head: `9dd14456b57ed7cd2ee5bc45e1f8e7e480660417`
+- Private configuration migration: Passed
+- Live baseline and projection smoke test: Passed
+- Automatic JSON sanitization smoke test: Passed
+- Automatic real CSV sanitization smoke test: Passed
+- Automatic nominal CSV sanitization smoke test: Passed
+- Private denylist verification: Passed
+- Remaining step: final review and merge
+- Next action: review and merge PR #8
 - Last completed foundation: phased employment income and per-account contribution phases
 
 ## Terminology boundary
@@ -29,7 +40,7 @@ Branches, pull-request titles, commits, tests, documentation headings, types, fu
 
 | Sequence | Capability | Primary dependency | Status | Pull request |
 |---|---|---|---|---|
-| 1 | Government benefits | Phased income model | Next | — |
+| 1 | Government benefits | Phased income model | In progress | [#8](https://github.com/danielnguyen/lunchmoney-retirement-planner/pull/8) |
 | 2 | Surplus allocation policy | Government benefits | Planned | — |
 | 3 | Registered-account room and contribution waterfall | Surplus allocation policy | Planned | — |
 | 4 | Debt amortization and spending phases | Phased contribution model | Planned | — |

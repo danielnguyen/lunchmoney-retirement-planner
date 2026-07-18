@@ -75,8 +75,8 @@ export type PlannerAssumptions = {
   debtReturn: number;
   incomeGrowth: number;
   contributionIndexing: number;
-  cppIndexing: number;
-  oasIndexing: number;
+  cppIndexing?: number;
+  oasIndexing?: number;
   effectiveTaxRate: number;
   oasRecoveryThreshold: number;
   oasRecoveryRate: number;
@@ -87,14 +87,64 @@ export type PlannerAssumptions = {
   allocations: Record<"cash" | "tfsa" | "rrsp" | "non_registered" | "debt", AssetAllocation>;
 };
 
+export type CppAmountAt65Config =
+  | {
+      source: "official_estimate";
+      monthlyAmountToday: number;
+      effectiveDate: string;
+    }
+  | {
+      source: "configured_amount";
+      monthlyAmountToday: number;
+      effectiveDate: string;
+    }
+  | {
+      source: "canadian_reference";
+    }
+  | {
+      source: "explicit_zero";
+    };
+
+export type OasFullAmountAt65Config =
+  | {
+      source: "configured_amount";
+      monthlyAmountToday: number;
+      effectiveDate: string;
+    }
+  | {
+      source: "canadian_reference";
+    };
+
+export type OasEligibilityConfig =
+  | { mode: "full" | "none" }
+  | {
+      mode: "partial";
+      qualifyingResidenceYearsAfter18: number;
+    };
+
+export type GovernmentBenefitsConfig = {
+  cpp: {
+    startAge: number;
+    indexingRate: number;
+    amountAt65: CppAmountAt65Config;
+  };
+  oas: {
+    startAge: number;
+    indexingRate: number;
+    fullAmountAt65: OasFullAmountAt65Config;
+    eligibility: OasEligibilityConfig;
+  };
+};
+
 export type PlannerConfig = {
   currentAge: number;
   retirementAge: number;
   projectionEndAge: number;
-  cppStartAge: number;
-  oasStartAge: number;
-  cppMonthlyAmountAt65: number;
-  oasMonthlyAmountAt65: number;
+  governmentBenefits?: GovernmentBenefitsConfig;
+  cppStartAge?: number;
+  oasStartAge?: number;
+  cppMonthlyAmountAt65?: number;
+  oasMonthlyAmountAt65?: number;
   retirementGoal: number;
   transactionTrailingMonths: number;
   employmentIncomePhases?: EmploymentIncomePhaseConfig[];

@@ -23,6 +23,7 @@ const number = new Intl.NumberFormat("en-CA", {
 const sourceLabels: Record<ExplanationSourceType, string> = {
   lunchmoney: "Lunch Money",
   configuration: "Local configuration",
+  canadian_reference: "Canadian reference",
   override: "Temporary override",
   projection: "Projection",
 };
@@ -130,6 +131,8 @@ export function CalculationSteps({ document }: { document: ExplanationDocument }
                   ? "+"
                   : step.operation === "subtract"
                     ? "−"
+                    : step.operation === "multiply"
+                      ? "×"
                     : step.operation === "result"
                       ? "="
                       : "•"}

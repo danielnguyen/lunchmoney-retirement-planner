@@ -83,6 +83,7 @@ Support:
 - explicit full or partial eligibility
 - claim age
 - delayed-claim adjustment
+- permanent 10% increase beginning in the first modelled month after the age-75 boundary
 - indexing assumption
 
 When residence years are supplied, calculate the eligible fraction deterministically. When eligibility is unknown, require an explicit assumption or clearly labelled reference fallback.
@@ -105,6 +106,7 @@ CPP and OAS explanations must show:
 - Official estimates remain distinguishable from generic references.
 - Claim-age adjustments reconcile exactly to projected monthly benefits.
 - OAS partial eligibility reconciles to the configured residence fraction.
+- OAS increases by exactly 10% beginning in the first modelled month after the age-75 boundary.
 - Dashboard, ledger, charts, explanations, JSON, and CSV use the same resolved values.
 - Private statements and external credentials are never committed or exported.
 
