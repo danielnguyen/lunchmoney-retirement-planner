@@ -130,8 +130,11 @@ projectionAccounts:
     allocation: { cash: 0, fixedIncome: 0.2, equity: 0.8 }
     contributionPhases: []
 surplusAllocation:
-  reserveAccountId: "manual:lunch-money-cash-account-id"
-  targetCashReserveToday: 30000
+  reserveAccountIds:
+    - "manual:lunch-money-cash-account-id"
+    - "manual:lunch-money-second-cash-account-id"
+  reserveRefillAccountId: "manual:lunch-money-cash-account-id"
+  targetCashReserveToday: 50000
   reserveIndexingRate: 0.02
   excess:
     mode: allocate_to_account
@@ -315,7 +318,7 @@ The first projected month is the calendar month containing the live baseline dat
 
 The exact retirement snapshot is captured at the end of the final working month, immediately before the first fully retired month. The Assets at retirement summary uses this real-dollar snapshot rather than the next December row. The projection also emits nominal and real accumulation bridges from starting financial assets to this boundary. Cash-funded contributions and surplus routing are internal transfers; income-withheld contributions are external additions. Both bridges must reconcile within one cent.
 
-Positive unassigned monthly cash uses the required resolved `surplusAllocation` policy. The explicit cash reserve is refilled to its indexed target before remaining excess is retained as cash or sent to one explicit non-registered destination. Account ordering never selects the reserve or destination. Targeted event inflows deposit only their own amounts into their targets. TFSA and RRSP/RRIF routing remains unavailable until registered-account room is modelled.
+Positive unassigned monthly cash uses the required resolved `surplusAllocation` policy. The combined balance of the explicit cash reserve-account set is compared with the indexed target; any shortfall and retained excess are deposited into the explicit refill account before redirected excess is sent to one explicit non-registered destination. Account ordering never selects the reserve set, refill account, or destination. Targeted event inflows deposit only their own amounts into their targets. TFSA and RRSP/RRIF routing remains unavailable until registered-account room is modelled.
 
 Optional projection-only accounts are appended after imported accounts with origin `projection_configuration` and a fixed zero opening balance. They have explicit return, withdrawal, allocation, and contribution assumptions and remain distinct from Lunch Money balances in the dashboard, explanations, and exports.
 

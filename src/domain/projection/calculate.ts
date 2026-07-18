@@ -482,8 +482,13 @@ export function calculateProjection(rawInputs: ProjectionInputs): ProjectionResu
     (inputs.person.retirementAge - inputs.person.currentAge) * MONTHS_PER_YEAR,
   );
   const balances = new Map(inputs.accounts.map((account) => [account.id, account.openingBalance]));
-  const reserveAccount = inputs.accounts.find(
-    (account) => account.id === inputs.surplusAllocation.reserveAccountId,
+  const reserveAccounts = inputs.surplusAllocation.reserveAccountIds.map(
+    (accountId) =>
+      inputs.accounts.find((account) => account.id === accountId)!,
+  );
+  const reserveRefillAccount = inputs.accounts.find(
+    (account) =>
+      account.id === inputs.surplusAllocation.reserveRefillAccountId,
   )!;
   const destinationAccountId =
     inputs.surplusAllocation.excess.mode === "allocate_to_account"
@@ -705,15 +710,21 @@ export function calculateProjection(rawInputs: ProjectionInputs): ProjectionResu
 
     if (cashPosition > 0) {
       const generated = cashPosition;
-      const reserveBalance = balances.get(reserveAccount.id) ?? 0;
+      const reserveBalance = reserveAccounts.reduce(
+        (total, account) => total + (balances.get(account.id) ?? 0),
+        0,
+      );
       const reserveShortfall = Math.max(
         0,
         monthlyFlow.surplusAllocation.reserveTarget - reserveBalance,
       );
       const reserveRefill = Math.min(generated, reserveShortfall);
       if (reserveRefill > 0) {
-        balances.set(reserveAccount.id, reserveBalance + reserveRefill);
-        monthlyFlow.accountSurplusAllocations[reserveAccount.id] =
+        balances.set(
+          reserveRefillAccount.id,
+          (balances.get(reserveRefillAccount.id) ?? 0) + reserveRefill,
+        );
+        monthlyFlow.accountSurplusAllocations[reserveRefillAccount.id] =
           reserveRefill;
       }
       const excess = generated - reserveRefill;
@@ -722,11 +733,13 @@ export function calculateProjection(rawInputs: ProjectionInputs): ProjectionResu
       if (inputs.surplusAllocation.excess.mode === "retain_as_cash") {
         if (excess > 0) {
           balances.set(
-            reserveAccount.id,
-            (balances.get(reserveAccount.id) ?? 0) + excess,
+            reserveRefillAccount.id,
+            (balances.get(reserveRefillAccount.id) ?? 0) + excess,
           );
-          monthlyFlow.accountSurplusAllocations[reserveAccount.id] =
-            (monthlyFlow.accountSurplusAllocations[reserveAccount.id] ?? 0) +
+          monthlyFlow.accountSurplusAllocations[reserveRefillAccount.id] =
+            (monthlyFlow.accountSurplusAllocations[
+              reserveRefillAccount.id
+            ] ?? 0) +
             excess;
         }
         retainedAsCash += excess;
@@ -851,8 +864,10 @@ export function calculateProjection(rawInputs: ProjectionInputs): ProjectionResu
         monthlyFlow.surplusAllocation.reserveTarget;
       reserveTargetAtRetirementReal =
         reserveTargetAtRetirementNominal / factor;
-      reserveBalanceAtRetirementNominal =
-        balances.get(reserveAccount.id) ?? 0;
+      reserveBalanceAtRetirementNominal = reserveAccounts.reduce(
+        (total, account) => total + (balances.get(account.id) ?? 0),
+        0,
+      );
       reserveBalanceAtRetirementReal =
         reserveBalanceAtRetirementNominal / factor;
       if (destinationAccount) {
@@ -944,7 +959,8 @@ export function calculateProjection(rawInputs: ProjectionInputs): ProjectionResu
     governmentBenefits: benefits,
     surplusAllocation: {
       policy: {
-        reserveAccountId: reserveAccount.id,
+        reserveAccountIds: reserveAccounts.map((account) => account.id),
+        reserveRefillAccountId: reserveRefillAccount.id,
         targetCashReserveToday:
           inputs.surplusAllocation.targetCashReserveToday,
         reserveIndexingRate: inputs.surplusAllocation.reserveIndexingRate,
@@ -959,7 +975,7 @@ export function calculateProjection(rawInputs: ProjectionInputs): ProjectionResu
         nominal: reserveTargetAtRetirementNominal,
         real: reserveTargetAtRetirementReal,
       },
-      reserveAccountBalanceAtRetirement: {
+      reserveAccountsBalanceAtRetirement: {
         nominal: reserveBalanceAtRetirementNominal,
         real: reserveBalanceAtRetirementReal,
       },

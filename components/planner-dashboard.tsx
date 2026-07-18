@@ -582,9 +582,13 @@ export function PlannerDashboard() {
   const activeWarnings = resolveActiveScenarioWarnings(baseline, inputs);
   const surplusTotals =
     projection?.surplusAllocation.throughRetirement[mode];
-  const reserveAccount = inputs.accounts.find(
+  const reserveAccounts = inputs.surplusAllocation.reserveAccountIds.map(
+    (accountId) =>
+      inputs.accounts.find((account) => account.id === accountId)!,
+  );
+  const reserveRefillAccount = inputs.accounts.find(
     (account) =>
-      account.id === inputs.surplusAllocation.reserveAccountId,
+      account.id === inputs.surplusAllocation.reserveRefillAccountId,
   );
   const destinationAccountId =
     inputs.surplusAllocation.excess.mode === "allocate_to_account"
@@ -1128,7 +1132,8 @@ export function PlannerDashboard() {
               <div>
                 <h3>Surplus allocation policy</h3>
                 <dl>
-                  <div><dt>Reserve account</dt><dd>{reserveAccount?.label ?? "Unavailable"}</dd></div>
+                  <div><dt>Reserve accounts</dt><dd>{reserveAccounts.map((account) => account.label).join(", ") || "Unavailable"}</dd></div>
+                  <div><dt>Reserve refill account</dt><dd>{reserveRefillAccount?.label ?? "Unavailable"}</dd></div>
                   <div><dt>Target reserve today</dt><dd>{currency.format(inputs.surplusAllocation.targetCashReserveToday)}</dd></div>
                   <div><dt>Reserve indexing</dt><dd>{percent.format(inputs.surplusAllocation.reserveIndexingRate)}</dd></div>
                   <div><dt>Excess mode</dt><dd>{inputs.surplusAllocation.excess.mode === "retain_as_cash" ? "Retain as cash" : "Allocate to account"}</dd></div>

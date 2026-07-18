@@ -117,7 +117,8 @@ function surplusFixture(months = 1): ProjectionInputs {
     },
   ];
   input.surplusAllocation = {
-    reserveAccountId: "manual:reserve",
+    reserveAccountIds: ["manual:reserve"],
+    reserveRefillAccountId: "manual:reserve",
     targetCashReserveToday: 500,
     reserveIndexingRate: 0,
     excess: {
@@ -732,6 +733,77 @@ describe("exact retirement snapshot and accumulation bridge", () => {
 });
 
 describe("explicit surplus allocation policy", () => {
+  it("uses the combined reserve-account balance and deposits the shortfall only into the refill account", () => {
+    const input = surplusFixture();
+    input.accounts.find(
+      (account) => account.id === "manual:first-cash",
+    )!.openingBalance = 400;
+    input.surplusAllocation.reserveAccountIds = [
+      "manual:first-cash",
+      "manual:reserve",
+    ];
+    input.surplusAllocation.reserveRefillAccountId = "manual:reserve";
+
+    const result = calculateProjection(input);
+    const view = result.retirementSnapshot.nominal;
+
+    expect(view.surplusAllocation).toMatchObject({
+      generated: 1000,
+      reserveRefill: 100,
+      retainedAsCash: 100,
+      redirected: 900,
+    });
+    expect(view.accountBalances["manual:first-cash"]).toBe(400);
+    expect(view.accountBalances["manual:reserve"]).toBe(100);
+    expect(view.accountBalances["projection:future-taxable"]).toBe(900);
+    expect(view.accountSurplusAllocations).toEqual({
+      "manual:reserve": 100,
+      "projection:future-taxable": 900,
+    });
+    expect(
+      result.surplusAllocation.reserveAccountsBalanceAtRetirement.nominal,
+    ).toBe(500);
+
+    const reordered = structuredClone(input);
+    reordered.accounts.reverse();
+    const reorderedResult = calculateProjection(reordered);
+    expect(reorderedResult.retirementSnapshot.nominal.surplusAllocation).toEqual(
+      view.surplusAllocation,
+    );
+    expect(reorderedResult.retirementSnapshot.nominal.accountBalances).toEqual(
+      view.accountBalances,
+    );
+  });
+
+  it("counts a targeted inflow to any reserve member before calculating the refill", () => {
+    const input = surplusFixture();
+    input.surplusAllocation.reserveAccountIds = [
+      "manual:first-cash",
+      "manual:reserve",
+    ];
+    input.events = [
+      {
+        id: "targeted-reserve-inflow",
+        label: "Synthetic reserve inflow",
+        calendarYear: 2026,
+        month: 1,
+        amountToday: 300,
+        direction: "inflow",
+        targetAccountId: "manual:first-cash",
+      },
+    ];
+
+    const result = calculateProjection(input);
+    const view = result.retirementSnapshot.nominal;
+
+    expect(view.income.other).toBe(300);
+    expect(view.surplusAllocation.generated).toBe(1000);
+    expect(view.surplusAllocation.reserveRefill).toBe(200);
+    expect(view.accountBalances["manual:first-cash"]).toBe(300);
+    expect(view.accountBalances["manual:reserve"]).toBe(200);
+    expect(view.accountBalances["projection:future-taxable"]).toBe(800);
+  });
+
   it("uses the explicit reserve account even when another cash account is first and is order-independent", () => {
     const input = surplusFixture();
     const result = calculateProjection(input);
@@ -784,19 +856,28 @@ describe("explicit surplus allocation policy", () => {
 
   it("retains all generated surplus in the reserve for retain-as-cash mode", () => {
     const input = surplusFixture();
+    input.accounts.find(
+      (account) => account.id === "manual:first-cash",
+    )!.openingBalance = 600;
+    input.surplusAllocation.reserveAccountIds = [
+      "manual:first-cash",
+      "manual:reserve",
+    ];
     input.surplusAllocation.excess = { mode: "retain_as_cash" };
     const result = calculateProjection(input);
     const view = result.retirementSnapshot.nominal;
 
     expect(view.surplusAllocation).toMatchObject({
       generated: 1000,
-      reserveRefill: 500,
+      reserveRefill: 0,
       retainedAsCash: 1000,
       redirected: 0,
     });
     expect(view.accountSurplusAllocations).toEqual({
       "manual:reserve": 1000,
     });
+    expect(view.accountBalances["manual:first-cash"]).toBe(600);
+    expect(view.accountBalances["manual:reserve"]).toBe(1000);
   });
 
   it("reconciles generated, retained, redirected, and per-account allocations in monthly and annual output", () => {
@@ -981,7 +1062,7 @@ describe("explicit surplus allocation policy", () => {
     expect(
       summary.throughRetirement.nominal.accountAllocations,
     ).toEqual(result.retirementSnapshot.nominal.accountSurplusAllocations);
-    expect(summary.reserveAccountBalanceAtRetirement.nominal).toBe(500);
+    expect(summary.reserveAccountsBalanceAtRetirement.nominal).toBe(500);
     expect(summary.destinationAccountBalanceAtRetirement?.nominal).toBe(500);
   });
 });

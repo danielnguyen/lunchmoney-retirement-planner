@@ -737,6 +737,16 @@ describe("calculation explanations", () => {
       reserveTarget: chartRows[0]!.surplusReserveTarget,
     });
     expect(document.reconciliation?.matched).toBe(true);
+    expect(
+      document.assumptions.find(
+        (item) => item.label === "Reserve accounts and origins",
+      )?.value,
+    ).toContain("Cash account");
+    expect(
+      document.assumptions.find(
+        (item) => item.label === "Reserve refill account and origin",
+      )?.value,
+    ).toContain("Cash account");
     expect(document.caveats.join(" ")).toContain(
       "registered-account room",
     );

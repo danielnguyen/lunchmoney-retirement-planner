@@ -1765,7 +1765,7 @@ function ledgerDocument(context: ExplanationContext): ExplanationDocument {
           { column: "Spending", meaning: "Essential, discretionary, and one-time spending during the period." },
           { column: "Surplus generated", meaning: "Positive unassigned monthly cash generated during the period after targeted inflows are isolated." },
           { column: "Reserve refill", meaning: "Policy-generated surplus used to close the indexed reserve shortfall." },
-          { column: "Retained as cash", meaning: "Policy-generated surplus deposited into the reserve account." },
+          { column: "Retained as cash", meaning: "Policy-generated surplus deposited into the reserve refill account." },
           { column: "Redirected", meaning: "Policy-generated surplus deposited into the configured non-registered destination." },
           { column: "Reserve target", meaning: "Active indexed reserve target at the period boundary." },
           { column: "Financial assets", meaning: "End-of-period cash and investment balance snapshot; debt excluded." },
@@ -1919,9 +1919,16 @@ function surplusAllocationDocument(
 ): ExplanationDocument {
   const result = context.projection.surplusAllocation;
   const totals = result.throughRetirement[context.displayMode];
-  const reserve = context.inputs.accounts.find(
-    (account) => account.id === result.policy.reserveAccountId,
+  const reserveAccounts = result.policy.reserveAccountIds.map(
+    (accountId) =>
+      context.inputs.accounts.find((account) => account.id === accountId)!,
+  );
+  const reserveRefillAccount = context.inputs.accounts.find(
+    (account) => account.id === result.policy.reserveRefillAccountId,
   )!;
+  const reserveAccountLabels = reserveAccounts
+    .map((account) => account.label)
+    .join(", ");
   const destination = result.policy.destinationAccountId
     ? context.inputs.accounts.find(
         (account) => account.id === result.policy.destinationAccountId,
@@ -1952,8 +1959,8 @@ function surplusAllocationDocument(
     title: "Surplus allocation",
     plainLanguage:
       result.policy.excessMode === "retain_as_cash"
-        ? `Positive unassigned monthly cash first refills ${reserve.label} to its indexed target, then all remaining excess stays in that reserve account.`
-        : `Positive unassigned monthly cash first refills ${reserve.label} to its indexed target, then sends remaining excess to ${destination!.label}.`,
+        ? `Positive unassigned monthly cash first compares the combined balance of ${reserveAccountLabels} with the indexed target. Any shortfall and all remaining excess go to ${reserveRefillAccount.label}.`
+        : `Positive unassigned monthly cash first compares the combined balance of ${reserveAccountLabels} with the indexed target. Any shortfall goes to ${reserveRefillAccount.label}, then remaining excess goes to ${destination!.label}.`,
     displayedResult: {
       label: "Surplus generated through retirement",
       value: exactCurrency.format(totals.generated),
@@ -2045,9 +2052,9 @@ function surplusAllocationDocument(
         ],
         rows: [
           {
-            item: `${reserve.label} balance`,
+            item: "Combined reserve-account balance",
             value:
-              result.reserveAccountBalanceAtRetirement[
+              result.reserveAccountsBalanceAtRetirement[
                 context.displayMode
               ],
           },
@@ -2080,16 +2087,34 @@ function surplusAllocationDocument(
     ],
     assumptions: [
       {
-        label: "Reserve account and origin",
-        value: `${reserve.label} · ${accountOriginLabel(reserve)}`,
+        label: "Reserve accounts and origins",
+        value: reserveAccounts
+          .map(
+            (account) =>
+              `${account.label} · ${accountOriginLabel(account)}`,
+          )
+          .join("; "),
         sourceType: "configuration",
         sourceDescription:
           context.baseline.provenance[
-            "surplusAllocation.reserveAccountId"
+            "surplusAllocation.reserveAccountIds"
           ]?.sourceDescription,
         effectiveDate:
           context.baseline.provenance[
-            "surplusAllocation.reserveAccountId"
+            "surplusAllocation.reserveAccountIds"
+          ]?.effectiveDate,
+      },
+      {
+        label: "Reserve refill account and origin",
+        value: `${reserveRefillAccount.label} · ${accountOriginLabel(reserveRefillAccount)}`,
+        sourceType: "configuration",
+        sourceDescription:
+          context.baseline.provenance[
+            "surplusAllocation.reserveRefillAccountId"
+          ]?.sourceDescription,
+        effectiveDate:
+          context.baseline.provenance[
+            "surplusAllocation.reserveRefillAccountId"
           ]?.effectiveDate,
       },
       inputAssumption(

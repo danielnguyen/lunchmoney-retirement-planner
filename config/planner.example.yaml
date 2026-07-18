@@ -68,7 +68,8 @@ projectionAccounts:
     allocation: { cash: 0, fixedIncome: 0.2, equity: 0.8 }
     contributionPhases: []
 
-# Positive unassigned monthly cash first refills this explicit indexed reserve.
+# The combined balance of reserveAccountIds counts toward the indexed reserve.
+# Reserve refills and retained excess go only to reserveRefillAccountId.
 # Remaining excess is sent only to the configured non-registered destination.
 # Automatic TFSA and RRSP/RRIF routing is unavailable until contribution room
 # is modelled. To keep all surplus in cash, use:
@@ -76,8 +77,11 @@ projectionAccounts:
 #   mode: retain_as_cash
 # and omit destinationAccountId.
 surplusAllocation:
-  reserveAccountId: "manual:replace-with-cash-account-id"
-  targetCashReserveToday: 30000
+  reserveAccountIds:
+    - "manual:replace-with-cash-account-id"
+    - "manual:replace-with-second-cash-account-id"
+  reserveRefillAccountId: "manual:replace-with-cash-account-id"
+  targetCashReserveToday: 50000
   reserveIndexingRate: 0.02
   excess:
     mode: allocate_to_account
@@ -93,11 +97,17 @@ accountMappings:
     # Lower numbers are withdrawn first when projected cash flow is short.
     withdrawalPriority: 1
 
+  "manual:replace-with-second-cash-account-id":
+    # A second cash account whose balance counts toward the same reserve target
+    include: true
+    type: cash
+    withdrawalPriority: 2
+
   "plaid:replace-with-investment-account-id":
     # Long-term tax-free investment account
     include: true
     type: tfsa
-    withdrawalPriority: 2
+    withdrawalPriority: 3
     contributionPhases:
       - id: current-saving
         label: Current saving

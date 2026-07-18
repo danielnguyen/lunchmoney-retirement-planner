@@ -486,7 +486,8 @@ describe("private planner configuration", () => {
       await loadPlannerConfig(EXAMPLE_CONFIG_PATH),
     ) as unknown as Record<string, unknown>;
     retain.surplusAllocation = {
-      reserveAccountId: "manual:reserve",
+      reserveAccountIds: ["manual:reserve"],
+      reserveRefillAccountId: "manual:reserve",
       targetCashReserveToday: 10000,
       reserveIndexingRate: 0.02,
       excess: { mode: "retain_as_cash" },
@@ -508,6 +509,39 @@ describe("private planner configuration", () => {
     ).excess = { mode: "allocate_to_account" };
     expect(() => validatePlannerConfig(missingDestination)).toThrow(
       "destinationAccountId must be a non-empty string",
+    );
+  });
+
+  it("requires an explicit unique reserve-account set and a refill account within it", async () => {
+    const valid = structuredClone(
+      await loadPlannerConfig(EXAMPLE_CONFIG_PATH),
+    ) as unknown as Record<string, unknown>;
+
+    const missingSet = structuredClone(valid);
+    delete (
+      missingSet.surplusAllocation as Record<string, unknown>
+    ).reserveAccountIds;
+    expect(() => validatePlannerConfig(missingSet)).toThrow(
+      "reserveAccountIds must be a non-empty array",
+    );
+
+    const duplicate = structuredClone(valid);
+    (
+      duplicate.surplusAllocation as Record<string, unknown>
+    ).reserveAccountIds = ["manual:reserve", "manual:reserve"];
+    expect(() => validatePlannerConfig(duplicate)).toThrow(
+      "must not contain duplicate accounts",
+    );
+
+    const refillOutsideSet = structuredClone(valid);
+    const policy = refillOutsideSet.surplusAllocation as Record<
+      string,
+      unknown
+    >;
+    policy.reserveAccountIds = ["manual:reserve"];
+    policy.reserveRefillAccountId = "manual:other-cash";
+    expect(() => validatePlannerConfig(refillOutsideSet)).toThrow(
+      "reserveRefillAccountId must be included in reserveAccountIds",
     );
   });
 

@@ -82,7 +82,8 @@ function buildExportFixture(): ExportFixture {
       label: PRIVATE_TEXT.contributionPhaseLabel,
     })),
   };
-  inputs.surplusAllocation.reserveAccountId = RAW_IDS.cash;
+  inputs.surplusAllocation.reserveAccountIds = [RAW_IDS.cash];
+  inputs.surplusAllocation.reserveRefillAccountId = RAW_IDS.cash;
   inputs.events[0] = {
     ...inputs.events[0]!,
     id: RAW_IDS.event,
@@ -126,7 +127,13 @@ function buildExportFixture(): ExportFixture {
       sourceDescription: `${PRIVATE_TEXT.eventLabel}; ${PRIVATE_TEXT.note}`,
       effectiveDate: baseline.dataThrough,
     },
-    "surplusAllocation.reserveAccountId": {
+    "surplusAllocation.reserveAccountIds": {
+      value: [RAW_IDS.cash],
+      sourceType: "local_configuration",
+      sourceDescription: RAW_ACCOUNT_NAMES.cash,
+      effectiveDate: baseline.dataThrough,
+    },
+    "surplusAllocation.reserveRefillAccountId": {
       value: RAW_IDS.cash,
       sourceType: "local_configuration",
       sourceDescription: `Reserve account ${RAW_ACCOUNT_NAMES.cash}`,
@@ -652,7 +659,8 @@ describe("automatically anonymized projection exports", () => {
   it("uses a generic label and safe key for the synthetic cash account", () => {
     const inputs: ProjectionInputs = structuredClone(projectionFixture);
     inputs.accounts[0] = { ...inputs.accounts[0]!, id: "cash", label: PRIVATE_TEXT.personalName };
-    inputs.surplusAllocation.reserveAccountId = "cash";
+    inputs.surplusAllocation.reserveAccountIds = ["cash"];
+    inputs.surplusAllocation.reserveRefillAccountId = "cash";
     const baseline: BaselineExportContext = structuredClone(baselineContextFixture);
     baseline.projectionInputs = inputs;
     baseline.derived.accountBalances[0] = {
@@ -814,10 +822,23 @@ describe("automatically anonymized projection exports", () => {
 
   it("automatically aliases projection-only policy accounts, provenance, overrides, and flat CSV fields", () => {
     const inputs = structuredClone(projectionFixture);
+    const secondReserveAccountId =
+      "manual:private-second-cash-DIGITS-4444";
     const projectionAccountId =
       "projection:private-taxable-DIGITS-5555";
     const projectionLabel =
       `${PRIVATE_TEXT.personalName} future taxable at ${PRIVATE_TEXT.institution}`;
+    inputs.accounts.push({
+      id: secondReserveAccountId,
+      label: `${PRIVATE_TEXT.personalName} second cash`,
+      origin: "lunchmoney",
+      type: "cash",
+      openingBalance: 1000,
+      annualReturn: 0.01,
+      contributionPhases: [],
+      withdrawalPriority: 3,
+      allocation: { cash: 1, fixedIncome: 0, equity: 0 },
+    });
     inputs.accounts.push({
       id: projectionAccountId,
       label: projectionLabel,
@@ -830,7 +851,8 @@ describe("automatically anonymized projection exports", () => {
       allocation: { cash: 0, fixedIncome: 0.2, equity: 0.8 },
     });
     inputs.surplusAllocation = {
-      reserveAccountId: "manual:1",
+      reserveAccountIds: ["manual:1", secondReserveAccountId],
+      reserveRefillAccountId: "manual:1",
       targetCashReserveToday: 27500,
       reserveIndexingRate: 0.03,
       excess: {
@@ -859,7 +881,13 @@ describe("automatically anonymized projection exports", () => {
         sourceDescription: "Fixed zero and not imported",
         effectiveDate: baseline.dataThrough,
       },
-      "surplusAllocation.reserveAccountId": {
+      "surplusAllocation.reserveAccountIds": {
+        value: ["manual:1", secondReserveAccountId],
+        sourceType: "local_configuration",
+        sourceDescription: RAW_ACCOUNT_NAMES.cash,
+        effectiveDate: baseline.dataThrough,
+      },
+      "surplusAllocation.reserveRefillAccountId": {
         value: "manual:1",
         sourceType: "local_configuration",
         sourceDescription: RAW_ACCOUNT_NAMES.cash,
@@ -910,7 +938,8 @@ describe("automatically anonymized projection exports", () => {
       openingBalance: 0,
     });
     expect(snapshot.projection.surplusAllocation.policy).toMatchObject({
-      reserveAccountId: "cash_1",
+      reserveAccountIds: ["cash_1", "cash_2"],
+      reserveRefillAccountId: "cash_1",
       destinationAccountId: "non_registered_1",
       targetCashReserveToday: 27500,
       reserveIndexingRate: 0.03,
@@ -921,6 +950,14 @@ describe("automatically anonymized projection exports", () => {
         "surplusAllocation.excess.destinationAccountId"
       ]?.value,
     ).toBe("non_registered_1");
+    expect(
+      snapshot.provenance["surplusAllocation.reserveAccountIds"]?.value,
+    ).toEqual(["cash_1", "cash_2"]);
+    expect(
+      snapshot.provenance[
+        "surplusAllocation.reserveRefillAccountId"
+      ]?.value,
+    ).toBe("cash_1");
     expect(snapshot.activeOverrides).toEqual({
       "surplusAllocation.reserveIndexingRate": 0.03,
       "surplusAllocation.targetCashReserveToday": 27500,
@@ -943,12 +980,20 @@ describe("automatically anonymized projection exports", () => {
           "surplus_reserve_target_today",
           "surplus_reserve_indexing_rate",
           "surplus_excess_mode",
-          "surplus_reserve_account",
+          "surplus_reserve_accounts",
+          "surplus_reserve_refill_account",
           "surplus_destination_account",
           "surplus_allocation_cash_1",
+          "surplus_allocation_cash_2",
           "surplus_allocation_non_registered_1",
         ]),
       );
+      expect(
+        lines[1]![header.indexOf("surplus_reserve_accounts")],
+      ).toBe("cash_1; cash_2");
+      expect(
+        lines[1]![header.indexOf("surplus_reserve_refill_account")],
+      ).toBe("cash_1");
       expect(new Set(lines.map((line) => line.length))).toEqual(
         new Set([header.length]),
       );

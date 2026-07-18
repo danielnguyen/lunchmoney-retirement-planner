@@ -149,11 +149,11 @@ For migration, replace the legacy top-level ages and amounts plus `assumptions.c
 
 ### Surplus allocation and projection-only accounts
 
-`surplusAllocation` is required. There is no compatibility default and no first-cash-account fallback. The policy names one cash reserve account, a target reserve in today’s dollars, its indexing rate, and either `retain_as_cash` or an explicit non-registered excess destination. Automatic excess routing to TFSA or RRSP/RRIF accounts is blocked until registered-account room is modelled.
+`surplusAllocation` is required. There is no compatibility default and no first-cash-account fallback. The policy names the explicit cash accounts whose combined balance counts toward the reserve, the one member account that receives refills and retained excess, a target reserve in today’s dollars, its indexing rate, and either `retain_as_cash` or an explicit non-registered excess destination. Automatic excess routing to TFSA or RRSP/RRIF accounts is blocked until registered-account room is modelled.
 
 Optional `projectionAccounts` are explicit planner accounts appended after imported accounts. Their IDs begin with `projection:`, their opening balance is fixed at zero, and their label, type, return, withdrawal priority, allocation, and contribution phases are all configured. They participate in projection returns, contributions, withdrawals, charts, explanations, and exports, but never appear as imported Lunch Money balances.
 
-Each positive month refills the indexed reserve shortfall first. Remaining excess stays in the reserve or moves to the configured non-registered account. A targeted event inflow deposits only its own amount into its target; unrelated employment cash and untargeted inflows continue through the surplus policy. Routing is an internal allocation of external net cash, so it does not add a bridge term or change total financial assets at the allocation moment. Account-specific returns can change future assets after routing.
+Each positive month compares the indexed target with the combined current balance of all configured reserve accounts. Any shortfall is deposited into the explicit refill account; remaining excess stays in that account or moves to the configured non-registered account. A targeted event inflow deposits only its own amount into its target; unrelated employment cash and untargeted inflows continue through the surplus policy. Routing is an internal allocation of external net cash, so it does not add a bridge term or change total financial assets at the allocation moment. Account-specific returns can change future assets after routing.
 
 ## Refresh and reset behavior
 

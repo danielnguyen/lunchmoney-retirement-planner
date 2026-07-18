@@ -41,6 +41,7 @@ export type ShareSafeProvenanceData =
   | boolean
   | null
   | AssetAllocation
+  | string[]
   | ProjectionEventInput[];
 
 export type ShareSafeProvenanceValue = {
@@ -170,6 +171,7 @@ type ProvenanceField = {
   reference: string;
   account?: AccountAlias;
   accountReference?: AccountAlias;
+  accountReferences?: AccountAlias[];
   accountField?: string;
   employmentPhase?: RecordAlias;
   contributionPhase?: RecordAlias;
@@ -691,8 +693,11 @@ function safeProjectionInputs(
     },
     accounts: inputs.accounts.map((account) => safeAccountInput(account, context)),
     surplusAllocation: {
-      reserveAccountId: requiredAccountAlias(
-        inputs.surplusAllocation.reserveAccountId,
+      reserveAccountIds: inputs.surplusAllocation.reserveAccountIds.map(
+        (accountId) => requiredAccountAlias(accountId, context).key,
+      ),
+      reserveRefillAccountId: requiredAccountAlias(
+        inputs.surplusAllocation.reserveRefillAccountId,
         context,
       ).key,
       targetCashReserveToday:
@@ -872,8 +877,12 @@ function safeProjectionResult(
     },
     surplusAllocation: {
       policy: {
-        reserveAccountId: requiredAccountAlias(
-          projection.surplusAllocation.policy.reserveAccountId,
+        reserveAccountIds:
+          projection.surplusAllocation.policy.reserveAccountIds.map(
+            (accountId) => requiredAccountAlias(accountId, context).key,
+          ),
+        reserveRefillAccountId: requiredAccountAlias(
+          projection.surplusAllocation.policy.reserveRefillAccountId,
           context,
         ).key,
         targetCashReserveToday:
@@ -902,8 +911,8 @@ function safeProjectionResult(
       reserveTargetAtRetirement: {
         ...projection.surplusAllocation.reserveTargetAtRetirement,
       },
-      reserveAccountBalanceAtRetirement: {
-        ...projection.surplusAllocation.reserveAccountBalanceAtRetirement,
+      reserveAccountsBalanceAtRetirement: {
+        ...projection.surplusAllocation.reserveAccountsBalanceAtRetirement,
       },
       destinationAccountBalanceAtRetirement:
         projection.surplusAllocation.destinationAccountBalanceAtRetirement
@@ -1058,8 +1067,25 @@ function provenanceField(
   context: ShareSafeContext,
   rawValue: unknown,
 ): ProvenanceField | undefined {
+  if (rawField === "surplusAllocation.reserveAccountIds") {
+    if (
+      !Array.isArray(rawValue) ||
+      rawValue.some((value) => typeof value !== "string")
+    ) {
+      return undefined;
+    }
+    const accountReferences = rawValue.map((value) =>
+      context.accountByRawId.get(value as string),
+    );
+    if (accountReferences.some((value) => !value)) return undefined;
+    return {
+      reference: rawField,
+      accountReferences: accountReferences as AccountAlias[],
+      finalField: "reserveAccountIds",
+    };
+  }
   if (
-    rawField === "surplusAllocation.reserveAccountId" ||
+    rawField === "surplusAllocation.reserveRefillAccountId" ||
     rawField === "surplusAllocation.excess.destinationAccountId"
   ) {
     if (typeof rawValue !== "string") return undefined;
@@ -1156,6 +1182,9 @@ function safeProvenanceValue(
   safeEvents: ProjectionEventInput[],
 ): ShareSafeProvenanceData {
   if (field.reference === "events") return safeEvents;
+  if (field.accountReferences) {
+    return field.accountReferences.map((account) => account.key);
+  }
   if (field.accountReference) return field.accountReference.key;
   if (field.accountField === "label" && field.account) {
     return field.account.label;
@@ -1532,7 +1561,8 @@ export function projectionSnapshotToCsv(
     "surplus_reserve_target_today",
     "surplus_reserve_indexing_rate",
     "surplus_excess_mode",
-    "surplus_reserve_account",
+    "surplus_reserve_accounts",
+    "surplus_reserve_refill_account",
     "surplus_destination_account",
     "cashWithdrawals",
     "tfsaWithdrawals",
@@ -1595,7 +1625,8 @@ export function projectionSnapshotToCsv(
         .targetCashReserveToday,
       snapshot.projection.surplusAllocation.policy.reserveIndexingRate,
       snapshot.projection.surplusAllocation.policy.excessMode,
-      snapshot.projection.surplusAllocation.policy.reserveAccountId,
+      snapshot.projection.surplusAllocation.policy.reserveAccountIds.join("; "),
+      snapshot.projection.surplusAllocation.policy.reserveRefillAccountId,
       snapshot.projection.surplusAllocation.policy.destinationAccountId ?? "",
       view.withdrawals.cash,
       view.withdrawals.tfsa,

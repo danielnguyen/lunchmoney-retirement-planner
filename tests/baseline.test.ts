@@ -27,7 +27,8 @@ const configFixture: PlannerConfig = {
     "manual:3": { include: false, type: "exclude" },
   },
   surplusAllocation: {
-    reserveAccountId: "manual:1",
+    reserveAccountIds: ["manual:1"],
+    reserveRefillAccountId: "manual:1",
     targetCashReserveToday: 1000,
     reserveIndexingRate: 0.02,
     excess: { mode: "retain_as_cash" },
@@ -566,7 +567,8 @@ describe("live baseline derivation", () => {
       },
     };
     configured.surplusAllocation = {
-      reserveAccountId: "manual:1",
+      reserveAccountIds: ["manual:1"],
+      reserveRefillAccountId: "manual:1",
       targetCashReserveToday: 5000,
       reserveIndexingRate: 0.02,
       excess: {
@@ -622,7 +624,8 @@ describe("live baseline derivation", () => {
     const configured = structuredClone(configFixture);
     configured.accountMappings["plaid:2"]!.type = "non_registered";
     configured.surplusAllocation = {
-      reserveAccountId: "manual:1",
+      reserveAccountIds: ["manual:1"],
+      reserveRefillAccountId: "manual:1",
       targetCashReserveToday: 5000,
       reserveIndexingRate: 0,
       excess: {
@@ -643,19 +646,56 @@ describe("live baseline derivation", () => {
     });
   });
 
+  it("resolves every reserve account, the refill account, and their provenance", () => {
+    const configured = structuredClone(configFixture);
+    configured.accountMappings["manual:3"] = {
+      include: true,
+      type: "cash",
+      withdrawalPriority: 3,
+    };
+    configured.surplusAllocation = {
+      reserveAccountIds: ["manual:1", "manual:3"],
+      reserveRefillAccountId: "manual:1",
+      targetCashReserveToday: 5000,
+      reserveIndexingRate: 0.02,
+      excess: { mode: "retain_as_cash" },
+    };
+
+    const baseline = deriveCurrentBaseline(
+      configured,
+      lunchMoneyData(),
+      window,
+      "2026-07-14T12:00:00.000Z",
+    );
+
+    expect(baseline.projectionInputs.surplusAllocation).toMatchObject({
+      reserveAccountIds: ["manual:1", "manual:3"],
+      reserveRefillAccountId: "manual:1",
+    });
+    expect(
+      baseline.provenance["surplusAllocation.reserveAccountIds"]?.value,
+    ).toEqual(["manual:1", "manual:3"]);
+    expect(
+      baseline.provenance["surplusAllocation.reserveRefillAccountId"]?.value,
+    ).toBe("manual:1");
+  });
+
   it("blocks missing, non-cash reserve, and missing or registered excess destinations", () => {
     const cases: Array<[string, (config: PlannerConfig) => void, string]> = [
       [
         "missing reserve",
         (config) => {
-          config.surplusAllocation.reserveAccountId = "manual:missing";
+          config.surplusAllocation.reserveAccountIds = ["manual:missing"];
+          config.surplusAllocation.reserveRefillAccountId =
+            "manual:missing";
         },
         "Unknown surplusAllocation reserve account",
       ],
       [
         "non-cash reserve",
         (config) => {
-          config.surplusAllocation.reserveAccountId = "plaid:2";
+          config.surplusAllocation.reserveAccountIds = ["plaid:2"];
+          config.surplusAllocation.reserveRefillAccountId = "plaid:2";
         },
         "must be a cash account",
       ],
@@ -663,7 +703,8 @@ describe("live baseline derivation", () => {
         "missing destination",
         (config) => {
           config.surplusAllocation = {
-            reserveAccountId: "manual:1",
+            reserveAccountIds: ["manual:1"],
+            reserveRefillAccountId: "manual:1",
             targetCashReserveToday: 0,
             reserveIndexingRate: 0,
             excess: {
@@ -678,7 +719,8 @@ describe("live baseline derivation", () => {
         "TFSA destination",
         (config) => {
           config.surplusAllocation = {
-            reserveAccountId: "manual:1",
+            reserveAccountIds: ["manual:1"],
+            reserveRefillAccountId: "manual:1",
             targetCashReserveToday: 0,
             reserveIndexingRate: 0,
             excess: {
@@ -694,7 +736,8 @@ describe("live baseline derivation", () => {
         (config) => {
           config.accountMappings["plaid:2"]!.type = "rrsp";
           config.surplusAllocation = {
-            reserveAccountId: "manual:1",
+            reserveAccountIds: ["manual:1"],
+            reserveRefillAccountId: "manual:1",
             targetCashReserveToday: 0,
             reserveIndexingRate: 0,
             excess: {
@@ -710,7 +753,8 @@ describe("live baseline derivation", () => {
         (config) => {
           config.accountMappings["plaid:2"]!.type = "debt";
           config.surplusAllocation = {
-            reserveAccountId: "manual:1",
+            reserveAccountIds: ["manual:1"],
+            reserveRefillAccountId: "manual:1",
             targetCashReserveToday: 0,
             reserveIndexingRate: 0,
             excess: {

@@ -81,7 +81,8 @@ export const projectionFixture: ProjectionInputs = {
     },
   ],
   surplusAllocation: {
-    reserveAccountId: "manual:1",
+    reserveAccountIds: ["manual:1"],
+    reserveRefillAccountId: "manual:1",
     targetCashReserveToday: 20000,
     reserveIndexingRate: 0.02,
     excess: { mode: "retain_as_cash" },

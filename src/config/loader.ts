@@ -350,17 +350,49 @@ function surplusAllocation(value: unknown): SurplusAllocationPolicyInput {
   if (value === undefined) {
     throw new PlannerRuntimeError(
       "invalid_planner_config",
-      "surplusAllocation is required. Configure an explicit reserve account, reserve target, indexing rate, and excess strategy.",
+      "surplusAllocation is required. Configure explicit reserve accounts, a reserve refill account, reserve target, indexing rate, and excess strategy.",
       422,
     );
   }
   const item = record(value, "surplusAllocation");
   const excess = record(item.excess, "surplusAllocation.excess");
-  const policy = {
-    reserveAccountId: nonEmptyString(
-      item.reserveAccountId,
-      "surplusAllocation.reserveAccountId",
+  if (
+    !Array.isArray(item.reserveAccountIds) ||
+    item.reserveAccountIds.length === 0
+  ) {
+    throw new PlannerRuntimeError(
+      "invalid_planner_config",
+      "surplusAllocation.reserveAccountIds must be a non-empty array.",
+      422,
+    );
+  }
+  const reserveAccountIds = item.reserveAccountIds.map((accountId, index) =>
+    nonEmptyString(
+      accountId,
+      `surplusAllocation.reserveAccountIds[${index}]`,
     ),
+  );
+  if (new Set(reserveAccountIds).size !== reserveAccountIds.length) {
+    throw new PlannerRuntimeError(
+      "invalid_planner_config",
+      "surplusAllocation.reserveAccountIds must not contain duplicate accounts.",
+      422,
+    );
+  }
+  const reserveRefillAccountId = nonEmptyString(
+    item.reserveRefillAccountId,
+    "surplusAllocation.reserveRefillAccountId",
+  );
+  if (!reserveAccountIds.includes(reserveRefillAccountId)) {
+    throw new PlannerRuntimeError(
+      "invalid_planner_config",
+      "surplusAllocation.reserveRefillAccountId must be included in reserveAccountIds.",
+      422,
+    );
+  }
+  const policy = {
+    reserveAccountIds,
+    reserveRefillAccountId,
     targetCashReserveToday: number(
       item.targetCashReserveToday,
       "surplusAllocation.targetCashReserveToday",

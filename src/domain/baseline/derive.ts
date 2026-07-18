@@ -810,20 +810,36 @@ export function deriveCurrentBaseline(
     }
   }
 
-  const reserveAccount = projectionAccounts.find(
-    (account) => account.id === config.surplusAllocation.reserveAccountId,
+  const reserveAccounts = config.surplusAllocation.reserveAccountIds.map(
+    (reserveAccountId) => {
+      const reserveAccount = projectionAccounts.find(
+        (account) => account.id === reserveAccountId,
+      );
+      if (!reserveAccount) {
+        throw new PlannerRuntimeError(
+          "configuration_required",
+          `Unknown surplusAllocation reserve account ${reserveAccountId}.`,
+          422,
+        );
+      }
+      if (reserveAccount.type !== "cash") {
+        throw new PlannerRuntimeError(
+          "configuration_required",
+          `Surplus allocation reserve account ${reserveAccount.id} must be a cash account.`,
+          422,
+        );
+      }
+      return reserveAccount;
+    },
   );
-  if (!reserveAccount) {
+  const reserveRefillAccount = reserveAccounts.find(
+    (account) =>
+      account.id === config.surplusAllocation.reserveRefillAccountId,
+  );
+  if (!reserveRefillAccount) {
     throw new PlannerRuntimeError(
       "configuration_required",
-      `Unknown surplusAllocation reserve account ${config.surplusAllocation.reserveAccountId}.`,
-      422,
-    );
-  }
-  if (reserveAccount.type !== "cash") {
-    throw new PlannerRuntimeError(
-      "configuration_required",
-      `Surplus allocation reserve account ${reserveAccount.id} must be a cash account.`,
+      "surplusAllocation.reserveRefillAccountId must be included in reserveAccountIds.",
       422,
     );
   }
@@ -840,7 +856,11 @@ export function deriveCurrentBaseline(
         422,
       );
     }
-    if (destinationAccount.id === reserveAccount.id) {
+    if (
+      config.surplusAllocation.reserveAccountIds.includes(
+        destinationAccount.id,
+      )
+    ) {
       throw new PlannerRuntimeError(
         "configuration_required",
         "Surplus allocation reserve and destination accounts must be different.",
@@ -1274,9 +1294,14 @@ export function deriveCurrentBaseline(
     "Optional future events from private planner configuration",
     window.endDate,
   );
-  provenance["surplusAllocation.reserveAccountId"] = localValue(
-    config.surplusAllocation.reserveAccountId,
-    "Explicit surplus reserve account from private planner configuration",
+  provenance["surplusAllocation.reserveAccountIds"] = localValue(
+    config.surplusAllocation.reserveAccountIds,
+    "Explicit cash accounts counted toward the surplus reserve from private planner configuration",
+    window.endDate,
+  );
+  provenance["surplusAllocation.reserveRefillAccountId"] = localValue(
+    config.surplusAllocation.reserveRefillAccountId,
+    "Explicit cash account receiving reserve refills and retained excess from private planner configuration",
     window.endDate,
   );
   provenance["surplusAllocation.targetCashReserveToday"] = localValue(

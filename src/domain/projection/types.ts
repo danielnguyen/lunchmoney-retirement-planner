@@ -78,7 +78,8 @@ export type FinancialAccountInput = {
 };
 
 export type SurplusAllocationPolicyInput = {
-  reserveAccountId: string;
+  reserveAccountIds: string[];
+  reserveRefillAccountId: string;
   targetCashReserveToday: number;
   reserveIndexingRate: number;
   excess:
@@ -269,7 +270,8 @@ export type SurplusAllocationTotals = {
 
 export type SurplusAllocationCalculationSummary = {
   policy: {
-    reserveAccountId: string;
+    reserveAccountIds: string[];
+    reserveRefillAccountId: string;
     targetCashReserveToday: number;
     reserveIndexingRate: number;
     excessMode: "retain_as_cash" | "allocate_to_account";
@@ -283,7 +285,7 @@ export type SurplusAllocationCalculationSummary = {
     nominal: number;
     real: number;
   };
-  reserveAccountBalanceAtRetirement: {
+  reserveAccountsBalanceAtRetirement: {
     nominal: number;
     real: number;
   };
@@ -643,13 +645,39 @@ export function validateProjectionInputs(value: unknown): ProjectionInputs {
   const surplus = input.surplusAllocation;
   if (!surplus || typeof surplus !== "object") {
     throw new Error(
-      "surplusAllocation is required; configure an explicit reserve account and excess strategy",
+      "surplusAllocation is required; configure explicit reserve accounts, a refill account, and an excess strategy",
     );
   }
+  if (
+    !Array.isArray(surplus.reserveAccountIds) ||
+    surplus.reserveAccountIds.length === 0
+  ) {
+    throw new Error(
+      "surplusAllocation.reserveAccountIds must be a non-empty array",
+    );
+  }
+  const reserveAccountIds = new Set<string>();
+  for (const [index, accountId] of surplus.reserveAccountIds.entries()) {
+    assertNonEmptyString(
+      `surplusAllocation.reserveAccountIds[${index}]`,
+      accountId,
+    );
+    if (reserveAccountIds.has(accountId)) {
+      throw new Error(
+        `surplusAllocation.reserveAccountIds contains duplicate account ${accountId}`,
+      );
+    }
+    reserveAccountIds.add(accountId);
+  }
   assertNonEmptyString(
-    "surplusAllocation.reserveAccountId",
-    surplus.reserveAccountId,
+    "surplusAllocation.reserveRefillAccountId",
+    surplus.reserveRefillAccountId,
   );
+  if (!reserveAccountIds.has(surplus.reserveRefillAccountId)) {
+    throw new Error(
+      "surplusAllocation.reserveRefillAccountId must be included in reserveAccountIds",
+    );
+  }
   assertNonNegative(
     "surplusAllocation.targetCashReserveToday",
     surplus.targetCashReserveToday,
@@ -683,7 +711,7 @@ export function validateProjectionInputs(value: unknown): ProjectionInputs {
       "surplusAllocation.excess.destinationAccountId",
       excess.destinationAccountId,
     );
-    if (excess.destinationAccountId === surplus.reserveAccountId) {
+    if (reserveAccountIds.has(excess.destinationAccountId)) {
       throw new Error(
         "surplusAllocation reserve and destination accounts must be different",
       );
@@ -700,16 +728,18 @@ export function validateProjectionInputs(value: unknown): ProjectionInputs {
       );
     }
   }
-  const reserveAccount = accountsById.get(surplus.reserveAccountId);
-  if (!reserveAccount) {
-    throw new Error(
-      `Unknown surplusAllocation reserve account ${surplus.reserveAccountId}`,
-    );
-  }
-  if (reserveAccount.type !== "cash") {
-    throw new Error(
-      `Surplus allocation reserve account ${reserveAccount.id} must be a cash account`,
-    );
+  for (const reserveAccountId of surplus.reserveAccountIds) {
+    const reserveAccount = accountsById.get(reserveAccountId);
+    if (!reserveAccount) {
+      throw new Error(
+        `Unknown surplusAllocation reserve account ${reserveAccountId}`,
+      );
+    }
+    if (reserveAccount.type !== "cash") {
+      throw new Error(
+        `Surplus allocation reserve account ${reserveAccount.id} must be a cash account`,
+      );
+    }
   }
 
   for (const event of input.events) {
