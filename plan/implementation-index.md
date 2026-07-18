@@ -15,9 +15,10 @@ Public content must remain generic. Do not add private financial values, account
 - Branch: `agent/add-surplus-allocation-policy`
 - Latest validated implementation head: `88e8f0390c4d1268404590ab621235b3428271e2`
 - Synthetic validation: Passed — 10 test files and 138 tests, including scalar CSV reserve-membership columns, dual-equality explanation reconciliation, three-account reserve aggregation, reserve-return timing, typecheck, lint, production build, Docker build, Compose configuration, export privacy, and diff checks
-- Remaining step: repository-owner private surplus-policy migration remains outstanding
-- Private live smoke test: Outstanding
-- Next action: after review, migrate the private surplus policy and perform the live smoke test
+- Repository-owner private migration: Completed locally in ignored configuration; no private values or configuration were committed
+- Private live smoke test: Passed — configuration, live baseline and projection, dashboard and API routes, explanations, overrides and reset, nominal and real bridges, automatic JSON and CSV anonymization, and private denylist checks
+- Remaining step: review the open draft pull request
+- Next action: review draft PR #9; pull-request readiness remains a repository-owner decision
 - Last completed capability: Government benefits
 
 ## Terminology boundary
