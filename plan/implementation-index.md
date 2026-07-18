@@ -8,10 +8,15 @@ Public content must remain generic. Do not add private financial values, account
 
 ## Current position
 
-- Open implementation pull requests: None
+- Open implementation pull request: [#9 Add explicit surplus allocation policy](https://github.com/danielnguyen/lunchmoney-retirement-planner/pull/9)
+- Pull request state: Open draft
 - Active capability: Surplus allocation policy
-- Status: Next
-- Next action: implement Surplus allocation policy from the latest merged `main`
+- Status: In progress
+- Branch: `agent/add-surplus-allocation-policy`
+- Latest validated implementation head: `8470359cbc5cbda8954bb43cc946cc493ee8cc2a`
+- Synthetic validation: Passed — 10 test files and 130 tests, typecheck, lint, production build, Docker build, Compose configuration, export privacy, and diff checks
+- Remaining step: repository-owner private surplus-policy configuration and live smoke test
+- Next action: migrate the private surplus policy, smoke-test it, then review draft PR #9
 - Last completed capability: Government benefits
 
 ## Terminology boundary
@@ -31,7 +36,7 @@ Branches, pull-request titles, commits, tests, documentation headings, types, fu
 | Sequence | Capability | Primary dependency | Status | Pull request |
 |---|---|---|---|---|
 | 1 | Government benefits | Phased income model | Completed | [#8](https://github.com/danielnguyen/lunchmoney-retirement-planner/pull/8) |
-| 2 | Surplus allocation policy | Government benefits | Next | — |
+| 2 | Surplus allocation policy | Government benefits | In progress | [#9](https://github.com/danielnguyen/lunchmoney-retirement-planner/pull/9) |
 | 3 | Registered-account room and contribution waterfall | Surplus allocation policy | Planned | — |
 | 4 | Debt amortization and spending phases | Phased contribution model | Planned | — |
 | 5 | RRIF minimum withdrawals and Canadian taxes | Surplus allocation policy and debt/spending model | Planned | — |
