@@ -50,6 +50,7 @@ export const projectionFixture: ProjectionInputs = {
     {
       id: "manual:1",
       label: "Cash account",
+      origin: "lunchmoney",
       type: "cash",
       openingBalance: 20000,
       annualReturn: 0.02,
@@ -60,6 +61,7 @@ export const projectionFixture: ProjectionInputs = {
     {
       id: "manual:2",
       label: "Investment account",
+      origin: "lunchmoney",
       type: "rrsp_rrif",
       openingBalance: 180000,
       annualReturn: 0.05,
@@ -78,6 +80,13 @@ export const projectionFixture: ProjectionInputs = {
       allocation: { cash: 0, fixedIncome: 0.3, equity: 0.7 },
     },
   ],
+  surplusAllocation: {
+    reserveAccountIds: ["manual:1"],
+    reserveRefillAccountId: "manual:1",
+    targetCashReserveToday: 20000,
+    reserveIndexingRate: 0.02,
+    excess: { mode: "retain_as_cash" },
+  },
   events: [
     {
       id: "future-expense",
@@ -160,7 +169,7 @@ export const baselineContextFixture: BaselineExportContext = {
 
 export const currentBaselineFixture: CurrentBaseline = {
   ...baselineContextFixture,
-  schemaVersion: "1.3",
+  schemaVersion: "1.4",
   provenance: {
     ...baselineContextFixture.provenance,
     monthlyDiscretionarySpendingToday: {

@@ -1,8 +1,11 @@
 import { describe, expect, it } from "vitest";
 import {
   annualPeriodLabel,
+  buildAnnualChartData,
+  buildAnnualLedgerData,
   startingFinancialAssets,
 } from "@/src/domain/projection/presentation";
+import { calculateProjection } from "@/src/domain/projection/calculate";
 import { projectionFixture } from "./fixtures/projection";
 
 describe("projection presentation metadata", () => {
@@ -61,5 +64,40 @@ describe("projection presentation metadata", () => {
     inputs.endAge = 42;
 
     expect(annualPeriodLabel(inputs, 2028)).toBe("2028 (Jan–Jun)");
+  });
+
+  it("carries surplus flows, reserve target, and per-account allocations through shared presentation data", () => {
+    const projection = calculateProjection(projectionFixture);
+    const chart = buildAnnualChartData(
+      projectionFixture,
+      projection,
+      "real",
+    );
+    const ledger = buildAnnualLedgerData(
+      projectionFixture,
+      projection,
+      "real",
+    );
+
+    expect(chart[0]).toMatchObject({
+      surplusGenerated: projection.annual[0]!.real.surplusAllocation
+        .generated,
+      surplusReserveRefill: projection.annual[0]!.real.surplusAllocation
+        .reserveRefill,
+      surplusRetainedAsCash: projection.annual[0]!.real.surplusAllocation
+        .retainedAsCash,
+      surplusRedirected: projection.annual[0]!.real.surplusAllocation
+        .redirected,
+      surplusReserveTarget: projection.annual[0]!.real.surplusAllocation
+        .reserveTarget,
+    });
+    expect(chart[0]).toHaveProperty("surplusAllocation:manual:1");
+    expect(ledger[0]).toMatchObject({
+      surplusGenerated: chart[0]!.surplusGenerated,
+      surplusReserveRefill: chart[0]!.surplusReserveRefill,
+      surplusRetainedAsCash: chart[0]!.surplusRetainedAsCash,
+      surplusRedirected: chart[0]!.surplusRedirected,
+      surplusReserveTarget: chart[0]!.surplusReserveTarget,
+    });
   });
 });

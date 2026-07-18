@@ -1521,11 +1521,22 @@ function accountDetailsRows(context: ExplanationContext) {
     );
     return {
       account: account.label,
+      origin:
+        account.origin === "lunchmoney"
+          ? "Imported Lunch Money account"
+          : "Projection-only configuration",
       plannerType: accountTypeLabels[account.type],
       financialAssetsTreatment:
         account.type === "debt" ? "Excluded — debt" : "Included",
       openingBalance: account.openingBalance,
-      balanceDate: baselineAccount?.balanceAsOf ?? context.baseline.dataThrough,
+      openingBalanceSource:
+        account.origin === "lunchmoney"
+          ? `Imported balance through ${baselineAccount?.balanceAsOf ?? context.baseline.dataThrough}`
+          : "Fixed at zero through projection configuration; not imported",
+      balanceDate:
+        account.origin === "lunchmoney"
+          ? baselineAccount?.balanceAsOf ?? context.baseline.dataThrough
+          : "Not applicable",
       annualReturn: percent.format(account.annualReturn),
       monthlyContribution: activeContributionPhase?.monthlyAmountToday ?? 0,
       contributionFunding:
@@ -1752,6 +1763,11 @@ function ledgerDocument(context: ExplanationContext): ExplanationDocument {
           { column: "Withdrawals", meaning: "Gross amounts withdrawn from financial accounts during the period." },
           { column: "Tax", meaning: "Simplified retirement and RRSP/RRIF withdrawal tax during the period." },
           { column: "Spending", meaning: "Essential, discretionary, and one-time spending during the period." },
+          { column: "Surplus generated", meaning: "Positive unassigned monthly cash generated during the period after targeted inflows are isolated." },
+          { column: "Reserve refill", meaning: "Policy-generated surplus used to close the indexed reserve shortfall." },
+          { column: "Retained as cash", meaning: "Policy-generated surplus deposited into the reserve refill account." },
+          { column: "Redirected", meaning: "Policy-generated surplus deposited into the configured non-registered destination." },
+          { column: "Reserve target", meaning: "Active indexed reserve target at the period boundary." },
           { column: "Financial assets", meaning: "End-of-period cash and investment balance snapshot; debt excluded." },
           { column: "Milestones", meaning: "Events crossed during the period: retirement, CPP, OAS, or RRIF conversion." },
         ],
@@ -1766,6 +1782,11 @@ function ledgerDocument(context: ExplanationContext): ExplanationDocument {
           { key: "withdrawals", label: "Withdrawals" },
           { key: "tax", label: "Tax" },
           { key: "spending", label: "Spending" },
+          { key: "surplusGenerated", label: "Surplus generated" },
+          { key: "surplusReserveRefill", label: "Reserve refill" },
+          { key: "surplusRetainedAsCash", label: "Retained as cash" },
+          { key: "surplusRedirected", label: "Redirected" },
+          { key: "surplusReserveTarget", label: "Reserve target" },
           { key: "financialAssets", label: "Financial assets" },
           { key: "milestones", label: "Milestones" },
         ],
@@ -1784,15 +1805,22 @@ function ledgerDocument(context: ExplanationContext): ExplanationDocument {
 
 function accountsDocument(context: ExplanationContext): ExplanationDocument {
   const rows = accountDetailsRows(context);
+  const importedRows = rows.filter(
+    (_, index) => context.inputs.accounts[index]?.origin === "lunchmoney",
+  );
+  const projectionRows = rows.filter(
+    (_, index) =>
+      context.inputs.accounts[index]?.origin === "projection_configuration",
+  );
   const financialAssets = rows.filter((row) => row.plannerType !== "Debt");
   const debt = rows.filter((row) => row.plannerType === "Debt");
   const totalIncludedAccounts = rows.length;
   const calculatedTotal = financialAssets.length + debt.length;
   return {
     id: "lunchmoney-accounts",
-    title: "Lunch Money accounts",
+    title: "Financial accounts",
     plainLanguage:
-      "Included account balances come from Lunch Money; planner type, returns, contributions, withdrawal priority, and allocation come from the local configuration unless temporarily overridden.",
+      "Imported Lunch Money balances and projection-only configured accounts remain distinct. Projection-only accounts always open at zero and are never described as imported or synced balances.",
     displayedResult: {
       label: "Included accounts",
       value: String(totalIncludedAccounts),
@@ -1824,12 +1852,14 @@ function accountsDocument(context: ExplanationContext): ExplanationDocument {
     ],
     dataSections: [
       {
-        title: "Included account mapping and assumptions",
+        title: "Imported Lunch Money account mapping and assumptions",
         columns: [
           { key: "account", label: "Account" },
+          { key: "origin", label: "Origin" },
           { key: "plannerType", label: "Mapping type" },
           { key: "financialAssetsTreatment", label: "Financial-assets treatment" },
           { key: "openingBalance", label: "Opening balance" },
+          { key: "openingBalanceSource", label: "Opening-balance source" },
           { key: "balanceDate", label: "Balance as of" },
           { key: "annualReturn", label: "Return" },
           { key: "monthlyContribution", label: "Monthly contribution" },
@@ -1837,16 +1867,346 @@ function accountsDocument(context: ExplanationContext): ExplanationDocument {
           { key: "withdrawalPriority", label: "Withdrawal priority" },
           { key: "allocation", label: "Allocation" },
         ],
-        rows,
+        rows: importedRows,
         initiallyExpanded: true,
       },
+      ...(projectionRows.length === 0
+        ? []
+        : [
+            {
+              title: "Projection-only configured accounts",
+              description:
+                "These accounts are appended after imported accounts with an opening balance fixed at zero.",
+              columns: [
+                { key: "account", label: "Account" },
+                { key: "origin", label: "Origin" },
+                { key: "plannerType", label: "Planner type" },
+                { key: "openingBalance", label: "Opening balance" },
+                {
+                  key: "openingBalanceSource",
+                  label: "Opening-balance source",
+                },
+                { key: "annualReturn", label: "Return" },
+                {
+                  key: "withdrawalPriority",
+                  label: "Withdrawal priority",
+                },
+                { key: "allocation", label: "Allocation" },
+              ],
+              rows: projectionRows,
+              initiallyExpanded: true,
+            },
+          ]),
     ],
     assumptions: commonAssumptions(context),
     caveats: [
       "No raw transactions are included in this explanation.",
       "Debt balances reduce net worth but are not part of the financial-assets total.",
+      "Projection-only opening balances are fixed at zero in configuration and never come from Lunch Money.",
     ],
     reconciliation: matched(calculatedTotal, totalIncludedAccounts),
+  };
+}
+
+function accountOriginLabel(account: FinancialAccountInput): string {
+  return account.origin === "lunchmoney"
+    ? "Lunch Money"
+    : "Projection-only configuration";
+}
+
+function surplusAllocationDocument(
+  context: ExplanationContext,
+): ExplanationDocument {
+  const result = context.projection.surplusAllocation;
+  const totals = result.throughRetirement[context.displayMode];
+  const reserveAccounts = result.policy.reserveAccountIds.map(
+    (accountId) =>
+      context.inputs.accounts.find((account) => account.id === accountId)!,
+  );
+  const reserveRefillAccount = context.inputs.accounts.find(
+    (account) => account.id === result.policy.reserveRefillAccountId,
+  )!;
+  const reserveAccountLabels = reserveAccounts
+    .map((account) => account.label)
+    .join(", ");
+  const destination = result.policy.destinationAccountId
+    ? context.inputs.accounts.find(
+        (account) => account.id === result.policy.destinationAccountId,
+      )!
+    : null;
+  const retirementView =
+    context.projection.retirementSnapshot[context.displayMode];
+  const accountAllocationTotal = Object.values(
+    totals.accountAllocations,
+  ).reduce((sum, value) => sum + value, 0);
+  const routedTotal = totals.retainedAsCash + totals.redirected;
+  const routedDifference = routedTotal - totals.generated;
+  const accountAllocationDifference =
+    accountAllocationTotal - totals.generated;
+  const policySource =
+    context.baseline.provenance["surplusAllocation.excess.mode"];
+  const annualRows = buildAnnualChartData(
+    context.inputs,
+    context.projection,
+    context.displayMode,
+  ).map((row) => ({
+    period: row.periodLabel,
+    generated: row.surplusGenerated,
+    reserveRefill: row.surplusReserveRefill,
+    retainedAsCash: row.surplusRetainedAsCash,
+    redirected: row.surplusRedirected,
+    reserveTarget: row.surplusReserveTarget,
+  }));
+  return {
+    id: "surplus-allocation",
+    title: "Surplus allocation",
+    plainLanguage:
+      result.policy.excessMode === "retain_as_cash"
+        ? `Positive unassigned monthly cash first compares the combined balance of ${reserveAccountLabels} with the indexed target. Any shortfall and all remaining excess go to ${reserveRefillAccount.label}.`
+        : `Positive unassigned monthly cash first compares the combined balance of ${reserveAccountLabels} with the indexed target. Any shortfall goes to ${reserveRefillAccount.label}, then remaining excess goes to ${destination!.label}.`,
+    displayedResult: {
+      label: "Surplus generated through retirement",
+      value: exactCurrency.format(totals.generated),
+      dollarMode: context.displayMode,
+      period: `Through ${context.projection.retirementSnapshot.calendarDate}`,
+    },
+    formula:
+      "Generated surplus = retained as cash + redirected = sum of policy deposits by account",
+    steps: [
+      {
+        label: "Generated surplus",
+        value: exactCurrency.format(totals.generated),
+        rawValue: totals.generated,
+        operation: "input",
+        sourceType: "projection",
+      },
+      {
+        label: "Reserve refill",
+        value: exactCurrency.format(totals.reserveRefill),
+        rawValue: totals.reserveRefill,
+        operation: "input",
+        sourceType: "projection",
+      },
+      {
+        label: "Retained as cash",
+        value: exactCurrency.format(totals.retainedAsCash),
+        rawValue: totals.retainedAsCash,
+        operation: "add",
+        sourceType: "projection",
+      },
+      {
+        label: "Redirected",
+        value: exactCurrency.format(totals.redirected),
+        rawValue: totals.redirected,
+        operation: "add",
+        sourceType: "projection",
+      },
+      {
+        label: "Retained plus redirected",
+        value: exactCurrency.format(routedTotal),
+        rawValue: routedTotal,
+        operation: "result",
+        sourceType: "projection",
+      },
+      {
+        label: "Routed difference from generated",
+        value: exactCurrency.format(routedDifference),
+        rawValue: routedDifference,
+        operation: "subtract",
+        sourceType: "projection",
+      },
+      {
+        label: "Policy account-deposit total",
+        value: exactCurrency.format(accountAllocationTotal),
+        rawValue: accountAllocationTotal,
+        operation: "result",
+        sourceType: "projection",
+      },
+      {
+        label: "Account-deposit difference from generated",
+        value: exactCurrency.format(accountAllocationDifference),
+        rawValue: accountAllocationDifference,
+        operation: "subtract",
+        sourceType: "projection",
+      },
+    ],
+    dataSections: [
+      {
+        title: "Annual surplus allocation",
+        description:
+          "Exact shared annual presentation rows used by the dashboard chart.",
+        columns: [
+          { key: "period", label: "Period" },
+          { key: "generated", label: "Generated surplus" },
+          { key: "reserveRefill", label: "Reserve refill" },
+          { key: "retainedAsCash", label: "Retained as cash" },
+          { key: "redirected", label: "Redirected" },
+          { key: "reserveTarget", label: "Reserve target" },
+        ],
+        rows: annualRows,
+        initiallyExpanded: true,
+      },
+      {
+        title: "Policy deposits by destination account",
+        columns: [
+          { key: "account", label: "Account" },
+          { key: "origin", label: "Origin" },
+          { key: "amount", label: "Through retirement" },
+        ],
+        rows: Object.entries(totals.accountAllocations).map(
+          ([accountId, amount]) => {
+            const account = context.inputs.accounts.find(
+              (item) => item.id === accountId,
+            )!;
+            return {
+              account: account.label,
+              origin: accountOriginLabel(account),
+              amount,
+            };
+          },
+        ),
+      },
+      {
+        title: "Retirement asset composition",
+        description:
+          "Internal routing changes account composition immediately; account-specific returns can then change future total assets.",
+        columns: [
+          { key: "item", label: "Item" },
+          { key: "value", label: modeLabel(context) },
+        ],
+        rows: [
+          {
+            item: "Combined reserve-account balance",
+            value:
+              result.reserveAccountsBalanceAtRetirement[
+                context.displayMode
+              ],
+          },
+          ...(destination &&
+          result.destinationAccountBalanceAtRetirement
+            ? [
+                {
+                  item: `${destination.label} balance`,
+                  value:
+                    result.destinationAccountBalanceAtRetirement[
+                      context.displayMode
+                    ],
+                },
+              ]
+            : []),
+          {
+            item: "Cash allocation",
+            value: retirementView.allocation.cash,
+          },
+          {
+            item: "Fixed-income allocation",
+            value: retirementView.allocation.fixedIncome,
+          },
+          {
+            item: "Equity allocation",
+            value: retirementView.allocation.equity,
+          },
+        ],
+      },
+    ],
+    assumptions: [
+      {
+        label: "Reserve accounts and origins",
+        value: reserveAccounts
+          .map(
+            (account) =>
+              `${account.label} · ${accountOriginLabel(account)}`,
+          )
+          .join("; "),
+        sourceType: "configuration",
+        sourceDescription:
+          context.baseline.provenance[
+            "surplusAllocation.reserveAccountIds"
+          ]?.sourceDescription,
+        effectiveDate:
+          context.baseline.provenance[
+            "surplusAllocation.reserveAccountIds"
+          ]?.effectiveDate,
+      },
+      {
+        label: "Reserve refill account and origin",
+        value: `${reserveRefillAccount.label} · ${accountOriginLabel(reserveRefillAccount)}`,
+        sourceType: "configuration",
+        sourceDescription:
+          context.baseline.provenance[
+            "surplusAllocation.reserveRefillAccountId"
+          ]?.sourceDescription,
+        effectiveDate:
+          context.baseline.provenance[
+            "surplusAllocation.reserveRefillAccountId"
+          ]?.effectiveDate,
+      },
+      inputAssumption(
+        context,
+        "Target reserve today",
+        context.inputs.surplusAllocation.targetCashReserveToday,
+        context.baseline.projectionInputs.surplusAllocation
+          .targetCashReserveToday,
+        "surplusAllocation.targetCashReserveToday",
+        exactCurrency.format,
+      ),
+      inputAssumption(
+        context,
+        "Reserve indexing",
+        context.inputs.surplusAllocation.reserveIndexingRate,
+        context.baseline.projectionInputs.surplusAllocation
+          .reserveIndexingRate,
+        "surplusAllocation.reserveIndexingRate",
+        percent.format,
+      ),
+      {
+        label: "Reserve target at retirement",
+        value: exactCurrency.format(
+          result.reserveTargetAtRetirement[context.displayMode],
+        ),
+        sourceType: "projection",
+      },
+      {
+        label: "Excess strategy",
+        value:
+          result.policy.excessMode === "retain_as_cash"
+            ? "Retain as cash"
+            : "Allocate to non-registered account",
+        sourceType: sourceType(policySource),
+        sourceDescription: policySource?.sourceDescription,
+        effectiveDate: policySource?.effectiveDate,
+      },
+      ...(destination
+        ? [
+            {
+              label: "Destination and origin",
+              value: `${destination.label} · ${accountOriginLabel(destination)}`,
+              sourceType: "configuration" as const,
+              sourceDescription:
+                context.baseline.provenance[
+                  "surplusAllocation.excess.destinationAccountId"
+                ]?.sourceDescription,
+              effectiveDate:
+                context.baseline.provenance[
+                  "surplusAllocation.excess.destinationAccountId"
+                ]?.effectiveDate,
+            },
+          ]
+        : []),
+    ],
+    caveats: [
+      "Automatic routing to TFSA and RRSP/RRIF accounts is intentionally unavailable until registered-account room is modelled.",
+      "Targeted event inflows go only to their explicit target and are excluded from policy-generated surplus.",
+      "Surplus routing is an internal allocation of external net cash already represented by income and outflow bridge terms; it does not change total financial assets at the allocation moment.",
+      "Different account returns can change future total assets after the allocation moment.",
+      `Generated surplus and retained plus redirected differ by ${exactCurrency.format(routedDifference)}; account deposits differ from generated by ${exactCurrency.format(accountAllocationDifference)}.`,
+    ],
+    reconciliation: {
+      ...matched(routedTotal, totals.generated),
+      matched:
+        sameValue(routedTotal, totals.generated) &&
+        sameValue(accountAllocationTotal, totals.generated),
+    },
   };
 }
 
@@ -2200,6 +2560,9 @@ export function buildExplanation(
   if (target === "annual-ledger") return ledgerDocument(context);
   if (target === "cpp-benefit") return cppBenefitDocument(context);
   if (target === "oas-benefit") return oasBenefitDocument(context);
+  if (target === "surplus-allocation") {
+    return surplusAllocationDocument(context);
+  }
   if (
     target === "baseline-income" ||
     target === "baseline-essential" ||

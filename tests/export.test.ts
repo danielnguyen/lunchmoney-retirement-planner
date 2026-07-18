@@ -82,6 +82,8 @@ function buildExportFixture(): ExportFixture {
       label: PRIVATE_TEXT.contributionPhaseLabel,
     })),
   };
+  inputs.surplusAllocation.reserveAccountIds = [RAW_IDS.cash];
+  inputs.surplusAllocation.reserveRefillAccountId = RAW_IDS.cash;
   inputs.events[0] = {
     ...inputs.events[0]!,
     id: RAW_IDS.event,
@@ -123,6 +125,36 @@ function buildExportFixture(): ExportFixture {
       value: inputs.events,
       sourceType: "local_configuration",
       sourceDescription: `${PRIVATE_TEXT.eventLabel}; ${PRIVATE_TEXT.note}`,
+      effectiveDate: baseline.dataThrough,
+    },
+    "surplusAllocation.reserveAccountIds": {
+      value: [RAW_IDS.cash],
+      sourceType: "local_configuration",
+      sourceDescription: RAW_ACCOUNT_NAMES.cash,
+      effectiveDate: baseline.dataThrough,
+    },
+    "surplusAllocation.reserveRefillAccountId": {
+      value: RAW_IDS.cash,
+      sourceType: "local_configuration",
+      sourceDescription: `Reserve account ${RAW_ACCOUNT_NAMES.cash}`,
+      effectiveDate: baseline.dataThrough,
+    },
+    "surplusAllocation.targetCashReserveToday": {
+      value: inputs.surplusAllocation.targetCashReserveToday,
+      sourceType: "local_configuration",
+      sourceDescription: "Configured cash reserve",
+      effectiveDate: baseline.dataThrough,
+    },
+    "surplusAllocation.reserveIndexingRate": {
+      value: inputs.surplusAllocation.reserveIndexingRate,
+      sourceType: "local_configuration",
+      sourceDescription: "Configured cash reserve indexing",
+      effectiveDate: baseline.dataThrough,
+    },
+    "surplusAllocation.excess.mode": {
+      value: inputs.surplusAllocation.excess.mode,
+      sourceType: "local_configuration",
+      sourceDescription: "Configured excess strategy",
       effectiveDate: baseline.dataThrough,
     },
     "person.cpp.monthlyAmountAt65Today": {
@@ -333,8 +365,8 @@ describe("automatically anonymized projection exports", () => {
     const { snapshot } = buildExportFixture();
     const serialized = JSON.stringify(snapshot);
 
-    expect(snapshot.schemaVersion).toBe("5.0");
-    expect(snapshot.projection.schemaVersion).toBe("5.0");
+    expect(snapshot.schemaVersion).toBe("6.0");
+    expect(snapshot.projection.schemaVersion).toBe("6.0");
     expect(snapshot.exportMetadata).toEqual({
       transformation: "typed_allowlist_and_automatic_anonymization",
       automaticSanitizationApplied: true,
@@ -627,6 +659,8 @@ describe("automatically anonymized projection exports", () => {
   it("uses a generic label and safe key for the synthetic cash account", () => {
     const inputs: ProjectionInputs = structuredClone(projectionFixture);
     inputs.accounts[0] = { ...inputs.accounts[0]!, id: "cash", label: PRIVATE_TEXT.personalName };
+    inputs.surplusAllocation.reserveAccountIds = ["cash"];
+    inputs.surplusAllocation.reserveRefillAccountId = "cash";
     const baseline: BaselineExportContext = structuredClone(baselineContextFixture);
     baseline.projectionInputs = inputs;
     baseline.derived.accountBalances[0] = {
@@ -784,6 +818,217 @@ describe("automatically anonymized projection exports", () => {
     expect(projectionSnapshotToCsv(second, "nominal")).toBe(
       projectionSnapshotToCsv(first, "nominal"),
     );
+  });
+
+  it("automatically aliases projection-only policy accounts, provenance, overrides, and flat CSV fields", () => {
+    const inputs = structuredClone(projectionFixture);
+    const secondReserveAccountId =
+      "manual:private-second-cash-DIGITS-4444";
+    const projectionAccountId =
+      "projection:private-taxable-DIGITS-5555";
+    const projectionLabel =
+      `${PRIVATE_TEXT.personalName} future taxable at ${PRIVATE_TEXT.institution}`;
+    inputs.accounts.push({
+      id: secondReserveAccountId,
+      label: `${PRIVATE_TEXT.personalName} second cash`,
+      origin: "lunchmoney",
+      type: "cash",
+      openingBalance: 1000,
+      annualReturn: 0.01,
+      contributionPhases: [],
+      withdrawalPriority: 3,
+      allocation: { cash: 1, fixedIncome: 0, equity: 0 },
+    });
+    inputs.accounts.push({
+      id: projectionAccountId,
+      label: projectionLabel,
+      origin: "projection_configuration",
+      type: "non_registered",
+      openingBalance: 0,
+      annualReturn: 0.07,
+      contributionPhases: [],
+      withdrawalPriority: 4,
+      allocation: { cash: 0, fixedIncome: 0.2, equity: 0.8 },
+    });
+    inputs.surplusAllocation = {
+      reserveAccountIds: ["manual:1", secondReserveAccountId],
+      reserveRefillAccountId: "manual:1",
+      targetCashReserveToday: 27500,
+      reserveIndexingRate: 0.03,
+      excess: {
+        mode: "allocate_to_account",
+        destinationAccountId: projectionAccountId,
+      },
+    };
+    const baseline = structuredClone(baselineContextFixture);
+    baseline.projectionInputs = structuredClone(inputs);
+    baseline.provenance = {
+      "accounts.projection:private-taxable-DIGITS-5555.label": {
+        value: projectionLabel,
+        sourceType: "local_configuration",
+        sourceDescription: `${projectionLabel} from ${PRIVATE_TEXT.privateConfigPath}`,
+        effectiveDate: baseline.dataThrough,
+      },
+      "accounts.projection:private-taxable-DIGITS-5555.origin": {
+        value: "projection_configuration",
+        sourceType: "local_configuration",
+        sourceDescription: "Projection-only configured origin",
+        effectiveDate: baseline.dataThrough,
+      },
+      "accounts.projection:private-taxable-DIGITS-5555.openingBalance": {
+        value: 0,
+        sourceType: "local_configuration",
+        sourceDescription: "Fixed zero and not imported",
+        effectiveDate: baseline.dataThrough,
+      },
+      "surplusAllocation.reserveAccountIds": {
+        value: ["manual:1", secondReserveAccountId],
+        sourceType: "local_configuration",
+        sourceDescription: RAW_ACCOUNT_NAMES.cash,
+        effectiveDate: baseline.dataThrough,
+      },
+      "surplusAllocation.reserveRefillAccountId": {
+        value: "manual:1",
+        sourceType: "local_configuration",
+        sourceDescription: RAW_ACCOUNT_NAMES.cash,
+        effectiveDate: baseline.dataThrough,
+      },
+      "surplusAllocation.targetCashReserveToday": {
+        value: 27500,
+        sourceType: "local_configuration",
+        sourceDescription: PRIVATE_TEXT.note,
+        effectiveDate: baseline.dataThrough,
+      },
+      "surplusAllocation.reserveIndexingRate": {
+        value: 0.03,
+        sourceType: "local_configuration",
+        sourceDescription: PRIVATE_TEXT.note,
+        effectiveDate: baseline.dataThrough,
+      },
+      "surplusAllocation.excess.mode": {
+        value: "allocate_to_account",
+        sourceType: "local_configuration",
+        sourceDescription: PRIVATE_TEXT.note,
+        effectiveDate: baseline.dataThrough,
+      },
+      "surplusAllocation.excess.destinationAccountId": {
+        value: projectionAccountId,
+        sourceType: "local_configuration",
+        sourceDescription: projectionLabel,
+        effectiveDate: baseline.dataThrough,
+      },
+    };
+    const projection = calculateProjection(inputs);
+    const snapshot = createProjectionSnapshot(
+      projection,
+      baseline,
+      {
+        "surplusAllocation.targetCashReserveToday": 27500,
+        "surplusAllocation.reserveIndexingRate": 0.03,
+      },
+      "2026-07-14T00:00:00.000Z",
+    );
+    const serialized = JSON.stringify(snapshot);
+
+    expect(snapshot.schemaVersion).toBe("6.0");
+    expect(snapshot.projection.inputs.accounts.at(-1)).toMatchObject({
+      id: "non_registered_1",
+      label: "Non-registered account 1",
+      origin: "projection_configuration",
+      openingBalance: 0,
+    });
+    expect(snapshot.projection.surplusAllocation.policy).toMatchObject({
+      reserveAccountIds: ["cash_1", "cash_2"],
+      reserveRefillAccountId: "cash_1",
+      destinationAccountId: "non_registered_1",
+      targetCashReserveToday: 27500,
+      reserveIndexingRate: 0.03,
+      excessMode: "allocate_to_account",
+    });
+    expect(
+      snapshot.provenance[
+        "surplusAllocation.excess.destinationAccountId"
+      ]?.value,
+    ).toBe("non_registered_1");
+    expect(
+      snapshot.provenance["surplusAllocation.reserveAccountIds"]?.value,
+    ).toEqual(["cash_1", "cash_2"]);
+    expect(
+      snapshot.provenance[
+        "surplusAllocation.reserveRefillAccountId"
+      ]?.value,
+    ).toBe("cash_1");
+    expect(snapshot.activeOverrides).toEqual({
+      "surplusAllocation.reserveIndexingRate": 0.03,
+      "surplusAllocation.targetCashReserveToday": 27500,
+    });
+    expect(serialized).not.toContain(projectionAccountId);
+    expect(serialized).not.toContain(projectionLabel);
+    expect(serialized).not.toContain("projection:");
+
+    for (const mode of ["real", "nominal"] as const) {
+      const csv = projectionSnapshotToCsv(snapshot, mode);
+      const lines = csv.split("\n").map(parseCsvLine);
+      const header = lines[0]!;
+      expect(header).toEqual(
+        expect.arrayContaining([
+          "surplus_generated",
+          "surplus_reserve_refill",
+          "surplus_retained_as_cash",
+          "surplus_redirected",
+          "surplus_reserve_target",
+          "surplus_reserve_target_today",
+          "surplus_reserve_indexing_rate",
+          "surplus_excess_mode",
+          "surplus_reserve_refill_account",
+          "surplus_destination_account",
+          "surplus_reserve_member_cash_1",
+          "surplus_reserve_member_cash_2",
+          "surplus_reserve_member_rrsp_1",
+          "surplus_reserve_member_non_registered_1",
+          "surplus_allocation_cash_1",
+          "surplus_allocation_cash_2",
+          "surplus_allocation_non_registered_1",
+        ]),
+      );
+      expect(header).not.toContain("surplus_reserve_accounts");
+      expect(
+        header.filter((column) =>
+          column.startsWith("surplus_reserve_member_"),
+        ),
+      ).toEqual(
+        snapshot.exportMetadata.accountAliases.map(
+          (account) => `surplus_reserve_member_${account.key}`,
+        ),
+      );
+      const membershipExpectations = {
+        surplus_reserve_member_cash_1: "1",
+        surplus_reserve_member_cash_2: "1",
+        surplus_reserve_member_rrsp_1: "0",
+        surplus_reserve_member_non_registered_1: "0",
+      };
+      for (const row of lines.slice(1)) {
+        for (const [column, expected] of Object.entries(
+          membershipExpectations,
+        )) {
+          expect(row[header.indexOf(column)]).toBe(expected);
+        }
+        expect(
+          row[header.indexOf("surplus_reserve_refill_account")],
+        ).toBe("cash_1");
+        expect(
+          row[header.indexOf("surplus_destination_account")],
+        ).toBe("non_registered_1");
+      }
+      expect(new Set(lines.map((line) => line.length))).toEqual(
+        new Set([header.length]),
+      );
+      expect(csv).not.toContain("cash_1; cash_2");
+      expect(csv).not.toContain(projectionAccountId);
+      expect(csv).not.toContain(projectionLabel);
+      expect(csv).not.toContain("projection:");
+      expect(csv).not.toContain("manual:1");
+    }
   });
 
   it("uses ordinary export filenames for JSON and both CSV modes", () => {

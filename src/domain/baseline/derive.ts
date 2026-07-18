@@ -605,6 +605,7 @@ export function deriveCurrentBaseline(
     projectionAccounts.push({
       id: account.canonicalId,
       label: account.name,
+      origin: "lunchmoney",
       type,
       openingBalance: balance,
       annualReturn,
@@ -615,6 +616,11 @@ export function deriveCurrentBaseline(
     provenance[`accounts.${account.canonicalId}.openingBalance`] = derivedValue(
       balance,
       `Lunch Money ${account.source} account balance for ${account.name}`,
+      account.balanceAsOf,
+    );
+    provenance[`accounts.${account.canonicalId}.origin`] = derivedValue(
+      "lunchmoney",
+      `Account was imported from Lunch Money as ${account.canonicalId}`,
       account.balanceAsOf,
     );
     provenance[`accounts.${account.canonicalId}.annualReturn`] = localValue(
@@ -700,6 +706,174 @@ export function deriveCurrentBaseline(
       `Withdrawal priority for ${account.canonicalId}`,
       window.endDate,
     );
+  }
+
+  for (const [accountId, configured] of Object.entries(
+    config.projectionAccounts ?? {},
+  ).sort(([left], [right]) => left.localeCompare(right))) {
+    if (projectionAccounts.some((account) => account.id === accountId)) {
+      throw new PlannerRuntimeError(
+        "configuration_required",
+        `Projection-only account ${accountId} collides with an imported account id.`,
+        422,
+      );
+    }
+    const type = configured.type === "rrsp" ? "rrsp_rrif" : configured.type;
+    const account: ProjectionInputs["accounts"][number] = {
+      id: accountId,
+      label: configured.label,
+      origin: "projection_configuration",
+      type,
+      openingBalance: 0,
+      annualReturn: configured.annualReturn,
+      contributionPhases: configured.contributionPhases.map((phase) => ({
+        id: phase.id,
+        label: phase.label,
+        startAge: phase.startAge,
+        endAge: phase.endAge,
+        monthlyAmountToday: phase.monthlyAmountToday as number,
+        funding: phase.funding,
+        indexingRate: phase.indexingRate,
+      })),
+      withdrawalPriority: configured.withdrawalPriority,
+      allocation: configured.allocation,
+    };
+    projectionAccounts.push(account);
+    const prefix = `accounts.${accountId}`;
+    provenance[`${prefix}.label`] = localValue(
+      account.label,
+      "Projection-only account label from private planner configuration",
+      window.endDate,
+    );
+    provenance[`${prefix}.origin`] = localValue(
+      account.origin,
+      "Projection-only account created through planner configuration; it is not an imported Lunch Money balance",
+      window.endDate,
+    );
+    provenance[`${prefix}.openingBalance`] = localValue(
+      0,
+      "Projection-only opening balance is fixed at zero through projection configuration and is not an imported balance",
+      window.endDate,
+    );
+    provenance[`${prefix}.type`] = localValue(
+      account.type,
+      "Projection-only planner account type",
+      window.endDate,
+    );
+    provenance[`${prefix}.annualReturn`] = localValue(
+      account.annualReturn,
+      "Projection-only annual return assumption",
+      window.endDate,
+    );
+    provenance[`${prefix}.withdrawalPriority`] = localValue(
+      account.withdrawalPriority,
+      "Projection-only withdrawal priority",
+      window.endDate,
+    );
+    provenance[`${prefix}.allocation`] = localValue(
+      account.allocation,
+      "Projection-only asset allocation assumption",
+      window.endDate,
+    );
+    for (const phase of account.contributionPhases) {
+      const phasePrefix = `${prefix}.contributionPhases.${phase.id}`;
+      provenance[`${phasePrefix}.label`] = localValue(
+        phase.label,
+        "Projection-only contribution phase label",
+        window.endDate,
+      );
+      provenance[`${phasePrefix}.startAge`] = localValue(
+        phase.startAge,
+        "Projection-only contribution phase start age",
+        window.endDate,
+      );
+      provenance[`${phasePrefix}.endAge`] = localValue(
+        phase.endAge,
+        "Projection-only contribution phase end age",
+        window.endDate,
+      );
+      provenance[`${phasePrefix}.monthlyAmountToday`] = localValue(
+        phase.monthlyAmountToday,
+        "Projection-only contribution phase amount",
+        window.endDate,
+      );
+      provenance[`${phasePrefix}.funding`] = localValue(
+        phase.funding,
+        "Projection-only contribution phase funding",
+        window.endDate,
+      );
+      provenance[`${phasePrefix}.indexingRate`] = localValue(
+        phase.indexingRate,
+        "Projection-only contribution phase indexing",
+        window.endDate,
+      );
+    }
+  }
+
+  const reserveAccounts = config.surplusAllocation.reserveAccountIds.map(
+    (reserveAccountId) => {
+      const reserveAccount = projectionAccounts.find(
+        (account) => account.id === reserveAccountId,
+      );
+      if (!reserveAccount) {
+        throw new PlannerRuntimeError(
+          "configuration_required",
+          `Unknown surplusAllocation reserve account ${reserveAccountId}.`,
+          422,
+        );
+      }
+      if (reserveAccount.type !== "cash") {
+        throw new PlannerRuntimeError(
+          "configuration_required",
+          `Surplus allocation reserve account ${reserveAccount.id} must be a cash account.`,
+          422,
+        );
+      }
+      return reserveAccount;
+    },
+  );
+  const reserveRefillAccount = reserveAccounts.find(
+    (account) =>
+      account.id === config.surplusAllocation.reserveRefillAccountId,
+  );
+  if (!reserveRefillAccount) {
+    throw new PlannerRuntimeError(
+      "configuration_required",
+      "surplusAllocation.reserveRefillAccountId must be included in reserveAccountIds.",
+      422,
+    );
+  }
+  if (config.surplusAllocation.excess.mode === "allocate_to_account") {
+    const destinationAccountId =
+      config.surplusAllocation.excess.destinationAccountId;
+    const destinationAccount = projectionAccounts.find(
+      (account) => account.id === destinationAccountId,
+    );
+    if (!destinationAccount) {
+      throw new PlannerRuntimeError(
+        "configuration_required",
+        `Unknown surplusAllocation excess destination account ${destinationAccountId}.`,
+        422,
+      );
+    }
+    if (
+      config.surplusAllocation.reserveAccountIds.includes(
+        destinationAccount.id,
+      )
+    ) {
+      throw new PlannerRuntimeError(
+        "configuration_required",
+        "Surplus allocation reserve and destination accounts must be different.",
+        422,
+      );
+    }
+    if (destinationAccount.type !== "non_registered") {
+      throw new PlannerRuntimeError(
+        "configuration_required",
+        `Surplus allocation destination ${destinationAccount.id} must be a non-registered account; automatic TFSA, RRSP/RRIF, cash, and debt routing is unavailable.`,
+        422,
+      );
+    }
   }
 
   const employmentIncomePhases: ProjectionInputs["person"]["employmentIncomePhases"] =
@@ -1120,6 +1294,38 @@ export function deriveCurrentBaseline(
     "Optional future events from private planner configuration",
     window.endDate,
   );
+  provenance["surplusAllocation.reserveAccountIds"] = localValue(
+    config.surplusAllocation.reserveAccountIds,
+    "Explicit cash accounts counted toward the surplus reserve from private planner configuration",
+    window.endDate,
+  );
+  provenance["surplusAllocation.reserveRefillAccountId"] = localValue(
+    config.surplusAllocation.reserveRefillAccountId,
+    "Explicit cash account receiving reserve refills and retained excess from private planner configuration",
+    window.endDate,
+  );
+  provenance["surplusAllocation.targetCashReserveToday"] = localValue(
+    config.surplusAllocation.targetCashReserveToday,
+    "Target cash reserve in today's dollars from private planner configuration",
+    window.endDate,
+  );
+  provenance["surplusAllocation.reserveIndexingRate"] = localValue(
+    config.surplusAllocation.reserveIndexingRate,
+    "Surplus reserve indexing rate from private planner configuration",
+    window.endDate,
+  );
+  provenance["surplusAllocation.excess.mode"] = localValue(
+    config.surplusAllocation.excess.mode,
+    "Surplus excess strategy from private planner configuration",
+    window.endDate,
+  );
+  if (config.surplusAllocation.excess.mode === "allocate_to_account") {
+    provenance["surplusAllocation.excess.destinationAccountId"] = localValue(
+      config.surplusAllocation.excess.destinationAccountId,
+      "Explicit non-registered surplus destination from private planner configuration",
+      window.endDate,
+    );
+  }
 
   const projectionInputs = validateProjectionInputs({
     startDate: dataThrough,
@@ -1155,11 +1361,12 @@ export function deriveCurrentBaseline(
       rrifConversionAge: config.assumptions.rrifConversionAge,
     },
     accounts: projectionAccounts,
+    surplusAllocation: config.surplusAllocation,
     events: config.futureEvents,
   });
 
   return {
-    schemaVersion: "1.3",
+    schemaVersion: "1.4",
     connection,
     projectionInputs,
     provenance,

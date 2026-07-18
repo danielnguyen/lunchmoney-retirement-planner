@@ -52,6 +52,7 @@ describe("calculation explanations", () => {
       draft.baseline.projectionInputs.accounts.push({
         id: "manual:debt",
         label: "Synthetic debt",
+        origin: "lunchmoney",
         type: "debt",
         openingBalance: 50000,
         annualReturn: 0,
@@ -347,20 +348,22 @@ describe("calculation explanations", () => {
       {
         id: "manual:debt-1",
         label: "Synthetic debt one",
-      type: "debt",
-      openingBalance: 10000,
-      annualReturn: 0,
-      contributionPhases: [],
+        origin: "lunchmoney",
+        type: "debt",
+        openingBalance: 10000,
+        annualReturn: 0,
+        contributionPhases: [],
         withdrawalPriority: 98,
         allocation: { cash: 0, fixedIncome: 0, equity: 0 },
       },
       {
         id: "manual:debt-2",
         label: "Synthetic debt two",
-      type: "debt",
-      openingBalance: 20000,
-      annualReturn: 0,
-      contributionPhases: [],
+        origin: "lunchmoney",
+        type: "debt",
+        openingBalance: 20000,
+        annualReturn: 0,
+        contributionPhases: [],
         withdrawalPriority: 99,
         allocation: { cash: 0, fixedIncome: 0, equity: 0 },
       },
@@ -406,6 +409,7 @@ describe("calculation explanations", () => {
       {
         id: "manual:zero-cash",
         label: "Zero cash-funded contribution",
+        origin: "lunchmoney",
         type: "tfsa",
         openingBalance: 0,
         annualReturn: 0.05,
@@ -424,6 +428,7 @@ describe("calculation explanations", () => {
       {
         id: "manual:zero-withheld",
         label: "Zero income-withheld contribution",
+        origin: "lunchmoney",
         type: "non_registered",
         openingBalance: 0,
         annualReturn: 0.05,
@@ -466,6 +471,7 @@ describe("calculation explanations", () => {
     const zeroBaselineAccount: FinancialAccountInput = {
       id: "manual:override-contribution",
       label: "Override investment",
+      origin: "lunchmoney",
       type: "tfsa",
       openingBalance: 0,
       annualReturn: 0.05,
@@ -710,6 +716,180 @@ describe("calculation explanations", () => {
     expect(document.displayedResult?.value).toBe("$0.00");
     expect(document.caveats.join(" ")).toContain("explicit_zero");
     expect(document.reconciliation?.matched).toBe(true);
+  });
+
+  it("builds the surplus explanation from the shared result and annual presentation rows", () => {
+    const value = context();
+    const document = buildExplanation("surplus-allocation", value);
+    const chartRows = buildAnnualChartData(
+      value.inputs,
+      value.projection,
+      value.displayMode,
+    );
+    const rows = section(document, "Annual surplus allocation").rows;
+
+    expect(rows[0]).toMatchObject({
+      period: chartRows[0]!.periodLabel,
+      generated: chartRows[0]!.surplusGenerated,
+      reserveRefill: chartRows[0]!.surplusReserveRefill,
+      retainedAsCash: chartRows[0]!.surplusRetainedAsCash,
+      redirected: chartRows[0]!.surplusRedirected,
+      reserveTarget: chartRows[0]!.surplusReserveTarget,
+    });
+    expect(document.reconciliation?.matched).toBe(true);
+    expect(
+      document.assumptions.find(
+        (item) => item.label === "Reserve accounts and origins",
+      )?.value,
+    ).toContain("Cash account");
+    expect(
+      document.assumptions.find(
+        (item) => item.label === "Reserve refill account and origin",
+      )?.value,
+    ).toContain("Cash account");
+    expect(document.caveats.join(" ")).toContain(
+      "registered-account room",
+    );
+    expect(document.caveats.join(" ")).toContain(
+      "does not change total financial assets at the allocation moment",
+    );
+    expect(
+      document.steps.find(
+        (step) => step.label === "Routed difference from generated",
+      )?.rawValue,
+    ).toBe(0);
+    expect(
+      document.steps.find(
+        (step) =>
+          step.label === "Account-deposit difference from generated",
+      )?.rawValue,
+    ).toBe(0);
+  });
+
+  it("does not reconcile surplus when account deposits differ from generated", () => {
+    const value = context((draft) => {
+      const totals =
+        draft.projection.surplusAllocation.throughRetirement.real;
+      const [accountId] = Object.keys(totals.accountAllocations);
+      totals.accountAllocations[accountId!] += 1;
+    });
+    const document = buildExplanation("surplus-allocation", value);
+
+    expect(
+      document.steps.find(
+        (step) => step.label === "Routed difference from generated",
+      )?.rawValue,
+    ).toBe(0);
+    expect(
+      document.steps.find(
+        (step) =>
+          step.label === "Account-deposit difference from generated",
+      )?.rawValue,
+    ).toBe(1);
+    expect(document.reconciliation?.matched).toBe(false);
+  });
+
+  it("does not reconcile surplus when routed totals differ from generated", () => {
+    const value = context((draft) => {
+      draft.projection.surplusAllocation.throughRetirement.real
+        .retainedAsCash += 1;
+    });
+    const document = buildExplanation("surplus-allocation", value);
+
+    expect(
+      document.steps.find(
+        (step) => step.label === "Routed difference from generated",
+      )?.rawValue,
+    ).toBe(1);
+    expect(
+      document.steps.find(
+        (step) =>
+          step.label === "Account-deposit difference from generated",
+      )?.rawValue,
+    ).toBe(0);
+    expect(document.reconciliation?.matched).toBe(false);
+  });
+
+  it("shows active reserve overrides and reset evidence without duplicating policy formulas", () => {
+    const overridden = context((draft) => {
+      draft.inputs.surplusAllocation.targetCashReserveToday = 45000;
+      draft.inputs.surplusAllocation.reserveIndexingRate = 0.04;
+      draft.overrides = {
+        "surplusAllocation.targetCashReserveToday": 45000,
+        "surplusAllocation.reserveIndexingRate": 0.04,
+      };
+      draft.projection = calculateProjection(draft.inputs);
+    });
+    const document = buildExplanation("surplus-allocation", overridden);
+    expect(
+      document.assumptions.find(
+        (item) => item.label === "Target reserve today",
+      ),
+    ).toMatchObject({ sourceType: "override" });
+    expect(
+      document.assumptions.find(
+        (item) => item.label === "Reserve indexing",
+      ),
+    ).toMatchObject({ sourceType: "override" });
+    expect(
+      section(document, "Annual surplus allocation").rows[0]
+        ?.reserveTarget,
+    ).toBe(
+      buildAnnualChartData(
+        overridden.inputs,
+        overridden.projection,
+        overridden.displayMode,
+      )[0]!.surplusReserveTarget,
+    );
+
+    const reset = buildExplanation("surplus-allocation", context());
+    expect(
+      reset.assumptions.some((item) => item.sourceType === "override"),
+    ).toBe(false);
+  });
+
+  it("keeps projection-only accounts separate with fixed-zero provenance wording", () => {
+    const value = context((draft) => {
+      const account: FinancialAccountInput = {
+        id: "projection:future-taxable",
+        label: "Synthetic future taxable",
+        origin: "projection_configuration",
+        type: "non_registered",
+        openingBalance: 0,
+        annualReturn: 0.05,
+        contributionPhases: [],
+        withdrawalPriority: 4,
+        allocation: { cash: 0, fixedIncome: 0.2, equity: 0.8 },
+      };
+      draft.inputs.accounts.push(account);
+      draft.baseline.projectionInputs.accounts.push(
+        structuredClone(account),
+      );
+      draft.projection = calculateProjection(draft.inputs);
+    });
+    const document = buildExplanation("lunchmoney-accounts", value);
+    const projectionRows = section(
+      document,
+      "Projection-only configured accounts",
+    ).rows;
+    const importedRows = section(
+      document,
+      "Imported Lunch Money account mapping and assumptions",
+    ).rows;
+
+    expect(projectionRows).toEqual([
+      expect.objectContaining({
+        account: "Synthetic future taxable",
+        origin: "Projection-only configuration",
+        openingBalance: 0,
+        openingBalanceSource: expect.stringContaining("not imported"),
+      }),
+    ]);
+    expect(
+      importedRows.some(
+        (row) => row.account === "Synthetic future taxable",
+      ),
+    ).toBe(false);
   });
 
   it("returns only finite deterministic evidence and omits credentials", () => {

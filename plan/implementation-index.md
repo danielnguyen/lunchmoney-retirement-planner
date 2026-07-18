@@ -8,21 +8,18 @@ Public content must remain generic. Do not add private financial values, account
 
 ## Current position
 
-- Open implementation pull request: [#8 Add explicit CPP and OAS modelling](https://github.com/danielnguyen/lunchmoney-retirement-planner/pull/8)
+- Open implementation pull request: [#9 Add explicit surplus allocation policy](https://github.com/danielnguyen/lunchmoney-retirement-planner/pull/9)
 - Pull request state: Open draft
-- Active capability: Government benefits
+- Active capability: Surplus allocation policy
 - Status: In progress
-- Branch: `agent/add-government-benefits`
-- Latest validated implementation head: `9dd14456b57ed7cd2ee5bc45e1f8e7e480660417`
-- Private configuration migration: Passed
-- Live baseline and projection smoke test: Passed
-- Automatic JSON sanitization smoke test: Passed
-- Automatic real CSV sanitization smoke test: Passed
-- Automatic nominal CSV sanitization smoke test: Passed
-- Private denylist verification: Passed
-- Remaining step: final review and merge
-- Next action: review and merge PR #8
-- Last completed foundation: phased employment income and per-account contribution phases
+- Branch: `agent/add-surplus-allocation-policy`
+- Latest validated implementation head: `88e8f0390c4d1268404590ab621235b3428271e2`
+- Synthetic validation: Passed — 10 test files and 138 tests, including scalar CSV reserve-membership columns, dual-equality explanation reconciliation, three-account reserve aggregation, reserve-return timing, typecheck, lint, production build, Docker build, Compose configuration, export privacy, and diff checks
+- Repository-owner private migration: Completed locally in ignored configuration; no private values or configuration were committed
+- Private live smoke test: Passed — configuration, live baseline and projection, dashboard and API routes, explanations, overrides and reset, nominal and real bridges, automatic JSON and CSV anonymization, and private denylist checks
+- Remaining step: review the open draft pull request
+- Next action: review draft PR #9; pull-request readiness remains a repository-owner decision
+- Last completed capability: Government benefits
 
 ## Terminology boundary
 
@@ -40,8 +37,8 @@ Branches, pull-request titles, commits, tests, documentation headings, types, fu
 
 | Sequence | Capability | Primary dependency | Status | Pull request |
 |---|---|---|---|---|
-| 1 | Government benefits | Phased income model | In progress | [#8](https://github.com/danielnguyen/lunchmoney-retirement-planner/pull/8) |
-| 2 | Surplus allocation policy | Government benefits | Planned | — |
+| 1 | Government benefits | Phased income model | Completed | [#8](https://github.com/danielnguyen/lunchmoney-retirement-planner/pull/8) |
+| 2 | Surplus allocation policy | Government benefits | In progress | [#9](https://github.com/danielnguyen/lunchmoney-retirement-planner/pull/9) |
 | 3 | Registered-account room and contribution waterfall | Surplus allocation policy | Planned | — |
 | 4 | Debt amortization and spending phases | Phased contribution model | Planned | — |
 | 5 | RRIF minimum withdrawals and Canadian taxes | Surplus allocation policy and debt/spending model | Planned | — |

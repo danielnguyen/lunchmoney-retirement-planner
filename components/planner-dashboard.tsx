@@ -89,6 +89,7 @@ type ControlDefinition = {
   format: (value: number) => string;
   get: (inputs: ProjectionInputs) => number;
   set: (inputs: ProjectionInputs, value: number) => void;
+  inputType?: "range" | "number";
 };
 
 function fixed(value: number): (inputs: ProjectionInputs) => number {
@@ -97,6 +98,40 @@ function fixed(value: number): (inputs: ProjectionInputs) => number {
 
 function buildControls(baseline: ProjectionInputs): ControlDefinition[] {
   const controls: ControlDefinition[] = [
+    {
+      key: "surplusAllocation.targetCashReserveToday",
+      sourceKey: "surplusAllocation.targetCashReserveToday",
+      label: "Target cash reserve today",
+      min: fixed(0),
+      max: fixed(
+        Math.max(
+          250000,
+          baseline.surplusAllocation.targetCashReserveToday * 3,
+        ),
+      ),
+      step: 100,
+      format: currency.format,
+      get: (inputs) =>
+        inputs.surplusAllocation.targetCashReserveToday,
+      set: (inputs, value) => {
+        inputs.surplusAllocation.targetCashReserveToday = value;
+      },
+      inputType: "number",
+    },
+    {
+      key: "surplusAllocation.reserveIndexingRate",
+      sourceKey: "surplusAllocation.reserveIndexingRate",
+      label: "Reserve indexing rate",
+      min: fixed(-0.2),
+      max: fixed(0.5),
+      step: 0.001,
+      format: percent.format,
+      get: (inputs) => inputs.surplusAllocation.reserveIndexingRate,
+      set: (inputs, value) => {
+        inputs.surplusAllocation.reserveIndexingRate = value;
+      },
+      inputType: "number",
+    },
     {
       key: "cppStartAge",
       sourceKey: "person.cpp.startAge",
@@ -545,6 +580,29 @@ export function PlannerDashboard() {
   const activeMonthlyIncome = monthlyEmploymentNetCash(inputs);
   const activeMonthlyContributions = monthlyInvestmentContributions(inputs);
   const activeWarnings = resolveActiveScenarioWarnings(baseline, inputs);
+  const surplusTotals =
+    projection?.surplusAllocation.throughRetirement[mode];
+  const reserveAccounts = inputs.surplusAllocation.reserveAccountIds.map(
+    (accountId) =>
+      inputs.accounts.find((account) => account.id === accountId)!,
+  );
+  const reserveRefillAccount = inputs.accounts.find(
+    (account) =>
+      account.id === inputs.surplusAllocation.reserveRefillAccountId,
+  );
+  const destinationAccountId =
+    inputs.surplusAllocation.excess.mode === "allocate_to_account"
+      ? inputs.surplusAllocation.excess.destinationAccountId
+      : null;
+  const destinationAccount =
+    destinationAccountId
+      ? inputs.accounts.find(
+          (account) => account.id === destinationAccountId,
+        )
+      : null;
+  const projectionOnlyAccounts = inputs.accounts.filter(
+    (account) => account.origin === "projection_configuration",
+  );
   const explanationDocument =
     projection && activeExplanation
       ? buildExplanation(activeExplanation.target, {
@@ -722,6 +780,34 @@ export function PlannerDashboard() {
                       <Bar dataKey="essential" name="Essential" stackId="expenses" fill="#55b8d8" />
                       <Bar dataKey="discretionary" name="Discretionary" stackId="expenses" fill="#8c78dd" />
                     </BarChart>
+                  </ResponsiveContainer>
+                </div>
+              </article>
+
+              <article className="report-card wide-chart">
+                <ExplainableHeading
+                  kicker="Surplus policy"
+                  target="surplus-allocation"
+                  title="Annual surplus allocation"
+                  onExplain={openExplanation}
+                />
+                <div className="chart-shell medium">
+                  <ResponsiveContainer width="100%" height="100%">
+                    <ComposedChart data={chartData}>
+                      <CartesianGrid stroke="#24364d" strokeDasharray="3 3" vertical={false} />
+                      <XAxis dataKey="year" stroke="#9eb0c4" minTickGap={28} />
+                      <YAxis stroke="#9eb0c4" tickFormatter={compactCurrency} width={72} />
+                      <Tooltip
+                        formatter={(value) => currency.format(Number(value))}
+                        labelFormatter={(label, payload) =>
+                          payload[0]?.payload?.periodLabel ?? label
+                        }
+                      />
+                      <Legend />
+                      <Bar dataKey="surplusRetainedAsCash" name="Retained as cash" fill="#55b8d8" />
+                      <Bar dataKey="surplusRedirected" name="Redirected" fill="#8c78dd" />
+                      <Line dataKey="surplusReserveTarget" name="Active reserve target" stroke="#f2bd63" strokeWidth={2} dot={false} />
+                    </ComposedChart>
                   </ResponsiveContainer>
                 </div>
               </article>
@@ -916,7 +1002,7 @@ export function PlannerDashboard() {
                   return (
                     <div className={`control ${overridden ? "is-overridden" : ""}`} key={control.key}>
                       <div className="control-head"><label htmlFor={control.key}>{control.label}</label><output>{control.format(currentValue)}</output></div>
-                      <input id={control.key} type="range" min={control.min(inputs)} max={control.max(inputs)} step={control.step} value={currentValue} onChange={(event) => setOverrides((current) => ({ ...current, [control.key]: Number(event.target.value) }))} />
+                      <input id={control.key} type={control.inputType ?? "range"} min={control.min(inputs)} max={control.max(inputs)} step={control.step} value={currentValue} onChange={(event) => setOverrides((current) => ({ ...current, [control.key]: Number(event.target.value) }))} />
                       <div className="control-meta">
                         <span>{sourceLabel(baseline, control.sourceKey)}</span>
                         <button className="text-button" disabled={!overridden} onClick={() => setOverrides((current) => { const next = { ...current }; delete next[control.key]; return next; })}>Reset to {control.format(baselineValue)}</button>
@@ -1044,6 +1130,20 @@ export function PlannerDashboard() {
                 </dl>
               </div>
               <div>
+                <h3>Surplus allocation policy</h3>
+                <dl>
+                  <div><dt>Reserve accounts</dt><dd>{reserveAccounts.map((account) => account.label).join(", ") || "Unavailable"}</dd></div>
+                  <div><dt>Reserve refill account</dt><dd>{reserveRefillAccount?.label ?? "Unavailable"}</dd></div>
+                  <div><dt>Target reserve today</dt><dd>{currency.format(inputs.surplusAllocation.targetCashReserveToday)}</dd></div>
+                  <div><dt>Reserve indexing</dt><dd>{percent.format(inputs.surplusAllocation.reserveIndexingRate)}</dd></div>
+                  <div><dt>Excess mode</dt><dd>{inputs.surplusAllocation.excess.mode === "retain_as_cash" ? "Retain as cash" : "Allocate to account"}</dd></div>
+                  {destinationAccount ? <div><dt>Destination account</dt><dd>{destinationAccount.label}</dd></div> : null}
+                  <div><dt>Surplus generated through retirement</dt><dd>{currency.format(surplusTotals?.generated ?? 0)}</dd></div>
+                  <div><dt>Retained as cash through retirement</dt><dd>{currency.format(surplusTotals?.retainedAsCash ?? 0)}</dd></div>
+                  <div><dt>Redirected through retirement</dt><dd>{currency.format(surplusTotals?.redirected ?? 0)}</dd></div>
+                </dl>
+              </div>
+              <div>
                 <h3>Personal settings</h3>
                 <dl>
                   <div><dt>Current age</dt><dd>{inputs.person.currentAge}</dd></div>
@@ -1053,6 +1153,25 @@ export function PlannerDashboard() {
                   <div><dt>RRIF conversion age</dt><dd>{inputs.person.rrifConversionAge}</dd></div>
                 </dl>
               </div>
+              {projectionOnlyAccounts.length > 0 ? (
+                <div>
+                  <h3>Projection-only accounts</h3>
+                  <dl>
+                    {projectionOnlyAccounts.map((account) => (
+                      <div key={account.id}>
+                        <dt>{account.label} · {account.type.replaceAll("_", " ")}</dt>
+                        <dd>
+                          Projection-only configuration · zero opening balance ·{" "}
+                          {percent.format(account.annualReturn)} return ·{" "}
+                          {percent.format(account.allocation.cash)} cash /{" "}
+                          {percent.format(account.allocation.fixedIncome)} fixed income /{" "}
+                          {percent.format(account.allocation.equity)} equity
+                        </dd>
+                      </div>
+                    ))}
+                  </dl>
+                </div>
+              ) : null}
               <div>
                 <h3>Assumptions</h3>
                 <dl>

@@ -39,4 +39,6 @@ export const explanationTooltips: Record<ExplanationTarget, string> = {
     "The modelled CPP amount after applying the configured claim age to the dated amount-at-65 basis.",
   "oas-benefit":
     "The modelled OAS amount after applying explicit eligibility and claim-age adjustments to the dated full amount.",
+  "surplus-allocation":
+    "How positive unassigned monthly cash refills the explicit indexed reserve and then remains in cash or moves to the configured non-registered account.",
 };
