@@ -13,12 +13,12 @@ Public content must remain generic. Do not add private financial values, account
 - Active capability: Registered-account room and contribution waterfall
 - Status: In progress
 - Branch: `agent/add-registered-account-room`
-- Latest validated implementation head: `bb235ae7fedab4a1becf076e2450d4cb04c5ffad`
-- Synthetic validation: Passed — 12 test files and 203 tests, typecheck, lint, production build, Docker image build, Compose configuration validation, diff check, focused simple parsing/compiler, explicit-savings, reserve-transition, workplace-priority, taxable-destination, controls, explanation, reconciliation and bridge checks, advanced-compatibility and mixed-mode checks, and adversarial JSON/real-CSV/nominal-CSV privacy review
-- Repository-owner private migration: Outstanding
+- Latest validated implementation head: `f54978907e920114234bbb52305f30375a0d8b45`
+- Synthetic validation: Passed — 12 test files and 205 tests, typecheck, lint, production build, Docker image build, Compose configuration validation, diff check, focused simple parsing/compiler, plain-language example guidance, the `currentYearBeforePlanStart` simple-field migration, January and partial-year room handling, explicit-savings, reserve-transition, workplace-priority, taxable-destination, controls, explanation, reconciliation and bridge checks, advanced-compatibility and mixed-mode checks, and adversarial JSON/real-CSV/nominal-CSV privacy review
+- Repository-owner private migration: Structurally complete in the ignored local file — unresolved owner inputs remain marked locally with `# CHANGE ME`
 - Private live smoke test: Outstanding
-- Remaining step: repository-owner private account-role, registered-room, and named-savings-policy migration plus live smoke testing after synthetic review
-- Next action: after review of draft PR #10, migrate the ignored private configuration to account roles, simplified room inputs, and named savings plans, review the sanitized policy preview, then run the private live smoke test
+- Remaining step: complete the locally marked private account-role and registered-room inputs, validate the private configuration, review the sanitized policy preview, and run the private live smoke test
+- Next action: after review of draft PR #10, complete the ignored private configuration's locally marked owner inputs, then run the private live smoke test
 - Last completed capability: Surplus allocation policy
 
 ## Terminology boundary
