@@ -13,12 +13,12 @@ Public content must remain generic. Do not add private financial values, account
 - Active capability: Registered-account room and contribution waterfall
 - Status: In progress
 - Branch: `agent/add-registered-account-room`
-- Latest validated implementation head: `f54978907e920114234bbb52305f30375a0d8b45`
-- Synthetic validation: Passed — 12 test files and 205 tests, typecheck, lint, production build, Docker image build, Compose configuration validation, diff check, focused simple parsing/compiler, plain-language example guidance, the `currentYearBeforePlanStart` simple-field migration, January and partial-year room handling, explicit-savings, reserve-transition, workplace-priority, taxable-destination, controls, explanation, reconciliation and bridge checks, advanced-compatibility and mixed-mode checks, and adversarial JSON/real-CSV/nominal-CSV privacy review
-- Repository-owner private migration: Structurally complete in the ignored local file — unresolved owner inputs remain marked locally with `# CHANGE ME`
-- Private live smoke test: Outstanding
-- Remaining step: complete the locally marked private account-role and registered-room inputs, validate the private configuration, review the sanitized policy preview, and run the private live smoke test
-- Next action: after review of draft PR #10, complete the ignored private configuration's locally marked owner inputs, then run the private live smoke test
+- Latest validated implementation head: `63bc545c0890ccff93b1711e8524516be4f938ba`
+- Synthetic validation: Passed — 12 test files and 208 tests, typecheck, lint, production build, Docker image build, Compose configuration validation, diff check, focused simple parsing/compiler, plain-language example guidance, the `currentYearBeforePlanStart` simple-field migration, January and partial-year room handling, explicit-savings, reserve-transition, workplace-priority, taxable-destination, controls, long-horizon cent-stable nominal/real explanation reconciliation, one-cent-plus and cancellation-resistant negative checks, bridge checks, advanced-compatibility and mixed-mode checks, and adversarial JSON/real-CSV/nominal-CSV privacy review
+- Repository-owner private migration: Passed in the ignored local file
+- Private live smoke test: Passed — schema, live baseline and projection, dashboard/API, controls and override/reset/refresh, nominal and real explanations, contribution and room reconciliation, nominal and real bridges, and anonymized JSON/real-CSV/nominal-CSV checks
+- Remaining step: final review before marking draft PR #10 ready
+- Next action: complete final review before marking draft PR #10 ready
 - Last completed capability: Surplus allocation policy
 
 ## Terminology boundary
