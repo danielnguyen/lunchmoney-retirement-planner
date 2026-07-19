@@ -136,6 +136,193 @@ function surplusFixture(months = 1): ProjectionInputs {
   return input;
 }
 
+function simpleSavingsFixture(months = 1): ProjectionInputs {
+  const input = structuredClone(projectionFixture);
+  const endAge = 40 + months / 12;
+  input.startDate = "2026-01-15";
+  input.person.currentAge = 40;
+  input.person.retirementAge = endAge;
+  input.endAge = endAge;
+  input.annualInflation = 0;
+  input.monthlyEssentialSpendingToday = 0;
+  input.monthlyDiscretionarySpendingToday = 0;
+  input.tax.effectiveTaxRate = 0;
+  input.tax.oasRecoveryRate = 0;
+  input.person.employmentIncomePhases = [
+    {
+      id: "working",
+      label: "Working",
+      startAge: 40,
+      endAge,
+      annualNetCashToday: 60000,
+      annualGrowth: 0,
+      rrspRoomGeneration: {
+        annualEligibleEarnedIncomeToday: 0,
+        annualPensionAdjustmentToday: 0,
+        annualOtherRoomReductionToday: 0,
+        annualGrowth: 0,
+      },
+    },
+  ];
+  input.person.annualPensionToday = 0;
+  input.person.cpp.startAge = 65;
+  input.person.oas.startAge = 65;
+  input.accounts = [
+    {
+      id: "manual:operating",
+      label: "Operating cash",
+      origin: "lunchmoney",
+      type: "cash",
+      openingBalance: 0,
+      annualReturn: 0,
+      contributionPhases: [],
+      withdrawalPriority: 1,
+      allocation: { cash: 1, fixedIncome: 0, equity: 0 },
+    },
+    {
+      id: "manual:reserve-refill",
+      label: "Reserve refill",
+      origin: "lunchmoney",
+      type: "cash",
+      openingBalance: 0,
+      annualReturn: 0,
+      contributionPhases: [],
+      withdrawalPriority: 2,
+      allocation: { cash: 1, fixedIncome: 0, equity: 0 },
+    },
+    {
+      id: "plaid:personal-tfsa",
+      label: "Personal TFSA",
+      origin: "lunchmoney",
+      type: "tfsa",
+      openingBalance: 0,
+      annualReturn: 0,
+      contributionPhases: [
+        {
+          id: "personal-plan",
+          label: "Personal plan",
+          startAge: 40,
+          endAge,
+          monthlyAmountToday: 1000,
+          funding: "cash",
+          indexingRate: 0,
+        },
+      ],
+      withdrawalPriority: 3,
+      allocation: { cash: 0, fixedIncome: 0.2, equity: 0.8 },
+    },
+    {
+      id: "plaid:personal-rrsp",
+      label: "Personal RRSP",
+      origin: "lunchmoney",
+      type: "rrsp_rrif",
+      openingBalance: 0,
+      annualReturn: 0,
+      contributionPhases: [],
+      withdrawalPriority: 4,
+      allocation: { cash: 0, fixedIncome: 0.3, equity: 0.7 },
+    },
+    {
+      id: "plaid:workplace-rrsp",
+      label: "Workplace RRSP",
+      origin: "lunchmoney",
+      type: "rrsp_rrif",
+      openingBalance: 0,
+      annualReturn: 0,
+      contributionPhases: [
+        {
+          id: "workplace-plan",
+          label: "Workplace plan",
+          startAge: 40,
+          endAge,
+          monthlyAmountToday: 1800,
+          funding: "income_withheld",
+          indexingRate: 0,
+        },
+      ],
+      withdrawalPriority: 5,
+      allocation: { cash: 0, fixedIncome: 0.3, equity: 0.7 },
+    },
+    {
+      id: "projection:future-taxable",
+      label: "Future taxable",
+      origin: "projection_configuration",
+      type: "non_registered",
+      openingBalance: 0,
+      annualReturn: 0,
+      contributionPhases: [],
+      withdrawalPriority: 6,
+      allocation: { cash: 0.05, fixedIncome: 0.25, equity: 0.7 },
+    },
+  ];
+  input.registeredAccountRoom!.tfsa.startingAvailableRoom.amount = 500;
+  input.registeredAccountRoom!.rrsp.startingAvailableDeductionRoom.amount =
+    2000;
+  input.registeredAccountRoom!.rrsp.newRoom.startYearBeforeProjectionMonth = {
+    calendarYear: 2026,
+    eligibleEarnedIncome: 0,
+    pensionAdjustment: 0,
+    otherRoomReduction: 0,
+  };
+  input.contributionWaterfall = {
+    mode: "simple_policy",
+    routes: [
+      {
+        sourceAccountId: "plaid:workplace-rrsp",
+        destinationAccountIds: ["plaid:workplace-rrsp"],
+      },
+      {
+        sourceAccountId: "plaid:personal-tfsa",
+        destinationAccountIds: [
+          "plaid:personal-tfsa",
+          "plaid:personal-rrsp",
+          "projection:future-taxable",
+        ],
+      },
+    ],
+    surplusDestinationAccountIds: [
+      "plaid:personal-tfsa",
+      "plaid:personal-rrsp",
+      "projection:future-taxable",
+    ],
+  };
+  input.surplusAllocation = {
+    reserveAccountIds: ["manual:operating", "manual:reserve-refill"],
+    reserveRefillAccountId: "manual:reserve-refill",
+    targetCashReserveToday: 400,
+    reserveIndexingRate: 0,
+    excess: { mode: "allocate_through_contribution_waterfall" },
+  };
+  input.savingsPolicy = {
+    mode: "simple",
+    operatingCashAccountId: "manual:operating",
+    reserveAccountIds: ["manual:operating", "manual:reserve-refill"],
+    reserveRefillAccountId: "manual:reserve-refill",
+    personalTfsaAccountId: "plaid:personal-tfsa",
+    personalRrspAccountId: "plaid:personal-rrsp",
+    workplaceRrspAccountId: "plaid:workplace-rrsp",
+    taxableAccountId: "projection:future-taxable",
+    taxableAccountOrigin: "projection_configuration",
+    reserveBuildingPhases: [
+      {
+        id: "reserve-plan",
+        label: "Reserve plan",
+        startAge: 40,
+        endAge,
+        monthlyAmountToday: 1500,
+        indexingRate: 0,
+      },
+    ],
+    unplannedCash: "retain_in_operating_cash",
+    personalOrder: ["personal_tfsa", "personal_rrsp", "taxable"],
+    workplaceRoomPriority: "first",
+    workplaceOverflow: "unallocated",
+    reserveAfterTarget: "personal_investing",
+  };
+  input.events = [];
+  return input;
+}
+
 describe("public benefit timing", () => {
   it("applies current CPP early and delayed-claim factors", () => {
     expect(cppClaimFactor(60)).toBeCloseTo(0.64);
@@ -751,6 +938,178 @@ describe("exact retirement snapshot and accumulation bridge", () => {
     expect(result.financialAssetsBridge.nominal.oneTimeOutflows).toBe(500);
     expect(bridgeEnding(result, "nominal")).toBeCloseTo(
       result.financialAssetsBridge.nominal.endingFinancialAssets,
+      2,
+    );
+  });
+});
+
+describe("simple explicit-savings policy", () => {
+  it("invests only explicit plans and retains every unplanned positive dollar in operating cash", () => {
+    const result = calculateProjection(simpleSavingsFixture());
+    const view = result.retirementSnapshot.nominal;
+
+    expect(view.savingsPolicy).toEqual({
+      positiveCashAvailable: 5000,
+      personalPlanned: 1000,
+      personalAllowed: 1000,
+      personalUnallocated: 0,
+      reservePlanned: 1500,
+      reserveFunded: 1500,
+      reserveRetainedAsCash: 400,
+      reserveRedirected: 1100,
+      reserveUnfunded: 0,
+      workplacePlanned: 1800,
+      workplaceAllowed: 1800,
+      workplaceUnallocated: 0,
+      unplannedCashRetained: 2500,
+      totalInvestmentDeposits: 3900,
+    });
+    expect(view.accountContributions).toEqual({
+      "plaid:workplace-rrsp": 1800,
+      "plaid:personal-tfsa": 500,
+      "plaid:personal-rrsp": 200,
+      "projection:future-taxable": 1400,
+    });
+    expect(view.accountBalances).toMatchObject({
+      "manual:operating": 2500,
+      "manual:reserve-refill": 400,
+      "plaid:workplace-rrsp": 1800,
+      "plaid:personal-tfsa": 500,
+      "plaid:personal-rrsp": 200,
+      "projection:future-taxable": 1400,
+    });
+    expect(view.outflows.contributions).toBe(2100);
+    expect(view.contributions.incomeWithheld).toBe(1800);
+    expect(view.balances.financialAssets).toBe(6800);
+
+    const moreIncome = simpleSavingsFixture();
+    moreIncome.person.employmentIncomePhases[0]!.annualNetCashToday = 120000;
+    const higher = calculateProjection(moreIncome).retirementSnapshot.nominal;
+    expect(higher.savingsPolicy.totalInvestmentDeposits).toBe(3900);
+    expect(higher.savingsPolicy.unplannedCashRetained).toBe(7500);
+    expect(higher.accountBalances["manual:operating"]).toBe(7500);
+  });
+
+  it("gives workplace RRSP first global-room claim, leaves overflow unallocated, and never uses it for personal cash", () => {
+    const input = simpleSavingsFixture();
+    input.registeredAccountRoom!.rrsp.startingAvailableDeductionRoom.amount =
+      1000;
+    const view = calculateProjection(input).retirementSnapshot.nominal;
+
+    expect(view.savingsPolicy.workplacePlanned).toBe(1800);
+    expect(view.savingsPolicy.workplaceAllowed).toBe(1000);
+    expect(view.savingsPolicy.workplaceUnallocated).toBe(800);
+    expect(view.savingsPolicy.personalAllowed).toBe(1000);
+    expect(view.accountContributions["plaid:workplace-rrsp"]).toBe(1000);
+    expect(view.accountContributions["plaid:personal-rrsp"] ?? 0).toBe(0);
+    expect(view.accountContributions["plaid:personal-tfsa"]).toBe(500);
+    expect(view.accountContributions["projection:future-taxable"]).toBe(1600);
+    expect(view.registeredAccountRoom.rrsp.allowedContributions).toBe(1000);
+    expect(view.registeredAccountRoom.rrsp.closingRoom).toBe(0);
+  });
+
+  it("retains below-target reserve savings, splits the exact crossing month, and redirects the full plan after target", () => {
+    const below = simpleSavingsFixture();
+    below.surplusAllocation.targetCashReserveToday = 2000;
+    const belowView = calculateProjection(below).retirementSnapshot.nominal;
+    expect(belowView.savingsPolicy.reserveRetainedAsCash).toBe(1500);
+    expect(belowView.savingsPolicy.reserveRedirected).toBe(0);
+
+    const exact = simpleSavingsFixture();
+    exact.surplusAllocation.targetCashReserveToday = 1500;
+    const exactView = calculateProjection(exact).retirementSnapshot.nominal;
+    expect(exactView.savingsPolicy.reserveRetainedAsCash).toBe(1500);
+    expect(exactView.savingsPolicy.reserveRedirected).toBe(0);
+
+    const crossing = calculateProjection(
+      simpleSavingsFixture(),
+    ).retirementSnapshot.nominal;
+    expect(crossing.savingsPolicy.reserveRetainedAsCash).toBe(400);
+    expect(crossing.savingsPolicy.reserveRedirected).toBe(1100);
+
+    const after = simpleSavingsFixture();
+    after.surplusAllocation.targetCashReserveToday = 0;
+    const afterView = calculateProjection(after).retirementSnapshot.nominal;
+    expect(afterView.savingsPolicy.reserveRetainedAsCash).toBe(0);
+    expect(afterView.savingsPolicy.reserveRedirected).toBe(1500);
+  });
+
+  it("counts retained operating cash in the combined reserve on the next month and remains account-order independent", () => {
+    const input = simpleSavingsFixture(2);
+    const result = calculateProjection(input);
+    const annual = result.annual[0]!.nominal;
+    expect(annual.savingsPolicy.reserveRetainedAsCash).toBe(400);
+    expect(annual.savingsPolicy.reserveRedirected).toBe(2600);
+    expect(annual.savingsPolicy.unplannedCashRetained).toBe(5000);
+
+    const reordered = structuredClone(input);
+    reordered.accounts.reverse();
+    const reorderedResult = calculateProjection(reordered);
+    expect(reorderedResult.annual[0]!.nominal.savingsPolicy).toEqual(
+      annual.savingsPolicy,
+    );
+    expect(reorderedResult.retirementSnapshot.nominal.accountBalances).toEqual(
+      result.retirementSnapshot.nominal.accountBalances,
+    );
+  });
+
+  it("exposes unfunded cash plans without creating withdrawals solely to fund them", () => {
+    const input = simpleSavingsFixture();
+    input.person.employmentIncomePhases[0]!.annualNetCashToday = 600;
+    const view = calculateProjection(input).retirementSnapshot.nominal;
+
+    expect(view.savingsPolicy.positiveCashAvailable).toBe(50);
+    expect(view.savingsPolicy.personalPlanned).toBe(1000);
+    expect(view.savingsPolicy.personalAllowed).toBe(50);
+    expect(view.savingsPolicy.personalUnallocated).toBe(950);
+    expect(view.savingsPolicy.reservePlanned).toBe(1500);
+    expect(view.savingsPolicy.reserveFunded).toBe(0);
+    expect(view.savingsPolicy.reserveUnfunded).toBe(1500);
+    expect(view.withdrawals.total).toBe(0);
+    expect(view.accountBalances["manual:operating"]).toBe(0);
+    expect(view.accountBalances["manual:reserve-refill"]).toBe(0);
+  });
+
+  it("reconciles every simple policy equation and both asset bridges within one cent", () => {
+    const result = calculateProjection(simpleSavingsFixture(2));
+    for (const view of [
+      result.annual[0]!.nominal,
+      result.annual[0]!.real,
+      result.retirementSnapshot.nominal,
+      result.retirementSnapshot.real,
+    ]) {
+      const savings = view.savingsPolicy;
+      expect(savings.reserveFunded).toBeCloseTo(
+        savings.reserveRetainedAsCash + savings.reserveRedirected,
+        2,
+      );
+      expect(savings.personalPlanned).toBeCloseTo(
+        savings.personalAllowed + savings.personalUnallocated,
+        2,
+      );
+      expect(savings.workplacePlanned).toBeCloseTo(
+        savings.workplaceAllowed + savings.workplaceUnallocated,
+        2,
+      );
+      expect(savings.totalInvestmentDeposits).toBeCloseTo(
+        savings.personalAllowed +
+          savings.workplaceAllowed +
+          savings.reserveRedirected,
+        2,
+      );
+      expect(
+        Object.values(view.accountContributionDetails).reduce(
+          (total, detail) => total + detail.depositedIntoAccount,
+          0,
+        ),
+      ).toBeCloseTo(savings.totalInvestmentDeposits, 2);
+    }
+    expect(bridgeEnding(result, "nominal")).toBeCloseTo(
+      result.financialAssetsBridge.nominal.endingFinancialAssets,
+      2,
+    );
+    expect(bridgeEnding(result, "real")).toBeCloseTo(
+      result.financialAssetsBridge.real.endingFinancialAssets,
       2,
     );
   });

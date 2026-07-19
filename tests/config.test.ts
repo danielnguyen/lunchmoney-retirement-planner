@@ -7,8 +7,15 @@ import {
   loadPlannerConfig,
   validatePlannerConfig,
 } from "@/src/config/loader";
+import type { PlannerConfig } from "@/src/config/types";
 
 const EXAMPLE_CONFIG_PATH = "config/planner.example.yaml";
+const OPERATING_CASH_ID = "manual:synthetic-operating-cash";
+const RESERVE_REFILL_ID = "manual:synthetic-reserve-refill";
+const PERSONAL_TFSA_ID = "plaid:synthetic-personal-tfsa";
+const PERSONAL_RRSP_ID = "plaid:synthetic-personal-rrsp";
+const WORKPLACE_RRSP_ID = "plaid:synthetic-workplace-rrsp";
+const FUTURE_TAXABLE_ID = "projection:future-taxable";
 
 describe("private planner configuration", () => {
   let temporaryDirectory: string;
@@ -31,24 +38,149 @@ describe("private planner configuration", () => {
     return path;
   }
 
+  async function advancedConfig(): Promise<PlannerConfig> {
+    const value = structuredClone(
+      await loadPlannerConfig(EXAMPLE_CONFIG_PATH),
+    ) as unknown as Record<string, unknown>;
+    delete value.configurationMode;
+    delete value.registeredRoom;
+    delete value.savingsPolicy;
+
+    const mappings = value.accountMappings as Record<
+      string,
+      Record<string, unknown>
+    >;
+    for (const mapping of Object.values(mappings)) {
+      delete mapping.roles;
+    }
+    mappings[PERSONAL_TFSA_ID]!.contributionPhases = [
+      {
+        id: "current-saving",
+        label: "Current saving",
+        startAge: 38,
+        endAge: 41,
+        monthlyAmountToday: "live_baseline",
+        funding: "cash",
+        indexingRate: 0,
+      },
+      {
+        id: "future-saving",
+        label: "Future saving",
+        startAge: 41,
+        endAge: 62,
+        monthlyAmountToday: 500,
+        funding: "income_withheld",
+        indexingRate: 0.02,
+      },
+    ];
+
+    const employmentPhases = value.employmentIncomePhases as Array<
+      Record<string, unknown>
+    >;
+    for (const phase of employmentPhases) {
+      const simpleRoom = phase.rrspRoom as Record<string, unknown>;
+      phase.rrspRoomGeneration = {
+        annualEligibleEarnedIncomeToday:
+          simpleRoom.eligibleEarnedIncomeToday,
+        annualPensionAdjustmentToday:
+          simpleRoom.pensionAdjustmentToday,
+        annualOtherRoomReductionToday:
+          simpleRoom.otherReductionToday,
+        annualGrowth: simpleRoom.annualGrowth,
+      };
+      delete phase.rrspRoom;
+    }
+
+    value.projectionAccounts = {
+      [FUTURE_TAXABLE_ID]: {
+        label: "Future taxable investment account",
+        type: "non_registered",
+        annualReturn: 0.05,
+        withdrawalPriority: 6,
+        allocation: { cash: 0, fixedIncome: 0.2, equity: 0.8 },
+        contributionPhases: [],
+      },
+    };
+    value.surplusAllocation = {
+      reserveAccountIds: [OPERATING_CASH_ID, RESERVE_REFILL_ID],
+      reserveRefillAccountId: RESERVE_REFILL_ID,
+      targetCashReserveToday: 50000,
+      reserveIndexingRate: 0.02,
+      excess: { mode: "allocate_through_contribution_waterfall" },
+    };
+    value.registeredAccountRoom = {
+      tfsa: {
+        startingAvailableRoom: {
+          source: "configured_amount",
+          amount: 10000,
+          sourceDescription: "Synthetic configured TFSA starting room",
+          effectiveDate: "2026-01-01",
+        },
+        annualNewRoom: {
+          source: "canadian_reference",
+          futureIndexingRate: 0.02,
+          roundingIncrement: 500,
+        },
+        carryForwardUnusedRoom: true,
+        withdrawalRoomRecredit: "next_calendar_year",
+      },
+      rrsp: {
+        startingAvailableDeductionRoom: { source: "explicit_zero" },
+        carryForwardUnusedRoom: true,
+        newRoom: {
+          source: "earned_income",
+          annualCap: {
+            source: "canadian_reference",
+            futureGrowthRate: 0.03,
+            futureRoundingIncrement: 10,
+          },
+          startYearBeforeProjectionMonth: {
+            calendarYear: 2026,
+            eligibleEarnedIncome: 50000,
+            pensionAdjustment: 0,
+            otherRoomReduction: 0,
+          },
+        },
+      },
+    };
+    value.contributionWaterfall = {
+      routes: [
+        {
+          sourceAccountId: PERSONAL_TFSA_ID,
+          destinationAccountIds: [PERSONAL_TFSA_ID, FUTURE_TAXABLE_ID],
+        },
+      ],
+      surplusDestinationAccountIds: [PERSONAL_TFSA_ID, FUTURE_TAXABLE_ID],
+    };
+    (value.categoryMappings as Record<string, unknown>)[
+      "synthetic-investment-transfer-category"
+    ] = {
+      classification: "investment_contribution",
+      contributionAccountId: PERSONAL_TFSA_ID,
+      contributionDirection: "debit",
+    };
+
+    return validatePlannerConfig(value);
+  }
+
   it("parses and validates the committed commented YAML example", async () => {
     const contents = await exampleContents();
     const config = await loadPlannerConfig(EXAMPLE_CONFIG_PATH);
 
-    expect(contents).toContain("# Daily chequing account");
+    expect(contents).toContain("# Daily operating cash");
     expect(contents).toContain("# Groceries");
     expect(contents).toContain(
-      "Inside an explicit contribution phase, live_baseline resolves only",
+      "Only these explicit savings plans may be invested",
     );
     expect(contents).toContain(
-      "Legacy account-level contribution fields are a separate compatibility",
+      "account IDs appear in one place",
     );
     expect(contents).not.toContain(
       "mapped contribution transactions or the",
     );
     expect(contents).toContain("not a");
     expect(contents).toContain("personal estimate or entitlement");
-    expect(contents).toContain("qualifyingResidenceYearsAfter18");
+    expect(contents).toContain("qualifying years");
     expect(contents).not.toMatch(/^cppStartAge:|^oasStartAge:/m);
     expect(config.transactionTrailingMonths).toBe(12);
     expect(config.governmentBenefits).toEqual({
@@ -66,7 +198,8 @@ describe("private planner configuration", () => {
     });
     expect(config).not.toHaveProperty("cppStartAge");
     expect(config.assumptions).not.toHaveProperty("cppIndexing");
-    expect(config.accountMappings).toHaveProperty("manual:replace-with-cash-account-id");
+    expect(config.configurationMode).toBe("simple");
+    expect(config.accountMappings).toHaveProperty(OPERATING_CASH_ID);
     expect(config.employmentIncomePhases).toEqual([
       expect.objectContaining({
         id: "current-income",
@@ -77,16 +210,22 @@ describe("private planner configuration", () => {
         annualNetCashToday: 72000,
       }),
     ]);
-    expect(
-      config.accountMappings["plaid:replace-with-investment-account-id"]
-        .contributionPhases,
-    ).toHaveLength(2);
-    expect(
-      config.accountMappings["plaid:replace-with-investment-account-id"],
-    ).not.toHaveProperty("monthlyContribution");
-    expect(
-      config.accountMappings["plaid:replace-with-investment-account-id"],
-    ).not.toHaveProperty("contributionFunding");
+    expect(config.accountMappings[PERSONAL_TFSA_ID]!.roles).toEqual([
+      "personal_tfsa",
+    ]);
+    expect(config.savingsPolicy?.personalInvesting.phases).toHaveLength(2);
+    expect(config).not.toHaveProperty("projectionAccounts");
+    expect(config).not.toHaveProperty("surplusAllocation");
+    expect(config).not.toHaveProperty("contributionWaterfall");
+    for (const id of [
+      OPERATING_CASH_ID,
+      RESERVE_REFILL_ID,
+      PERSONAL_TFSA_ID,
+      PERSONAL_RRSP_ID,
+      WORKPLACE_RRSP_ID,
+    ]) {
+      expect(contents.match(new RegExp(id.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"), "g"))).toHaveLength(1);
+    }
   });
 
   it("ignores YAML comments without changing configuration values", async () => {
@@ -103,7 +242,7 @@ describe("private planner configuration", () => {
 
   it("preserves a quoted numeric category ID as a string key", async () => {
     const contents = (await exampleContents()).replace(
-      '"replace-with-essential-category-id": essential',
+      '"synthetic-essential-category": essential',
       '"123456": essential',
     );
     const config = await loadPlannerConfig(await temporaryConfig("numeric-category.yaml", contents));
@@ -117,8 +256,8 @@ describe("private planner configuration", () => {
 
     expect(Object.keys(config.accountMappings)).toEqual(
       expect.arrayContaining([
-        "manual:replace-with-cash-account-id",
-        "plaid:replace-with-investment-account-id",
+        OPERATING_CASH_ID,
+        PERSONAL_TFSA_ID,
       ]),
     );
   });
@@ -341,8 +480,8 @@ describe("private planner configuration", () => {
   });
 
   it("requires an explicit funding choice for every manual monthly contribution", async () => {
-    const config = await loadPlannerConfig(EXAMPLE_CONFIG_PATH);
-    const mapping = config.accountMappings["plaid:replace-with-investment-account-id"];
+    const config = await advancedConfig();
+    const mapping = config.accountMappings[PERSONAL_TFSA_ID]!;
     delete mapping.contributionPhases;
     mapping.monthlyContribution = 100;
 
@@ -373,27 +512,24 @@ describe("private planner configuration", () => {
       duplicate.employmentIncomePhases![0]!.id;
     expect(() => validatePlannerConfig(duplicate)).toThrow("duplicate phase id");
 
-    const outside = await loadPlannerConfig(EXAMPLE_CONFIG_PATH);
-    outside.accountMappings[
-      "plaid:replace-with-investment-account-id"
-    ]!.contributionPhases![0]!.startAge = 37;
+    const outside = await advancedConfig();
+    outside.accountMappings[PERSONAL_TFSA_ID]!.contributionPhases![0]!.startAge = 37;
     expect(() => validatePlannerConfig(outside)).toThrow(
       "must stay within currentAge and retirementAge",
     );
 
-    const duplicateContribution = await loadPlannerConfig(EXAMPLE_CONFIG_PATH);
+    const duplicateContribution = await advancedConfig();
     const contributionPhases =
-      duplicateContribution.accountMappings[
-        "plaid:replace-with-investment-account-id"
-      ]!.contributionPhases!;
+      duplicateContribution.accountMappings[PERSONAL_TFSA_ID]!
+        .contributionPhases!;
     contributionPhases[1]!.id = contributionPhases[0]!.id;
     expect(() => validatePlannerConfig(duplicateContribution)).toThrow(
       "duplicates contribution phase id",
     );
 
-    const overlappingContribution = await loadPlannerConfig(EXAMPLE_CONFIG_PATH);
+    const overlappingContribution = await advancedConfig();
     overlappingContribution.accountMappings[
-      "plaid:replace-with-investment-account-id"
+      PERSONAL_TFSA_ID
     ]!.contributionPhases![1]!.startAge = 40;
     expect(() => validatePlannerConfig(overlappingContribution)).toThrow(
       "overlaps contribution phase",
@@ -401,20 +537,18 @@ describe("private planner configuration", () => {
   });
 
   it("rejects phased contributions on non-investment accounts and ambiguous legacy fields", async () => {
-    const config = await loadPlannerConfig(EXAMPLE_CONFIG_PATH);
-    const cash = config.accountMappings["manual:replace-with-cash-account-id"]!;
+    const config = await advancedConfig();
+    const cash = config.accountMappings[OPERATING_CASH_ID]!;
     cash.contributionPhases = structuredClone(
-      config.accountMappings["plaid:replace-with-investment-account-id"]!
+      config.accountMappings[PERSONAL_TFSA_ID]!
         .contributionPhases,
     );
     expect(() => validatePlannerConfig(config)).toThrow(
       "may only be configured for a TFSA, RRSP/RRIF, or non-registered account",
     );
 
-    const ambiguous = await loadPlannerConfig(EXAMPLE_CONFIG_PATH);
-    ambiguous.accountMappings[
-      "plaid:replace-with-investment-account-id"
-    ]!.monthlyContribution = 100;
+    const ambiguous = await advancedConfig();
+    ambiguous.accountMappings[PERSONAL_TFSA_ID]!.monthlyContribution = 100;
     expect(() => validatePlannerConfig(ambiguous)).toThrow(
       "cannot combine contributionPhases",
     );
@@ -432,14 +566,14 @@ describe("private planner configuration", () => {
     );
 
     const negative = JSON.parse(
-      JSON.stringify(await loadPlannerConfig(EXAMPLE_CONFIG_PATH)),
+      JSON.stringify(await advancedConfig()),
     ) as Record<string, unknown>;
     const mappings = negative.accountMappings as Record<
       string,
       Record<string, unknown>
     >;
     (
-      mappings["plaid:replace-with-investment-account-id"]!
+      mappings[PERSONAL_TFSA_ID]!
         .contributionPhases as Array<Record<string, unknown>>
     )[0]!.monthlyAmountToday = -1;
     expect(() => validatePlannerConfig(negative)).toThrow(
@@ -452,9 +586,9 @@ describe("private planner configuration", () => {
       "must be no greater than 0.5",
     );
 
-    const invalidIndexing = await loadPlannerConfig(EXAMPLE_CONFIG_PATH);
+    const invalidIndexing = await advancedConfig();
     invalidIndexing.accountMappings[
-      "plaid:replace-with-investment-account-id"
+      PERSONAL_TFSA_ID
     ]!.contributionPhases![0]!.indexingRate = -0.3;
     expect(() => validatePlannerConfig(invalidIndexing)).toThrow(
       "must be at least -0.2",
@@ -472,7 +606,7 @@ describe("private planner configuration", () => {
 
   it("requires an explicit surplus allocation policy", async () => {
     const value = structuredClone(
-      await loadPlannerConfig(EXAMPLE_CONFIG_PATH),
+      await advancedConfig(),
     ) as unknown as Record<string, unknown>;
     delete value.surplusAllocation;
 
@@ -483,11 +617,11 @@ describe("private planner configuration", () => {
 
   it("validates retain-as-cash and allocate-to-account discriminator fields", async () => {
     const retain = structuredClone(
-      await loadPlannerConfig(EXAMPLE_CONFIG_PATH),
+      await advancedConfig(),
     ) as unknown as Record<string, unknown>;
     retain.surplusAllocation = {
-      reserveAccountIds: ["manual:reserve"],
-      reserveRefillAccountId: "manual:reserve",
+      reserveAccountIds: [RESERVE_REFILL_ID],
+      reserveRefillAccountId: RESERVE_REFILL_ID,
       targetCashReserveToday: 10000,
       reserveIndexingRate: 0.02,
       excess: { mode: "retain_as_cash" },
@@ -514,7 +648,7 @@ describe("private planner configuration", () => {
 
   it("requires an explicit unique reserve-account set and a refill account within it", async () => {
     const valid = structuredClone(
-      await loadPlannerConfig(EXAMPLE_CONFIG_PATH),
+      await advancedConfig(),
     ) as unknown as Record<string, unknown>;
 
     const missingSet = structuredClone(valid);
@@ -528,7 +662,7 @@ describe("private planner configuration", () => {
     const duplicate = structuredClone(valid);
     (
       duplicate.surplusAllocation as Record<string, unknown>
-    ).reserveAccountIds = ["manual:reserve", "manual:reserve"];
+    ).reserveAccountIds = [RESERVE_REFILL_ID, RESERVE_REFILL_ID];
     expect(() => validatePlannerConfig(duplicate)).toThrow(
       "must not contain duplicate accounts",
     );
@@ -538,20 +672,20 @@ describe("private planner configuration", () => {
       string,
       unknown
     >;
-    policy.reserveAccountIds = ["manual:reserve"];
-    policy.reserveRefillAccountId = "manual:other-cash";
+    policy.reserveAccountIds = [RESERVE_REFILL_ID];
+    policy.reserveRefillAccountId = OPERATING_CASH_ID;
     expect(() => validatePlannerConfig(refillOutsideSet)).toThrow(
       "reserveRefillAccountId must be included in reserveAccountIds",
     );
   });
 
   it("requires explicit projection-only account assumptions and projection-prefixed ids", async () => {
-    const valid = await loadPlannerConfig(EXAMPLE_CONFIG_PATH);
-    expect(valid.projectionAccounts?.["projection:future-taxable"]).toEqual({
+    const valid = await advancedConfig();
+    expect(valid.projectionAccounts?.[FUTURE_TAXABLE_ID]).toEqual({
       label: "Future taxable investment account",
       type: "non_registered",
       annualReturn: 0.05,
-      withdrawalPriority: 4,
+      withdrawalPriority: 6,
       allocation: { cash: 0, fixedIncome: 0.2, equity: 0.8 },
       contributionPhases: [],
     });
@@ -561,8 +695,8 @@ describe("private planner configuration", () => {
       unknown
     >;
     const accounts = badPrefix.projectionAccounts as Record<string, unknown>;
-    accounts["future-taxable"] = accounts["projection:future-taxable"];
-    delete accounts["projection:future-taxable"];
+    accounts["future-taxable"] = accounts[FUTURE_TAXABLE_ID];
+    delete accounts[FUTURE_TAXABLE_ID];
     expect(() => validatePlannerConfig(badPrefix)).toThrow(
       "must begin with projection:",
     );
@@ -580,7 +714,7 @@ describe("private planner configuration", () => {
       >;
       delete (
         (missing.projectionAccounts as Record<string, Record<string, unknown>>)[
-          "projection:future-taxable"
+          FUTURE_TAXABLE_ID
         ]!
       )[field];
       expect(() => validatePlannerConfig(missing)).toThrow();
@@ -594,7 +728,7 @@ describe("private planner configuration", () => {
       (openingBalance.projectionAccounts as Record<
         string,
         Record<string, unknown>
-      >)["projection:future-taxable"]!
+      >)[FUTURE_TAXABLE_ID]!
     ).openingBalance = 1;
     expect(() => validatePlannerConfig(openingBalance)).toThrow(
       "openingBalance is not configurable",
@@ -603,18 +737,18 @@ describe("private planner configuration", () => {
 
   it("rejects projection-only debt, duplicate ids, and unresolved live-baseline contributions", async () => {
     const debt = structuredClone(
-      await loadPlannerConfig(EXAMPLE_CONFIG_PATH),
+      await advancedConfig(),
     );
-    debt.projectionAccounts!["projection:future-taxable"]!.type =
+    debt.projectionAccounts![FUTURE_TAXABLE_ID]!.type =
       "debt" as never;
     expect(() => validatePlannerConfig(debt)).toThrow(
       "debt and exclude are not supported",
     );
 
     const collision = structuredClone(
-      await loadPlannerConfig(EXAMPLE_CONFIG_PATH),
+      await advancedConfig(),
     );
-    collision.accountMappings["projection:future-taxable"] = {
+    collision.accountMappings[FUTURE_TAXABLE_ID] = {
       include: false,
       type: "exclude",
     };
@@ -623,9 +757,9 @@ describe("private planner configuration", () => {
     );
 
     const live = structuredClone(
-      await loadPlannerConfig(EXAMPLE_CONFIG_PATH),
+      await advancedConfig(),
     );
-    live.projectionAccounts!["projection:future-taxable"]!
+    live.projectionAccounts![FUTURE_TAXABLE_ID]!
       .contributionPhases = [
       {
         id: "invalid-live",
@@ -643,7 +777,7 @@ describe("private planner configuration", () => {
   });
 
   it("validates every starting-room source without treating Canadian limits as personal room", async () => {
-    const base = await loadPlannerConfig(EXAMPLE_CONFIG_PATH);
+    const base = await advancedConfig();
     for (const startingAvailableRoom of [
       {
         source: "official_estimate",
@@ -690,8 +824,8 @@ describe("private planner configuration", () => {
   });
 
   it("requires explicit numeric RRSP room-generation inputs and accepts surplus waterfall mode", async () => {
-    const valid = await loadPlannerConfig(EXAMPLE_CONFIG_PATH);
-    expect(valid.surplusAllocation.excess).toEqual({
+    const valid = await advancedConfig();
+    expect(valid.surplusAllocation!.excess).toEqual({
       mode: "allocate_through_contribution_waterfall",
     });
     expect(valid.employmentIncomePhases?.every(
@@ -726,7 +860,7 @@ describe("private planner configuration", () => {
   });
 
   it("requires RRSP generation for overflow and active surplus destinations", async () => {
-    const withRrsp = await loadPlannerConfig(EXAMPLE_CONFIG_PATH);
+    const withRrsp = await advancedConfig();
     withRrsp.projectionAccounts!["projection:future-rrsp"] = {
       label: "Synthetic future RRSP",
       type: "rrsp",
@@ -760,7 +894,7 @@ describe("private planner configuration", () => {
   });
 
   it("accepts explicit zero RRSP generation and omits irrelevant generation", async () => {
-    const explicitZero = await loadPlannerConfig(EXAMPLE_CONFIG_PATH);
+    const explicitZero = await advancedConfig();
     explicitZero.projectionAccounts!["projection:future-rrsp"] = {
       label: "Synthetic future RRSP",
       type: "rrsp",
@@ -784,10 +918,146 @@ describe("private planner configuration", () => {
     }
     expect(() => validatePlannerConfig(explicitZero)).not.toThrow();
 
-    const unreachable = await loadPlannerConfig(EXAMPLE_CONFIG_PATH);
+    const unreachable = await advancedConfig();
     for (const phase of unreachable.employmentIncomePhases!) {
       delete phase.rrspRoomGeneration;
     }
     expect(() => validatePlannerConfig(unreachable)).not.toThrow();
+  });
+
+  it("validates the simple role contract and blocks duplicate or mistyped singleton roles", async () => {
+    const valid = await loadPlannerConfig(EXAMPLE_CONFIG_PATH);
+    expect(valid.configurationMode).toBe("simple");
+    expect(valid.accountMappings[OPERATING_CASH_ID]!.roles).toEqual([
+      "operating_cash",
+      "reserve_member",
+    ]);
+
+    const duplicateOperating = structuredClone(valid);
+    duplicateOperating.accountMappings[RESERVE_REFILL_ID]!.roles!.push(
+      "operating_cash",
+    );
+    expect(() => validatePlannerConfig(duplicateOperating)).toThrow(
+      "exactly one included operating_cash role",
+    );
+
+    const refillNotReserve = structuredClone(valid);
+    refillNotReserve.accountMappings[RESERVE_REFILL_ID]!.roles = [
+      "reserve_refill",
+    ];
+    expect(() => validatePlannerConfig(refillNotReserve)).toThrow(
+      "reserve_refill account must also have the reserve_member role",
+    );
+
+    const wrongType = structuredClone(valid);
+    wrongType.accountMappings[PERSONAL_TFSA_ID]!.type = "cash";
+    expect(() => validatePlannerConfig(wrongType)).toThrow(
+      "Account role personal_tfsa requires planner type tfsa",
+    );
+
+    const conflictingRrsp = structuredClone(valid);
+    conflictingRrsp.accountMappings[WORKPLACE_RRSP_ID]!.roles = [];
+    conflictingRrsp.accountMappings[PERSONAL_RRSP_ID]!.roles!.push(
+      "workplace_rrsp",
+    );
+    expect(() => validatePlannerConfig(conflictingRrsp)).toThrow(
+      "must be different accounts",
+    );
+
+    const excluded = structuredClone(valid);
+    excluded.accountMappings["manual:synthetic-excluded-account"]!.roles = [
+      "reserve_member",
+    ];
+    expect(() => validatePlannerConfig(excluded)).toThrow(
+      "excluded and cannot hold active roles",
+    );
+  });
+
+  it("accepts an optional real taxable role and rejects duplicate taxable roles", async () => {
+    const valid = await loadPlannerConfig(EXAMPLE_CONFIG_PATH);
+    valid.accountMappings["plaid:synthetic-taxable"] = {
+      include: true,
+      type: "non_registered",
+      roles: ["personal_taxable"],
+      withdrawalPriority: 6,
+    };
+    expect(() => validatePlannerConfig(valid)).not.toThrow();
+
+    valid.accountMappings["plaid:synthetic-taxable-two"] = {
+      include: true,
+      type: "non_registered",
+      roles: ["personal_taxable"],
+      withdrawalPriority: 7,
+    };
+    expect(() => validatePlannerConfig(valid)).toThrow(
+      "at most one included personal_taxable role",
+    );
+  });
+
+  it("rejects simple and advanced configuration in one clear conflict", async () => {
+    const mixedRouting = structuredClone(
+      await loadPlannerConfig(EXAMPLE_CONFIG_PATH),
+    );
+    mixedRouting.surplusAllocation = {
+      reserveAccountIds: [OPERATING_CASH_ID, RESERVE_REFILL_ID],
+      reserveRefillAccountId: RESERVE_REFILL_ID,
+      targetCashReserveToday: 40000,
+      reserveIndexingRate: 0.02,
+      excess: { mode: "retain_as_cash" },
+    };
+    expect(() => validatePlannerConfig(mixedRouting)).toThrow(
+      "Simple planner configuration cannot be mixed with advanced",
+    );
+
+    const mixedContributionReference = structuredClone(
+      await loadPlannerConfig(EXAMPLE_CONFIG_PATH),
+    );
+    mixedContributionReference.categoryMappings[
+      "synthetic-investment-transfer-category"
+    ] = {
+      classification: "investment_contribution",
+      contributionAccountId: PERSONAL_TFSA_ID,
+      contributionDirection: "debit",
+    };
+    expect(() => validatePlannerConfig(mixedContributionReference)).toThrow(
+      "Simple planner configuration cannot be mixed with advanced",
+    );
+
+    const mixedTargetedEvent = structuredClone(
+      await loadPlannerConfig(EXAMPLE_CONFIG_PATH),
+    );
+    mixedTargetedEvent.futureEvents = [
+      {
+        id: "synthetic-targeted-event",
+        label: "Synthetic targeted event",
+        calendarYear: 2030,
+        month: 6,
+        amountToday: 1000,
+        direction: "inflow",
+        targetAccountId: PERSONAL_TFSA_ID,
+      },
+    ];
+    expect(() => validatePlannerConfig(mixedTargetedEvent)).toThrow(
+      "Simple planner configuration cannot be mixed with advanced",
+    );
+  });
+
+  it("requires simple RRSP assumptions on every employment phase and accepts explicit zeros", async () => {
+    const explicitZeros = await loadPlannerConfig(EXAMPLE_CONFIG_PATH);
+    for (const phase of explicitZeros.employmentIncomePhases!) {
+      phase.rrspRoom = {
+        eligibleEarnedIncomeToday: 0,
+        pensionAdjustmentToday: 0,
+        otherReductionToday: 0,
+        annualGrowth: 0,
+      };
+    }
+    expect(() => validatePlannerConfig(explicitZeros)).not.toThrow();
+
+    const missing = await loadPlannerConfig(EXAMPLE_CONFIG_PATH);
+    delete missing.employmentIncomePhases![0]!.rrspRoom;
+    expect(() => validatePlannerConfig(missing)).toThrow(
+      "rrspRoom is required in simple mode",
+    );
   });
 });

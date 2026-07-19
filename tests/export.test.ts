@@ -1111,6 +1111,354 @@ describe("automatically anonymized projection exports", () => {
     }
   });
 
+  it("anonymizes simple roles, policy preview, explicit plans, projection taxable account, and scalar CSV fields", () => {
+    const fixture = buildExportFixture();
+    const inputs = structuredClone(fixture.inputs);
+    const personalRrspId = "manual:private-personal-rrsp-DIGITS-1111";
+    const workplaceRrspId =
+      "plaid:private-workplace-rrsp-DIGITS-2222";
+    const taxableId = "projection:private-future-taxable-DIGITS-3333";
+    const reservePhaseId = "private-reserve-phase-id";
+    const privateTaxableLabel =
+      `${PRIVATE_TEXT.personalName} taxable future at ${PRIVATE_TEXT.institution}`;
+
+    inputs.accounts[0] = {
+      ...inputs.accounts[0]!,
+      id: RAW_IDS.cash,
+      label: RAW_ACCOUNT_NAMES.cash,
+      type: "cash",
+      contributionPhases: [],
+    };
+    inputs.accounts[1] = {
+      ...inputs.accounts[1]!,
+      id: RAW_IDS.rrsp,
+      label: `${PRIVATE_TEXT.personalName} personal TFSA`,
+      type: "tfsa",
+      contributionPhases: [
+        {
+          id: RAW_IDS.contributionPhase,
+          label: PRIVATE_TEXT.contributionPhaseLabel,
+          startAge: 40,
+          endAge: 65,
+          monthlyAmountToday: 1000,
+          funding: "cash",
+          indexingRate: 0,
+        },
+      ],
+    };
+    inputs.accounts.push(
+      {
+        ...structuredClone(inputs.accounts[1]!),
+        id: personalRrspId,
+        label: `${PRIVATE_TEXT.personalName} personal RRSP`,
+        type: "rrsp_rrif",
+        contributionPhases: [],
+        withdrawalPriority: 3,
+      },
+      {
+        ...structuredClone(inputs.accounts[1]!),
+        id: workplaceRrspId,
+        label: `${PRIVATE_TEXT.employer} workplace RRSP`,
+        type: "rrsp_rrif",
+        contributionPhases: [
+          {
+            id: "private-workplace-phase-id",
+            label: `${PRIVATE_TEXT.employer} workplace saving`,
+            startAge: 40,
+            endAge: 65,
+            monthlyAmountToday: 1800,
+            funding: "income_withheld",
+            indexingRate: 0,
+          },
+        ],
+        withdrawalPriority: 4,
+      },
+      {
+        id: taxableId,
+        label: privateTaxableLabel,
+        origin: "projection_configuration",
+        type: "non_registered",
+        openingBalance: 0,
+        annualReturn: 0.05,
+        contributionPhases: [],
+        withdrawalPriority: 5,
+        allocation: { cash: 0.05, fixedIncome: 0.25, equity: 0.7 },
+      },
+    );
+    inputs.registeredAccountRoom!.tfsa.startingAvailableRoom.amount = 10000;
+    inputs.registeredAccountRoom!.rrsp.startingAvailableDeductionRoom.amount =
+      10000;
+    inputs.contributionWaterfall = {
+      mode: "simple_policy",
+      routes: [
+        {
+          sourceAccountId: workplaceRrspId,
+          destinationAccountIds: [workplaceRrspId],
+        },
+        {
+          sourceAccountId: RAW_IDS.rrsp,
+          destinationAccountIds: [
+            RAW_IDS.rrsp,
+            personalRrspId,
+            taxableId,
+          ],
+        },
+      ],
+      surplusDestinationAccountIds: [
+        RAW_IDS.rrsp,
+        personalRrspId,
+        taxableId,
+      ],
+    };
+    inputs.surplusAllocation = {
+      reserveAccountIds: [RAW_IDS.cash],
+      reserveRefillAccountId: RAW_IDS.cash,
+      targetCashReserveToday: 40000,
+      reserveIndexingRate: 0.02,
+      excess: { mode: "allocate_through_contribution_waterfall" },
+    };
+    inputs.savingsPolicy = {
+      mode: "simple",
+      operatingCashAccountId: RAW_IDS.cash,
+      reserveAccountIds: [RAW_IDS.cash],
+      reserveRefillAccountId: RAW_IDS.cash,
+      personalTfsaAccountId: RAW_IDS.rrsp,
+      personalRrspAccountId: personalRrspId,
+      workplaceRrspAccountId: workplaceRrspId,
+      taxableAccountId: taxableId,
+      taxableAccountOrigin: "projection_configuration",
+      reserveBuildingPhases: [
+        {
+          id: reservePhaseId,
+          label: `${PRIVATE_TEXT.personalName} emergency saving`,
+          startAge: 40,
+          endAge: 50,
+          monthlyAmountToday: 1500,
+          indexingRate: 0,
+        },
+      ],
+      unplannedCash: "retain_in_operating_cash",
+      personalOrder: ["personal_tfsa", "personal_rrsp", "taxable"],
+      workplaceRoomPriority: "first",
+      workplaceOverflow: "unallocated",
+      reserveAfterTarget: "personal_investing",
+    };
+
+    const baseline = structuredClone(fixture.baseline);
+    baseline.projectionInputs = structuredClone(inputs);
+    baseline.derived.accountBalances[1]!.plannerType = "tfsa";
+    baseline.provenance = {
+      [`accounts.${RAW_IDS.cash}.roles`]: {
+        value: ["operating_cash", "reserve_member", "reserve_refill"],
+        sourceType: "local_configuration",
+        sourceDescription: RAW_ACCOUNT_NAMES.cash,
+        effectiveDate: baseline.dataThrough,
+      },
+      [`accounts.${RAW_IDS.rrsp}.roles`]: {
+        value: ["personal_tfsa"],
+        sourceType: "local_configuration",
+        sourceDescription: PRIVATE_TEXT.personalName,
+        effectiveDate: baseline.dataThrough,
+      },
+      [`accounts.${personalRrspId}.roles`]: {
+        value: ["personal_rrsp"],
+        sourceType: "local_configuration",
+        sourceDescription: PRIVATE_TEXT.personalName,
+        effectiveDate: baseline.dataThrough,
+      },
+      [`accounts.${workplaceRrspId}.roles`]: {
+        value: ["workplace_rrsp"],
+        sourceType: "local_configuration",
+        sourceDescription: PRIVATE_TEXT.employer,
+        effectiveDate: baseline.dataThrough,
+      },
+      [`accounts.${taxableId}.roles`]: {
+        value: ["personal_taxable"],
+        sourceType: "local_configuration",
+        sourceDescription: privateTaxableLabel,
+        effectiveDate: baseline.dataThrough,
+      },
+      "savingsPolicy.reserveAccountIds": {
+        value: [RAW_IDS.cash],
+        sourceType: "local_configuration",
+        sourceDescription: RAW_ACCOUNT_NAMES.cash,
+        effectiveDate: baseline.dataThrough,
+      },
+      "savingsPolicy.operatingCashAccountId": {
+        value: RAW_IDS.cash,
+        sourceType: "local_configuration",
+        sourceDescription: RAW_ACCOUNT_NAMES.cash,
+        effectiveDate: baseline.dataThrough,
+      },
+      "savingsPolicy.reserveRefillAccountId": {
+        value: RAW_IDS.cash,
+        sourceType: "local_configuration",
+        sourceDescription: RAW_ACCOUNT_NAMES.cash,
+        effectiveDate: baseline.dataThrough,
+      },
+      "savingsPolicy.personalTfsaAccountId": {
+        value: RAW_IDS.rrsp,
+        sourceType: "local_configuration",
+        sourceDescription: PRIVATE_TEXT.personalName,
+        effectiveDate: baseline.dataThrough,
+      },
+      "savingsPolicy.personalRrspAccountId": {
+        value: personalRrspId,
+        sourceType: "local_configuration",
+        sourceDescription: PRIVATE_TEXT.personalName,
+        effectiveDate: baseline.dataThrough,
+      },
+      "savingsPolicy.workplaceRrspAccountId": {
+        value: workplaceRrspId,
+        sourceType: "local_configuration",
+        sourceDescription: PRIVATE_TEXT.employer,
+        effectiveDate: baseline.dataThrough,
+      },
+      "savingsPolicy.taxableAccountId": {
+        value: taxableId,
+        sourceType: "local_configuration",
+        sourceDescription: privateTaxableLabel,
+        effectiveDate: baseline.dataThrough,
+      },
+      [`savingsPolicy.reserveBuilding.phases.${reservePhaseId}.label`]: {
+        value: `${PRIVATE_TEXT.personalName} emergency saving`,
+        sourceType: "local_configuration",
+        sourceDescription: PRIVATE_TEXT.note,
+        effectiveDate: baseline.dataThrough,
+      },
+      "savingsPolicy.reserveBuilding.targetToday": {
+        value: 40000,
+        sourceType: "local_configuration",
+        sourceDescription: PRIVATE_TEXT.note,
+        effectiveDate: baseline.dataThrough,
+      },
+      "savingsPolicy.reserveBuilding.indexingRate": {
+        value: 0.02,
+        sourceType: "local_configuration",
+        sourceDescription: PRIVATE_TEXT.note,
+        effectiveDate: baseline.dataThrough,
+      },
+    };
+    const projection = calculateProjection(inputs);
+    const snapshot = createProjectionSnapshot(
+      projection,
+      baseline,
+      {
+        "savingsPolicy.reserveBuilding.targetToday": 40000,
+        [`reserveBuildingPhase.${reservePhaseId}.monthlyAmountToday`]:
+          1500,
+      },
+      "2026-07-14T00:00:00.000Z",
+    );
+    const serialized = JSON.stringify(snapshot);
+
+    expect(snapshot.policyPreview).toMatchObject({
+      mode: "simple",
+      reserveAccounts: ["Cash account 1"],
+      reserveRefillAccount: "Cash account 1",
+      operatingCashAccount: "Cash account 1",
+      workplacePriority:
+        "Workplace RRSP gets first claim on global RRSP room",
+      workplaceOverflow: "Workplace RRSP overflow is unallocated",
+      personalOrder: "Personal TFSA → personal RRSP → taxable",
+      taxableDestination: "Non-registered account 1",
+      taxableDestinationKind: "projection-only",
+    });
+    expect(snapshot.activeInputs.savingsPolicy).toMatchObject({
+      mode: "simple",
+      operatingCashAccountId: "cash_1",
+      reserveAccountIds: ["cash_1"],
+      reserveRefillAccountId: "cash_1",
+      personalTfsaAccountId: "tfsa_1",
+      personalRrspAccountId: "rrsp_1",
+      workplaceRrspAccountId: "rrsp_2",
+      taxableAccountId: "non_registered_1",
+      taxableAccountOrigin: "projection_configuration",
+    });
+    expect(snapshot.projection.savingsPolicy.policy).toMatchObject({
+      mode: "simple",
+      personalTfsaAccountId: "tfsa_1",
+      personalRrspAccountId: "rrsp_1",
+      workplaceRrspAccountId: "rrsp_2",
+      taxableAccountId: "non_registered_1",
+      workplaceRoomPriority: "first",
+      workplaceOverflow: "unallocated",
+      unplannedCash: "retain_in_operating_cash",
+    });
+    expect(snapshot.activeOverrides).toEqual({
+      "reserveBuildingPhase.savings_phase_1.monthlyAmountToday": 1500,
+      "savingsPolicy.reserveBuilding.targetToday": 40000,
+    });
+    expect(
+      snapshot.provenance["accounts.cash_1.roles"]?.value,
+    ).toEqual(["operating_cash", "reserve_member", "reserve_refill"]);
+    expect(
+      snapshot.provenance["savingsPolicy.taxableAccountId"]?.value,
+    ).toBe("non_registered_1");
+
+    for (const mode of ["real", "nominal"] as const) {
+      const csv = projectionSnapshotToCsv(snapshot, mode);
+      const rows = csv.split("\n").map(parseCsvLine);
+      const header = rows[0]!;
+      expect(header).toEqual(
+        expect.arrayContaining([
+          "savings_policy_mode",
+          "positive_cash_available",
+          "personal_plan_planned",
+          "personal_plan_allowed",
+          "personal_plan_unallocated",
+          "reserve_plan_planned",
+          "reserve_plan_funded",
+          "reserve_cash_retained",
+          "reserve_plan_redirected",
+          "reserve_plan_unfunded",
+          "workplace_plan_planned",
+          "workplace_plan_allowed",
+          "workplace_plan_unallocated",
+          "unplanned_cash_retained",
+          "total_investment_deposits",
+          "savings_operating_cash_account",
+          "savings_taxable_account",
+          "savings_taxable_origin",
+        ]),
+      );
+      expect(rows.every((row) => row.length === header.length)).toBe(true);
+      expect(
+        rows.slice(1).every(
+          (row) =>
+            row[header.indexOf("savings_policy_mode")] === "simple" &&
+            row[header.indexOf("savings_operating_cash_account")] ===
+              "cash_1" &&
+            row[header.indexOf("savings_taxable_account")] ===
+              "non_registered_1",
+        ),
+      ).toBe(true);
+      expect(csv).not.toMatch(/[{}[\]]/);
+      expect(csv).not.toContain(";");
+      expectNoSourceIdentifiersOrCredentials(csv);
+      for (const privateValue of [
+        personalRrspId,
+        workplaceRrspId,
+        taxableId,
+        reservePhaseId,
+        privateTaxableLabel,
+      ]) {
+        expect(csv).not.toContain(privateValue);
+      }
+    }
+    expectNoSourceIdentifiersOrCredentials(serialized);
+    for (const privateValue of [
+      personalRrspId,
+      workplaceRrspId,
+      taxableId,
+      reservePhaseId,
+      privateTaxableLabel,
+    ]) {
+      expect(serialized).not.toContain(privateValue);
+    }
+    expect(serialized).not.toContain("projection:");
+  });
+
   it("uses ordinary export filenames for JSON and both CSV modes", () => {
     const json = projectionJsonFilename("2026-07-15T12:00:00.000Z");
     const realCsv = projectionCsvFilename("2026-07-15T12:00:00.000Z", "real");

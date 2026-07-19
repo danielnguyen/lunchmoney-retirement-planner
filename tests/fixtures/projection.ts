@@ -143,6 +143,7 @@ export const projectionFixture: ProjectionInputs = {
     reserveIndexingRate: 0.02,
     excess: { mode: "retain_as_cash" },
   },
+  savingsPolicy: { mode: "advanced" },
   events: [
     {
       id: "future-expense",

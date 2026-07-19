@@ -48,6 +48,11 @@ export const RRSP_ANNUAL_LIMITS: readonly CanadianAnnualLimitReference[] = [
 
 export const RRSP_EARNED_INCOME_RATE = 0.18;
 
+export const SIMPLE_POLICY_TFSA_FUTURE_INDEXING_RATE = 0.02;
+export const SIMPLE_POLICY_TFSA_ROUNDING_INCREMENT = 500;
+export const SIMPLE_POLICY_RRSP_FUTURE_GROWTH_RATE = 0.03;
+export const SIMPLE_POLICY_RRSP_ROUNDING_INCREMENT = 10;
+
 function roundedForecast(value: number, increment: number): number {
   return Math.round(value / increment) * increment;
 }

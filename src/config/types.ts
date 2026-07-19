@@ -31,6 +31,18 @@ export type TransactionClassification = (typeof transactionClassifications)[numb
 
 export type LiveBaselineAmount = number | "live_baseline";
 
+export const accountRoles = [
+  "operating_cash",
+  "reserve_member",
+  "reserve_refill",
+  "personal_tfsa",
+  "personal_rrsp",
+  "workplace_rrsp",
+  "personal_taxable",
+] as const;
+
+export type AccountRole = (typeof accountRoles)[number];
+
 export type EmploymentIncomePhaseConfig = {
   id: string;
   label: string;
@@ -42,6 +54,12 @@ export type EmploymentIncomePhaseConfig = {
     annualEligibleEarnedIncomeToday: number;
     annualPensionAdjustmentToday: number;
     annualOtherRoomReductionToday: number;
+    annualGrowth: number;
+  };
+  rrspRoom?: {
+    eligibleEarnedIncomeToday: number;
+    pensionAdjustmentToday: number;
+    otherReductionToday: number;
     annualGrowth: number;
   };
 };
@@ -59,6 +77,7 @@ export type ContributionPhaseConfig = {
 export type AccountMapping = {
   include: boolean;
   type: PlannerAccountType;
+  roles?: AccountRole[];
   monthlyContribution?: number;
   contributionFunding?: ContributionFunding;
   contributionPhases?: ContributionPhaseConfig[];
@@ -74,6 +93,50 @@ export type ProjectionAccountConfig = {
   withdrawalPriority: number;
   allocation: AssetAllocation;
   contributionPhases: ContributionPhaseConfig[];
+};
+
+export type RegisteredRoomConfig = {
+  tfsa: {
+    availableAtStart: number;
+    asOf: string;
+  };
+  rrsp: {
+    availableAtStart: number;
+    asOf: string;
+    beforeProjectionStart?: {
+      eligibleEarnedIncome: number;
+      pensionAdjustment: number;
+      otherReduction: number;
+    };
+  };
+};
+
+export type SavingsPlanPhaseConfig = {
+  id: string;
+  label: string;
+  startAge: number;
+  endAge: number;
+  monthlyAmountToday: number;
+  indexingRate: number;
+};
+
+export type SavingsPolicyConfig = {
+  unplannedCash: "retain_in_operating_cash";
+  personalInvesting: {
+    order: ["personal_tfsa", "personal_rrsp", "taxable"];
+    phases: SavingsPlanPhaseConfig[];
+  };
+  reserveBuilding: {
+    targetToday: number;
+    indexingRate: number;
+    phases: SavingsPlanPhaseConfig[];
+    afterTarget: "personal_investing";
+  };
+  workplaceRrsp?: {
+    roomPriority: "first";
+    overflow: "unallocated";
+    phases: SavingsPlanPhaseConfig[];
+  };
 };
 
 export type CategoryMapping =
@@ -155,6 +218,7 @@ export type GovernmentBenefitsConfig = {
 };
 
 export type PlannerConfig = {
+  configurationMode: "simple" | "advanced";
   currentAge: number;
   retirementAge: number;
   projectionEndAge: number;
@@ -167,10 +231,12 @@ export type PlannerConfig = {
   transactionTrailingMonths: number;
   employmentIncomePhases?: EmploymentIncomePhaseConfig[];
   accountMappings: Record<string, AccountMapping>;
+  registeredRoom?: RegisteredRoomConfig;
+  savingsPolicy?: SavingsPolicyConfig;
   projectionAccounts?: Record<string, ProjectionAccountConfig>;
   registeredAccountRoom?: RegisteredAccountRoomInput;
   contributionWaterfall?: Omit<ContributionWaterfallInput, "mode">;
-  surplusAllocation: SurplusAllocationPolicyInput;
+  surplusAllocation?: SurplusAllocationPolicyInput;
   categoryMappings: Record<string, CategoryMapping>;
   assumptions: PlannerAssumptions;
   futureEvents: ProjectionEventInput[];

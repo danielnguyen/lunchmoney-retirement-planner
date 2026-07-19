@@ -134,6 +134,20 @@ export type AnnualChartRow = {
   surplusRetainedAsCash: number;
   surplusRedirected: number;
   surplusReserveTarget: number;
+  positiveCashAvailable: number;
+  personalPlanAmount: number;
+  personalPlanAllowed: number;
+  personalPlanUnallocated: number;
+  reserveBuildingPlanAmount: number;
+  reserveBuildingFunded: number;
+  reserveCashRetained: number;
+  reservePlanRedirected: number;
+  reservePlanUnfunded: number;
+  workplacePlanned: number;
+  workplaceAllowed: number;
+  workplaceUnallocated: number;
+  unplannedCashRetained: number;
+  totalInvestmentDeposits: number;
   financialAssets: number;
   goal: number;
   milestones: string;
@@ -154,6 +168,20 @@ export type AnnualLedgerRow = {
   surplusRetainedAsCash: number;
   surplusRedirected: number;
   surplusReserveTarget: number;
+  positiveCashAvailable: number;
+  personalPlanAmount: number;
+  personalPlanAllowed: number;
+  personalPlanUnallocated: number;
+  reserveBuildingPlanAmount: number;
+  reserveBuildingFunded: number;
+  reserveCashRetained: number;
+  reservePlanRedirected: number;
+  reservePlanUnfunded: number;
+  workplacePlanned: number;
+  workplaceAllowed: number;
+  workplaceUnallocated: number;
+  unplannedCashRetained: number;
+  totalInvestmentDeposits: number;
   financialAssets: number;
   milestones: string;
 };
@@ -237,6 +265,28 @@ export function buildAnnualChartData(
       surplusRetainedAsCash: view.surplusAllocation.retainedAsCash,
       surplusRedirected: view.surplusAllocation.redirected,
       surplusReserveTarget: view.surplusAllocation.reserveTarget,
+      positiveCashAvailable:
+        view.savingsPolicy.positiveCashAvailable,
+      personalPlanAmount: view.savingsPolicy.personalPlanned,
+      personalPlanAllowed: view.savingsPolicy.personalAllowed,
+      personalPlanUnallocated:
+        view.savingsPolicy.personalUnallocated,
+      reserveBuildingPlanAmount:
+        view.savingsPolicy.reservePlanned,
+      reserveBuildingFunded: view.savingsPolicy.reserveFunded,
+      reserveCashRetained:
+        view.savingsPolicy.reserveRetainedAsCash,
+      reservePlanRedirected:
+        view.savingsPolicy.reserveRedirected,
+      reservePlanUnfunded: view.savingsPolicy.reserveUnfunded,
+      workplacePlanned: view.savingsPolicy.workplacePlanned,
+      workplaceAllowed: view.savingsPolicy.workplaceAllowed,
+      workplaceUnallocated:
+        view.savingsPolicy.workplaceUnallocated,
+      unplannedCashRetained:
+        view.savingsPolicy.unplannedCashRetained,
+      totalInvestmentDeposits:
+        view.savingsPolicy.totalInvestmentDeposits,
       financialAssets: view.balances.financialAssets,
       goal:
         mode === "real"
@@ -298,10 +348,103 @@ export function buildAnnualLedgerData(
       surplusRetainedAsCash: view.surplusAllocation.retainedAsCash,
       surplusRedirected: view.surplusAllocation.redirected,
       surplusReserveTarget: view.surplusAllocation.reserveTarget,
+      positiveCashAvailable:
+        view.savingsPolicy.positiveCashAvailable,
+      personalPlanAmount: view.savingsPolicy.personalPlanned,
+      personalPlanAllowed: view.savingsPolicy.personalAllowed,
+      personalPlanUnallocated:
+        view.savingsPolicy.personalUnallocated,
+      reserveBuildingPlanAmount:
+        view.savingsPolicy.reservePlanned,
+      reserveBuildingFunded: view.savingsPolicy.reserveFunded,
+      reserveCashRetained:
+        view.savingsPolicy.reserveRetainedAsCash,
+      reservePlanRedirected:
+        view.savingsPolicy.reserveRedirected,
+      reservePlanUnfunded: view.savingsPolicy.reserveUnfunded,
+      workplacePlanned: view.savingsPolicy.workplacePlanned,
+      workplaceAllowed: view.savingsPolicy.workplaceAllowed,
+      workplaceUnallocated:
+        view.savingsPolicy.workplaceUnallocated,
+      unplannedCashRetained:
+        view.savingsPolicy.unplannedCashRetained,
+      totalInvestmentDeposits:
+        view.savingsPolicy.totalInvestmentDeposits,
       financialAssets: view.balances.financialAssets,
       milestones: point.milestones.join(" · ") || "—",
     };
   });
+}
+
+export type SavingsPolicyPreview = {
+  mode: "simple" | "advanced";
+  reserveAccounts: string[];
+  reserveRefillAccount: string;
+  operatingCashAccount: string | null;
+  workplacePriority: string;
+  workplaceOverflow: string;
+  personalOrder: string;
+  taxableDestination: string | null;
+  taxableDestinationKind: "imported" | "projection-only" | null;
+  reserveTransition: string;
+  unplannedCash: string;
+};
+
+export function buildSavingsPolicyPreview(
+  inputs: ProjectionInputs,
+): SavingsPolicyPreview {
+  const accountLabel = (accountId: string) =>
+    inputs.accounts.find((account) => account.id === accountId)?.label ??
+    "Unavailable account";
+  const reserveAccounts = inputs.surplusAllocation.reserveAccountIds.map(
+    accountLabel,
+  );
+  const reserveRefillAccount = accountLabel(
+    inputs.surplusAllocation.reserveRefillAccountId,
+  );
+  if (inputs.savingsPolicy.mode === "advanced") {
+    return {
+      mode: "advanced",
+      reserveAccounts,
+      reserveRefillAccount,
+      operatingCashAccount: null,
+      workplacePriority: "Advanced route order",
+      workplaceOverflow: "Advanced route policy",
+      personalOrder: "Advanced configured routes",
+      taxableDestination:
+        inputs.surplusAllocation.excess.mode === "allocate_to_account"
+          ? accountLabel(
+              inputs.surplusAllocation.excess.destinationAccountId,
+            )
+          : null,
+      taxableDestinationKind: null,
+      reserveTransition: "Advanced surplus policy",
+      unplannedCash: "Advanced surplus policy",
+    };
+  }
+  return {
+    mode: "simple",
+    reserveAccounts,
+    reserveRefillAccount,
+    operatingCashAccount: accountLabel(
+      inputs.savingsPolicy.operatingCashAccountId,
+    ),
+    workplacePriority:
+      "Workplace RRSP gets first claim on global RRSP room",
+    workplaceOverflow: "Workplace RRSP overflow is unallocated",
+    personalOrder: "Personal TFSA → personal RRSP → taxable",
+    taxableDestination: accountLabel(
+      inputs.savingsPolicy.taxableAccountId,
+    ),
+    taxableDestinationKind:
+      inputs.savingsPolicy.taxableAccountOrigin === "lunchmoney"
+        ? "imported"
+        : "projection-only",
+    reserveTransition:
+      "Reserve-building savings redirect through the personal order after the indexed target",
+    unplannedCash:
+      "Unplanned positive cash is retained in operating cash and is not swept into investments",
+  };
 }
 
 export function closestAnnualPoint(

@@ -95,70 +95,62 @@ Example shape:
 currentAge: 38
 retirementAge: 62
 projectionEndAge: 95
-governmentBenefits:
-  cpp:
-    startAge: 65
-    indexingRate: 0.02
-    amountAt65:
-      source: canadian_reference
-  oas:
-    startAge: 65
-    indexingRate: 0.02
-    fullAmountAt65:
-      source: canadian_reference
-    eligibility:
-      mode: full
 employmentIncomePhases:
   - id: current-income
     label: Current income
     startAge: 38
-    endAge: 41
+    endAge: 62
     annualNetCashToday: live_baseline
     annualGrowth: 0
-  - id: future-income
-    label: Expected future income
-    startAge: 41
-    endAge: 62
-    annualNetCashToday: 72000
-    annualGrowth: 0.02
-projectionAccounts:
-  "projection:future-taxable":
-    label: Future taxable investment account
-    type: non_registered
-    annualReturn: 0.05
-    withdrawalPriority: 4
-    allocation: { cash: 0, fixedIncome: 0.2, equity: 0.8 }
-    contributionPhases: []
-surplusAllocation:
-  reserveAccountIds:
-    - "manual:lunch-money-cash-account-id"
-    - "manual:lunch-money-second-cash-account-id"
-  reserveRefillAccountId: "manual:lunch-money-cash-account-id"
-  targetCashReserveToday: 50000
-  reserveIndexingRate: 0.02
-  excess:
-    mode: allocate_to_account
-    destinationAccountId: "projection:future-taxable"
+    rrspRoom:
+      eligibleEarnedIncomeToday: 100000
+      pensionAdjustmentToday: 0
+      otherReductionToday: 0
+      annualGrowth: 0
 accountMappings:
-  "manual:lunch-money-account-id": # Synthetic retirement account
+  "manual:operating-cash-id":
+    include: true
+    type: cash
+    roles: [operating_cash, reserve_member]
+  "manual:reserve-refill-id":
+    include: true
+    type: cash
+    roles: [reserve_member, reserve_refill]
+  "plaid:personal-tfsa-id":
+    include: true
+    type: tfsa
+    roles: [personal_tfsa]
+  "plaid:personal-rrsp-id":
     include: true
     type: rrsp
-    withdrawalPriority: 2
-    contributionPhases:
-      - id: current-plan
-        label: Current plan
-        startAge: 38
-        endAge: 41
-        monthlyAmountToday: live_baseline
-        funding: income_withheld
-        indexingRate: 0
-      - id: later-saving
-        label: Later saving
-        startAge: 41
-        endAge: 62
-        monthlyAmountToday: 500
-        funding: cash
-        indexingRate: 0.02
+    roles: [personal_rrsp]
+  "plaid:workplace-rrsp-id":
+    include: true
+    type: rrsp
+    roles: [workplace_rrsp]
+registeredRoom:
+  tfsa: { availableAtStart: 0, asOf: "2026-07-01" }
+  rrsp:
+    availableAtStart: 0
+    asOf: "2026-07-01"
+    beforeProjectionStart:
+      eligibleEarnedIncome: 0
+      pensionAdjustment: 0
+      otherReduction: 0
+savingsPolicy:
+  unplannedCash: retain_in_operating_cash
+  personalInvesting:
+    order: [personal_tfsa, personal_rrsp, taxable]
+    phases: []
+  reserveBuilding:
+    targetToday: 40000
+    indexingRate: 0.02
+    phases: []
+    afterTarget: personal_investing
+  workplaceRrsp:
+    roomPriority: first
+    overflow: unallocated
+    phases: []
 categoryMappings:
   "lunch-money-category-id": essential # Groceries
 assumptions:
@@ -168,6 +160,8 @@ assumptions:
   rrspReturn: 0.05
   nonRegisteredReturn: 0.05
 ```
+
+The primary format keeps account IDs only under `accountMappings`. If no imported mapping has `personal_taxable`, the baseline compiler creates the zero-balance future taxable destination automatically. Owner-authored projection accounts, source/destination arrays, account-targeted contribution categories or events, starting-room source unions, reference URLs, carry-forward switches, and forecast rounding are advanced compatibility inputs and do not appear in the primary example. Simple and advanced modes cannot be mixed.
 
 CPP source modes distinguish a privately entered official estimate, an explicit planning amount, the dated Canadian average reference, and intentional zero. OAS resolves its full amount separately from explicit full, partial, or absent eligibility; partial eligibility is asserted qualifying residence years divided by 40. CPP and OAS claim adjustments and the permanent 10% OAS increase beginning after age 75 are calculated in the monthly projection. Legacy scalar benefit fields remain deterministic compatibility inputs but cannot be mixed with `governmentBenefits`.
 
@@ -260,11 +254,11 @@ Every contribution increases its investment account balance. A `cash` contributi
 
 ### Registered-account room and contribution routing
 
-TFSA room is one global pool shared by all TFSA accounts; RRSP deduction room is one global pool shared by all RRSP/RRIF accounts. Starting room is an explicit owner-supplied `official_estimate`, `configured_amount`, or `explicit_zero` and is never inferred from balances or transactions. It already includes the partial projection-start calendar-year position.
+TFSA room is one global pool shared by all TFSA accounts; RRSP deduction room is one global pool shared by all RRSP/RRIF accounts. Simple starting room is an explicit owner-supplied amount plus effective date and is never inferred from balances or transactions. Zero is written as `0`. It already includes the partial projection-start calendar-year position.
 
-At later January boundaries, the TFSA pool adds the dated or forecast annual limit and prior-year withdrawals; RRSP room uses explicit prior-year eligible earned income at the statutory 18%, the applicable cap, pension adjustment, and other reduction. Net deposited employment cash is not eligible earned income. RRSP-generation fields are required whenever RRSP/RRIF is reachable through planned, overflow, compatibility, or active surplus routing, and omission never means zero. January projection starts require zero pre-start totals. Published references and configured forecasts remain distinguishable.
+Every simple employment phase explicitly supplies eligible earned income, pension adjustment, other reduction, and growth; omission never means zero. February–December starts require pre-projection current-year values, while January omission compiles to explicit zeros. At later January boundaries, internal statutory defaults add dated or forecast TFSA room and prior-year withdrawals; RRSP room uses explicit prior-year eligible earned income at the statutory 18%, the applicable cap, pension adjustment, and other reduction. Net deposited employment cash is not eligible earned income.
 
-Per-source routes preserve contribution-phase identity and funding. Route order is priority, registered deposits consume the global pool immediately, and non-registered overflow must be last. Planned-route allowed deposits and surplus-funded deposits remain separate, while total actual includes both and equals summed account deposits. Every surplus-funded deposit is cash funded and reported once as a contribution outflow without a second cash deduction. Omitted canonical routing becomes a visible fixed-source compatibility route; it never restores unlimited registered contributions.
+The simple compiler creates workplace-first and personal TFSA → personal RRSP → taxable routes from account roles. Workplace contributions are income withheld, get first RRSP-room priority, and leave overflow unallocated. Personal savings are cash funded and never use workplace RRSP. If no real personal-taxable role exists, a deterministic zero-balance projection-only destination is created. The low-level per-source route model remains advanced compatibility, and mixed modes block.
 
 ## Default resolution
 
@@ -326,9 +320,9 @@ The first projected month is the calendar month containing the live baseline dat
 
 The exact retirement snapshot is captured at the end of the final working month, immediately before the first fully retired month. The Assets at retirement summary uses this real-dollar snapshot rather than the next December row. The projection also emits nominal and real accumulation bridges from starting financial assets to this boundary. Cash-funded contributions and surplus routing are internal transfers; income-withheld contributions are external additions. Both bridges must reconcile within one cent.
 
-Positive unassigned monthly cash uses the required resolved `surplusAllocation` policy. The combined balance of the explicit cash reserve-account set is compared with the indexed target; any shortfall and retained excess are deposited into the explicit refill account. Excess may remain cash, go to one non-registered account, or follow the room-constrained contribution waterfall after planned contributions consume room. Account ordering never selects a route. Targeted registered inflows are rejected.
+In simple mode, only explicit savings plans are invested. Workplace RRSP is processed first, then personal savings, then the reserve-building plan. The reserve plan compares the combined reserve-member balance after returns with the indexed target, retains only the funded shortfall in the refill account, and sends a same-month crossing amount through the personal order. Remaining positive cash is deposited into operating cash and is not swept into investments. Account ordering never selects a route. Advanced compatibility preserves the previous resolved surplus behavior.
 
-Optional projection-only accounts are appended after imported accounts with origin `projection_configuration` and a fixed zero opening balance. They have explicit return, withdrawal, allocation, and contribution assumptions and remain distinct from Lunch Money balances in the dashboard, explanations, and exports.
+Projection-only accounts are appended after imported accounts with origin `projection_configuration` and a fixed zero opening balance. The simple automatic taxable account inherits non-registered return/allocation, derives the next withdrawal priority, and has no independent contribution phase. It remains distinct from Lunch Money balances in the dashboard, explanations, and exports.
 
 ## Dashboard
 
@@ -359,7 +353,7 @@ Required controls:
 - monthly essential spending
 - monthly discretionary spending
 - annual net cash and annual growth for each resolved employment phase
-- monthly amount and indexing for each resolved contribution phase
+- monthly amount and indexing for each resolved personal, reserve-building, and workplace savings phase
 - inflation
 - return assumption by planner account type
 - projection end age
@@ -386,7 +380,7 @@ Every major summary card, main chart, annual ledger, resolved cash-flow value, a
 
 Explanation documents are typed domain output. They consume the same current baseline, active phase inputs, overrides, projection result, dollar mode, and selected allocation year as the report. Shared presentation-data builders feed both chart/ledger rendering and explanation tables. The Assets at retirement explanation includes the exact snapshot, accumulation bridge, employment path, contribution path, and any long-current-income warning. A reconciliation confirmation is shown only after exact model-precision agreement.
 
-Registered-room chart and explanation rows remain nominal regulatory dollars in both display modes. Their reconciliation enforces top-level planned, allowed, surplus-funded, total, funding split, account-deposit, per-source, per-destination, TFSA room, and RRSP room equations against the displayed rows.
+Registered-room chart and explanation rows remain nominal regulatory dollars in both display modes. Their reconciliation enforces personal, workplace, reserve, positive-cash, total, funding-split, account-deposit, per-source, per-destination, TFSA-room, RRSP-room, nominal bridge, and real bridge equations against shared displayed rows.
 
 The baseline API schema `1.5` includes aggregate cash-flow audit evidence, resolved phase provenance, concrete CPP/OAS inputs with dated source and statutory-rule provenance, projection-only account provenance, surplus-policy provenance, registered-room provenance, and resolved waterfall routes:
 
@@ -474,7 +468,7 @@ The JSON transformation is typed and allowlisted. It must not copy arbitrary sou
 
 Financial context is preserved through analytical amounts, balances, dates, ages, account types, classifications, directions, growth and return assumptions, contribution funding, warning codes and severities, provenance source types and effective dates, benefit calculation summaries, safe public Canadian references, and reconciliation bridges. Private account, institution, employer, category, event, recurring, warning, and phase text is replaced with generic aliases. Provenance descriptions use fixed safe wording derived from source type and compatibility state.
 
-Schema `7.0` JSON remains the complete analysis export and includes resolved aliased phases and accounts, account origins, registered-room assumptions and nominal-regulatory annual ledgers, aliased waterfall routes, concrete CPP/OAS and surplus-policy summaries, safe public references, the exact retirement snapshot, bridges, and automatic-anonymization metadata. CSV is one flat annual table with scalar nominal-regulatory TFSA/RRSP room fields, planned-route allowed, surplus-funded and total-actual contribution fields, and deterministic per-account planned, actual, redirected, surplus-funded, balance, reserve, and policy-allocation columns. CSV must not contain metadata preambles, blank separators, route or phase arrays, maps, JSON, delimited lists, private labels, or multiple schemas.
+Schema `7.0` JSON remains the complete analysis export and includes resolved aliased phases and accounts, origins, sanitized policy preview, explicit savings totals, registered-room assumptions and nominal-regulatory annual ledgers, aliased compiled routes, safe public references, the exact retirement snapshot, bridges, and automatic-anonymization metadata. CSV is one flat annual table with scalar explicit-plan, retained-cash, reserve, registered-room, contribution, and deterministic per-account columns. CSV must not contain metadata preambles, blank separators, role/route/phase arrays, maps, JSON, delimited lists, private labels, or multiple schemas.
 
 ## Docker runtime
 
@@ -549,7 +543,7 @@ The MVP is complete only when all criteria below pass.
 - [ ] CPP and OAS appear as separate income streams at their configured start ages.
 - [ ] Lunch Money-derived employment income is identified as net deposited cash and is not taxed a second time.
 - [ ] Projection calendar years, future events, milestones, and annual rows align with the live data-through month.
-- [ ] Positive cash uses the explicit surplus reserve and excess strategy, never account ordering.
+- [ ] Only explicit savings plans are invested in simple mode; remaining positive cash stays in operating cash, and account ordering never chooses a route.
 - [ ] Targeted event inflows deposit only their own amount and are not allocated twice.
 - [ ] Projection-only accounts remain distinct from imported Lunch Money balances and open at zero.
 - [ ] The main goal comparison uses financial assets rather than total net worth including real assets.

@@ -14,8 +14,10 @@ import {
 } from "@/src/domain/projection/types";
 import { PlannerRuntimeError } from "@/src/runtime/errors";
 import {
+  accountRoles,
   plannerAccountTypes,
   transactionClassifications,
+  type AccountRole,
   type AccountMapping,
   type CategoryMapping,
   type ContributionPhaseConfig,
@@ -25,9 +27,13 @@ import {
   type LiveBaselineAmount,
   type OasEligibilityConfig,
   type OasFullAmountAt65Config,
+  type PlannerAccountType,
   type PlannerAssumptions,
   type PlannerConfig,
   type ProjectionAccountConfig,
+  type RegisteredRoomConfig,
+  type SavingsPlanPhaseConfig,
+  type SavingsPolicyConfig,
   type TransactionClassification,
 } from "./types";
 
@@ -284,6 +290,193 @@ function contributionPhases(value: unknown, field: string): ContributionPhaseCon
       }),
     };
   });
+}
+
+function savingsPlanPhases(
+  value: unknown,
+  field: string,
+): SavingsPlanPhaseConfig[] {
+  if (!Array.isArray(value)) {
+    throw new PlannerRuntimeError(
+      "invalid_planner_config",
+      `${field} must be an array.`,
+      422,
+    );
+  }
+  return value.map((raw, index) => {
+    const phaseField = `${field}[${index}]`;
+    const item = record(raw, phaseField);
+    return {
+      id: nonEmptyString(item.id, `${phaseField}.id`),
+      label: nonEmptyString(item.label, `${phaseField}.label`),
+      startAge: number(item.startAge, `${phaseField}.startAge`, {
+        min: 18,
+        max: 100,
+      }),
+      endAge: number(item.endAge, `${phaseField}.endAge`, {
+        min: 18,
+        max: 100,
+      }),
+      monthlyAmountToday: number(
+        item.monthlyAmountToday,
+        `${phaseField}.monthlyAmountToday`,
+        { min: 0 },
+      ),
+      indexingRate: number(
+        item.indexingRate,
+        `${phaseField}.indexingRate`,
+        { min: -0.2, max: 0.5 },
+      ),
+    };
+  });
+}
+
+function registeredRoom(value: unknown): RegisteredRoomConfig {
+  const item = record(value, "registeredRoom");
+  const tfsa = record(item.tfsa, "registeredRoom.tfsa");
+  const rrsp = record(item.rrsp, "registeredRoom.rrsp");
+  const before =
+    rrsp.beforeProjectionStart === undefined
+      ? undefined
+      : record(
+          rrsp.beforeProjectionStart,
+          "registeredRoom.rrsp.beforeProjectionStart",
+        );
+  return {
+    tfsa: {
+      availableAtStart: number(
+        tfsa.availableAtStart,
+        "registeredRoom.tfsa.availableAtStart",
+        { min: 0 },
+      ),
+      asOf: isoCalendarDate(tfsa.asOf, "registeredRoom.tfsa.asOf"),
+    },
+    rrsp: {
+      availableAtStart: number(
+        rrsp.availableAtStart,
+        "registeredRoom.rrsp.availableAtStart",
+        { min: 0 },
+      ),
+      asOf: isoCalendarDate(rrsp.asOf, "registeredRoom.rrsp.asOf"),
+      ...(before
+        ? {
+            beforeProjectionStart: {
+              eligibleEarnedIncome: number(
+                before.eligibleEarnedIncome,
+                "registeredRoom.rrsp.beforeProjectionStart.eligibleEarnedIncome",
+                { min: 0 },
+              ),
+              pensionAdjustment: number(
+                before.pensionAdjustment,
+                "registeredRoom.rrsp.beforeProjectionStart.pensionAdjustment",
+                { min: 0 },
+              ),
+              otherReduction: number(
+                before.otherReduction,
+                "registeredRoom.rrsp.beforeProjectionStart.otherReduction",
+                { min: 0 },
+              ),
+            },
+          }
+        : {}),
+    },
+  };
+}
+
+function savingsPolicy(value: unknown): SavingsPolicyConfig {
+  const item = record(value, "savingsPolicy");
+  if (item.unplannedCash !== "retain_in_operating_cash") {
+    throw new PlannerRuntimeError(
+      "invalid_planner_config",
+      "savingsPolicy.unplannedCash must be retain_in_operating_cash.",
+      422,
+    );
+  }
+  const personal = record(
+    item.personalInvesting,
+    "savingsPolicy.personalInvesting",
+  );
+  if (
+    !Array.isArray(personal.order) ||
+    personal.order.length !== 3 ||
+    personal.order[0] !== "personal_tfsa" ||
+    personal.order[1] !== "personal_rrsp" ||
+    personal.order[2] !== "taxable"
+  ) {
+    throw new PlannerRuntimeError(
+      "invalid_planner_config",
+      "savingsPolicy.personalInvesting.order must be [personal_tfsa, personal_rrsp, taxable].",
+      422,
+    );
+  }
+  const reserve = record(
+    item.reserveBuilding,
+    "savingsPolicy.reserveBuilding",
+  );
+  if (reserve.afterTarget !== "personal_investing") {
+    throw new PlannerRuntimeError(
+      "invalid_planner_config",
+      "savingsPolicy.reserveBuilding.afterTarget must be personal_investing.",
+      422,
+    );
+  }
+  const workplace =
+    item.workplaceRrsp === undefined
+      ? undefined
+      : record(item.workplaceRrsp, "savingsPolicy.workplaceRrsp");
+  if (workplace && workplace.roomPriority !== "first") {
+    throw new PlannerRuntimeError(
+      "invalid_planner_config",
+      "savingsPolicy.workplaceRrsp.roomPriority must be first.",
+      422,
+    );
+  }
+  if (workplace && workplace.overflow !== "unallocated") {
+    throw new PlannerRuntimeError(
+      "invalid_planner_config",
+      "savingsPolicy.workplaceRrsp.overflow must be unallocated.",
+      422,
+    );
+  }
+  return {
+    unplannedCash: "retain_in_operating_cash",
+    personalInvesting: {
+      order: ["personal_tfsa", "personal_rrsp", "taxable"],
+      phases: savingsPlanPhases(
+        personal.phases,
+        "savingsPolicy.personalInvesting.phases",
+      ),
+    },
+    reserveBuilding: {
+      targetToday: number(
+        reserve.targetToday,
+        "savingsPolicy.reserveBuilding.targetToday",
+        { min: 0 },
+      ),
+      indexingRate: number(
+        reserve.indexingRate,
+        "savingsPolicy.reserveBuilding.indexingRate",
+        { min: -0.2, max: 0.5 },
+      ),
+      phases: savingsPlanPhases(
+        reserve.phases,
+        "savingsPolicy.reserveBuilding.phases",
+      ),
+      afterTarget: "personal_investing",
+    },
+    ...(workplace
+      ? {
+          workplaceRrsp: {
+            roomPriority: "first",
+            overflow: "unallocated",
+            phases: savingsPlanPhases(
+              workplace.phases,
+              "savingsPolicy.workplaceRrsp.phases",
+            ),
+          },
+        }
+      : {}),
+  };
 }
 
 function projectionAccount(
@@ -699,6 +892,43 @@ function accountMapping(value: unknown, field: string): AccountMapping {
       422,
     );
   }
+  let roles: AccountRole[] | undefined;
+  if (item.roles !== undefined) {
+    if (!Array.isArray(item.roles)) {
+      throw new PlannerRuntimeError(
+        "invalid_planner_config",
+        `${field}.roles must be an array.`,
+        422,
+      );
+    }
+    roles = item.roles.map((role, index) => {
+      if (
+        typeof role !== "string" ||
+        !accountRoles.includes(role as AccountRole)
+      ) {
+        throw new PlannerRuntimeError(
+          "invalid_planner_config",
+          `${field}.roles[${index}] is not a supported account role.`,
+          422,
+        );
+      }
+      return role as AccountRole;
+    });
+    if (new Set(roles).size !== roles.length) {
+      throw new PlannerRuntimeError(
+        "invalid_planner_config",
+        `${field}.roles must not contain duplicates.`,
+        422,
+      );
+    }
+    if (!item.include && roles.length > 0) {
+      throw new PlannerRuntimeError(
+        "invalid_planner_config",
+        `${field} is excluded and cannot hold active roles.`,
+        422,
+      );
+    }
+  }
   const investmentTypes = ["tfsa", "rrsp", "non_registered"];
   if (
     item.contributionPhases !== undefined &&
@@ -752,6 +982,7 @@ function accountMapping(value: unknown, field: string): AccountMapping {
   return {
     include: item.include,
     type: item.type as AccountMapping["type"],
+    ...(roles === undefined ? {} : { roles }),
     ...(item.monthlyContribution === undefined
       ? {}
       : {
@@ -911,7 +1142,10 @@ function assumptions(value: unknown): PlannerAssumptions {
   };
 }
 
-function employmentIncomePhases(value: unknown): EmploymentIncomePhaseConfig[] {
+function employmentIncomePhases(
+  value: unknown,
+  configurationMode: PlannerConfig["configurationMode"],
+): EmploymentIncomePhaseConfig[] {
   if (!Array.isArray(value) || value.length === 0) {
     throw new PlannerRuntimeError(
       "invalid_planner_config",
@@ -926,6 +1160,17 @@ function employmentIncomePhases(value: unknown): EmploymentIncomePhaseConfig[] {
       item.rrspRoomGeneration === undefined
         ? undefined
         : record(item.rrspRoomGeneration, `${field}.rrspRoomGeneration`);
+    const simpleRrspRoom =
+      item.rrspRoom === undefined
+        ? undefined
+        : record(item.rrspRoom, `${field}.rrspRoom`);
+    if (configurationMode === "simple" && !simpleRrspRoom) {
+      throw new PlannerRuntimeError(
+        "invalid_planner_config",
+        `${field}.rrspRoom is required in simple mode; configure eligible earned income, pension adjustment, other reduction, and annual growth, including explicit zeros.`,
+        422,
+      );
+    }
     return {
       id: nonEmptyString(item.id, `${field}.id`),
       label: nonEmptyString(item.label, `${field}.label`),
@@ -965,6 +1210,32 @@ function employmentIncomePhases(value: unknown): EmploymentIncomePhaseConfig[] {
             },
           }
         : {}),
+      ...(simpleRrspRoom
+        ? {
+            rrspRoom: {
+              eligibleEarnedIncomeToday: number(
+                simpleRrspRoom.eligibleEarnedIncomeToday,
+                `${field}.rrspRoom.eligibleEarnedIncomeToday`,
+                { min: 0 },
+              ),
+              pensionAdjustmentToday: number(
+                simpleRrspRoom.pensionAdjustmentToday,
+                `${field}.rrspRoom.pensionAdjustmentToday`,
+                { min: 0 },
+              ),
+              otherReductionToday: number(
+                simpleRrspRoom.otherReductionToday,
+                `${field}.rrspRoom.otherReductionToday`,
+                { min: 0 },
+              ),
+              annualGrowth: number(
+                simpleRrspRoom.annualGrowth,
+                `${field}.rrspRoom.annualGrowth`,
+                { min: -0.2, max: 0.5 },
+              ),
+            },
+          }
+        : {}),
     };
   });
 }
@@ -980,6 +1251,262 @@ function assertMonthAligned(age: number, currentAge: number, field: string): voi
       `${field} must align to a projection month relative to currentAge.`,
       422,
     );
+  }
+}
+
+function configurationMode(
+  item: Record<string, unknown>,
+  rawAccountMappings: Record<string, unknown>,
+): PlannerConfig["configurationMode"] {
+  const rawEmployment = Array.isArray(item.employmentIncomePhases)
+    ? item.employmentIncomePhases
+    : [];
+  const rawCategories =
+    item.categoryMappings &&
+    typeof item.categoryMappings === "object" &&
+    !Array.isArray(item.categoryMappings)
+      ? Object.values(item.categoryMappings)
+      : [];
+  const rawEvents = Array.isArray(item.futureEvents)
+    ? item.futureEvents
+    : [];
+  const hasSimpleFields =
+    item.registeredRoom !== undefined ||
+    item.savingsPolicy !== undefined ||
+    Object.values(rawAccountMappings).some((value) => {
+      if (!value || typeof value !== "object" || Array.isArray(value)) {
+        return false;
+      }
+      return "roles" in value;
+    }) ||
+    rawEmployment.some(
+      (value) =>
+        Boolean(value) &&
+        typeof value === "object" &&
+        !Array.isArray(value) &&
+        "rrspRoom" in value,
+    );
+  const hasAdvancedFields =
+    item.projectionAccounts !== undefined ||
+    item.registeredAccountRoom !== undefined ||
+    item.contributionWaterfall !== undefined ||
+    item.surplusAllocation !== undefined ||
+    Object.values(rawAccountMappings).some((value) => {
+      if (!value || typeof value !== "object" || Array.isArray(value)) {
+        return false;
+      }
+      return (
+        "contributionPhases" in value ||
+        "monthlyContribution" in value ||
+        "contributionFunding" in value
+      );
+    }) ||
+    rawEmployment.some(
+      (value) =>
+        Boolean(value) &&
+        typeof value === "object" &&
+        !Array.isArray(value) &&
+        "rrspRoomGeneration" in value,
+    ) ||
+    rawCategories.some(
+      (value) =>
+        Boolean(value) &&
+        typeof value === "object" &&
+        !Array.isArray(value) &&
+        "contributionAccountId" in value,
+    ) ||
+    rawEvents.some(
+      (value) =>
+        Boolean(value) &&
+        typeof value === "object" &&
+        !Array.isArray(value) &&
+        "targetAccountId" in value,
+    );
+  if (hasSimpleFields && hasAdvancedFields) {
+    throw new PlannerRuntimeError(
+      "invalid_planner_config",
+      "Simple planner configuration cannot be mixed with advanced projectionAccounts, registeredAccountRoom, contributionWaterfall, surplusAllocation, account contribution fields, rrspRoomGeneration, contribution account references, or targeted event account references. Choose one configuration mode.",
+      422,
+    );
+  }
+  return hasSimpleFields ? "simple" : "advanced";
+}
+
+function roleAccounts(
+  config: PlannerConfig,
+  role: AccountRole,
+): Array<[string, AccountMapping]> {
+  return Object.entries(config.accountMappings).filter(
+    ([, mapping]) => mapping.roles?.includes(role),
+  );
+}
+
+function validateSimpleAccountRoles(config: PlannerConfig): void {
+  if (config.configurationMode !== "simple") return;
+  const requiredSingletons: Array<[AccountRole, PlannerAccountType]> = [
+    ["operating_cash", "cash"],
+    ["reserve_refill", "cash"],
+    ["personal_tfsa", "tfsa"],
+    ["personal_rrsp", "rrsp"],
+  ];
+  for (const [role, type] of requiredSingletons) {
+    const matches = roleAccounts(config, role);
+    if (matches.length !== 1) {
+      throw new PlannerRuntimeError(
+        "invalid_planner_config",
+        `Simple configuration requires exactly one included ${role} role; found ${matches.length}.`,
+        422,
+      );
+    }
+    if (matches[0]![1].type !== type) {
+      throw new PlannerRuntimeError(
+        "invalid_planner_config",
+        `Account role ${role} requires planner type ${type}.`,
+        422,
+      );
+    }
+  }
+  const reserveMembers = roleAccounts(config, "reserve_member");
+  if (reserveMembers.length === 0) {
+    throw new PlannerRuntimeError(
+      "invalid_planner_config",
+      "Simple configuration requires one or more included reserve_member accounts.",
+      422,
+    );
+  }
+  for (const [, mapping] of reserveMembers) {
+    if (mapping.type !== "cash") {
+      throw new PlannerRuntimeError(
+        "invalid_planner_config",
+        "Account role reserve_member requires planner type cash.",
+        422,
+      );
+    }
+  }
+  const operating = roleAccounts(config, "operating_cash")[0]!;
+  const refill = roleAccounts(config, "reserve_refill")[0]!;
+  if (!operating[1].roles?.includes("reserve_member")) {
+    throw new PlannerRuntimeError(
+      "invalid_planner_config",
+      "The operating_cash account must also have the reserve_member role.",
+      422,
+    );
+  }
+  if (!refill[1].roles?.includes("reserve_member")) {
+    throw new PlannerRuntimeError(
+      "invalid_planner_config",
+      "The reserve_refill account must also have the reserve_member role.",
+      422,
+    );
+  }
+  const taxable = roleAccounts(config, "personal_taxable");
+  if (taxable.length > 1) {
+    throw new PlannerRuntimeError(
+      "invalid_planner_config",
+      `Simple configuration permits at most one included personal_taxable role; found ${taxable.length}.`,
+      422,
+    );
+  }
+  if (taxable[0] && taxable[0][1].type !== "non_registered") {
+    throw new PlannerRuntimeError(
+      "invalid_planner_config",
+      "Account role personal_taxable requires planner type non_registered.",
+      422,
+    );
+  }
+  const workplace = roleAccounts(config, "workplace_rrsp");
+  const hasWorkplacePlan = config.savingsPolicy?.workplaceRrsp !== undefined;
+  if (workplace.length !== (hasWorkplacePlan ? 1 : 0)) {
+    throw new PlannerRuntimeError(
+      "invalid_planner_config",
+      hasWorkplacePlan
+        ? `savingsPolicy.workplaceRrsp requires exactly one included workplace_rrsp role; found ${workplace.length}.`
+        : "A workplace_rrsp role requires savingsPolicy.workplaceRrsp.",
+      422,
+    );
+  }
+  if (workplace[0] && workplace[0][1].type !== "rrsp") {
+    throw new PlannerRuntimeError(
+      "invalid_planner_config",
+      "Account role workplace_rrsp requires planner type rrsp.",
+      422,
+    );
+  }
+  if (
+    workplace[0] &&
+    workplace[0][0] === roleAccounts(config, "personal_rrsp")[0]![0]
+  ) {
+    throw new PlannerRuntimeError(
+      "invalid_planner_config",
+      "personal_rrsp and workplace_rrsp must be different accounts.",
+      422,
+    );
+  }
+}
+
+function validateSavingsPlanPhaseRanges(config: PlannerConfig): void {
+  if (config.configurationMode !== "simple" || !config.savingsPolicy) return;
+  const plans: Array<[string, SavingsPlanPhaseConfig[]]> = [
+    [
+      "savingsPolicy.personalInvesting.phases",
+      config.savingsPolicy.personalInvesting.phases,
+    ],
+    [
+      "savingsPolicy.reserveBuilding.phases",
+      config.savingsPolicy.reserveBuilding.phases,
+    ],
+    ...(
+      config.savingsPolicy.workplaceRrsp
+        ? [[
+            "savingsPolicy.workplaceRrsp.phases",
+            config.savingsPolicy.workplaceRrsp.phases,
+          ] as [string, SavingsPlanPhaseConfig[]]]
+        : []
+    ),
+  ];
+  for (const [fieldPrefix, phases] of plans) {
+    const ids = new Set<string>();
+    for (const [index, phase] of phases.entries()) {
+      const field = `${fieldPrefix}[${index}]`;
+      if (ids.has(phase.id)) {
+        throw new PlannerRuntimeError(
+          "invalid_planner_config",
+          `${field} duplicates phase id "${phase.id}".`,
+          422,
+        );
+      }
+      ids.add(phase.id);
+      if (
+        phase.startAge < config.currentAge - PROJECTION_AGE_TOLERANCE ||
+        phase.endAge > config.retirementAge + PROJECTION_AGE_TOLERANCE
+      ) {
+        throw new PlannerRuntimeError(
+          "invalid_planner_config",
+          `${field} must stay within currentAge and retirementAge.`,
+          422,
+        );
+      }
+      if (phase.endAge <= phase.startAge + PROJECTION_AGE_TOLERANCE) {
+        throw new PlannerRuntimeError(
+          "invalid_planner_config",
+          `${field}.endAge must be greater than startAge.`,
+          422,
+        );
+      }
+      assertMonthAligned(phase.startAge, config.currentAge, `${field}.startAge`);
+      assertMonthAligned(phase.endAge, config.currentAge, `${field}.endAge`);
+      const previous = phases[index - 1];
+      if (
+        previous &&
+        phase.startAge < previous.endAge - PROJECTION_AGE_TOLERANCE
+      ) {
+        throw new PlannerRuntimeError(
+          "invalid_planner_config",
+          `${field} overlaps phase "${previous.id}".`,
+          422,
+        );
+      }
+    }
   }
 }
 
@@ -1113,6 +1640,7 @@ function validateContributionPhaseRanges(config: PlannerConfig): void {
 function validateRrspRoomGenerationReachability(
   config: PlannerConfig,
 ): void {
+  if (config.configurationMode === "simple") return;
   const plannerType = (accountId: string) =>
     config.projectionAccounts?.[accountId]?.type ??
     config.accountMappings[accountId]?.type;
@@ -1149,7 +1677,7 @@ function validateRrspRoomGenerationReachability(
         ),
       ),
     ) ||
-    (config.surplusAllocation.excess.mode ===
+    (config.surplusAllocation?.excess.mode ===
       "allocate_through_contribution_waterfall" &&
       Boolean(
         config.contributionWaterfall?.surplusDestinationAccountIds.some(
@@ -1257,6 +1785,17 @@ export function validatePlannerConfig(value: unknown): PlannerConfig {
     );
   }
   const rawAccountMappings = record(item.accountMappings, "accountMappings");
+  const mode = configurationMode(item, rawAccountMappings);
+  if (
+    mode === "simple" &&
+    (item.registeredRoom === undefined || item.savingsPolicy === undefined)
+  ) {
+    throw new PlannerRuntimeError(
+      "invalid_planner_config",
+      "Simple planner configuration requires both registeredRoom and savingsPolicy.",
+      422,
+    );
+  }
   const rawProjectionAccounts =
     item.projectionAccounts === undefined
       ? {}
@@ -1279,6 +1818,7 @@ export function validatePlannerConfig(value: unknown): PlannerConfig {
     }
   }
   const config: PlannerConfig = {
+    configurationMode: mode,
     currentAge: number(item.currentAge, "currentAge", { min: 18, max: 100 }),
     retirementAge: number(item.retirementAge, "retirementAge", { min: 19, max: 100 }),
     projectionEndAge: number(item.projectionEndAge, "projectionEndAge", {
@@ -1320,6 +1860,7 @@ export function validatePlannerConfig(value: unknown): PlannerConfig {
       : {
           employmentIncomePhases: employmentIncomePhases(
             item.employmentIncomePhases,
+            mode,
           ),
         }),
     accountMappings: Object.fromEntries(
@@ -1338,6 +1879,12 @@ export function validatePlannerConfig(value: unknown): PlannerConfig {
             ]),
           ),
         }),
+    ...(mode === "simple"
+      ? {
+          registeredRoom: registeredRoom(item.registeredRoom),
+          savingsPolicy: savingsPolicy(item.savingsPolicy),
+        }
+      : {}),
     ...(item.registeredAccountRoom === undefined
       ? {}
       : {
@@ -1352,7 +1899,9 @@ export function validatePlannerConfig(value: unknown): PlannerConfig {
             item.contributionWaterfall,
           ),
         }),
-    surplusAllocation: surplusAllocation(item.surplusAllocation),
+    ...(mode === "advanced"
+      ? { surplusAllocation: surplusAllocation(item.surplusAllocation) }
+      : {}),
     categoryMappings: Object.fromEntries(
       Object.entries(rawCategoryMappings).map(([id, mapping]) => [
         id,
@@ -1393,6 +1942,8 @@ export function validatePlannerConfig(value: unknown): PlannerConfig {
   }
   validateEmploymentPhaseRanges(config);
   validateContributionPhaseRanges(config);
+  validateSavingsPlanPhaseRanges(config);
+  validateSimpleAccountRoles(config);
   validateRrspRoomGenerationReachability(config);
   return config;
 }

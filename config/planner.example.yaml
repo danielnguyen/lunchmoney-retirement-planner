@@ -1,7 +1,8 @@
 # Copy this file to config/planner.local.yaml and replace every placeholder.
 # Quote every Lunch Money account and category ID, including numeric IDs and
-# source-scoped IDs such as "manual:123" and "plaid:456". Add a nearby YAML
-# comment with the human-readable name so each opaque ID remains maintainable.
+# source-scoped IDs such as "manual:123" and "plaid:456". Keep human-readable
+# account names only in nearby YAML comments so account IDs appear in one place:
+# as accountMappings keys.
 
 currentAge: 38
 retirementAge: 62
@@ -10,10 +11,7 @@ retirementGoal: 0
 transactionTrailingMonths: 12
 
 # Government benefits are explicit, dated planning inputs. The bundled CPP
-# reference is the published average for new beneficiaries at age 65—not a
-# personal estimate or entitlement. In private configuration, amountAt65 may
-# instead use official_estimate or configured_amount with monthlyAmountToday
-# and effectiveDate, or explicit_zero to intentionally model no CPP.
+# reference is a published average, not a personal estimate or entitlement.
 governmentBenefits:
   cpp:
     startAge: 65
@@ -21,10 +19,8 @@ governmentBenefits:
     amountAt65:
       source: canadian_reference
 
-  # OAS resolves the published full amount separately from eligibility. The
-  # planner never infers residence eligibility. Use mode: partial with an
-  # integer qualifyingResidenceYearsAfter18 from 1 through 39, or mode: none
-  # to explicitly model no OAS.
+  # OAS eligibility is never inferred. Use partial with 1–39 qualifying years,
+  # or none to intentionally model no OAS.
   oas:
     startAge: 65
     indexingRate: 0.02
@@ -33,188 +29,163 @@ governmentBenefits:
     eligibility:
       mode: full
 
-# Employment phases must cover every projection month from currentAge through
-# retirementAge. startAge is inclusive and endAge is exclusive, so these two
-# phases meet at age 41 without a gap or overlap.
+# Employment phases cover every projection month from currentAge through
+# retirementAge. Net deposited cash is separate from the four explicit inputs
+# used to forecast future RRSP room. Explicit zero is valid; omission is not.
 employmentIncomePhases:
   - id: current-income
     label: Current income
     startAge: 38
     endAge: 41
-    # live_baseline resolves to annualized net employment cash derived from the
-    # configured Lunch Money transaction window.
     annualNetCashToday: live_baseline
-    # Growth starts at the beginning of this phase.
     annualGrowth: 0
-    # RRSP room uses explicit eligible earned income, never net deposited cash.
-    # These fields are required whenever any active route can reach RRSP/RRIF;
-    # omit the block only when RRSP/RRIF cannot receive contributions at all.
-    rrspRoomGeneration:
-      annualEligibleEarnedIncomeToday: 100000
-      annualPensionAdjustmentToday: 0
-      annualOtherRoomReductionToday: 0
+    rrspRoom:
+      eligibleEarnedIncomeToday: 100000
+      pensionAdjustmentToday: 0
+      otherReductionToday: 0
       annualGrowth: 0
 
   - id: future-income
     label: Expected future income
     startAge: 41
     endAge: 62
-    # Future income must be configured explicitly; the planner does not assume
-    # that today’s income continues indefinitely or forecast a future salary.
     annualNetCashToday: 72000
     annualGrowth: 0.02
-    rrspRoomGeneration:
-      annualEligibleEarnedIncomeToday: 110000
-      annualPensionAdjustmentToday: 0
-      annualOtherRoomReductionToday: 0
+    rrspRoom:
+      eligibleEarnedIncomeToday: 110000
+      pensionAdjustmentToday: 0
+      otherReductionToday: 0
       annualGrowth: 0.02
 
-# Projection-only accounts are planner assumptions, not imported Lunch Money
-# balances. Their opening balance is fixed at zero and cannot be configured.
-# Every return, withdrawal, allocation, and contribution assumption is explicit.
-projectionAccounts:
-  "projection:future-taxable":
-    label: Future taxable investment account
-    type: non_registered
-    annualReturn: 0.05
-    withdrawalPriority: 4
-    allocation: { cash: 0, fixedIncome: 0.2, equity: 0.8 }
-    contributionPhases: []
-
-# The combined balance of reserveAccountIds counts toward the indexed reserve.
-# Reserve refills and retained excess go only to reserveRefillAccountId.
-# Remaining excess follows the explicit registered-room waterfall below.
-# To keep all surplus in cash, use:
-# excess:
-#   mode: retain_as_cash
-# and omit destinationAccountId.
-surplusAllocation:
-  reserveAccountIds:
-    - "manual:replace-with-cash-account-id"
-    - "manual:replace-with-second-cash-account-id"
-  reserveRefillAccountId: "manual:replace-with-cash-account-id"
-  targetCashReserveToday: 50000
-  reserveIndexingRate: 0.02
-  excess:
-    mode: allocate_through_contribution_waterfall
-
-# Starting room is owner supplied and is never inferred from balances. The
-# starting amounts already include the partial 2026 calendar-year position; new
-# annual room is first added at the next January boundary. Official estimates
-# are private inputs supplied by the owner and are not fetched from CRA.
-registeredAccountRoom:
-  tfsa:
-    startingAvailableRoom:
-      source: configured_amount
-      amount: 10000
-      sourceDescription: Synthetic configured TFSA starting room
-      effectiveDate: "2026-01-01"
-    annualNewRoom:
-      source: canadian_reference
-      futureIndexingRate: 0.02
-      roundingIncrement: 500
-    carryForwardUnusedRoom: true
-    withdrawalRoomRecredit: next_calendar_year
-  rrsp:
-    startingAvailableDeductionRoom:
-      source: explicit_zero
-    carryForwardUnusedRoom: true
-    newRoom:
-      source: earned_income
-      annualCap:
-        source: canadian_reference
-        futureGrowthRate: 0.03
-        futureRoundingIncrement: 10
-      # Synthetic January-through-June totals because this example starts in
-      # 2026. The calendar year must match the live projection start year.
-      # If the live projection starts in January, all three totals must be zero.
-      startYearBeforeProjectionMonth:
-        calendarYear: 2026
-        eligibleEarnedIncome: 50000
-        pensionAdjustment: 0
-        otherRoomReduction: 0
-
-# Route order is contribution priority. Each source must be first in its own
-# route. The non-registered destination is last and accepts overflow without a
-# registered-room constraint.
-contributionWaterfall:
-  routes:
-    - sourceAccountId: "plaid:replace-with-investment-account-id"
-      destinationAccountIds:
-        - "plaid:replace-with-investment-account-id"
-        - "projection:future-taxable"
-  surplusDestinationAccountIds:
-    - "plaid:replace-with-investment-account-id"
-    - "projection:future-taxable"
-
+# Account roles are the only owner-facing routing references. The operating
+# account must be a reserve member. The reserve-refill role marks the one cash
+# account that receives reserve-building deposits. Personal and workplace RRSP
+# roles must be on different accounts.
 accountMappings:
-  # Set include: true and choose a financial type for every account used by the
-  # projection. Set include: false with type: exclude for every ignored account.
-  "manual:replace-with-cash-account-id":
-    # Daily chequing account
+  "manual:synthetic-operating-cash":
+    # Daily operating cash
     include: true
     type: cash
-    # Lower numbers are withdrawn first when projected cash flow is short.
+    roles: [operating_cash, reserve_member]
     withdrawalPriority: 1
 
-  "manual:replace-with-second-cash-account-id":
-    # A second cash account whose balance counts toward the same reserve target
+  "manual:synthetic-reserve-refill":
+    # Emergency-reserve refill account
     include: true
     type: cash
+    roles: [reserve_member, reserve_refill]
     withdrawalPriority: 2
 
-  "plaid:replace-with-investment-account-id":
-    # Long-term tax-free investment account
+  "plaid:synthetic-personal-tfsa":
+    # Personal TFSA
     include: true
     type: tfsa
+    roles: [personal_tfsa]
     withdrawalPriority: 3
-    contributionPhases:
-      - id: current-saving
-        label: Current saving
-        startAge: 38
-        endAge: 41
-        # Inside an explicit contribution phase, live_baseline resolves only
-        # from mapped Lunch Money contribution transactions for this account.
-        # Legacy account-level contribution fields are a separate compatibility
-        # input and cannot be combined with contributionPhases.
-        monthlyAmountToday: live_baseline
-        # cash: contribution leaves available cash as an outflow.
-        funding: cash
-        # Indexing starts at the beginning of this phase.
-        indexingRate: 0
-      - id: future-saving
-        label: Future saving
-        startAge: 41
-        endAge: 62
-        monthlyAmountToday: 500
-        # income_withheld grows the investment without reducing deposited cash
-        # a second time because it was withheld before cash reached Lunch Money.
-        funding: income_withheld
-        indexingRate: 0.02
 
-  "manual:replace-with-excluded-account-id":
-    # Closed or otherwise out-of-scope account
+  "plaid:synthetic-personal-rrsp":
+    # Personal RRSP
+    include: true
+    type: rrsp
+    roles: [personal_rrsp]
+    withdrawalPriority: 4
+
+  "plaid:synthetic-workplace-rrsp":
+    # Workplace RRSP
+    include: true
+    type: rrsp
+    roles: [workplace_rrsp]
+    withdrawalPriority: 5
+
+  # Add personal_taxable to one included non-registered mapping when a real
+  # taxable account should receive savings. When it is absent, the planner
+  # automatically creates a projection-only future taxable account with a
+  # fixed zero opening balance and the non-registered assumptions below.
+
+  "manual:synthetic-excluded-account":
+    # Closed or out-of-scope account
     include: false
     type: exclude
 
+# These are owner-supplied room amounts available at projection start. They are
+# never inferred from balances, transactions, income, or account age. January
+# starts may omit beforeProjectionStart and compile it to explicit zeros.
+# February–December starts require the year-to-date values shown below.
+registeredRoom:
+  tfsa:
+    availableAtStart: 12000
+    asOf: "2026-07-01"
+
+  rrsp:
+    availableAtStart: 18000
+    asOf: "2026-07-01"
+    beforeProjectionStart:
+      eligibleEarnedIncome: 50000
+      pensionAdjustment: 4000
+      otherReduction: 0
+
+# Only these explicit savings plans may be invested. Workplace RRSP receives
+# first claim on the one global RRSP room pool and its overflow is unallocated.
+# Personal cash follows TFSA → personal RRSP → taxable and never uses the
+# workplace account. Reserve-building cash stays in the refill account until
+# the indexed combined target is reached; a same-month crossing amount uses the
+# personal order. Every other positive dollar remains in operating cash.
+savingsPolicy:
+  unplannedCash: retain_in_operating_cash
+
+  personalInvesting:
+    order: [personal_tfsa, personal_rrsp, taxable]
+    phases:
+      - id: current-personal-saving
+        label: Current personal saving
+        startAge: 38
+        endAge: 41
+        monthlyAmountToday: 1000
+        indexingRate: 0
+      - id: future-personal-saving
+        label: Future personal saving
+        startAge: 41
+        endAge: 62
+        monthlyAmountToday: 1250
+        indexingRate: 0.02
+
+  reserveBuilding:
+    targetToday: 40000
+    indexingRate: 0.02
+    phases:
+      - id: reserve-building
+        label: Emergency reserve building
+        startAge: 38
+        endAge: 45
+        monthlyAmountToday: 500
+        indexingRate: 0
+    afterTarget: personal_investing
+
+  workplaceRrsp:
+    roomPriority: first
+    overflow: unallocated
+    phases:
+      - id: workplace-saving
+        label: Workplace RRSP saving
+        startAge: 38
+        endAge: 62
+        monthlyAmountToday: 800
+        indexingRate: 0.02
+
 categoryMappings:
-  # Keep category IDs quoted even when Lunch Money returns numeric IDs. The inline
-  # comments document the human-readable category names.
-  "replace-with-essential-category-id": essential # Groceries
-  "replace-with-discretionary-category-id": discretionary # Entertainment
-  "replace-with-income-category-id": income # Employment income
-  "replace-with-transfer-category-id": transfer # Internal transfer
-  "replace-with-contribution-category-id":
-    # Registered investment deposit
-    classification: investment_contribution
-    # Map the transaction to its target investment account and debit/credit sign.
-    contributionAccountId: "plaid:replace-with-investment-account-id"
-    contributionDirection: debit
-  "uncategorized": exclude # Transactions intentionally omitted from the plan
+  "synthetic-essential-category": essential # Groceries
+  "synthetic-discretionary-category": discretionary # Entertainment
+  "synthetic-income-category": income # Employment income
+  "synthetic-transfer-category": transfer # Internal transfer
+  # Explicit savingsPolicy amounts drive projection deposits in simple mode.
+  # Historical investment transactions may remain excluded from cash-flow
+  # totals rather than repeating an account ID in category configuration.
+  "synthetic-investment-transfer-category": transfer
+  "uncategorized": exclude
 
 assumptions:
   # Rates use decimal values: 0.02 means 2% per year. Dollar values are today's
-  # dollars unless the planner documentation says otherwise.
+  # dollars unless the report says otherwise.
   inflation: 0.02
   cashReturn: 0.02
   tfsaReturn: 0.05
@@ -229,8 +200,6 @@ assumptions:
   pensionIndexing: 0.02
   rrifConversionAge: 71
 
-  # Each allocation contains cash, fixed income, and equity fractions that sum
-  # to 1. Account-level allocation values may override these type defaults.
   allocations:
     cash: { cash: 1, fixedIncome: 0, equity: 0 }
     tfsa: { cash: 0, fixedIncome: 0.2, equity: 0.8 }
@@ -238,14 +207,7 @@ assumptions:
     non_registered: { cash: 0.05, fixedIncome: 0.25, equity: 0.7 }
     debt: { cash: 0, fixedIncome: 0, equity: 0 }
 
-# Future events are optional one-time inflows or outflows in today's dollars.
-# Replace [] with entries like the commented example and quote target account IDs.
+# Future events are optional and use today's dollars. The simple primary path
+# keeps account IDs under accountMappings; advanced targeted-account events are
+# documented with the advanced compatibility format.
 futureEvents: []
-# futureEvents:
-#   - id: future-home-repair
-#     label: Planned home repair
-#     calendarYear: 2035
-#     month: 6
-#     amountToday: 10000
-#     direction: outflow
-#     targetAccountId: "manual:replace-with-cash-account-id"

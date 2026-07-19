@@ -18,6 +18,8 @@ import type {
   ProjectionView,
   RegisteredProgramAnnualBreakdown,
   RetirementSnapshot,
+  SavingsPolicyBreakdown,
+  SavingsPolicyTotals,
   SurplusAllocationBreakdown,
   SurplusAllocationTotals,
   WithdrawalBreakdown,
@@ -253,6 +255,29 @@ function emptySurplusTotals(): SurplusAllocationTotals {
   };
 }
 
+function emptySavingsPolicy(): SavingsPolicyBreakdown {
+  return {
+    positiveCashAvailable: 0,
+    personalPlanned: 0,
+    personalAllowed: 0,
+    personalUnallocated: 0,
+    reservePlanned: 0,
+    reserveFunded: 0,
+    reserveRetainedAsCash: 0,
+    reserveRedirected: 0,
+    reserveUnfunded: 0,
+    workplacePlanned: 0,
+    workplaceAllowed: 0,
+    workplaceUnallocated: 0,
+    unplannedCashRetained: 0,
+    totalInvestmentDeposits: 0,
+  };
+}
+
+function emptySavingsTotals(): SavingsPolicyTotals {
+  return emptySavingsPolicy();
+}
+
 function emptyView(): ProjectionView {
   return {
     income: emptyIncome(),
@@ -268,6 +293,7 @@ function emptyView(): ProjectionView {
       rrsp: emptyRegisteredProgram(),
     },
     surplusAllocation: emptySurplusAllocation(),
+    savingsPolicy: emptySavingsPolicy(),
     accountSurplusAllocations: {},
     allocation: { ...ZERO_ALLOCATION },
   };
@@ -437,6 +463,12 @@ function snapshotView(
       redirected: round(flow.surplusAllocation.redirected),
       reserveTarget: round(flow.surplusAllocation.reserveTarget),
     },
+    savingsPolicy: Object.fromEntries(
+      Object.entries(flow.savingsPolicy).map(([key, value]) => [
+        key,
+        round(value),
+      ]),
+    ) as SavingsPolicyBreakdown,
     accountSurplusAllocations: Object.fromEntries(
       Object.entries(flow.accountSurplusAllocations).map(([id, amount]) => [
         id,
@@ -463,6 +495,11 @@ function addMonthlyFlow(target: ProjectionView, monthly: ProjectionView, factor:
   }
   for (const key of Object.keys(monthly.contributions) as Array<keyof ContributionBreakdown>) {
     target.contributions[key] += monthly.contributions[key] / factor;
+  }
+  for (const key of Object.keys(monthly.savingsPolicy) as Array<
+    keyof SavingsPolicyBreakdown
+  >) {
+    target.savingsPolicy[key] += monthly.savingsPolicy[key] / factor;
   }
   for (const [accountId, amount] of Object.entries(monthly.accountContributions)) {
     target.accountContributions[accountId] =
@@ -534,6 +571,18 @@ function addMonthlyFlow(target: ProjectionView, monthly: ProjectionView, factor:
   )) {
     target.accountSurplusAllocations[accountId] =
       (target.accountSurplusAllocations[accountId] ?? 0) + amount / factor;
+  }
+}
+
+function addSavingsTotals(
+  target: SavingsPolicyTotals,
+  monthly: ProjectionView,
+  factor: number,
+): void {
+  for (const key of Object.keys(monthly.savingsPolicy) as Array<
+    keyof SavingsPolicyBreakdown
+  >) {
+    target[key] += monthly.savingsPolicy[key] / factor;
   }
 }
 
@@ -680,6 +729,55 @@ function assertContributionsReconciled(
   }
 }
 
+function assertSavingsPolicyReconciled(
+  view: ProjectionView,
+  period: string,
+  mode: ProjectionInputs["savingsPolicy"]["mode"],
+): void {
+  if (mode !== "simple") return;
+  const savings = view.savingsPolicy;
+  const differences = [
+    savings.reserveFunded -
+      savings.reserveRetainedAsCash -
+      savings.reserveRedirected,
+    savings.personalPlanned -
+      savings.personalAllowed -
+      savings.personalUnallocated,
+    savings.workplacePlanned -
+      savings.workplaceAllowed -
+      savings.workplaceUnallocated,
+    savings.totalInvestmentDeposits -
+      savings.personalAllowed -
+      savings.workplaceAllowed -
+      savings.reserveRedirected,
+    savings.positiveCashAvailable -
+      savings.personalAllowed -
+      savings.reserveFunded -
+      savings.unplannedCashRetained,
+    view.contributions.planned -
+      savings.personalPlanned -
+      savings.workplacePlanned,
+    view.contributions.allowed -
+      savings.personalAllowed -
+      savings.workplaceAllowed,
+    view.contributions.unallocated -
+      savings.personalUnallocated -
+      savings.workplaceUnallocated,
+    view.contributions.surplusFunded -
+      savings.reserveRedirected,
+    view.contributions.total - savings.totalInvestmentDeposits,
+  ];
+  if (
+    differences.some(
+      (difference) => round(Math.abs(difference)) > 0.01,
+    )
+  ) {
+    throw new Error(
+      `Simple savings policy failed to reconcile for ${period}`,
+    );
+  }
+}
+
 function milestoneLabels(inputs: ProjectionInputs, previousMonth: number, month: number): string[] {
   const previousAge = inputs.person.currentAge + previousMonth / MONTHS_PER_YEAR;
   const age = inputs.person.currentAge + month / MONTHS_PER_YEAR;
@@ -734,6 +832,8 @@ export function calculateProjection(rawInputs: ProjectionInputs): ProjectionResu
   let retirementSnapshot: RetirementSnapshot | undefined;
   const nominalSurplusThroughRetirement = emptySurplusTotals();
   const realSurplusThroughRetirement = emptySurplusTotals();
+  const nominalSavingsThroughRetirement = emptySavingsTotals();
+  const realSavingsThroughRetirement = emptySavingsTotals();
   let reserveTargetAtRetirementNominal = 0;
   let reserveTargetAtRetirementReal = 0;
   let reserveBalanceAtRetirementNominal = 0;
@@ -801,6 +901,16 @@ export function calculateProjection(rawInputs: ProjectionInputs): ProjectionResu
     assertSurplusReconciled(real, `${calendarYear} real`);
     assertContributionsReconciled(nominal, `${calendarYear} nominal`);
     assertContributionsReconciled(real, `${calendarYear} real`);
+    assertSavingsPolicyReconciled(
+      nominal,
+      `${calendarYear} nominal`,
+      inputs.savingsPolicy.mode,
+    );
+    assertSavingsPolicyReconciled(
+      real,
+      `${calendarYear} real`,
+      inputs.savingsPolicy.mode,
+    );
     if (inputs.registeredAccountRoom) {
       assertRegisteredRoomReconciled(nominal, `${calendarYear} nominal`);
       assertRegisteredRoomReconciled(real, `${calendarYear} real`);
@@ -1012,8 +1122,23 @@ export function calculateProjection(rawInputs: ProjectionInputs): ProjectionResu
 
     let cashFundedContributions = 0;
     let incomeWithheldContributions = 0;
-    for (const route of inputs.contributionWaterfall.routes) {
-      if (workingAge >= inputs.person.retirementAge - AGE_TOLERANCE) continue;
+    const processContributionRoute = (
+      route: ProjectionInputs["contributionWaterfall"]["routes"][number],
+      availableCash: number,
+    ): {
+      planned: number;
+      deposited: number;
+      unallocated: number;
+      funding: "cash" | "income_withheld" | null;
+    } => {
+      if (workingAge >= inputs.person.retirementAge - AGE_TOLERANCE) {
+        return {
+          planned: 0,
+          deposited: 0,
+          unallocated: 0,
+          funding: null,
+        };
+      }
       const account = inputs.accounts.find(
         (candidate) => candidate.id === route.sourceAccountId,
       )!;
@@ -1021,7 +1146,14 @@ export function calculateProjection(rawInputs: ProjectionInputs): ProjectionResu
         account.contributionPhases,
         workingAge,
       );
-      if (!contributionPhase) continue;
+      if (!contributionPhase) {
+        return {
+          planned: 0,
+          deposited: 0,
+          unallocated: 0,
+          funding: null,
+        };
+      }
       const planned =
         contributionPhase.monthlyAmountToday *
         indexedFactor(
@@ -1034,7 +1166,14 @@ export function calculateProjection(rawInputs: ProjectionInputs): ProjectionResu
           contributionPhase.label,
         ),
       );
-      if (planned <= 0) continue;
+      if (planned <= 0) {
+        return {
+          planned: 0,
+          deposited: 0,
+          unallocated: 0,
+          funding: contributionPhase.funding,
+        };
+      }
       monthlyFlow.contributions.planned += planned;
       const sourceDetail = contributionDetail(monthlyFlow, account.id);
       sourceDetail.plannedFromAccount += planned;
@@ -1046,7 +1185,10 @@ export function calculateProjection(rawInputs: ProjectionInputs): ProjectionResu
             : null;
       if (sourceProgram) sourceProgram.plannedContributions += planned;
 
-      let remaining = planned;
+      let remaining =
+        contributionPhase.funding === "cash"
+          ? Math.min(planned, Math.max(0, availableCash))
+          : planned;
       let deposited = 0;
       for (const destinationId of route.destinationAccountIds) {
         if (remaining <= 0) break;
@@ -1103,21 +1245,54 @@ export function calculateProjection(rawInputs: ProjectionInputs): ProjectionResu
         deposited += amount;
         remaining -= amount;
       }
+      const unallocated = planned - deposited;
       monthlyFlow.contributions.allowed += deposited;
       monthlyFlow.contributions.total += deposited;
       if (contributionPhase.funding === "cash") {
         monthlyFlow.outflows.contributions += deposited;
         monthlyFlow.contributions.cashFunded += deposited;
-        monthlyFlow.contributions.unallocatedCashFunded += remaining;
+        monthlyFlow.contributions.unallocatedCashFunded += unallocated;
         cashFundedContributions += deposited;
       } else {
         monthlyFlow.contributions.incomeWithheld += deposited;
-        monthlyFlow.contributions.unallocatedIncomeWithheld += remaining;
+        monthlyFlow.contributions.unallocatedIncomeWithheld += unallocated;
         incomeWithheldContributions += deposited;
       }
-      monthlyFlow.contributions.unallocated += remaining;
-      sourceDetail.unallocatedFromAccount += remaining;
-      if (sourceProgram) sourceProgram.unallocatedContributions += remaining;
+      monthlyFlow.contributions.unallocated += unallocated;
+      sourceDetail.unallocatedFromAccount += unallocated;
+      if (sourceProgram) sourceProgram.unallocatedContributions += unallocated;
+      return {
+        planned,
+        deposited,
+        unallocated,
+        funding: contributionPhase.funding,
+      };
+    };
+
+    const simplePolicy =
+      inputs.savingsPolicy.mode === "simple" ? inputs.savingsPolicy : null;
+    const workplaceRoute = simplePolicy?.workplaceRrspAccountId
+      ? inputs.contributionWaterfall.routes.find(
+          (route) =>
+            route.sourceAccountId ===
+            simplePolicy.workplaceRrspAccountId,
+        )
+      : undefined;
+    if (simplePolicy) {
+      if (workplaceRoute) {
+        const workplace = processContributionRoute(
+          workplaceRoute,
+          Number.POSITIVE_INFINITY,
+        );
+        monthlyFlow.savingsPolicy.workplacePlanned = workplace.planned;
+        monthlyFlow.savingsPolicy.workplaceAllowed = workplace.deposited;
+        monthlyFlow.savingsPolicy.workplaceUnallocated =
+          workplace.unallocated;
+      }
+    } else {
+      for (const route of inputs.contributionWaterfall.routes) {
+        processContributionRoute(route, Number.POSITIVE_INFINITY);
+      }
     }
 
     let eventInflows = 0;
@@ -1156,7 +1331,162 @@ export function calculateProjection(rawInputs: ProjectionInputs): ProjectionResu
       cashFundedContributions -
       eventOutflows;
 
-    if (cashPosition > 0) {
+    if (simplePolicy) {
+      const positiveCashAvailable = Math.max(0, cashPosition);
+      monthlyFlow.savingsPolicy.positiveCashAvailable =
+        positiveCashAvailable;
+      const personalRoute = inputs.contributionWaterfall.routes.find(
+        (route) =>
+          route.sourceAccountId ===
+          simplePolicy.personalTfsaAccountId,
+      );
+      if (personalRoute) {
+        const personal = processContributionRoute(
+          personalRoute,
+          positiveCashAvailable,
+        );
+        monthlyFlow.savingsPolicy.personalPlanned = personal.planned;
+        monthlyFlow.savingsPolicy.personalAllowed = personal.deposited;
+        monthlyFlow.savingsPolicy.personalUnallocated =
+          personal.unallocated;
+        cashPosition -= personal.deposited;
+      }
+
+      const reservePhase =
+        workingAge < inputs.person.retirementAge - AGE_TOLERANCE
+          ? simplePolicy.reserveBuildingPhases.find(
+              (phase) =>
+                workingAge >= phase.startAge - AGE_TOLERANCE &&
+                workingAge < phase.endAge - AGE_TOLERANCE,
+            )
+          : undefined;
+      const reservePlanned = reservePhase
+        ? reservePhase.monthlyAmountToday *
+          indexedFactor(
+            reservePhase.indexingRate,
+            phaseMonth(age, reservePhase.startAge),
+          )
+        : 0;
+      const reserveFunded = Math.min(
+        reservePlanned,
+        Math.max(0, cashPosition),
+      );
+      const reserveBalance = reserveAccounts.reduce(
+        (total, account) => total + (balances.get(account.id) ?? 0),
+        0,
+      );
+      const reserveShortfall = Math.max(
+        0,
+        monthlyFlow.surplusAllocation.reserveTarget - reserveBalance,
+      );
+      const reserveRetained = Math.min(
+        reserveFunded,
+        reserveShortfall,
+      );
+      if (reserveRetained > 0) {
+        balances.set(
+          reserveRefillAccount.id,
+          (balances.get(reserveRefillAccount.id) ?? 0) +
+            reserveRetained,
+        );
+        monthlyFlow.accountSurplusAllocations[
+          reserveRefillAccount.id
+        ] = reserveRetained;
+      }
+      let reserveRedirected = 0;
+      let remainingReserveInvestment =
+        reserveFunded - reserveRetained;
+      for (const destinationId of
+        inputs.contributionWaterfall.surplusDestinationAccountIds) {
+        if (remainingReserveInvestment <= 0) break;
+        const destination = inputs.accounts.find(
+          (account) => account.id === destinationId,
+        )!;
+        const amount = Math.min(
+          remainingReserveInvestment,
+          availableForAccount(destination, workingAge),
+        );
+        if (amount <= 0) continue;
+        consumeRoom(destination, amount);
+        balances.set(
+          destination.id,
+          (balances.get(destination.id) ?? 0) + amount,
+        );
+        monthlyFlow.accountSurplusAllocations[destination.id] =
+          (monthlyFlow.accountSurplusAllocations[destination.id] ??
+            0) + amount;
+        monthlyFlow.accountContributions[destination.id] =
+          (monthlyFlow.accountContributions[destination.id] ?? 0) +
+          amount;
+        const detail = contributionDetail(
+          monthlyFlow,
+          destination.id,
+        );
+        detail.depositedIntoAccount += amount;
+        detail.surplusFundedDeposit += amount;
+        detail.cashFunded += amount;
+        monthlyFlow.contributions.surplusFunded += amount;
+        monthlyFlow.contributions.cashFunded += amount;
+        monthlyFlow.contributions.total += amount;
+        monthlyFlow.outflows.contributions += amount;
+        if (destination.type === "tfsa") {
+          monthlyFlow.registeredAccountRoom.tfsa
+            .surplusFundedContributions += amount;
+          monthlyFlow.registeredAccountRoom.tfsa
+            .allowedContributions += amount;
+        }
+        if (destination.type === "rrsp_rrif") {
+          monthlyFlow.registeredAccountRoom.rrsp
+            .surplusFundedContributions += amount;
+          monthlyFlow.registeredAccountRoom.rrsp
+            .allowedContributions += amount;
+        }
+        reserveRedirected += amount;
+        remainingReserveInvestment -= amount;
+      }
+      if (remainingReserveInvestment > 0.01) {
+        throw new Error(
+          "Simple reserve-building investment route left an amount unallocated",
+        );
+      }
+      cashPosition -= reserveFunded;
+      const unplannedCashRetained = Math.max(0, cashPosition);
+      if (unplannedCashRetained > 0) {
+        balances.set(
+          simplePolicy.operatingCashAccountId,
+          (balances.get(simplePolicy.operatingCashAccountId) ?? 0) +
+            unplannedCashRetained,
+        );
+        monthlyFlow.accountSurplusAllocations[
+          simplePolicy.operatingCashAccountId
+        ] =
+          (monthlyFlow.accountSurplusAllocations[
+            simplePolicy.operatingCashAccountId
+          ] ?? 0) + unplannedCashRetained;
+      }
+      const policyGenerated =
+        reserveFunded + unplannedCashRetained;
+      monthlyFlow.surplusAllocation.generated = policyGenerated;
+      monthlyFlow.surplusAllocation.reserveRefill =
+        reserveRetained;
+      monthlyFlow.surplusAllocation.retainedAsCash =
+        reserveRetained + unplannedCashRetained;
+      monthlyFlow.surplusAllocation.redirected =
+        reserveRedirected;
+      monthlyFlow.savingsPolicy.reservePlanned = reservePlanned;
+      monthlyFlow.savingsPolicy.reserveFunded = reserveFunded;
+      monthlyFlow.savingsPolicy.reserveRetainedAsCash =
+        reserveRetained;
+      monthlyFlow.savingsPolicy.reserveRedirected =
+        reserveRedirected;
+      monthlyFlow.savingsPolicy.reserveUnfunded =
+        reservePlanned - reserveFunded;
+      monthlyFlow.savingsPolicy.unplannedCashRetained =
+        unplannedCashRetained;
+      monthlyFlow.savingsPolicy.totalInvestmentDeposits =
+        monthlyFlow.contributions.total;
+      if (cashPosition > 0) cashPosition = 0;
+    } else if (cashPosition > 0) {
       const generated = cashPosition;
       const reserveBalance = reserveAccounts.reduce(
         (total, account) => total + (balances.get(account.id) ?? 0),
@@ -1317,12 +1647,19 @@ export function calculateProjection(rawInputs: ProjectionInputs): ProjectionResu
       monthlyFlow,
       `${calendarYear}-${String(calendarMonth).padStart(2, "0")}`,
     );
+    assertSavingsPolicyReconciled(
+      monthlyFlow,
+      `${calendarYear}-${String(calendarMonth).padStart(2, "0")}`,
+      inputs.savingsPolicy.mode,
+    );
 
     addMonthlyFlow(annualNominalFlow, monthlyFlow, 1);
     addMonthlyFlow(annualRealFlow, monthlyFlow, factor);
     if (month <= retirementMonth) {
       addSurplusTotals(nominalSurplusThroughRetirement, monthlyFlow, 1);
       addSurplusTotals(realSurplusThroughRetirement, monthlyFlow, factor);
+      addSavingsTotals(nominalSavingsThroughRetirement, monthlyFlow, 1);
+      addSavingsTotals(realSavingsThroughRetirement, monthlyFlow, factor);
       const requestedExternalOutflows =
         monthlyFlow.outflows.essential +
         monthlyFlow.outflows.discretionary +
@@ -1384,6 +1721,16 @@ export function calculateProjection(rawInputs: ProjectionInputs): ProjectionResu
       assertSurplusReconciled(
         retirementSnapshot.real,
         "retirement snapshot real",
+      );
+      assertSavingsPolicyReconciled(
+        retirementSnapshot.nominal,
+        "retirement snapshot nominal",
+        inputs.savingsPolicy.mode,
+      );
+      assertSavingsPolicyReconciled(
+        retirementSnapshot.real,
+        "retirement snapshot real",
+        inputs.savingsPolicy.mode,
       );
       reserveTargetAtRetirementNominal =
         monthlyFlow.surplusAllocation.reserveTarget;
@@ -1553,6 +1900,41 @@ export function calculateProjection(rawInputs: ProjectionInputs): ProjectionResu
         nominal: point.nominal.registeredAccountRoom,
         real: point.real.registeredAccountRoom,
       })),
+    },
+    savingsPolicy: {
+      mode: inputs.savingsPolicy.mode,
+      policy:
+        inputs.savingsPolicy.mode === "advanced"
+          ? { mode: "advanced" }
+          : {
+              mode: "simple",
+              reserveAccountIds: inputs.savingsPolicy.reserveAccountIds,
+              reserveRefillAccountId:
+                inputs.savingsPolicy.reserveRefillAccountId,
+              operatingCashAccountId:
+                inputs.savingsPolicy.operatingCashAccountId,
+              personalTfsaAccountId:
+                inputs.savingsPolicy.personalTfsaAccountId,
+              personalRrspAccountId:
+                inputs.savingsPolicy.personalRrspAccountId,
+              workplaceRrspAccountId:
+                inputs.savingsPolicy.workplaceRrspAccountId,
+              taxableAccountId: inputs.savingsPolicy.taxableAccountId,
+              taxableAccountOrigin:
+                inputs.savingsPolicy.taxableAccountOrigin,
+              personalOrder: inputs.savingsPolicy.personalOrder,
+              workplaceRoomPriority:
+                inputs.savingsPolicy.workplaceRoomPriority,
+              workplaceOverflow:
+                inputs.savingsPolicy.workplaceOverflow,
+              reserveAfterTarget:
+                inputs.savingsPolicy.reserveAfterTarget,
+              unplannedCash: inputs.savingsPolicy.unplannedCash,
+            },
+      throughRetirement: {
+        nominal: nominalSavingsThroughRetirement,
+        real: realSavingsThroughRetirement,
+      },
     },
     annual,
     observations,

@@ -67,6 +67,15 @@ export type ContributionPhase = {
   indexingRate: number;
 };
 
+export type SavingsPlanPhase = {
+  id: string;
+  label: string;
+  startAge: number;
+  endAge: number;
+  monthlyAmountToday: number;
+  indexingRate: number;
+};
+
 export type FinancialAccountOrigin =
   | "lunchmoney"
   | "projection_configuration";
@@ -143,10 +152,32 @@ export type ContributionWaterfallRoute = {
 };
 
 export type ContributionWaterfallInput = {
-  mode: "canonical" | "fixed_source_compatibility";
+  mode: "canonical" | "fixed_source_compatibility" | "simple_policy";
   routes: ContributionWaterfallRoute[];
   surplusDestinationAccountIds: string[];
 };
+
+export type SavingsPolicyInput =
+  | {
+      mode: "advanced";
+    }
+  | {
+      mode: "simple";
+      operatingCashAccountId: string;
+      reserveAccountIds: string[];
+      reserveRefillAccountId: string;
+      personalTfsaAccountId: string;
+      personalRrspAccountId: string;
+      workplaceRrspAccountId: string | null;
+      taxableAccountId: string;
+      taxableAccountOrigin: FinancialAccountOrigin;
+      reserveBuildingPhases: SavingsPlanPhase[];
+      unplannedCash: "retain_in_operating_cash";
+      personalOrder: ["personal_tfsa", "personal_rrsp", "taxable"];
+      workplaceRoomPriority: "first";
+      workplaceOverflow: "unallocated";
+      reserveAfterTarget: "personal_investing";
+    };
 
 export type ProjectionEventInput = {
   id: string;
@@ -177,6 +208,7 @@ export type ProjectionInputs = {
   registeredAccountRoom?: RegisteredAccountRoomInput;
   contributionWaterfall: ContributionWaterfallInput;
   surplusAllocation: SurplusAllocationPolicyInput;
+  savingsPolicy: SavingsPolicyInput;
   events: ProjectionEventInput[];
 };
 
@@ -278,6 +310,23 @@ export type SurplusAllocationBreakdown = {
   reserveTarget: number;
 };
 
+export type SavingsPolicyBreakdown = {
+  positiveCashAvailable: number;
+  personalPlanned: number;
+  personalAllowed: number;
+  personalUnallocated: number;
+  reservePlanned: number;
+  reserveFunded: number;
+  reserveRetainedAsCash: number;
+  reserveRedirected: number;
+  reserveUnfunded: number;
+  workplacePlanned: number;
+  workplaceAllowed: number;
+  workplaceUnallocated: number;
+  unplannedCashRetained: number;
+  totalInvestmentDeposits: number;
+};
+
 export type ProjectionView = {
   income: IncomeBreakdown;
   withdrawals: WithdrawalBreakdown;
@@ -289,6 +338,7 @@ export type ProjectionView = {
   accountContributionDetails: Record<string, AccountContributionDetail>;
   registeredAccountRoom: RegisteredAccountRoomBreakdown;
   surplusAllocation: SurplusAllocationBreakdown;
+  savingsPolicy: SavingsPolicyBreakdown;
   accountSurplusAllocations: Record<string, number>;
   allocation: AssetAllocation;
 };
@@ -444,6 +494,36 @@ export type RegisteredAccountRoomCalculationSummary = {
   }>;
 };
 
+export type SavingsPolicyTotals = SavingsPolicyBreakdown;
+
+export type SavingsPolicyCalculationSummary = {
+  mode: SavingsPolicyInput["mode"];
+  policy:
+    | {
+        mode: "advanced";
+      }
+    | {
+        mode: "simple";
+        reserveAccountIds: string[];
+        reserveRefillAccountId: string;
+        operatingCashAccountId: string;
+        personalTfsaAccountId: string;
+        personalRrspAccountId: string;
+        workplaceRrspAccountId: string | null;
+        taxableAccountId: string;
+        taxableAccountOrigin: FinancialAccountOrigin;
+        personalOrder: ["personal_tfsa", "personal_rrsp", "taxable"];
+        workplaceRoomPriority: "first";
+        workplaceOverflow: "unallocated";
+        reserveAfterTarget: "personal_investing";
+        unplannedCash: "retain_in_operating_cash";
+      };
+  throughRetirement: {
+    nominal: SavingsPolicyTotals;
+    real: SavingsPolicyTotals;
+  };
+};
+
 export type ProjectionResult = {
   schemaVersion: "7.0";
   inputs: ProjectionInputs;
@@ -456,6 +536,7 @@ export type ProjectionResult = {
   governmentBenefits: GovernmentBenefitCalculationSummary;
   surplusAllocation: SurplusAllocationCalculationSummary;
   registeredAccountRoom: RegisteredAccountRoomCalculationSummary;
+  savingsPolicy: SavingsPolicyCalculationSummary;
   annual: AnnualProjection[];
   observations: ProjectionObservation[];
 };
@@ -904,7 +985,8 @@ export function validateProjectionInputs(value: unknown): ProjectionInputs {
   const waterfall = input.contributionWaterfall;
   if (
     waterfall.mode !== "canonical" &&
-    waterfall.mode !== "fixed_source_compatibility"
+    waterfall.mode !== "fixed_source_compatibility" &&
+    waterfall.mode !== "simple_policy"
   ) {
     throw new Error("contributionWaterfall.mode is invalid");
   }
@@ -963,7 +1045,7 @@ export function validateProjectionInputs(value: unknown): ProjectionInputs {
       }
     }
   }
-  if (waterfall.mode === "canonical") {
+  if (waterfall.mode === "canonical" || waterfall.mode === "simple_policy") {
     for (const account of input.accounts.filter((item) => item.contributionPhases.length > 0)) {
       if (!routeSources.has(account.id)) {
         throw new Error(`Canonical contribution waterfall requires a route for ${account.id}`);
@@ -1135,6 +1217,219 @@ export function validateProjectionInputs(value: unknown): ProjectionInputs {
         `Surplus allocation reserve account ${reserveAccount.id} must be a cash account`,
       );
     }
+  }
+
+  const savingsPolicy = input.savingsPolicy;
+  if (!savingsPolicy || typeof savingsPolicy !== "object") {
+    throw new Error("savingsPolicy must be resolved before projection");
+  }
+  if (savingsPolicy.mode !== "advanced" && savingsPolicy.mode !== "simple") {
+    throw new Error("savingsPolicy.mode must be advanced or simple");
+  }
+  if (savingsPolicy.mode === "simple") {
+    if (waterfall.mode !== "simple_policy") {
+      throw new Error(
+        "Simple savings policy requires the compiled simple_policy contribution waterfall",
+      );
+    }
+    const accountFor = (field: string, accountId: string) => {
+      assertNonEmptyString(field, accountId);
+      const account = accountsById.get(accountId);
+      if (!account) throw new Error(`${field} references an unknown account`);
+      return account;
+    };
+    const operatingCash = accountFor(
+      "savingsPolicy.operatingCashAccountId",
+      savingsPolicy.operatingCashAccountId,
+    );
+    const reserveRefill = accountFor(
+      "savingsPolicy.reserveRefillAccountId",
+      savingsPolicy.reserveRefillAccountId,
+    );
+    const personalTfsa = accountFor(
+      "savingsPolicy.personalTfsaAccountId",
+      savingsPolicy.personalTfsaAccountId,
+    );
+    const personalRrsp = accountFor(
+      "savingsPolicy.personalRrspAccountId",
+      savingsPolicy.personalRrspAccountId,
+    );
+    const taxable = accountFor(
+      "savingsPolicy.taxableAccountId",
+      savingsPolicy.taxableAccountId,
+    );
+    const workplace =
+      savingsPolicy.workplaceRrspAccountId === null
+        ? null
+        : accountFor(
+            "savingsPolicy.workplaceRrspAccountId",
+            savingsPolicy.workplaceRrspAccountId,
+          );
+    if (operatingCash.type !== "cash") {
+      throw new Error("savingsPolicy operating cash account must be cash");
+    }
+    if (reserveRefill.type !== "cash") {
+      throw new Error("savingsPolicy reserve refill account must be cash");
+    }
+    if (personalTfsa.type !== "tfsa") {
+      throw new Error("savingsPolicy personal TFSA account must be TFSA");
+    }
+    if (personalRrsp.type !== "rrsp_rrif") {
+      throw new Error("savingsPolicy personal RRSP account must be RRSP/RRIF");
+    }
+    if (workplace && workplace.type !== "rrsp_rrif") {
+      throw new Error("savingsPolicy workplace RRSP account must be RRSP/RRIF");
+    }
+    if (workplace && workplace.id === personalRrsp.id) {
+      throw new Error(
+        "savingsPolicy personal and workplace RRSP accounts must be different",
+      );
+    }
+    if (taxable.type !== "non_registered") {
+      throw new Error(
+        "savingsPolicy taxable destination must be non-registered",
+      );
+    }
+    if (taxable.origin !== savingsPolicy.taxableAccountOrigin) {
+      throw new Error(
+        "savingsPolicy taxable destination origin must match the resolved account",
+      );
+    }
+    if (
+      !Array.isArray(savingsPolicy.reserveAccountIds) ||
+      savingsPolicy.reserveAccountIds.length === 0 ||
+      !savingsPolicy.reserveAccountIds.includes(operatingCash.id) ||
+      !savingsPolicy.reserveAccountIds.includes(reserveRefill.id)
+    ) {
+      throw new Error(
+        "savingsPolicy reserve accounts must include operating cash and the reserve refill account",
+      );
+    }
+    if (
+      savingsPolicy.reserveAccountIds.length !==
+        surplus.reserveAccountIds.length ||
+      savingsPolicy.reserveAccountIds.some(
+        (accountId, index) =>
+          accountId !== surplus.reserveAccountIds[index],
+      ) ||
+      savingsPolicy.reserveRefillAccountId !==
+        surplus.reserveRefillAccountId
+    ) {
+      throw new Error(
+        "savingsPolicy reserve references must match the resolved surplus allocation policy",
+      );
+    }
+    if (
+      savingsPolicy.unplannedCash !== "retain_in_operating_cash" ||
+      savingsPolicy.workplaceRoomPriority !== "first" ||
+      savingsPolicy.workplaceOverflow !== "unallocated" ||
+      savingsPolicy.reserveAfterTarget !== "personal_investing" ||
+      !Array.isArray(savingsPolicy.personalOrder) ||
+      savingsPolicy.personalOrder.length !== 3 ||
+      savingsPolicy.personalOrder[0] !== "personal_tfsa" ||
+      savingsPolicy.personalOrder[1] !== "personal_rrsp" ||
+      savingsPolicy.personalOrder[2] !== "taxable"
+    ) {
+      throw new Error("savingsPolicy contains an unsupported simple policy");
+    }
+    const personalRoute = waterfall.routes.find(
+      (route) => route.sourceAccountId === personalTfsa.id,
+    );
+    if (
+      personalTfsa.contributionPhases.length > 0 &&
+      (!personalRoute ||
+        personalRoute.destinationAccountIds.length !== 3 ||
+        personalRoute.destinationAccountIds[0] !== personalTfsa.id ||
+        personalRoute.destinationAccountIds[1] !== personalRrsp.id ||
+        personalRoute.destinationAccountIds[2] !== taxable.id)
+    ) {
+      throw new Error(
+        "Simple personal contribution route must be personal TFSA, personal RRSP, then taxable",
+      );
+    }
+    if (workplace) {
+      const workplaceRoute = waterfall.routes.find(
+        (route) => route.sourceAccountId === workplace.id,
+      );
+      if (
+        workplace.contributionPhases.length > 0 &&
+        (!workplaceRoute ||
+          workplaceRoute.destinationAccountIds.length !== 1 ||
+          workplaceRoute.destinationAccountIds[0] !== workplace.id ||
+          waterfall.routes[0]?.sourceAccountId !== workplace.id)
+      ) {
+        throw new Error(
+          "Simple workplace RRSP route must be first and must not redirect overflow",
+        );
+      }
+    }
+    if (
+      waterfall.surplusDestinationAccountIds.length !== 3 ||
+      waterfall.surplusDestinationAccountIds[0] !== personalTfsa.id ||
+      waterfall.surplusDestinationAccountIds[1] !== personalRrsp.id ||
+      waterfall.surplusDestinationAccountIds[2] !== taxable.id
+    ) {
+      throw new Error(
+        "Simple reserve redirect route must use personal TFSA, personal RRSP, then taxable",
+      );
+    }
+    if (!Array.isArray(savingsPolicy.reserveBuildingPhases)) {
+      throw new Error(
+        "savingsPolicy.reserveBuildingPhases must be an array",
+      );
+    }
+    const phaseIds = new Set<string>();
+    let previousReservePhase: SavingsPlanPhase | undefined;
+    for (const [index, phase] of savingsPolicy.reserveBuildingPhases.entries()) {
+      const field = `savingsPolicy.reserveBuildingPhases[${index}]`;
+      assertNonEmptyString(`${field}.id`, phase.id);
+      assertNonEmptyString(`${field}.label`, phase.label);
+      if (phaseIds.has(phase.id)) {
+        throw new Error(
+          `Savings policy reserve-building phase ids must be unique: ${phase.id}`,
+        );
+      }
+      phaseIds.add(phase.id);
+      assertNonNegative(
+        `${field}.monthlyAmountToday`,
+        phase.monthlyAmountToday,
+      );
+      assertRate(`${field}.indexingRate`, phase.indexingRate, -0.2, 0.5);
+      assertMonthAligned(
+        `${field}.startAge`,
+        phase.startAge,
+        input.person.currentAge,
+      );
+      assertMonthAligned(
+        `${field}.endAge`,
+        phase.endAge,
+        input.person.currentAge,
+      );
+      if (
+        phase.startAge < input.person.currentAge - PROJECTION_AGE_TOLERANCE ||
+        phase.endAge >
+          input.person.retirementAge + PROJECTION_AGE_TOLERANCE ||
+        phase.endAge <= phase.startAge + PROJECTION_AGE_TOLERANCE
+      ) {
+        throw new Error(
+          `${field} must be a positive range within working ages`,
+        );
+      }
+      if (
+        previousReservePhase &&
+        phase.startAge <
+          previousReservePhase.endAge - PROJECTION_AGE_TOLERANCE
+      ) {
+        throw new Error(
+          `${field} overlaps the preceding reserve-building phase`,
+        );
+      }
+      previousReservePhase = phase;
+    }
+  } else if (waterfall.mode === "simple_policy") {
+    throw new Error(
+      "Advanced savings policy cannot use a simple_policy contribution waterfall",
+    );
   }
 
   for (const event of input.events) {

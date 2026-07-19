@@ -8,7 +8,11 @@ import type {
   BaselineSourceType,
   CanadianReferenceKind,
 } from "@/src/domain/defaults/types";
-import { annualPeriodLabel } from "./presentation";
+import {
+  annualPeriodLabel,
+  buildSavingsPolicyPreview,
+  type SavingsPolicyPreview,
+} from "./presentation";
 import {
   validateProjectionInputs,
   type AccountType,
@@ -141,6 +145,7 @@ export type ProjectionSnapshot = {
     transactionCount: number;
   }>;
   activeOverrides: Record<string, number>;
+  policyPreview: SavingsPolicyPreview;
   projection: ProjectionResult;
 };
 
@@ -161,6 +166,8 @@ type ShareSafeContext = {
   employmentPhaseByRawLabel: Map<string, RecordAlias>;
   contributionPhaseByAccountAndRawId: Map<string, RecordAlias>;
   contributionPhaseByAccountAndRawLabel: Map<string, RecordAlias>;
+  savingsPhaseByRawId: Map<string, RecordAlias>;
+  savingsPhaseByRawLabel: Map<string, RecordAlias>;
   eventsByRawId: Map<string, RecordAlias>;
   recurringByRawId: Map<string, RecordAlias>;
   unmappedAccountsByRawId: Map<string, RecordAlias>;
@@ -175,6 +182,7 @@ type ProvenanceField = {
   accountField?: string;
   employmentPhase?: RecordAlias;
   contributionPhase?: RecordAlias;
+  savingsPhase?: RecordAlias;
   finalField?: string;
 };
 
@@ -210,6 +218,7 @@ const ACCOUNT_PROVENANCE_FIELDS = new Set([
   "type",
   "allocation",
   "withdrawalPriority",
+  "roles",
 ]);
 const CONTRIBUTION_PHASE_PROVENANCE_FIELDS = new Set([
   "label",
@@ -231,6 +240,19 @@ const RRSP_ROOM_GENERATION_PROVENANCE_FIELDS = new Set([
   "annualPensionAdjustmentToday",
   "annualOtherRoomReductionToday",
   "annualGrowth",
+]);
+const SIMPLE_RRSP_ROOM_PROVENANCE_FIELDS = new Set([
+  "eligibleEarnedIncomeToday",
+  "pensionAdjustmentToday",
+  "otherReductionToday",
+  "annualGrowth",
+]);
+const SAVINGS_PHASE_PROVENANCE_FIELDS = new Set([
+  "label",
+  "startAge",
+  "endAge",
+  "monthlyAmountToday",
+  "indexingRate",
 ]);
 
 const SAFE_PROVENANCE_FIELDS = new Set([
@@ -302,6 +324,22 @@ const SAFE_PROVENANCE_FIELDS = new Set([
   "registeredAccountRoom.rrsp.newRoom.startYearBeforeProjectionMonth.pensionAdjustment",
   "registeredAccountRoom.rrsp.newRoom.startYearBeforeProjectionMonth.otherRoomReduction",
   "contributionWaterfall.mode",
+  "savingsPolicy.mode",
+  "savingsPolicy.taxableAccountOrigin",
+  "savingsPolicy.unplannedCash",
+  "savingsPolicy.personalOrder",
+  "savingsPolicy.workplaceRoomPriority",
+  "savingsPolicy.workplaceOverflow",
+  "savingsPolicy.reserveAfterTarget",
+  "savingsPolicy.reserveBuilding.targetToday",
+  "savingsPolicy.reserveBuilding.indexingRate",
+  "registeredRoom.tfsa.availableAtStart",
+  "registeredRoom.tfsa.asOf",
+  "registeredRoom.rrsp.availableAtStart",
+  "registeredRoom.rrsp.asOf",
+  "registeredRoom.rrsp.beforeProjectionStart.eligibleEarnedIncome",
+  "registeredRoom.rrsp.beforeProjectionStart.pensionAdjustment",
+  "registeredRoom.rrsp.beforeProjectionStart.otherReduction",
 ]);
 
 const SIMPLE_OVERRIDE_KEYS = new Set([
@@ -316,6 +354,10 @@ const SIMPLE_OVERRIDE_KEYS = new Set([
   "surplusAllocation.reserveIndexingRate",
   "registeredAccountRoom.tfsa.startingAvailableRoom.amount",
   "registeredAccountRoom.rrsp.startingAvailableDeductionRoom.amount",
+  "registeredRoom.tfsa.availableAtStart",
+  "registeredRoom.rrsp.availableAtStart",
+  "savingsPolicy.reserveBuilding.targetToday",
+  "savingsPolicy.reserveBuilding.indexingRate",
 ]);
 
 const SAFE_MILESTONES = new Set([
@@ -511,6 +553,26 @@ function createShareSafeContext(
     }
   }
 
+  const savingsPhaseByRawId = new Map<string, RecordAlias>();
+  const savingsPhaseByRawLabel = new Map<string, RecordAlias>();
+  for (const input of [baseline.projectionInputs, projection.inputs]) {
+    if (input.savingsPolicy.mode !== "simple") continue;
+    for (const phase of input.savingsPolicy.reserveBuildingPhases) {
+      let alias = savingsPhaseByRawId.get(phase.id);
+      if (!alias) {
+        const sequence = savingsPhaseByRawId.size + 1;
+        alias = {
+          key: `savings_phase_${sequence}`,
+          label: `Savings phase ${sequence}`,
+        };
+        savingsPhaseByRawId.set(phase.id, alias);
+      }
+      if (!savingsPhaseByRawLabel.has(phase.label)) {
+        savingsPhaseByRawLabel.set(phase.label, alias);
+      }
+    }
+  }
+
   const unmappedAccountsByRawId = new Map<string, RecordAlias>();
   baseline.unmappedAccounts.forEach((account, index) => {
       const alias = {
@@ -566,6 +628,8 @@ function createShareSafeContext(
     employmentPhaseByRawLabel,
     contributionPhaseByAccountAndRawId,
     contributionPhaseByAccountAndRawLabel,
+    savingsPhaseByRawId,
+    savingsPhaseByRawLabel,
     eventsByRawId,
     recurringByRawId,
     unmappedAccountsByRawId,
@@ -791,6 +855,73 @@ function safeProjectionInputs(
               }
             : { mode: "allocate_through_contribution_waterfall" },
     },
+    savingsPolicy:
+      inputs.savingsPolicy.mode === "advanced"
+        ? { mode: "advanced" }
+        : {
+            mode: "simple",
+            operatingCashAccountId: requiredAccountAlias(
+              inputs.savingsPolicy.operatingCashAccountId,
+              context,
+            ).key,
+            reserveAccountIds:
+              inputs.savingsPolicy.reserveAccountIds.map(
+                (accountId) =>
+                  requiredAccountAlias(accountId, context).key,
+              ),
+            reserveRefillAccountId: requiredAccountAlias(
+              inputs.savingsPolicy.reserveRefillAccountId,
+              context,
+            ).key,
+            personalTfsaAccountId: requiredAccountAlias(
+              inputs.savingsPolicy.personalTfsaAccountId,
+              context,
+            ).key,
+            personalRrspAccountId: requiredAccountAlias(
+              inputs.savingsPolicy.personalRrspAccountId,
+              context,
+            ).key,
+            workplaceRrspAccountId:
+              inputs.savingsPolicy.workplaceRrspAccountId === null
+                ? null
+                : requiredAccountAlias(
+                    inputs.savingsPolicy.workplaceRrspAccountId,
+                    context,
+                  ).key,
+            taxableAccountId: requiredAccountAlias(
+              inputs.savingsPolicy.taxableAccountId,
+              context,
+            ).key,
+            taxableAccountOrigin:
+              inputs.savingsPolicy.taxableAccountOrigin,
+            reserveBuildingPhases:
+              inputs.savingsPolicy.reserveBuildingPhases.map(
+                (phase) => {
+                  const alias = requiredRecordAlias(
+                    phase.id,
+                    context.savingsPhaseByRawId,
+                    "savings phase",
+                  );
+                  return {
+                    id: alias.key,
+                    label: alias.label,
+                    startAge: phase.startAge,
+                    endAge: phase.endAge,
+                    monthlyAmountToday: phase.monthlyAmountToday,
+                    indexingRate: phase.indexingRate,
+                  };
+                },
+              ),
+            unplannedCash: "retain_in_operating_cash",
+            personalOrder: [
+              "personal_tfsa",
+              "personal_rrsp",
+              "taxable",
+            ],
+            workplaceRoomPriority: "first",
+            workplaceOverflow: "unallocated",
+            reserveAfterTarget: "personal_investing",
+          },
     events: inputs.events.map((event) => safeEventInput(event, context)),
   };
 }
@@ -880,6 +1011,7 @@ function safeProjectionView(view: ProjectionView, context: ShareSafeContext): Pr
       redirected: view.surplusAllocation.redirected,
       reserveTarget: view.surplusAllocation.reserveTarget,
     },
+    savingsPolicy: { ...view.savingsPolicy },
     accountSurplusAllocations,
     allocation: safeAllocation(view.allocation),
   };
@@ -1094,6 +1226,69 @@ function safeProjectionResult(
         },
       })),
     },
+    savingsPolicy: {
+      mode: projection.savingsPolicy.mode,
+      policy:
+        projection.savingsPolicy.policy.mode === "advanced"
+          ? { mode: "advanced" }
+          : {
+              mode: "simple",
+              reserveAccountIds:
+                projection.savingsPolicy.policy.reserveAccountIds.map(
+                  (accountId) =>
+                    requiredAccountAlias(accountId, context).key,
+                ),
+              reserveRefillAccountId: requiredAccountAlias(
+                projection.savingsPolicy.policy
+                  .reserveRefillAccountId,
+                context,
+              ).key,
+              operatingCashAccountId: requiredAccountAlias(
+                projection.savingsPolicy.policy.operatingCashAccountId,
+                context,
+              ).key,
+              personalTfsaAccountId: requiredAccountAlias(
+                projection.savingsPolicy.policy.personalTfsaAccountId,
+                context,
+              ).key,
+              personalRrspAccountId: requiredAccountAlias(
+                projection.savingsPolicy.policy.personalRrspAccountId,
+                context,
+              ).key,
+              workplaceRrspAccountId:
+                projection.savingsPolicy.policy
+                  .workplaceRrspAccountId === null
+                  ? null
+                  : requiredAccountAlias(
+                      projection.savingsPolicy.policy
+                        .workplaceRrspAccountId,
+                      context,
+                    ).key,
+              taxableAccountId: requiredAccountAlias(
+                projection.savingsPolicy.policy.taxableAccountId,
+                context,
+              ).key,
+              taxableAccountOrigin:
+                projection.savingsPolicy.policy.taxableAccountOrigin,
+              personalOrder: [
+                "personal_tfsa",
+                "personal_rrsp",
+                "taxable",
+              ],
+              workplaceRoomPriority: "first",
+              workplaceOverflow: "unallocated",
+              reserveAfterTarget: "personal_investing",
+              unplannedCash: "retain_in_operating_cash",
+            },
+      throughRetirement: {
+        nominal: {
+          ...projection.savingsPolicy.throughRetirement.nominal,
+        },
+        real: {
+          ...projection.savingsPolicy.throughRetirement.real,
+        },
+      },
+    },
     annual: projection.annual.map((point) => ({
       calendarYear: point.calendarYear,
       age: point.age,
@@ -1306,6 +1501,68 @@ function provenanceField(
       finalField: rawField.slice(rawField.lastIndexOf(".") + 1),
     };
   }
+  if (rawField === "savingsPolicy.reserveAccountIds") {
+    if (
+      !Array.isArray(rawValue) ||
+      rawValue.some((value) => typeof value !== "string")
+    ) {
+      return undefined;
+    }
+    const accountReferences = rawValue.map((value) =>
+      context.accountByRawId.get(value as string),
+    );
+    if (accountReferences.some((value) => !value)) return undefined;
+    return {
+      reference: rawField,
+      accountReferences: accountReferences as AccountAlias[],
+      finalField: "reserveAccountIds",
+    };
+  }
+  if (
+    [
+      "savingsPolicy.operatingCashAccountId",
+      "savingsPolicy.reserveRefillAccountId",
+      "savingsPolicy.personalTfsaAccountId",
+      "savingsPolicy.personalRrspAccountId",
+      "savingsPolicy.workplaceRrspAccountId",
+      "savingsPolicy.taxableAccountId",
+    ].includes(rawField)
+  ) {
+    if (rawValue === null) {
+      return {
+        reference: rawField,
+        finalField: rawField.slice(rawField.lastIndexOf(".") + 1),
+      };
+    }
+    if (typeof rawValue !== "string") return undefined;
+    const accountReference = context.accountByRawId.get(rawValue);
+    return accountReference
+      ? {
+          reference: rawField,
+          accountReference,
+          finalField: rawField.slice(rawField.lastIndexOf(".") + 1),
+        }
+      : undefined;
+  }
+  const savingsPhasePrefix = "savingsPolicy.reserveBuilding.phases.";
+  if (rawField.startsWith(savingsPhasePrefix)) {
+    const remainder = rawField.slice(savingsPhasePrefix.length);
+    const separator = remainder.lastIndexOf(".");
+    if (separator < 0) return undefined;
+    const rawPhaseId = remainder.slice(0, separator);
+    const finalField = remainder.slice(separator + 1);
+    if (!SAVINGS_PHASE_PROVENANCE_FIELDS.has(finalField)) {
+      return undefined;
+    }
+    const phase = context.savingsPhaseByRawId.get(rawPhaseId);
+    return phase
+      ? {
+          reference: `${savingsPhasePrefix}${phase.key}.${finalField}`,
+          savingsPhase: phase,
+          finalField,
+        }
+      : undefined;
+  }
   if (SAFE_PROVENANCE_FIELDS.has(rawField)) {
     return {
       reference: rawField,
@@ -1343,6 +1600,26 @@ function provenanceField(
       ) {
         return {
           reference: `${employmentPrefix}${roomPhase.key}.rrspRoomGeneration.${roomField}`,
+          employmentPhase: roomPhase,
+          finalField: roomField,
+        };
+      }
+    }
+    const simpleRoomMarker = ".rrspRoom.";
+    const simpleRoomMarkerIndex = remainder.indexOf(simpleRoomMarker);
+    if (simpleRoomMarkerIndex > 0) {
+      const roomPhaseId = remainder.slice(0, simpleRoomMarkerIndex);
+      const roomField = remainder.slice(
+        simpleRoomMarkerIndex + simpleRoomMarker.length,
+      );
+      const roomPhase =
+        context.employmentPhaseByRawId.get(roomPhaseId);
+      if (
+        roomPhase &&
+        SIMPLE_RRSP_ROOM_PROVENANCE_FIELDS.has(roomField)
+      ) {
+        return {
+          reference: `${employmentPrefix}${roomPhase.key}.rrspRoom.${roomField}`,
           employmentPhase: roomPhase,
           finalField: roomField,
         };
@@ -1424,6 +1701,38 @@ function safeProvenanceValue(
   if (field.finalField === "label" && field.contributionPhase) {
     return field.contributionPhase.label;
   }
+  if (field.finalField === "label" && field.savingsPhase) {
+    return field.savingsPhase.label;
+  }
+  if (
+    field.accountField === "roles" &&
+    Array.isArray(value) &&
+    value.every(
+      (role) =>
+        typeof role === "string" &&
+        [
+          "operating_cash",
+          "reserve_member",
+          "reserve_refill",
+          "personal_tfsa",
+          "personal_rrsp",
+          "workplace_rrsp",
+          "personal_taxable",
+        ].includes(role),
+    )
+  ) {
+    return value as string[];
+  }
+  if (
+    field.reference === "savingsPolicy.personalOrder" &&
+    Array.isArray(value) &&
+    value.length === 3 &&
+    value[0] === "personal_tfsa" &&
+    value[1] === "personal_rrsp" &&
+    value[2] === "taxable"
+  ) {
+    return value as string[];
+  }
   if (typeof value === "number") return finiteNumber(value, `provenance ${field.reference}`);
   if (typeof value === "boolean" || value === null) return value;
   if (typeof value === "string") {
@@ -1469,7 +1778,47 @@ function safeProvenanceValue(
     }
     if (
       field.reference === "contributionWaterfall.mode" &&
-      ["canonical", "fixed_source_compatibility"].includes(value)
+      [
+        "canonical",
+        "fixed_source_compatibility",
+        "simple_policy",
+      ].includes(value)
+    ) {
+      return value;
+    }
+    if (
+      field.reference === "savingsPolicy.mode" &&
+      ["simple", "advanced"].includes(value)
+    ) {
+      return value;
+    }
+    if (
+      field.reference === "savingsPolicy.taxableAccountOrigin" &&
+      ["lunchmoney", "projection_configuration"].includes(value)
+    ) {
+      return value;
+    }
+    if (
+      field.reference === "savingsPolicy.unplannedCash" &&
+      value === "retain_in_operating_cash"
+    ) {
+      return value;
+    }
+    if (
+      field.reference === "savingsPolicy.workplaceRoomPriority" &&
+      value === "first"
+    ) {
+      return value;
+    }
+    if (
+      field.reference === "savingsPolicy.workplaceOverflow" &&
+      value === "unallocated"
+    ) {
+      return value;
+    }
+    if (
+      field.reference === "savingsPolicy.reserveAfterTarget" &&
+      value === "personal_investing"
     ) {
       return value;
     }
@@ -1617,6 +1966,18 @@ function safeOverrideKey(
         ? `contributionPhase.${account.key}.${phase.key}.${field}`
         : undefined;
     }
+  }
+  if (rawKey.startsWith("reserveBuildingPhase.")) {
+    const remainder = rawKey.slice("reserveBuildingPhase.".length);
+    const separator = remainder.lastIndexOf(".");
+    if (separator < 0) return undefined;
+    const rawPhaseId = remainder.slice(0, separator);
+    const field = remainder.slice(separator + 1);
+    const phase = context.savingsPhaseByRawId.get(rawPhaseId);
+    return phase &&
+      (field === "monthlyAmountToday" || field === "indexingRate")
+      ? `reserveBuildingPhase.${phase.key}.${field}`
+      : undefined;
   }
   if (rawKey.startsWith("return.")) {
     const accountType = rawKey.slice("return.".length) as AccountType;
@@ -1786,6 +2147,7 @@ export function createProjectionSnapshot(
       };
     }),
     activeOverrides: safeOverrides(activeOverrides, context),
+    policyPreview: buildSavingsPolicyPreview(safeProjection.inputs),
     projection: safeProjection,
   };
 }
@@ -1866,6 +2228,24 @@ export function projectionSnapshotToCsv(
     "actualContributions",
     "redirectedContributions",
     "unallocatedContributions",
+    "savings_policy_mode",
+    "positive_cash_available",
+    "personal_plan_planned",
+    "personal_plan_allowed",
+    "personal_plan_unallocated",
+    "reserve_plan_planned",
+    "reserve_plan_funded",
+    "reserve_cash_retained",
+    "reserve_plan_redirected",
+    "reserve_plan_unfunded",
+    "workplace_plan_planned",
+    "workplace_plan_allowed",
+    "workplace_plan_unallocated",
+    "unplanned_cash_retained",
+    "total_investment_deposits",
+    "savings_operating_cash_account",
+    "savings_taxable_account",
+    "savings_taxable_origin",
     "tfsa_room_opening",
     "tfsa_room_new",
     "tfsa_room_withdrawal_restored",
@@ -1986,6 +2366,32 @@ export function projectionSnapshotToCsv(
       view.contributions.total,
       view.contributions.redirected,
       view.contributions.unallocated,
+      snapshot.projection.savingsPolicy.mode,
+      view.savingsPolicy.positiveCashAvailable,
+      view.savingsPolicy.personalPlanned,
+      view.savingsPolicy.personalAllowed,
+      view.savingsPolicy.personalUnallocated,
+      view.savingsPolicy.reservePlanned,
+      view.savingsPolicy.reserveFunded,
+      view.savingsPolicy.reserveRetainedAsCash,
+      view.savingsPolicy.reserveRedirected,
+      view.savingsPolicy.reserveUnfunded,
+      view.savingsPolicy.workplacePlanned,
+      view.savingsPolicy.workplaceAllowed,
+      view.savingsPolicy.workplaceUnallocated,
+      view.savingsPolicy.unplannedCashRetained,
+      view.savingsPolicy.totalInvestmentDeposits,
+      snapshot.projection.savingsPolicy.policy.mode === "simple"
+        ? snapshot.projection.savingsPolicy.policy
+            .operatingCashAccountId
+        : "",
+      snapshot.projection.savingsPolicy.policy.mode === "simple"
+        ? snapshot.projection.savingsPolicy.policy.taxableAccountId
+        : "",
+      snapshot.projection.savingsPolicy.policy.mode === "simple"
+        ? snapshot.projection.savingsPolicy.policy
+            .taxableAccountOrigin
+        : "",
       view.registeredAccountRoom.tfsa.openingRoom,
       view.registeredAccountRoom.tfsa.annualNewRoom,
       view.registeredAccountRoom.tfsa.withdrawalRoomRestored,
