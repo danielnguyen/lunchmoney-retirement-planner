@@ -13,12 +13,12 @@ Public content must remain generic. Do not add private financial values, account
 - Active capability: Registered-account room and contribution waterfall
 - Status: In progress
 - Branch: `agent/add-registered-account-room`
-- Latest validated implementation head: `7eb3970d17bd64000df59bb4d1a9ae813533692d`
-- Synthetic validation: Passed — 11 test files and 184 tests, typecheck, lint, production build, Docker image build, Compose configuration validation, diff check, contribution and room reconciliation checks, and adversarial JSON/CSV privacy review
+- Latest validated implementation head: `bb235ae7fedab4a1becf076e2450d4cb04c5ffad`
+- Synthetic validation: Passed — 12 test files and 203 tests, typecheck, lint, production build, Docker image build, Compose configuration validation, diff check, focused simple parsing/compiler, explicit-savings, reserve-transition, workplace-priority, taxable-destination, controls, explanation, reconciliation and bridge checks, advanced-compatibility and mixed-mode checks, and adversarial JSON/real-CSV/nominal-CSV privacy review
 - Repository-owner private migration: Outstanding
 - Private live smoke test: Outstanding
-- Remaining step: repository-owner private room and waterfall migration and live smoke test after synthetic review
-- Next action: after review of draft PR #10, migrate the private registered-room and contribution-waterfall configuration, then run the private live smoke test
+- Remaining step: repository-owner private account-role, registered-room, and named-savings-policy migration plus live smoke testing after synthetic review
+- Next action: after review of draft PR #10, migrate the ignored private configuration to account roles, simplified room inputs, and named savings plans, review the sanitized policy preview, then run the private live smoke test
 - Last completed capability: Surplus allocation policy
 
 ## Terminology boundary
