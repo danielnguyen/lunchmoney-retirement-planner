@@ -337,9 +337,9 @@ const SAFE_PROVENANCE_FIELDS = new Set([
   "registeredRoom.tfsa.asOf",
   "registeredRoom.rrsp.availableAtStart",
   "registeredRoom.rrsp.asOf",
-  "registeredRoom.rrsp.beforeProjectionStart.eligibleEarnedIncome",
-  "registeredRoom.rrsp.beforeProjectionStart.pensionAdjustment",
-  "registeredRoom.rrsp.beforeProjectionStart.otherReduction",
+  "registeredRoom.rrsp.currentYearBeforePlanStart.eligibleEarnedIncome",
+  "registeredRoom.rrsp.currentYearBeforePlanStart.pensionAdjustment",
+  "registeredRoom.rrsp.currentYearBeforePlanStart.otherReduction",
 ]);
 
 const SIMPLE_OVERRIDE_KEYS = new Set([

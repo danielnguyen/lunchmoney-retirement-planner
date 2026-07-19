@@ -103,7 +103,7 @@ export type RegisteredRoomConfig = {
   rrsp: {
     availableAtStart: number;
     asOf: string;
-    beforeProjectionStart?: {
+    currentYearBeforePlanStart?: {
       eligibleEarnedIncome: number;
       pensionAdjustment: number;
       otherReduction: number;

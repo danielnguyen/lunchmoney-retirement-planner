@@ -167,19 +167,17 @@ describe("private planner configuration", () => {
     const contents = await exampleContents();
     const config = await loadPlannerConfig(EXAMPLE_CONFIG_PATH);
 
-    expect(contents).toContain("# Daily operating cash");
-    expect(contents).toContain("# Groceries");
+    expect(contents).toContain("# Everyday chequing or cash");
+    expect(contents).toContain("For example, groceries");
     expect(contents).toContain(
-      "Only these explicit savings plans may be invested",
+      "Only amounts listed in these plans are deliberately saved or invested",
     );
     expect(contents).toContain(
-      "account IDs appear in one place",
+      "quoted key is a Lunch Money account ID",
     );
-    expect(contents).not.toContain(
-      "mapped contribution transactions or the",
-    );
-    expect(contents).toContain("not a");
-    expect(contents).toContain("personal estimate or entitlement");
+    expect(contents).toContain("Find available RRSP contribution room");
+    expect(contents).toContain("Do not add a current-year");
+    expect(contents).toContain("not your personal entitlement");
     expect(contents).toContain("qualifying years");
     expect(contents).not.toMatch(/^cppStartAge:|^oasStartAge:/m);
     expect(config.transactionTrailingMonths).toBe(12);
@@ -226,6 +224,42 @@ describe("private planner configuration", () => {
     ]) {
       expect(contents.match(new RegExp(id.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"), "g"))).toHaveLength(1);
     }
+  });
+
+  it("uses plain-language, actionable instructions in the primary example", async () => {
+    const contents = await exampleContents();
+    const comments = contents
+      .split("\n")
+      .flatMap((line) => {
+        const marker = line.indexOf("#");
+        return marker === -1 ? [] : [line.slice(marker + 1)];
+      })
+      .join("\n");
+
+    expect(comments).toContain("You can also find it as `id`");
+    expect(comments).toContain("Find year-to-date gross income");
+    expect(comments).toContain("Box 52 of a T4");
+    expect(comments).toContain("CRA My Account");
+    expect(comments).toContain("0.02 is 2%");
+    expect(comments).not.toMatch(
+      /\b(owner-facing|routing reference|resolved input|compile|compiler|canonical|projection-only origin|configuration discriminator|contribution source graph|compatibility normalization|account-role resolution|generated room ledger|explicit-zero semantics)\b/i,
+    );
+  });
+
+  it("rejects the old simple RRSP pre-start field with a migration message", async () => {
+    const config = structuredClone(
+      await loadPlannerConfig(EXAMPLE_CONFIG_PATH),
+    ) as unknown as Record<string, unknown>;
+    const room = config.registeredRoom as {
+      rrsp: Record<string, unknown>;
+    };
+    room.rrsp.beforeProjectionStart =
+      room.rrsp.currentYearBeforePlanStart;
+    delete room.rrsp.currentYearBeforePlanStart;
+
+    expect(() => validatePlannerConfig(config)).toThrow(
+      "registeredRoom.rrsp.beforeProjectionStart was renamed to registeredRoom.rrsp.currentYearBeforePlanStart",
+    );
   });
 
   it("ignores YAML comments without changing configuration values", async () => {

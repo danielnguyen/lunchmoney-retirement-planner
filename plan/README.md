@@ -133,7 +133,7 @@ registeredRoom:
   rrsp:
     availableAtStart: 0
     asOf: "2026-07-01"
-    beforeProjectionStart:
+    currentYearBeforePlanStart:
       eligibleEarnedIncome: 0
       pensionAdjustment: 0
       otherReduction: 0

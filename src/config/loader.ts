@@ -335,12 +335,19 @@ function registeredRoom(value: unknown): RegisteredRoomConfig {
   const item = record(value, "registeredRoom");
   const tfsa = record(item.tfsa, "registeredRoom.tfsa");
   const rrsp = record(item.rrsp, "registeredRoom.rrsp");
+  if (rrsp.beforeProjectionStart !== undefined) {
+    throw new PlannerRuntimeError(
+      "invalid_planner_config",
+      "registeredRoom.rrsp.beforeProjectionStart was renamed to registeredRoom.rrsp.currentYearBeforePlanStart. Update the simple configuration field name.",
+      422,
+    );
+  }
   const before =
-    rrsp.beforeProjectionStart === undefined
+    rrsp.currentYearBeforePlanStart === undefined
       ? undefined
       : record(
-          rrsp.beforeProjectionStart,
-          "registeredRoom.rrsp.beforeProjectionStart",
+          rrsp.currentYearBeforePlanStart,
+          "registeredRoom.rrsp.currentYearBeforePlanStart",
         );
   return {
     tfsa: {
@@ -360,20 +367,20 @@ function registeredRoom(value: unknown): RegisteredRoomConfig {
       asOf: isoCalendarDate(rrsp.asOf, "registeredRoom.rrsp.asOf"),
       ...(before
         ? {
-            beforeProjectionStart: {
+            currentYearBeforePlanStart: {
               eligibleEarnedIncome: number(
                 before.eligibleEarnedIncome,
-                "registeredRoom.rrsp.beforeProjectionStart.eligibleEarnedIncome",
+                "registeredRoom.rrsp.currentYearBeforePlanStart.eligibleEarnedIncome",
                 { min: 0 },
               ),
               pensionAdjustment: number(
                 before.pensionAdjustment,
-                "registeredRoom.rrsp.beforeProjectionStart.pensionAdjustment",
+                "registeredRoom.rrsp.currentYearBeforePlanStart.pensionAdjustment",
                 { min: 0 },
               ),
               otherReduction: number(
                 before.otherReduction,
-                "registeredRoom.rrsp.beforeProjectionStart.otherReduction",
+                "registeredRoom.rrsp.currentYearBeforePlanStart.otherReduction",
                 { min: 0 },
               ),
             },

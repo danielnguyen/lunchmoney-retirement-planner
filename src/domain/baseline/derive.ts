@@ -965,18 +965,18 @@ export function deriveCurrentBaseline(
 
   const projectionStartYear = Number(dataThrough.slice(0, 4));
   const projectionStartMonth = Number(dataThrough.slice(5, 7));
-  const beforeProjectionStart =
+  const currentYearBeforePlanStart =
     config.configurationMode === "simple"
-      ? config.registeredRoom!.rrsp.beforeProjectionStart
+      ? config.registeredRoom!.rrsp.currentYearBeforePlanStart
       : undefined;
   if (
     config.configurationMode === "simple" &&
     projectionStartMonth !== 1 &&
-    !beforeProjectionStart
+    !currentYearBeforePlanStart
   ) {
     throw new PlannerRuntimeError(
       "configuration_required",
-      "registeredRoom.rrsp.beforeProjectionStart is required when the live projection starts from February through December.",
+      "registeredRoom.rrsp.currentYearBeforePlanStart is required when the live projection starts from February through December.",
       422,
     );
   }
@@ -1023,11 +1023,11 @@ export function deriveCurrentBaseline(
               startYearBeforeProjectionMonth: {
                 calendarYear: projectionStartYear,
                 eligibleEarnedIncome:
-                  beforeProjectionStart?.eligibleEarnedIncome ?? 0,
+                  currentYearBeforePlanStart?.eligibleEarnedIncome ?? 0,
                 pensionAdjustment:
-                  beforeProjectionStart?.pensionAdjustment ?? 0,
+                  currentYearBeforePlanStart?.pensionAdjustment ?? 0,
                 otherRoomReduction:
-                  beforeProjectionStart?.otherReduction ?? 0,
+                  currentYearBeforePlanStart?.otherReduction ?? 0,
               },
             },
           },
@@ -1914,18 +1914,18 @@ export function deriveCurrentBaseline(
         "Effective date of owner-supplied RRSP starting room",
       ],
       [
-        "registeredRoom.rrsp.beforeProjectionStart.eligibleEarnedIncome",
-        beforeProjectionStart?.eligibleEarnedIncome ?? 0,
+        "registeredRoom.rrsp.currentYearBeforePlanStart.eligibleEarnedIncome",
+        currentYearBeforePlanStart?.eligibleEarnedIncome ?? 0,
         "Explicit eligible earned income before the projection-start month",
       ],
       [
-        "registeredRoom.rrsp.beforeProjectionStart.pensionAdjustment",
-        beforeProjectionStart?.pensionAdjustment ?? 0,
+        "registeredRoom.rrsp.currentYearBeforePlanStart.pensionAdjustment",
+        currentYearBeforePlanStart?.pensionAdjustment ?? 0,
         "Explicit pension adjustment before the projection-start month",
       ],
       [
-        "registeredRoom.rrsp.beforeProjectionStart.otherReduction",
-        beforeProjectionStart?.otherReduction ?? 0,
+        "registeredRoom.rrsp.currentYearBeforePlanStart.otherReduction",
+        currentYearBeforePlanStart?.otherReduction ?? 0,
         "Explicit other room reduction before the projection-start month",
       ],
     ];

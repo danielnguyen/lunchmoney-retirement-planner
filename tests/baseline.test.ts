@@ -413,7 +413,7 @@ describe("live baseline derivation", () => {
       rrsp: {
         availableAtStart: 18000,
         asOf: "2026-07-01",
-        beforeProjectionStart: {
+        currentYearBeforePlanStart: {
           eligibleEarnedIncome: 50000,
           pensionAdjustment: 4000,
           otherReduction: 0,
@@ -580,7 +580,7 @@ describe("live baseline derivation", () => {
       baseline.provenance["accounts.manual:1.roles"]?.value,
     ).toEqual(["operating_cash", "reserve_member"]);
 
-    delete config.registeredRoom!.rrsp.beforeProjectionStart;
+    delete config.registeredRoom!.rrsp.currentYearBeforePlanStart;
     expect(() =>
       deriveCurrentBaseline(
         config,
@@ -589,7 +589,7 @@ describe("live baseline derivation", () => {
         "2026-07-14T12:00:00.000Z",
       ),
     ).toThrow(
-      "beforeProjectionStart is required when the live projection starts from February through December",
+      "currentYearBeforePlanStart is required when the live projection starts from February through December",
     );
 
     const januaryData = structuredClone(data);
@@ -672,7 +672,7 @@ describe("live baseline derivation", () => {
       rrsp: {
         availableAtStart: 0,
         asOf: "2026-07-01",
-        beforeProjectionStart: {
+        currentYearBeforePlanStart: {
           eligibleEarnedIncome: 0,
           pensionAdjustment: 0,
           otherReduction: 0,

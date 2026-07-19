@@ -147,7 +147,7 @@ When no included account has `personal_taxable`, the compiler creates a determin
 
 ### Simplified registered room
 
-`registeredRoom` asks only for owner-supplied TFSA and RRSP room available at projection start plus required effective dates. Zero is written as `0`; no source discriminator or description is needed. For February–December projection starts, RRSP `beforeProjectionStart` explicitly provides eligible earned income, pension adjustment, and other reduction already accumulated in that calendar year. January starts may omit that block and compile to explicit zeros. Room is never inferred from balances, transactions, account age, or net deposited employment cash.
+`registeredRoom` asks only for user-supplied TFSA and RRSP room available at projection start plus required effective dates. These values are remaining contribution room—not account balances, annual limits, or lifetime contributions. For February–December projection starts, RRSP `currentYearBeforePlanStart` provides eligible earned income, pension adjustment, and other reduction accumulated since January 1. January starts may omit that block; its internal values are then zero. Room is never inferred from balances, transactions, account age, or net deposited employment cash.
 
 The compiler adds statutory carry-forward, TFSA next-calendar-year withdrawal restoration, dated Canadian references, and deterministic forecast mechanics as internal resolved assumptions with provenance. New room is first added at the next January boundary. Each January’s RRSP addition is `min(18% × prior-year eligible earned income, annual cap) − pension adjustment − other reduction`, floored at zero. Published limits remain distinct from forecasts.
 
