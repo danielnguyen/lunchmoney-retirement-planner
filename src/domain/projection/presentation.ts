@@ -3,6 +3,7 @@ import type {
   FinancialAccountInput,
   ProjectionInputs,
   ProjectionResult,
+  ProjectionView,
 } from "./types";
 
 const FINANCIAL_ASSET_TYPES = new Set(["cash", "tfsa", "rrsp_rrif", "non_registered"]);
@@ -77,6 +78,360 @@ export function annualPeriodLabel(inputs: ProjectionInputs, calendarYear: number
 }
 
 export type DisplayMode = "real" | "nominal";
+
+export type MonetaryReconciliationEquation = {
+  calculatedValue: number;
+  displayedValue: number;
+  maximumPeriodDifference: number;
+  rawAggregateDifference: number;
+  aggregateDifference: number;
+  periodsMatched: boolean;
+  matched: boolean;
+};
+
+export type ContributionReconciliationSummary = {
+  totals: {
+    planned: number;
+    allowed: number;
+    surplusFunded: number;
+    actual: number;
+    unallocated: number;
+    cashFunded: number;
+    incomeWithheld: number;
+    accountDeposits: number;
+  };
+  equations: {
+    planned: MonetaryReconciliationEquation;
+    totalActual: MonetaryReconciliationEquation;
+    fundingSplit: MonetaryReconciliationEquation;
+    accountDeposits: MonetaryReconciliationEquation;
+  };
+  maximumAccountDifference: number;
+  maximumRoomDifference: number;
+  maximumSavingsPolicyDifference: number;
+  maximumDifference: number;
+  calculatedTotalActual: number;
+  displayedAccountDeposits: number;
+  matched: boolean;
+};
+
+type MonetaryEquationDefinition = {
+  left: (view: ProjectionView) => number[];
+  right: (view: ProjectionView) => number[];
+};
+
+function monetaryCents(value: number): number {
+  return Math.round((value + Number.EPSILON) * 100);
+}
+
+function monetaryValue(cents: number): number {
+  return cents / 100;
+}
+
+function sumCents(values: number[]): number {
+  return values.reduce(
+    (total, value) => total + monetaryCents(value),
+    0,
+  );
+}
+
+function centDifference(left: number[], right: number[]): number {
+  return sumCents(left) - sumCents(right);
+}
+
+function reconcileMonetaryEquation(
+  views: ProjectionView[],
+  definition: MonetaryEquationDefinition,
+): MonetaryReconciliationEquation {
+  let calculatedCents = 0;
+  let rawDisplayedCents = 0;
+  let centStableDisplayedCents = 0;
+  let maximumPeriodDifferenceCents = 0;
+  let periodsMatched = true;
+
+  for (const view of views) {
+    const leftCents = sumCents(definition.left(view));
+    const rightCents = sumCents(definition.right(view));
+    const differenceCents = Math.abs(leftCents - rightCents);
+    const periodMatched = differenceCents <= 1;
+    calculatedCents += leftCents;
+    rawDisplayedCents += rightCents;
+    centStableDisplayedCents += periodMatched ? leftCents : rightCents;
+    maximumPeriodDifferenceCents = Math.max(
+      maximumPeriodDifferenceCents,
+      differenceCents,
+    );
+    periodsMatched &&= periodMatched;
+  }
+
+  const aggregateDifferenceCents = Math.abs(
+    calculatedCents - centStableDisplayedCents,
+  );
+  return {
+    calculatedValue: monetaryValue(calculatedCents),
+    displayedValue: monetaryValue(centStableDisplayedCents),
+    maximumPeriodDifference: monetaryValue(
+      maximumPeriodDifferenceCents,
+    ),
+    rawAggregateDifference: monetaryValue(
+      Math.abs(calculatedCents - rawDisplayedCents),
+    ),
+    aggregateDifference: monetaryValue(aggregateDifferenceCents),
+    periodsMatched,
+    matched: periodsMatched && aggregateDifferenceCents <= 1,
+  };
+}
+
+export function buildContributionReconciliation(
+  projection: ProjectionResult,
+  mode: DisplayMode,
+): ContributionReconciliationSummary {
+  const views = projection.annual.map((point) => point[mode]);
+  const accountDepositValues = (view: ProjectionView) =>
+    Object.values(view.accountContributionDetails).map(
+      (detail) => detail.depositedIntoAccount,
+    );
+  const equations = {
+    planned: reconcileMonetaryEquation(views, {
+      left: (view) => [view.contributions.planned],
+      right: (view) => [
+        view.contributions.allowed,
+        view.contributions.unallocated,
+      ],
+    }),
+    totalActual: reconcileMonetaryEquation(views, {
+      left: (view) => [view.contributions.total],
+      right: (view) => [
+        view.contributions.allowed,
+        view.contributions.surplusFunded,
+      ],
+    }),
+    fundingSplit: reconcileMonetaryEquation(views, {
+      left: (view) => [
+        view.contributions.cashFunded,
+        view.contributions.incomeWithheld,
+      ],
+      right: (view) => [view.contributions.total],
+    }),
+    accountDeposits: reconcileMonetaryEquation(views, {
+      left: (view) => [view.contributions.total],
+      right: accountDepositValues,
+    }),
+  };
+
+  let maximumAccountDifferenceCents = 0;
+  let maximumRoomDifferenceCents = 0;
+  let maximumSavingsPolicyDifferenceCents = 0;
+  for (const view of views) {
+    for (const detail of Object.values(
+      view.accountContributionDetails,
+    )) {
+      maximumAccountDifferenceCents = Math.max(
+        maximumAccountDifferenceCents,
+        Math.abs(
+          centDifference(
+            [detail.depositedIntoAccount],
+            [
+              detail.sourceAccountDeposit,
+              detail.redirectedIn,
+              detail.surplusFundedDeposit,
+            ],
+          ),
+        ),
+      );
+      if (detail.plannedFromAccount !== 0) {
+        maximumAccountDifferenceCents = Math.max(
+          maximumAccountDifferenceCents,
+          Math.abs(
+            centDifference(
+              [detail.plannedFromAccount],
+              [
+                detail.sourceAccountDeposit,
+                detail.redirectedOut,
+                detail.unallocatedFromAccount,
+              ],
+            ),
+          ),
+        );
+      }
+    }
+
+    const tfsa = view.registeredAccountRoom.tfsa;
+    const rrsp = view.registeredAccountRoom.rrsp;
+    maximumRoomDifferenceCents = Math.max(
+      maximumRoomDifferenceCents,
+      Math.abs(
+        centDifference(
+          [
+            tfsa.openingRoom,
+            tfsa.annualNewRoom,
+            tfsa.withdrawalRoomRestored,
+          ],
+          [tfsa.allowedContributions, tfsa.closingRoom],
+        ),
+      ),
+      Math.abs(
+        centDifference(
+          [rrsp.openingRoom, rrsp.annualNewRoom],
+          [rrsp.allowedContributions, rrsp.closingRoom],
+        ),
+      ),
+    );
+
+    if (projection.savingsPolicy.mode === "simple") {
+      const savings = view.savingsPolicy;
+      const differences = [
+        centDifference(
+          [savings.reserveFunded],
+          [
+            savings.reserveRetainedAsCash,
+            savings.reserveRedirected,
+          ],
+        ),
+        centDifference(
+          [savings.personalPlanned],
+          [savings.personalAllowed, savings.personalUnallocated],
+        ),
+        centDifference(
+          [savings.workplacePlanned],
+          [savings.workplaceAllowed, savings.workplaceUnallocated],
+        ),
+        centDifference(
+          [savings.totalInvestmentDeposits],
+          [
+            savings.personalAllowed,
+            savings.workplaceAllowed,
+            savings.reserveRedirected,
+          ],
+        ),
+        centDifference(
+          [savings.positiveCashAvailable],
+          [
+            savings.personalAllowed,
+            savings.reserveFunded,
+            savings.unplannedCashRetained,
+          ],
+        ),
+        centDifference(
+          [view.contributions.planned],
+          [savings.personalPlanned, savings.workplacePlanned],
+        ),
+        centDifference(
+          [view.contributions.allowed],
+          [savings.personalAllowed, savings.workplaceAllowed],
+        ),
+        centDifference(
+          [view.contributions.unallocated],
+          [
+            savings.personalUnallocated,
+            savings.workplaceUnallocated,
+          ],
+        ),
+        centDifference(
+          [view.contributions.surplusFunded],
+          [savings.reserveRedirected],
+        ),
+        centDifference(
+          [view.contributions.total],
+          [savings.totalInvestmentDeposits],
+        ),
+      ];
+      maximumSavingsPolicyDifferenceCents = Math.max(
+        maximumSavingsPolicyDifferenceCents,
+        ...differences.map(Math.abs),
+      );
+    }
+  }
+
+  const maximumAccountDifference = monetaryValue(
+    maximumAccountDifferenceCents,
+  );
+  const maximumRoomDifference = monetaryValue(
+    maximumRoomDifferenceCents,
+  );
+  const maximumSavingsPolicyDifference = monetaryValue(
+    maximumSavingsPolicyDifferenceCents,
+  );
+  const maximumDifference = Math.max(
+    ...Object.values(equations).flatMap((equation) => [
+      equation.maximumPeriodDifference,
+      equation.aggregateDifference,
+    ]),
+    maximumAccountDifference,
+    maximumRoomDifference,
+    maximumSavingsPolicyDifference,
+  );
+  const matched =
+    Object.values(equations).every((equation) => equation.matched) &&
+    maximumAccountDifferenceCents <= 1 &&
+    maximumRoomDifferenceCents <= 1 &&
+    maximumSavingsPolicyDifferenceCents <= 1;
+  const totalActualCents = monetaryCents(
+    equations.totalActual.calculatedValue,
+  );
+  const plannedCents = monetaryCents(
+    equations.planned.calculatedValue,
+  );
+  const allowedCents = views.reduce(
+    (total, view) =>
+      total + monetaryCents(view.contributions.allowed),
+    0,
+  );
+  const cashFundedCents = views.reduce(
+    (total, view) =>
+      total + monetaryCents(view.contributions.cashFunded),
+    0,
+  );
+  const rawSurplusFundedCents = views.reduce(
+    (total, view) =>
+      total + monetaryCents(view.contributions.surplusFunded),
+    0,
+  );
+  const rawUnallocatedCents = views.reduce(
+    (total, view) =>
+      total + monetaryCents(view.contributions.unallocated),
+    0,
+  );
+  const rawIncomeWithheldCents = views.reduce(
+    (total, view) =>
+      total + monetaryCents(view.contributions.incomeWithheld),
+    0,
+  );
+
+  return {
+    totals: {
+      planned: monetaryValue(plannedCents),
+      allowed: monetaryValue(allowedCents),
+      surplusFunded: monetaryValue(
+        equations.totalActual.periodsMatched
+          ? totalActualCents - allowedCents
+          : rawSurplusFundedCents,
+      ),
+      actual: monetaryValue(totalActualCents),
+      unallocated: monetaryValue(
+        equations.planned.periodsMatched
+          ? plannedCents - allowedCents
+          : rawUnallocatedCents,
+      ),
+      cashFunded: monetaryValue(cashFundedCents),
+      incomeWithheld: monetaryValue(
+        equations.fundingSplit.periodsMatched
+          ? totalActualCents - cashFundedCents
+          : rawIncomeWithheldCents,
+      ),
+      accountDeposits: equations.accountDeposits.displayedValue,
+    },
+    equations,
+    maximumAccountDifference,
+    maximumRoomDifference,
+    maximumSavingsPolicyDifference,
+    maximumDifference,
+    calculatedTotalActual: equations.totalActual.calculatedValue,
+    displayedAccountDeposits:
+      equations.accountDeposits.displayedValue,
+    matched,
+  };
+}
 
 export type AnnualChartRow = {
   [key: string]: string | number;

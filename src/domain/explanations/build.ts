@@ -3,6 +3,7 @@ import { resolveActiveScenarioWarnings } from "@/src/domain/baseline/scenario-wa
 import {
   buildAnnualChartData,
   buildAnnualLedgerData,
+  buildContributionReconciliation,
   buildSavingsPolicyPreview,
   annualPeriodLabel,
   closestAnnualPoint,
@@ -2736,128 +2737,34 @@ function registeredAccountRoomDocument(
   const displayedViews = context.projection.annual.map(
     (point) => point[context.displayMode],
   );
-  const planned = displayedViews.reduce(
-    (total, view) => total + view.contributions.planned,
-    0,
-  );
-  const allowed = displayedViews.reduce(
-    (total, view) => total + view.contributions.allowed,
-    0,
-  );
-  const surplusFunded = displayedViews.reduce(
-    (total, view) => total + view.contributions.surplusFunded,
-    0,
-  );
-  const actual = displayedViews.reduce(
-    (total, view) => total + view.contributions.total,
-    0,
-  );
-  const unallocated = displayedViews.reduce(
-    (total, view) => total + view.contributions.unallocated,
-    0,
-  );
-  const cashFunded = displayedViews.reduce(
-    (total, view) => total + view.contributions.cashFunded,
-    0,
-  );
-  const incomeWithheld = displayedViews.reduce(
-    (total, view) => total + view.contributions.incomeWithheld,
-    0,
-  );
-  const accountDeposits = displayedViews.reduce(
-    (total, view) =>
-      total +
-      Object.values(view.accountContributionDetails).reduce(
-        (accountTotal, detail) =>
-          accountTotal + detail.depositedIntoAccount,
-        0,
-      ),
-    0,
-  );
-  const plannedDifference = planned - allowed - unallocated;
-  const totalDifference = actual - allowed - surplusFunded;
-  const fundingDifference = cashFunded + incomeWithheld - actual;
-  const accountDepositDifference = accountDeposits - actual;
-  let maximumDifference = Math.max(
-    Math.abs(plannedDifference),
-    Math.abs(totalDifference),
-    Math.abs(fundingDifference),
-    Math.abs(accountDepositDifference),
-  );
-  for (const view of displayedViews) {
-    const tfsa = view.registeredAccountRoom.tfsa;
-    const rrsp = view.registeredAccountRoom.rrsp;
-    maximumDifference = Math.max(
-      maximumDifference,
-      Math.abs(
-        tfsa.openingRoom +
-          tfsa.annualNewRoom +
-          tfsa.withdrawalRoomRestored -
-          tfsa.allowedContributions -
-          tfsa.closingRoom,
-      ),
-      Math.abs(
-        rrsp.openingRoom +
-          rrsp.annualNewRoom -
-          rrsp.allowedContributions -
-          rrsp.closingRoom,
-      ),
+  const contributionReconciliation =
+    buildContributionReconciliation(
+      context.projection,
+      context.displayMode,
     );
-    for (const detail of Object.values(view.accountContributionDetails)) {
-      maximumDifference = Math.max(
-        maximumDifference,
-        Math.abs(
-          detail.depositedIntoAccount -
-            detail.sourceAccountDeposit -
-            detail.redirectedIn -
-            detail.surplusFundedDeposit,
-        ),
-      );
-      if (detail.plannedFromAccount === 0) continue;
-      maximumDifference = Math.max(
-        maximumDifference,
-        Math.abs(
-          detail.plannedFromAccount -
-            detail.sourceAccountDeposit -
-            detail.redirectedOut -
-            detail.unallocatedFromAccount,
-        ),
-      );
-    }
-    if (simple) {
-      const savings = view.savingsPolicy;
-      maximumDifference = Math.max(
-        maximumDifference,
-        Math.abs(
-          savings.reserveFunded -
-            savings.reserveRetainedAsCash -
-            savings.reserveRedirected,
-        ),
-        Math.abs(
-          savings.personalPlanned -
-            savings.personalAllowed -
-            savings.personalUnallocated,
-        ),
-        Math.abs(
-          savings.workplacePlanned -
-            savings.workplaceAllowed -
-            savings.workplaceUnallocated,
-        ),
-        Math.abs(
-          savings.totalInvestmentDeposits -
-            savings.personalAllowed -
-            savings.workplaceAllowed -
-            savings.reserveRedirected,
-        ),
-        Math.abs(
-          savings.positiveCashAvailable -
-            savings.personalAllowed -
-            savings.reserveFunded -
-            savings.unplannedCashRetained,
-        ),
-      );
-    }
-  }
+  const {
+    planned,
+    allowed,
+    surplusFunded,
+    actual,
+    unallocated,
+    cashFunded,
+    incomeWithheld,
+    accountDeposits,
+  } = contributionReconciliation.totals;
+  const plannedDifference =
+    contributionReconciliation.equations.planned.aggregateDifference;
+  const totalDifference =
+    contributionReconciliation.equations.totalActual
+      .aggregateDifference;
+  const fundingDifference =
+    contributionReconciliation.equations.fundingSplit
+      .aggregateDifference;
+  const accountDepositDifference =
+    contributionReconciliation.equations.accountDeposits
+      .aggregateDifference;
+  const maximumDifference =
+    contributionReconciliation.maximumDifference;
   const first = context.projection.annual[0]?.[context.displayMode];
   const last = context.projection.annual.at(-1)?.[context.displayMode];
   return {
@@ -3025,10 +2932,46 @@ function registeredAccountRoomDocument(
         sourceType: "projection",
       },
       {
+        label: "Planned-routing maximum annual difference",
+        value: exactCurrency.format(
+          contributionReconciliation.equations.planned
+            .maximumPeriodDifference,
+        ),
+        rawValue:
+          contributionReconciliation.equations.planned
+            .maximumPeriodDifference,
+        operation: "result",
+        sourceType: "projection",
+      },
+      {
         label: "Total-actual difference",
         value: exactCurrency.format(totalDifference),
         rawValue: totalDifference,
         operation: "subtract",
+        sourceType: "projection",
+      },
+      {
+        label: "Total-actual maximum annual difference",
+        value: exactCurrency.format(
+          contributionReconciliation.equations.totalActual
+            .maximumPeriodDifference,
+        ),
+        rawValue:
+          contributionReconciliation.equations.totalActual
+            .maximumPeriodDifference,
+        operation: "result",
+        sourceType: "projection",
+      },
+      {
+        label: "Total-actual annual rounding carry",
+        value: exactCurrency.format(
+          contributionReconciliation.equations.totalActual
+            .rawAggregateDifference,
+        ),
+        rawValue:
+          contributionReconciliation.equations.totalActual
+            .rawAggregateDifference,
+        operation: "result",
         sourceType: "projection",
       },
       {
@@ -3039,10 +2982,63 @@ function registeredAccountRoomDocument(
         sourceType: "projection",
       },
       {
+        label: "Funding-split maximum annual difference",
+        value: exactCurrency.format(
+          contributionReconciliation.equations.fundingSplit
+            .maximumPeriodDifference,
+        ),
+        rawValue:
+          contributionReconciliation.equations.fundingSplit
+            .maximumPeriodDifference,
+        operation: "result",
+        sourceType: "projection",
+      },
+      {
         label: "Account-deposit difference",
         value: exactCurrency.format(accountDepositDifference),
         rawValue: accountDepositDifference,
         operation: "subtract",
+        sourceType: "projection",
+      },
+      {
+        label: "Account-deposit maximum annual difference",
+        value: exactCurrency.format(
+          contributionReconciliation.equations.accountDeposits
+            .maximumPeriodDifference,
+        ),
+        rawValue:
+          contributionReconciliation.equations.accountDeposits
+            .maximumPeriodDifference,
+        operation: "result",
+        sourceType: "projection",
+      },
+      {
+        label: "Account-level maximum difference",
+        value: exactCurrency.format(
+          contributionReconciliation.maximumAccountDifference,
+        ),
+        rawValue:
+          contributionReconciliation.maximumAccountDifference,
+        operation: "result",
+        sourceType: "projection",
+      },
+      {
+        label: "Room-ledger maximum difference",
+        value: exactCurrency.format(
+          contributionReconciliation.maximumRoomDifference,
+        ),
+        rawValue: contributionReconciliation.maximumRoomDifference,
+        operation: "result",
+        sourceType: "projection",
+      },
+      {
+        label: "Savings-policy maximum difference",
+        value: exactCurrency.format(
+          contributionReconciliation.maximumSavingsPolicyDifference,
+        ),
+        rawValue:
+          contributionReconciliation.maximumSavingsPolicyDifference,
+        operation: "result",
         sourceType: "projection",
       },
       {
@@ -3368,13 +3364,16 @@ function registeredAccountRoomDocument(
       "Net deposited employment cash is never treated as RRSP-eligible earned income; room generation uses the explicit nested employment-phase inputs.",
       "TFSA withdrawals restore room only at the next January boundary. RRSP withdrawals do not restore room.",
       "Cash-funded unallocated contributions remain in monthly cash; income-withheld unallocated amounts enter neither cash nor financial assets.",
+      "Contribution reconciliation uses integer cents at each annual boundary. A one-cent annual presentation residual is normalized before aggregation, while every annual, account, room, and savings-policy equation must independently remain within one cent so opposite-sign errors cannot cancel.",
       "Published limits are distinguished from deterministic configured forecasts.",
       "RRSP first-60-days elections, unused undeducted contributions, spousal rules, HBP/LLP repayments, detailed pension adjustments, CRA reassessments, tax refunds, and RRIF minimum withdrawals are not modelled.",
     ],
     reconciliation: {
-      matched: round(maximumDifference) <= 0.01,
-      calculatedValue: actual,
-      displayedValue: accountDeposits,
+      matched: contributionReconciliation.matched,
+      calculatedValue:
+        contributionReconciliation.calculatedTotalActual,
+      displayedValue:
+        contributionReconciliation.displayedAccountDeposits,
     },
   };
 }

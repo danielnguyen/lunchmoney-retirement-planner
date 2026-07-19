@@ -10,6 +10,7 @@ import { calculateProjection } from "@/src/domain/projection/calculate";
 import {
   buildAnnualChartData,
   buildAnnualLedgerData,
+  buildContributionReconciliation,
 } from "@/src/domain/projection/presentation";
 import type {
   FinancialAccountInput,
@@ -188,6 +189,87 @@ function simpleContext(): ExplanationContext {
   value.baseline.projectionInputs = structuredClone(inputs);
   value.projection = calculateProjection(inputs);
   value.displayMode = "real";
+  return value;
+}
+
+function longHorizonSimpleContext(
+  displayMode: ExplanationContext["displayMode"] = "real",
+): ExplanationContext {
+  const value = simpleContext();
+  const inputs = value.inputs;
+  const endAge = 55;
+  inputs.startDate = "2026-07-01";
+  inputs.person.currentAge = 39;
+  inputs.person.retirementAge = endAge;
+  inputs.person.rrifConversionAge = 71;
+  inputs.endAge = endAge;
+  inputs.annualInflation = 0.021;
+  inputs.monthlyEssentialSpendingToday = 2800;
+  inputs.monthlyDiscretionarySpendingToday = 1200;
+  inputs.person.employmentIncomePhases = [
+    {
+      id: "synthetic-long-work",
+      label: "Synthetic long employment",
+      startAge: 39,
+      endAge,
+      annualNetCashToday: 126000,
+      annualGrowth: 0.017,
+      rrspRoomGeneration: {
+        annualEligibleEarnedIncomeToday: 165000,
+        annualPensionAdjustmentToday: 0,
+        annualOtherRoomReductionToday: 0,
+        annualGrowth: 0.019,
+      },
+    },
+  ];
+  for (const account of inputs.accounts) {
+    if (account.type !== "cash") account.annualReturn = 0.047;
+  }
+  inputs.accounts.find(
+    (account) => account.id === "manual:operating",
+  )!.openingBalance = 14000;
+  inputs.accounts.find(
+    (account) => account.id === "manual:reserve",
+  )!.openingBalance = 19000;
+  const personal = inputs.accounts.find(
+    (account) => account.id === "plaid:tfsa",
+  )!.contributionPhases[0]!;
+  personal.startAge = 39;
+  personal.endAge = endAge;
+  personal.monthlyAmountToday = 1111.11;
+  personal.indexingRate = 0.017;
+  const workplace = inputs.accounts.find(
+    (account) => account.id === "plaid:workplace-rrsp",
+  )!.contributionPhases[0]!;
+  workplace.startAge = 39;
+  workplace.endAge = endAge;
+  workplace.monthlyAmountToday = 2888.88;
+  workplace.indexingRate = 0.009;
+  if (inputs.savingsPolicy.mode === "simple") {
+    Object.assign(inputs.savingsPolicy.reserveBuildingPhases[0]!, {
+      startAge: 39,
+      endAge,
+      monthlyAmountToday: 1777.77,
+      indexingRate: 0.011,
+    });
+  }
+  inputs.surplusAllocation.targetCashReserveToday = 48000;
+  inputs.surplusAllocation.reserveIndexingRate = 0.02;
+  inputs.registeredAccountRoom!.tfsa.startingAvailableRoom.amount = 9000;
+  inputs.registeredAccountRoom!.rrsp
+    .startingAvailableDeductionRoom.amount = 24000;
+  inputs.registeredAccountRoom!.rrsp.newRoom
+    .startYearBeforeProjectionMonth = {
+      calendarYear: 2026,
+      eligibleEarnedIncome: 78000,
+      pensionAdjustment: 0,
+      otherRoomReduction: 0,
+    };
+  value.baseline.projectionInputs = structuredClone(inputs);
+  value.projection = calculateProjection(inputs);
+  value.displayMode = displayMode;
+  value.selectedAllocationYear =
+    value.projection.annual[0]!.calendarYear;
   return value;
 }
 
@@ -1184,6 +1266,135 @@ describe("calculation explanations", () => {
     expect(document.caveats.join(" ")).toContain(
       "nominal regulatory dollars",
     );
+  });
+
+  it("keeps long-horizon simple contribution reconciliation cent-stable in both modes", () => {
+    const nominal = longHorizonSimpleContext("nominal");
+    const nominalSummary = buildContributionReconciliation(
+      nominal.projection,
+      "nominal",
+    );
+    const realSummary = buildContributionReconciliation(
+      nominal.projection,
+      "real",
+    );
+    const cents = (value: number) => Math.round(value * 100);
+
+    expect(nominal.projection.annual.length).toBeGreaterThanOrEqual(16);
+    expect(
+      nominal.projection.inputs.accounts.find(
+        (account) => account.id === "projection:future-taxable",
+      ),
+    ).toMatchObject({
+      origin: "projection_configuration",
+      openingBalance: 0,
+    });
+    expect(
+      nominal.projection.annual.some(
+        (point) =>
+          point.nominal.savingsPolicy.reserveRetainedAsCash > 0,
+      ),
+    ).toBe(true);
+    expect(
+      nominal.projection.annual.some(
+        (point) => point.nominal.savingsPolicy.reserveRedirected > 0,
+      ),
+    ).toBe(true);
+    expect(
+      nominal.projection.annual.some(
+        (point) => point.nominal.savingsPolicy.unplannedCashRetained > 0,
+      ),
+    ).toBe(true);
+    expect(
+      nominal.projection.annual.some(
+        (point) => point.nominal.savingsPolicy.workplaceUnallocated > 0,
+      ),
+    ).toBe(true);
+
+    for (const mode of ["nominal", "real"] as const) {
+      const summary =
+        mode === "nominal" ? nominalSummary : realSummary;
+      const document = buildExplanation(
+        "registered-account-room",
+        longHorizonSimpleContext(mode),
+      );
+      expect(
+        Object.values(summary.equations).every(
+          (equation) =>
+            equation.periodsMatched &&
+            equation.maximumPeriodDifference <= 0.01,
+        ),
+      ).toBe(true);
+      expect(summary.matched).toBe(true);
+      expect(document.reconciliation?.matched).toBe(true);
+      expect(
+        cents(document.reconciliation!.calculatedValue),
+      ).toBe(cents(document.reconciliation!.displayedValue));
+    }
+
+    expect(
+      nominalSummary.equations.totalActual.rawAggregateDifference,
+    ).toBeGreaterThan(0.01);
+    for (const point of nominal.projection.annual) {
+      expect(point.real.registeredAccountRoom).toEqual(
+        point.nominal.registeredAccountRoom,
+      );
+    }
+  });
+
+  it("rejects one-cent-plus annual mismatches and opposite-sign cancellation", () => {
+    const single = longHorizonSimpleContext("nominal");
+    single.projection.annual[2]!.nominal.contributions.total += 0.02;
+    expect(
+      buildExplanation(
+        "registered-account-room",
+        single,
+      ).reconciliation?.matched,
+    ).toBe(false);
+
+    const cancelling = longHorizonSimpleContext("nominal");
+    const baselineAggregateDifference =
+      buildContributionReconciliation(
+        cancelling.projection,
+        "nominal",
+      ).equations.totalActual.rawAggregateDifference;
+    cancelling.projection.annual[2]!.nominal.contributions.total +=
+      0.02;
+    cancelling.projection.annual[3]!.nominal.contributions.total -=
+      0.02;
+    const summary = buildContributionReconciliation(
+      cancelling.projection,
+      "nominal",
+    );
+    expect(
+      summary.equations.totalActual.rawAggregateDifference,
+    ).toBe(baselineAggregateDifference);
+    expect(summary.equations.totalActual.periodsMatched).toBe(false);
+    expect(
+      buildExplanation(
+        "registered-account-room",
+        cancelling,
+      ).reconciliation?.matched,
+    ).toBe(false);
+  });
+
+  it("keeps advanced room explanations reconciled with cent-stable totals", () => {
+    for (const displayMode of ["nominal", "real"] as const) {
+      const value = context((draft) => {
+        draft.displayMode = displayMode;
+      });
+      const summary = buildContributionReconciliation(
+        value.projection,
+        displayMode,
+      );
+      expect(summary.matched).toBe(true);
+      expect(
+        buildExplanation(
+          "registered-account-room",
+          value,
+        ).reconciliation?.matched,
+      ).toBe(true);
+    }
   });
 
   it("marks every registered-room contribution and room mismatch unmatched", () => {
