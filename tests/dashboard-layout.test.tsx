@@ -41,17 +41,37 @@ function ScenarioHarness() {
 }
 
 describe("responsive scenario controls", () => {
-  it("uses a flexible 3:1 desktop column only at the wide breakpoint", async () => {
+  it("keeps the report full width and the toolbar trigger visible at every width", async () => {
     const css = await readFile("app/globals.css", "utf8");
-    const desktop = css.slice(css.indexOf("@media (min-width: 1480px)"));
+    const dashboard = await readFile("components/planner-dashboard.tsx", "utf8");
 
     expect(css).toContain(".report-layout { display: block; }");
-    expect(css).toContain(".controls-panel-desktop { display: none; }");
-    expect(desktop).toContain(
-      "grid-template-columns: minmax(0, 3fr) minmax(300px, 1fr)",
+    expect(css).not.toContain("@media (min-width: 1480px)");
+    expect(css).not.toContain("controls-panel-desktop");
+    expect(css).not.toContain("grid-template-columns: minmax(0, 3fr)");
+    expect(css).not.toContain("scenario-controls-trigger");
+    expect(dashboard).toContain(">\n          Scenario controls\n        </button>");
+    expect(dashboard).not.toContain("controls-panel-desktop");
+  });
+
+  it("mounts exactly one controls tree in the drawer and never in the report column", async () => {
+    const dashboard = await readFile("components/planner-dashboard.tsx", "utf8");
+    const mountedPanels = dashboard.match(/<ScenarioControlsPanel/g) ?? [];
+    const report = dashboard.slice(
+      dashboard.indexOf('<section className="report-layout">'),
+      dashboard.indexOf('<section className="report-card assumptions">'),
     );
-    expect(desktop).toContain(".controls-panel-desktop { display: block; }");
-    expect(css).not.toContain("grid-template-columns: minmax(0, 1fr) 380px");
+    const drawerStart = dashboard.indexOf("{scenarioControls ? (");
+    const drawer = dashboard.slice(
+      drawerStart,
+      dashboard.indexOf("</main>", drawerStart),
+    );
+
+    expect(mountedPanels).toHaveLength(1);
+    expect(report).not.toContain("ScenarioControlsPanel");
+    expect(report).not.toContain("controls-panel");
+    expect(drawer).toContain("<ScenarioControlsDrawer");
+    expect(drawer).toContain("<ScenarioControlsPanel");
   });
 
   it("keeps the narrow drawer closed by default and exposes its ARIA contract", () => {
@@ -119,6 +139,8 @@ describe("responsive scenario controls", () => {
 
     expect(openExplanation).toContain("setScenarioControls(null)");
     expect(scenarioButton).toContain("setActiveExplanation(null)");
+    expect(scenarioButton).not.toContain("setOverrides");
+    expect(scenarioButton).not.toContain("setProjectionResult");
   });
 
   it("keeps drawer UI out of print and bounds it on mobile", async () => {

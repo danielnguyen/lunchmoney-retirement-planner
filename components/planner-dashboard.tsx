@@ -657,14 +657,12 @@ function ScenarioControlsPanel({
   controls,
   overrides,
   setOverrides,
-  idPrefix,
 }: {
   baseline: CurrentBaseline;
   inputs: ProjectionInputs;
   controls: ControlDefinition[];
   overrides: Overrides;
   setOverrides: React.Dispatch<React.SetStateAction<Overrides>>;
-  idPrefix: "desktop" | "drawer";
 }) {
   return (
     <>
@@ -678,7 +676,7 @@ function ScenarioControlsPanel({
           const baselineValue = control.get(baseline.projectionInputs);
           const currentValue = control.get(inputs);
           const overridden = overrides[control.key] !== undefined;
-          const inputId = `${idPrefix}-${control.key}`;
+          const inputId = `drawer-${control.key}`;
           return (
             <div className={`control ${overridden ? "is-overridden" : ""}`} key={control.key}>
               <div className="control-head"><label htmlFor={inputId}>{control.label}</label><output>{control.format(currentValue)}</output></div>
@@ -880,16 +878,6 @@ export function PlannerDashboard() {
   );
   const closeExplanation = useCallback(() => setActiveExplanation(null), []);
   const closeScenarioControls = useCallback(() => setScenarioControls(null), []);
-
-  useEffect(() => {
-    const wideDesktop = window.matchMedia("(min-width: 1480px)");
-    const closeAtWideDesktop = () => {
-      if (wideDesktop.matches) setScenarioControls(null);
-    };
-    closeAtWideDesktop();
-    wideDesktop.addEventListener("change", closeAtWideDesktop);
-    return () => wideDesktop.removeEventListener("change", closeAtWideDesktop);
-  }, []);
 
   const refresh = useCallback(() => {
     setRefreshGeneration((current) => current + 1);
@@ -1128,7 +1116,7 @@ export function PlannerDashboard() {
         </div>
         <button
           type="button"
-          className="button secondary scenario-controls-trigger"
+          className="button secondary"
           aria-expanded={scenarioControls !== null}
           aria-controls="scenario-controls-drawer"
           onClick={(event) => {
@@ -1576,17 +1564,6 @@ export function PlannerDashboard() {
                 </div>
               </article>
             </div>
-
-            <aside className="controls-panel controls-panel-desktop no-print">
-              <ScenarioControlsPanel
-                baseline={baseline}
-                inputs={inputs}
-                controls={controls}
-                overrides={overrides}
-                setOverrides={setOverrides}
-                idPrefix="desktop"
-              />
-            </aside>
           </section>
 
           <section className="report-card assumptions">
@@ -1880,7 +1857,6 @@ export function PlannerDashboard() {
             controls={controls}
             overrides={overrides}
             setOverrides={setOverrides}
-            idPrefix="drawer"
           />
         </ScenarioControlsDrawer>
       ) : null}
