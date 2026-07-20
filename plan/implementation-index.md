@@ -13,8 +13,8 @@ Public content must remain generic. Do not add private financial values, account
 - Active capability: Net worth, real estate, and debt amortization
 - Status: In progress
 - Branch: `agent/add-net-worth-and-debt-amortization`
-- Latest validated implementation head: `5189e86dfa26b3ef826f4dc67b41d4ec12f7c894`
-- Synthetic validation: Passed — 254 tests, imported Lunch Money residence value/date resolution, mutually exclusive residence sources, exact normalized payee-and-source mortgage matching before category and recurring classification, preservation of unrelated mixed-category spending, matcher conflict validation, nominal/real bridge reconciliation, typecheck, lint, production build, Docker image build, Docker Compose validation, JSON and CSV privacy/shape checks, and `git diff --check`
+- Latest validated implementation head: `c9806b2213ef954b0b1bc9ad101c27742990101b`
+- Synthetic validation: Passed — 261 tests, responsive 3:1 wide-desktop report layout, accessible scenario-controls drawer behavior below the desktop breakpoint, grouped zero-balance/payoff/amortizing liability explanations, imported residence and exact mortgage-payment matching coverage, nominal/real bridge reconciliation, typecheck, lint, production build, Docker image build, Docker Compose validation, JSON and CSV privacy/shape checks, and `git diff --check`
 - Repository-owner private migration: Outstanding
 - Private live smoke test: Outstanding
 - Remaining step: final public review, then migrate private residence/liability and exact historical-payment matching inputs and run the explicitly authorized private smoke test
