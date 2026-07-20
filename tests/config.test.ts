@@ -45,6 +45,7 @@ describe("private planner configuration", () => {
     delete value.configurationMode;
     delete value.registeredRoom;
     delete value.savingsPolicy;
+    delete value.primaryResidence;
 
     const mappings = value.accountMappings as Record<
       string,
@@ -53,6 +54,10 @@ describe("private planner configuration", () => {
     for (const mapping of Object.values(mappings)) {
       delete mapping.roles;
     }
+    delete mappings["manual:synthetic-primary-mortgage"];
+    delete (value.categoryMappings as Record<string, unknown>)[
+      "synthetic-mortgage-payment-category"
+    ];
     mappings[PERSONAL_TFSA_ID]!.contributionPhases = [
       {
         id: "current-saving",
@@ -243,6 +248,179 @@ describe("private planner configuration", () => {
     expect(comments).toContain("0.02 is 2%");
     expect(comments).not.toMatch(
       /\b(owner-facing|routing reference|resolved input|compile|compiler|canonical|projection-only origin|configuration discriminator|contribution source graph|compatibility normalization|account-role resolution|generated room ledger|explicit-zero semantics)\b/i,
+    );
+  });
+
+  it("parses the residence and amortizing mortgage without investment-only debt knobs", async () => {
+    const contents = await exampleContents();
+    const config = await loadPlannerConfig(EXAMPLE_CONFIG_PATH);
+    const mortgage = Object.values(config.accountMappings).find(
+      (mapping) => mapping.roles?.includes("primary_mortgage"),
+    )!;
+
+    expect(config.primaryResidence).toEqual({
+      currentValue: 500000,
+      asOf: "2026-07-01",
+      annualAppreciation: 0.02,
+    });
+    expect(mortgage).toMatchObject({
+      include: true,
+      type: "debt",
+      roles: ["primary_mortgage"],
+      liability: {
+        mode: "amortizing",
+        annualInterestRate: 0.04,
+        regularPayment: {
+          amount: 1200,
+          frequency: "biweekly",
+        },
+        scheduleStartDate: "2026-01-15",
+        lumpSumPayments: [],
+      },
+    });
+    expect(mortgage).not.toHaveProperty("annualReturn");
+    expect(mortgage).not.toHaveProperty("allocation");
+    expect(mortgage).not.toHaveProperty("withdrawalPriority");
+    expect(config.assumptions).not.toHaveProperty("debtReturn");
+    expect(config.assumptions.allocations).not.toHaveProperty("debt");
+    expect(contents).toContain("not available for retirement withdrawals");
+    expect(contents).toContain("Principal reduces both cash and debt");
+    expect(contents).toContain("interest is consumption");
+  });
+
+  it("accepts a mortgage-free residence and rejects duplicate or invalid mortgage roles", async () => {
+    const mortgageFree = structuredClone(
+      await loadPlannerConfig(EXAMPLE_CONFIG_PATH),
+    ) as unknown as Record<string, unknown>;
+    const mappings = mortgageFree.accountMappings as Record<
+      string,
+      Record<string, unknown>
+    >;
+    delete mappings["manual:synthetic-primary-mortgage"];
+    delete (mortgageFree.categoryMappings as Record<string, unknown>)[
+      "synthetic-mortgage-payment-category"
+    ];
+    expect(validatePlannerConfig(mortgageFree).primaryResidence).toBeDefined();
+
+    const duplicate = structuredClone(
+      await loadPlannerConfig(EXAMPLE_CONFIG_PATH),
+    ) as unknown as Record<string, unknown>;
+    const duplicateMappings = duplicate.accountMappings as Record<
+      string,
+      Record<string, unknown>
+    >;
+    duplicateMappings["manual:synthetic-second-mortgage"] = {
+      include: true,
+      type: "debt",
+      roles: ["primary_mortgage"],
+      liability: {
+        mode: "amortizing",
+        annualInterestRate: 0.04,
+        regularPayment: { amount: 1000, frequency: "monthly" },
+        scheduleStartDate: "2026-01-15",
+        lumpSumPayments: [],
+        historicalPaymentHandling: "already_excluded_or_transfer",
+      },
+    };
+    expect(() => validatePlannerConfig(duplicate)).toThrow(
+      "at most one included primary_mortgage role",
+    );
+
+    const wrongType = structuredClone(
+      await loadPlannerConfig(EXAMPLE_CONFIG_PATH),
+    ) as unknown as Record<string, unknown>;
+    (
+      (wrongType.accountMappings as Record<string, Record<string, unknown>>)[
+        "manual:synthetic-primary-mortgage"
+      ]!
+    ).type = "cash";
+    expect(() => validatePlannerConfig(wrongType)).toThrow(
+      "liability may be configured only for an included debt account",
+    );
+  });
+
+  it("rejects non-positive mortgage payments and non-zero legacy debt investment assumptions", async () => {
+    const payment = structuredClone(
+      await loadPlannerConfig(EXAMPLE_CONFIG_PATH),
+    ) as unknown as Record<string, unknown>;
+    const mapping = (
+      payment.accountMappings as Record<string, Record<string, unknown>>
+    )["manual:synthetic-primary-mortgage"]!;
+    (
+      (mapping.liability as Record<string, unknown>)
+        .regularPayment as Record<string, unknown>
+    ).amount = 0;
+    expect(() => validatePlannerConfig(payment)).toThrow(
+      "regularPayment.amount must be at least",
+    );
+
+    const debtReturn = structuredClone(
+      await loadPlannerConfig(EXAMPLE_CONFIG_PATH),
+    ) as unknown as Record<string, unknown>;
+    (debtReturn.assumptions as Record<string, unknown>).debtReturn = 0.01;
+    expect(() => validatePlannerConfig(debtReturn)).toThrow(
+      "assumptions.debtReturn must be removed",
+    );
+
+    const debtAllocation = structuredClone(
+      await loadPlannerConfig(EXAMPLE_CONFIG_PATH),
+    ) as unknown as Record<string, unknown>;
+    (
+      (debtAllocation.assumptions as Record<string, unknown>)
+        .allocations as Record<string, unknown>
+    ).debt = { cash: 0, fixedIncome: 0, equity: 1 };
+    expect(() => validatePlannerConfig(debtAllocation)).toThrow(
+      "assumptions.allocations.debt must be removed",
+    );
+  });
+
+  it("accepts only the documented zero-valued legacy debt investment knobs", async () => {
+    const legacy = structuredClone(
+      await loadPlannerConfig(EXAMPLE_CONFIG_PATH),
+    ) as unknown as Record<string, unknown>;
+    const mapping = (
+      legacy.accountMappings as Record<string, Record<string, unknown>>
+    )["manual:synthetic-primary-mortgage"]!;
+    mapping.annualReturn = 0;
+    mapping.allocation = { cash: 0, fixedIncome: 0, equity: 0 };
+    mapping.withdrawalPriority = 99;
+    (legacy.assumptions as Record<string, unknown>).debtReturn = 0;
+    (
+      (legacy.assumptions as Record<string, unknown>)
+        .allocations as Record<string, unknown>
+    ).debt = { cash: 0, fixedIncome: 0, equity: 0 };
+
+    const parsed = validatePlannerConfig(legacy);
+
+    expect(
+      parsed.accountMappings["manual:synthetic-primary-mortgage"],
+    ).toMatchObject({
+      annualReturn: 0,
+      allocation: { cash: 0, fixedIncome: 0, equity: 0 },
+      withdrawalPriority: 99,
+    });
+    expect(parsed.assumptions.debtReturn).toBe(0);
+    expect(parsed.assumptions.allocations.debt).toEqual({
+      cash: 0,
+      fixedIncome: 0,
+      equity: 0,
+    });
+  });
+
+  it("blocks the old advanced static-positive-debt path with a migration error", async () => {
+    const advanced = (await advancedConfig()) as unknown as Record<
+      string,
+      unknown
+    >;
+    (
+      advanced.accountMappings as Record<string, Record<string, unknown>>
+    )["manual:synthetic-legacy-debt"] = {
+      include: true,
+      type: "debt",
+    };
+
+    expect(() => validatePlannerConfig(advanced)).toThrow(
+      "Advanced static debt accounts are no longer supported",
     );
   });
 

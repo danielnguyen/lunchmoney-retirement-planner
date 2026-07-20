@@ -75,6 +75,20 @@ employmentIncomePhases:
       otherReductionToday: 0
       annualGrowth: 0.02
 
+# Enter a current market-value estimate for your main home. You can use a
+# recent appraisal, property-tax assessment adjusted to market value, or a
+# conservative estimate from comparable local sales. asOf is the date that
+# estimate was accurate. annualAppreciation is the nominal yearly growth
+# assumption; 0.02 means 2%, and 0 keeps the value flat.
+#
+# The home is included in total net worth and home equity.
+# It is not available for retirement withdrawals. It does not extend retirement
+# funding. A future sale or downsizing plan would need a separate capability.
+primaryResidence:
+  currentValue: 500000
+  asOf: "2026-07-01"
+  annualAppreciation: 0.02
+
 # This section lists the Lunch Money accounts included in your plan. Each
 # quoted key is a Lunch Money account ID. You can also find it as `id` in the
 # account snapshot JSON. include decides whether the account is part of the
@@ -95,6 +109,8 @@ employmentIncomePhases:
 # - personal_taxable: an optional real non-registered investment account. If
 #   you leave this role out, the planner adds a future taxable account starting
 #   at $0.
+# - primary_mortgage: the one debt linked to primaryResidence. Leave this role
+#   out when the residence is mortgage-free.
 #
 # For example, chequing can be both operating_cash and reserve_member, while a
 # savings account can be both reserve_member and reserve_refill. Personal and
@@ -134,6 +150,36 @@ accountMappings:
     type: rrsp
     roles: [workplace_rrsp]
     withdrawalPriority: 5
+
+  "manual:synthetic-primary-mortgage":
+    # The mortgage linked to the primary residence. Debt has no investment
+    # return, asset allocation, or withdrawal priority.
+    include: true
+    type: debt
+    roles: [primary_mortgage]
+    liability:
+      mode: amortizing
+      # Enter the current annual mortgage rate from the lender statement.
+      # Renewal and variable-rate changes are not modelled in this version.
+      annualInterestRate: 0.04
+      # Enter the amount and frequency shown in the payment agreement. The
+      # planner converts it to a monthly equivalent but retains both values.
+      regularPayment:
+        amount: 1200
+        frequency: biweekly
+      # Enter the date this payment schedule began. Optional lump sums need an
+      # explicit date and amount; find both in your lender records and use []
+      # when none are planned.
+      scheduleStartDate: "2026-01-15"
+      lumpSumPayments: []
+
+      # The full scheduled payment reduces retirement cash. Interest is an
+      # expense; principal reduces cash and debt together, so it is not
+      # consumption. Payments stop when the balance reaches $0.
+      #
+      # For a non-zero short-term debt you intend to settle immediately, use
+      # `mode: payoff_at_projection_start` instead of the schedule fields. That
+      # opening balance appears in starting net worth and is paid in month one.
 
   "manual:synthetic-excluded-account":
     # Set include to false and type to exclude for a closed or out-of-scope
@@ -246,12 +292,18 @@ savingsPolicy:
 # as `id` in the category snapshot JSON. Use essential for needs, discretionary
 # for optional spending, income for cash income, transfer for money moved
 # between your accounts, and exclude for anything the plan should ignore.
+# Use debt_payment for mortgage or other liability payments. Those transactions
+# are removed from ordinary spending and replaced exactly once by the schedule
+# above. Principal reduces both cash and debt, while interest is consumption.
 categoryMappings:
   "synthetic-essential-category": essential # For example, groceries.
   "synthetic-discretionary-category": discretionary # For example, entertainment.
   "synthetic-income-category": income # For example, employment income.
   "synthetic-transfer-category": transfer # For example, an internal transfer.
   "synthetic-investment-transfer-category": transfer
+  "synthetic-mortgage-payment-category":
+    classification: debt_payment
+    liabilityRole: primary_mortgage
   "uncategorized": exclude
 
 assumptions:
@@ -263,7 +315,6 @@ assumptions:
   tfsaReturn: 0.05
   rrspReturn: 0.05
   nonRegisteredReturn: 0.05
-  debtReturn: 0
   effectiveTaxRate: 0.22
   oasRecoveryThreshold: 90000
   oasRecoveryRate: 0.15
@@ -279,7 +330,6 @@ assumptions:
     tfsa: { cash: 0, fixedIncome: 0.2, equity: 0.8 }
     rrsp: { cash: 0, fixedIncome: 0.3, equity: 0.7 }
     non_registered: { cash: 0.05, fixedIncome: 0.25, equity: 0.7 }
-    debt: { cash: 0, fixedIncome: 0, equity: 0 }
 
 # Add known one-time future income or expenses here, in today's dollars. Leave
 # [] when there are none. Account-specific event destinations are available in

@@ -6,11 +6,11 @@ Each annual row contains:
 
 - the active employment-phase label and net deposited employment cash, CPP, OAS, pension, and one-time income
 - withdrawals from cash, TFSA, RRSP/RRIF, and non-registered accounts
-- essential spending, discretionary spending, one-time outflows, simplified tax, planned/actual/redirected/unallocated contributions, and unmet spending
+- non-debt essential spending, discretionary spending, one-time outflows, liability interest/principal/lump sums, simplified tax, planned/actual/redirected/unallocated contributions, and unmet required outflows
 - global TFSA and RRSP opening room, new room, withdrawal restoration where applicable, room-generation evidence, room-consuming deposits, and closing room
 - positive cash available; explicit personal, reserve-building, and workplace planned/allowed/unallocated amounts; reserve retained/redirected/unfunded amounts; unplanned retained cash; total investment deposits; generated surplus, active reserve target, and per-account policy allocations
 - pooled balances and each included account’s balance
-- financial assets, debt, and net worth
+- retirement-funding financial assets, non-financial assets, total assets, mortgage and other liabilities, home equity, and total net worth
 - cash, fixed-income, and equity allocation
 - retirement, CPP, OAS, and RRIF milestone labels
 - nominal and inflation-adjusted views
@@ -23,6 +23,8 @@ The dashboard retains these live-data-backed reports:
 - annual explicit savings and retained cash in simple mode, or annual surplus allocation in advanced mode, with the active reserve-target line
 - annual registered room and contribution routing
 - account-level financial-asset burndown
+- financial assets, residence value and total-net-worth trends
+- mortgage balance and home-equity trends
 - asset allocation at a selected year
 - deterministic observations
 - annual projection ledger
@@ -35,7 +37,7 @@ Every major calculated report target has two inspectability levels:
 
 The summary cards, registered-room and existing main charts, annual ledger, cash-flow provenance values, and Lunch Money account section are covered. Chart explanations include the exact shared annual dataset in the active Today’s/Future dollar view. The asset-allocation explanation follows the selected year.
 
-The retirement goal and goal gap use financial assets. They do not include debt offsets or non-liquid real assets.
+The retirement goal, goal gap and depletion age use financial assets. They do not consume home equity. Total net worth is a separate balance-sheet measure.
 
 Lunch Money-derived employment income is net cash after payroll deductions, so the simplified effective tax rate is not applied to it again. Resolved employment phases cover every working month from the inclusive current age through the exclusive retirement age. The active phase supplies annual today-dollar net cash and phase-local growth. A later phase does not inherit growth accumulated in an earlier phase, and the planner never invents a future salary.
 
@@ -43,9 +45,9 @@ The primary configuration uses account roles and named savings plans. IDs appear
 
 The detailed account-level contribution, projection-account, registered-room, waterfall, and surplus format remains advanced compatibility. In either mode, cash-funded contributions are internal transfers and income-withheld deposits are external additions because they are not part of net deposited cash.
 
-Human-maintained account roles, savings plans, room inputs, category mappings, assumptions, allocations, and future events use the canonical commented YAML planner configuration. YAML and legacy JSON inputs pass through the same validation and produce the same resolved report model.
+Human-maintained account roles, savings plans, room inputs, residence value, liability treatment, category mappings, assumptions, allocations, and future events use the canonical commented YAML planner configuration. Debt mappings remain the owner-facing source, but resolved positive debts move into liabilities rather than financial accounts.
 
-Cash-flow audit evidence records the aggregate category/account contribution to each derived value without retaining raw transactions. Lunch Money amounts and names remain distinguishable from local YAML assumptions, compatibility fallbacks, temporary browser overrides, Canadian references, and projection output. Imported accounts use origin `lunchmoney`; projection-only configured accounts use origin `projection_configuration`, have a fixed zero opening balance, and never appear in imported baseline balances. The baseline schema is `1.5`; the projection and export schemas are `7.0`.
+Cash-flow audit evidence records the aggregate category/account contribution to each derived value without retaining raw transactions. Debt-payment evidence is excluded from ordinary spending, linked to a liability role, and marked as replaced by the future schedule. Lunch Money amounts and names remain distinguishable from local YAML assumptions, compatibility fallbacks, temporary browser overrides, Canadian references, and projection output. The baseline schema is `1.6`; the projection and export schemas are `8.0`.
 
 Government benefits are concrete resolved inputs. CPP retains a dated amount-at-65 basis, claim age, indexing, and the statutory claim factor. OAS retains a dated full amount, explicit `full`, `partial`, or `none` eligibility, claim age, indexing, and the permanent age-75 increase. Partial eligibility is qualifying residence years divided by 40; special residence rules and international agreements are not evaluated. The calculation result—not React code—produces the base, factors, monthly and annual claim amounts, and OAS age-75 amount used in the dashboard explanations.
 
@@ -55,7 +57,7 @@ Registered room is global by program, not per account. Simple starting room is a
 
 The result retains planned, allowed, redirected, unallocated, cash-funded, income-withheld, total actual, and per-account details. It additionally exposes positive cash, each explicit plan, reserve retention/redirect/unfunded values, unplanned retained cash, and total investment deposits. Reconciliation requires funded reserve plan = reserve cash retained + reserve investment deposits; each planned amount = allowed + unallocated; total investments = personal allowed + workplace allowed + reserve investment deposits = cash funded + income withheld = summed account deposits; positive cash = personal allowed + funded reserve plan + unplanned retained cash; and both room and bridge equations.
 
-The retirement summary uses an exact snapshot at the end of the final working month, immediately before the first fully retired month. Snapshot balances, account balances, and allocation are point-in-time values. Snapshot income, withdrawals, outflows, contributions, and account contributions cover only the final working month; `flowPeriod` identifies that `YYYY-MM` period. The cumulative start-to-retirement activity remains in the financial-assets bridge. The explanation first reconciles cash + TFSA + RRSP/RRIF + non-registered balances, then shows the scenario’s employment and contribution paths and a today-dollar accumulation bridge:
+The retirement summary uses an exact snapshot at the end of the final working month, immediately before the first fully retired month. It exposes retirement-funding assets, non-financial assets, liabilities, home equity and total net worth. Snapshot flows cover only the final working month; cumulative activity remains in the bridges. The financial-assets bridge is:
 
 ```text
 starting financial assets
@@ -66,15 +68,16 @@ starting financial assets
 + investment returns
 − essential spending
 − discretionary spending
+− liability cash payments
 − one-time outflows
 − taxes
-= assets at retirement
+= retirement funding assets at retirement
 ```
 
-Cash-funded contributions and surplus routing do not appear as additive terms in this bridge because they are transfers between financial accounts. Routing is asset-neutral at the allocation moment, while later account-specific returns can change future financial assets. An explanation claims reconciliation only when the account sum, bridge, and surplus flows match the exact displayed values within one cent.
+The net-worth bridge adds starting non-financial assets and appreciation, subtracts starting liabilities and liability interest, and ends at total net worth. Principal payment is not consumption: the financial-asset decrease and liability decrease cancel directly. Cash-funded contributions and surplus routing are also internal allocations. Shared cent-stable reconciliation checks each annual balance sheet, each liability schedule and both bridges within one cent.
 
-JSON is the canonical, complete analysis export and includes the resolved baseline, derived baseline, provenance, warnings, active inputs, overrides, sanitized policy preview, and complete projection. It is built by a typed allowlist and is automatically anonymized on every request. Imported and projection-only account IDs, labels, role-compiled policy references, period allocation maps, result summaries, provenance, and override keys use consistent export-local aliases such as `cash_1` and `non_registered_1`; employment, contribution, and savings phases plus other descriptive records receive deterministic generic aliases. Typed JSON arrays contain sanitized aliases only.
+JSON is the canonical, complete analysis export and includes the resolved baseline, debt-payment evidence, financial accounts, non-financial assets, liabilities and schedules, provenance, overrides, balance sheets, financial-assets bridge and net-worth bridge. A typed allowlist replaces every account, asset, liability and policy reference with deterministic export-local aliases and removes private labels, institutions, addresses and configuration text.
 
-CSV is a conventional automatically anonymized annual analysis table: exactly one header and one row per projection period. It includes scalar explicit-plan, reserve retained/redirected/unfunded, unplanned-cash, TFSA/RRSP room, contribution, and deterministic per-account fields. Registered-room columns remain nominal regulatory values in both real and nominal exports and are labelled with their basis. Policy account cells contain generic aliases only. CSV has no metadata preamble, blank section, role/route/phase arrays, maps, delimited lists, embedded JSON, or second schema.
+CSV is a conventional automatically anonymized annual analysis table: exactly one header and one row per projection period. It includes scalar financial/non-financial assets, liabilities, home equity, net worth, liability cash/interest/principal/lump-sum flows, explicit-plan, room, contribution and deterministic per-account fields. It has no schedules, metadata preamble, arrays, maps, delimited lists, embedded JSON or second schema.
 
 Both formats preserve financial values, assumptions, dates, benefit calculations, reconciliation bridges, and allowlisted public Canadian reference metadata while removing raw source-system IDs, credentials, and user-authored descriptive text. Account, institution, employer, category, event, recurring, warning, and phase text is replaced with generic aliases; provenance descriptions come from a small safe vocabulary. There is no raw or private export mode. The files are intended to be shareable for external financial analysis without manual identifier editing.

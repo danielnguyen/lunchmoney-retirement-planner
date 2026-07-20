@@ -30,14 +30,18 @@ describe("projection presentation metadata", () => {
     expect(startingFinancialAssets(inputs.accounts)).toBe(270000);
   });
 
-  it("excludes debt from starting financial assets", () => {
+  it("keeps liabilities outside the starting-financial-assets input", () => {
     const inputs = structuredClone(projectionFixture);
-    inputs.accounts.push({
-      ...inputs.accounts[0]!,
-      id: "debt",
-      type: "debt",
+    inputs.liabilities.push({
+      id: "liability:one",
+      label: "Synthetic liability",
+      origin: "lunchmoney",
       openingBalance: 75000,
-      allocation: { cash: 0, fixedIncome: 0, equity: 0 },
+      balanceAsOf: inputs.startDate,
+      role: null,
+      treatment: { mode: "payoff_at_projection_start" },
+      historicalPaymentHandling: "already_excluded_or_transfer",
+      historicalMonthlyAverage: 0,
     });
 
     expect(startingFinancialAssets(inputs.accounts)).toBe(200000);

@@ -11,6 +11,10 @@ import type {
   FinancialAssetsBridge,
   GovernmentBenefitCalculationSummary,
   IncomeBreakdown,
+  LiabilityInput,
+  LiabilityScheduleBreakdown,
+  NetWorthBridge,
+  NonFinancialAssetInput,
   OutflowBreakdown,
   ProjectionInputs,
   ProjectionObservation,
@@ -38,6 +42,10 @@ import {
   rrspAnnualCap,
   tfsaAnnualLimit,
 } from "@/src/domain/defaults/canadian-registered-account-room";
+import {
+  centDifference,
+  monetaryValue,
+} from "./monetary-reconciliation";
 
 const MONTHS_PER_YEAR = 12;
 const AGE_TOLERANCE = 1e-6;
@@ -161,10 +169,15 @@ function emptyOutflows(): OutflowBreakdown {
   return {
     essential: 0,
     discretionary: 0,
+    liabilityInterest: 0,
+    liabilityPrincipal: 0,
+    liabilityLumpSumPrincipal: 0,
+    liabilityCashPayment: 0,
     oneTime: 0,
     tax: 0,
     oasRecoveryTax: 0,
     contributions: 0,
+    unmetRequiredOutflow: 0,
     unmetSpending: 0,
     total: 0,
   };
@@ -229,9 +242,17 @@ function emptyBalances(): BalanceBreakdown {
     tfsa: 0,
     rrspRrif: 0,
     nonRegistered: 0,
-    debts: 0,
     financialAssets: 0,
-    netWorth: 0,
+    retirementFundingAssets: 0,
+    residenceValue: 0,
+    otherNonFinancialAssets: 0,
+    totalNonFinancialAssets: 0,
+    totalAssets: 0,
+    mortgageBalance: 0,
+    otherLiabilities: 0,
+    totalLiabilities: 0,
+    homeEquity: 0,
+    totalNetWorth: 0,
   };
 }
 
@@ -286,6 +307,9 @@ function emptyView(): ProjectionView {
     contributions: emptyContributions(),
     balances: emptyBalances(),
     accountBalances: {},
+    nonFinancialAssetValues: {},
+    liabilityBalances: {},
+    liabilitySchedules: {},
     accountContributions: {},
     accountContributionDetails: {},
     registeredAccountRoom: {
@@ -309,24 +333,83 @@ function emptyBridge(startingFinancialAssets: number): FinancialAssetsBridge {
     investmentReturns: 0,
     essentialSpending: 0,
     discretionarySpending: 0,
+    liabilityCashPayments: 0,
     oneTimeOutflows: 0,
     taxes: 0,
     endingFinancialAssets: 0,
   };
 }
 
-function bridgeCalculatedEnding(bridge: FinancialAssetsBridge): number {
-  return (
-    bridge.startingFinancialAssets +
-    bridge.employmentNetCash +
-    bridge.publicBenefitsAndPension +
-    bridge.otherInflows +
-    bridge.incomeWithheldContributions +
-    bridge.investmentReturns -
-    bridge.essentialSpending -
-    bridge.discretionarySpending -
-    bridge.oneTimeOutflows -
-    bridge.taxes
+function emptyNetWorthBridge(
+  startingFinancialAssets: number,
+  startingNonFinancialAssets: number,
+  startingLiabilities: number,
+): NetWorthBridge {
+  return {
+    startingFinancialAssets,
+    startingNonFinancialAssets,
+    startingLiabilities,
+    externalNetCashInflows: 0,
+    incomeWithheldContributions: 0,
+    investmentReturns: 0,
+    nonFinancialAssetAppreciation: 0,
+    nonDebtEssentialSpending: 0,
+    discretionarySpending: 0,
+    liabilityInterest: 0,
+    liabilityPrincipalPayments: 0,
+    liabilityPrincipalReduction: 0,
+    taxes: 0,
+    oneTimeConsumptionOutflows: 0,
+    endingNetWorth: 0,
+  };
+}
+
+function bridgeDifferenceInCents(
+  bridge: FinancialAssetsBridge,
+): number {
+  return centDifference(
+    [
+      bridge.startingFinancialAssets,
+      bridge.employmentNetCash,
+      bridge.publicBenefitsAndPension,
+      bridge.otherInflows,
+      bridge.incomeWithheldContributions,
+      bridge.investmentReturns,
+    ],
+    [
+      bridge.essentialSpending,
+      bridge.discretionarySpending,
+      bridge.liabilityCashPayments,
+      bridge.oneTimeOutflows,
+      bridge.taxes,
+      bridge.endingFinancialAssets,
+    ],
+  );
+}
+
+function netWorthBridgeDifferenceInCents(
+  bridge: NetWorthBridge,
+): number {
+  return centDifference(
+    [
+      bridge.startingFinancialAssets,
+      bridge.startingNonFinancialAssets,
+      bridge.externalNetCashInflows,
+      bridge.incomeWithheldContributions,
+      bridge.investmentReturns,
+      bridge.nonFinancialAssetAppreciation,
+      bridge.liabilityPrincipalReduction,
+    ],
+    [
+      bridge.startingLiabilities,
+      bridge.nonDebtEssentialSpending,
+      bridge.discretionarySpending,
+      bridge.liabilityInterest,
+      bridge.liabilityPrincipalPayments,
+      bridge.taxes,
+      bridge.oneTimeConsumptionOutflows,
+      bridge.endingNetWorth,
+    ],
   );
 }
 
@@ -338,9 +421,13 @@ function addWithdrawal(target: WithdrawalBreakdown, accountType: AccountType, am
   target.total += amount;
 }
 
-function accountBalances(
+function balanceSheet(
   accounts: FinancialAccountInput[],
   balances: Map<string, number>,
+  nonFinancialAssets: NonFinancialAssetInput[] = [],
+  nonFinancialAssetValues: Map<string, number> = new Map(),
+  liabilities: LiabilityInput[] = [],
+  liabilityBalances: Map<string, number> = new Map(),
 ): BalanceBreakdown {
   const result = emptyBalances();
   for (const account of accounts) {
@@ -349,10 +436,35 @@ function accountBalances(
     if (account.type === "tfsa") result.tfsa += balance;
     if (account.type === "rrsp_rrif") result.rrspRrif += balance;
     if (account.type === "non_registered") result.nonRegistered += balance;
-    if (account.type === "debt") result.debts += balance;
   }
   result.financialAssets = result.cash + result.tfsa + result.rrspRrif + result.nonRegistered;
-  result.netWorth = result.financialAssets - result.debts;
+  result.retirementFundingAssets = result.financialAssets;
+  for (const asset of nonFinancialAssets) {
+    const value = nonFinancialAssetValues.get(asset.id) ?? asset.openingValue;
+    if (asset.type === "primary_residence") {
+      result.residenceValue += value;
+    } else {
+      result.otherNonFinancialAssets += value;
+    }
+  }
+  result.totalNonFinancialAssets =
+    result.residenceValue + result.otherNonFinancialAssets;
+  result.totalAssets =
+    result.financialAssets + result.totalNonFinancialAssets;
+  for (const liability of liabilities) {
+    const balance =
+      liabilityBalances.get(liability.id) ?? liability.openingBalance;
+    if (liability.role === "primary_mortgage") {
+      result.mortgageBalance += balance;
+    } else {
+      result.otherLiabilities += balance;
+    }
+  }
+  result.totalLiabilities =
+    result.mortgageBalance + result.otherLiabilities;
+  result.homeEquity =
+    result.residenceValue - result.mortgageBalance;
+  result.totalNetWorth = result.totalAssets - result.totalLiabilities;
   return result;
 }
 
@@ -362,7 +474,6 @@ function accountAllocation(
 ): AssetAllocation {
   const result = { ...ZERO_ALLOCATION };
   for (const account of accounts) {
-    if (account.type === "debt") continue;
     const balance = balances.get(account.id) ?? 0;
     result.cash += balance * account.allocation.cash;
     result.fixedIncome += balance * account.allocation.fixedIncome;
@@ -378,16 +489,75 @@ function snapshotAccountBalances(
   return Object.fromEntries(accounts.map((account) => [account.id, balances.get(account.id) ?? 0]));
 }
 
+function snapshotValues<T extends { id: string }>(
+  items: T[],
+  values: Map<string, number>,
+): Record<string, number> {
+  return Object.fromEntries(
+    items.map((item) => [item.id, values.get(item.id) ?? 0]),
+  );
+}
+
 function snapshotView(
   flow: ProjectionView,
   accounts: FinancialAccountInput[],
   balances: Map<string, number>,
+  nonFinancialAssets: NonFinancialAssetInput[],
+  nonFinancialAssetValues: Map<string, number>,
+  liabilities: LiabilityInput[],
+  liabilityBalances: Map<string, number>,
   factor: number,
+  nominalLiabilitySchedules: ProjectionView["liabilitySchedules"] =
+    flow.liabilitySchedules,
 ): ProjectionView {
   const divide = (value: number) => round(value / factor);
-  const balancesAtSnapshot = accountBalances(accounts, balances);
+  const balancesAtSnapshot = balanceSheet(
+    accounts,
+    balances,
+    nonFinancialAssets,
+    nonFinancialAssetValues,
+    liabilities,
+    liabilityBalances,
+  );
   const accountBalancesAtSnapshot = snapshotAccountBalances(accounts, balances);
+  const nonFinancialAssetValuesAtSnapshot = snapshotValues(
+    nonFinancialAssets,
+    nonFinancialAssetValues,
+  );
+  const liabilityBalancesAtSnapshot = snapshotValues(
+    liabilities,
+    liabilityBalances,
+  );
   const allocationAtSnapshot = accountAllocation(accounts, balances);
+  const displayedBalances = {
+    cash: divide(balancesAtSnapshot.cash),
+    tfsa: divide(balancesAtSnapshot.tfsa),
+    rrspRrif: divide(balancesAtSnapshot.rrspRrif),
+    nonRegistered: divide(balancesAtSnapshot.nonRegistered),
+    residenceValue: divide(balancesAtSnapshot.residenceValue),
+    otherNonFinancialAssets: divide(
+      balancesAtSnapshot.otherNonFinancialAssets,
+    ),
+    mortgageBalance: divide(balancesAtSnapshot.mortgageBalance),
+    otherLiabilities: divide(balancesAtSnapshot.otherLiabilities),
+  };
+  const financialAssets = round(
+    displayedBalances.cash +
+      displayedBalances.tfsa +
+      displayedBalances.rrspRrif +
+      displayedBalances.nonRegistered,
+  );
+  const totalNonFinancialAssets = round(
+    displayedBalances.residenceValue +
+      displayedBalances.otherNonFinancialAssets,
+  );
+  const totalAssets = round(
+    financialAssets + totalNonFinancialAssets,
+  );
+  const totalLiabilities = round(
+    displayedBalances.mortgageBalance +
+      displayedBalances.otherLiabilities,
+  );
   return {
     income: {
       employment: round(flow.income.employment),
@@ -407,10 +577,21 @@ function snapshotView(
     outflows: {
       essential: round(flow.outflows.essential),
       discretionary: round(flow.outflows.discretionary),
+      liabilityInterest: round(flow.outflows.liabilityInterest),
+      liabilityPrincipal: round(flow.outflows.liabilityPrincipal),
+      liabilityLumpSumPrincipal: round(
+        flow.outflows.liabilityLumpSumPrincipal,
+      ),
+      liabilityCashPayment: round(
+        flow.outflows.liabilityCashPayment,
+      ),
       oneTime: round(flow.outflows.oneTime),
       tax: round(flow.outflows.tax),
       oasRecoveryTax: round(flow.outflows.oasRecoveryTax),
       contributions: round(flow.outflows.contributions),
+      unmetRequiredOutflow: round(
+        flow.outflows.unmetRequiredOutflow,
+      ),
       unmetSpending: round(flow.outflows.unmetSpending),
       total: round(flow.outflows.total),
     },
@@ -430,16 +611,55 @@ function snapshotView(
       total: round(flow.contributions.total),
     },
     balances: {
-      cash: divide(balancesAtSnapshot.cash),
-      tfsa: divide(balancesAtSnapshot.tfsa),
-      rrspRrif: divide(balancesAtSnapshot.rrspRrif),
-      nonRegistered: divide(balancesAtSnapshot.nonRegistered),
-      debts: divide(balancesAtSnapshot.debts),
-      financialAssets: divide(balancesAtSnapshot.financialAssets),
-      netWorth: divide(balancesAtSnapshot.netWorth),
+      ...displayedBalances,
+      financialAssets,
+      retirementFundingAssets: financialAssets,
+      totalNonFinancialAssets,
+      totalAssets,
+      totalLiabilities,
+      homeEquity: round(
+        displayedBalances.residenceValue -
+          displayedBalances.mortgageBalance,
+      ),
+      totalNetWorth: round(totalAssets - totalLiabilities),
     },
     accountBalances: Object.fromEntries(
       Object.entries(accountBalancesAtSnapshot).map(([id, balance]) => [id, divide(balance)]),
+    ),
+    nonFinancialAssetValues: Object.fromEntries(
+      Object.entries(nonFinancialAssetValuesAtSnapshot).map(
+        ([id, value]) => [id, divide(value)],
+      ),
+    ),
+    liabilityBalances: Object.fromEntries(
+      Object.entries(liabilityBalancesAtSnapshot).map(([id, value]) => [
+        id,
+        divide(value),
+      ]),
+    ),
+    liabilitySchedules: Object.fromEntries(
+      Object.entries(nominalLiabilitySchedules).map(([id, schedule]) => {
+        const openingBalance = divide(schedule.openingBalance);
+        const interest = divide(schedule.interest);
+        const regularPayment = divide(schedule.regularPayment);
+        const lumpSumPrincipal = divide(schedule.lumpSumPrincipal);
+        return [
+          id,
+          {
+            openingBalance,
+            interest,
+            regularPayment,
+            principal: round(regularPayment - interest),
+            lumpSumPrincipal,
+            closingBalance: round(
+              openingBalance +
+                interest -
+                regularPayment -
+                lumpSumPrincipal,
+            ),
+          } satisfies LiabilityScheduleBreakdown,
+        ];
+      }),
     ),
     accountContributions: Object.fromEntries(
       Object.entries(flow.accountContributions).map(([id, amount]) => [id, round(amount)]),
@@ -517,6 +737,27 @@ function addMonthlyFlow(target: ProjectionView, monthly: ProjectionView, factor:
     >) {
       targetDetail[key] += detail[key] / factor;
     }
+  }
+  for (const [liabilityId, schedule] of Object.entries(
+    monthly.liabilitySchedules,
+  )) {
+    const targetSchedule =
+      target.liabilitySchedules[liabilityId] ??
+      (target.liabilitySchedules[liabilityId] = {
+        openingBalance: schedule.openingBalance / factor,
+        interest: 0,
+        regularPayment: 0,
+        principal: 0,
+        lumpSumPrincipal: 0,
+        closingBalance: schedule.closingBalance / factor,
+      });
+    targetSchedule.interest += schedule.interest / factor;
+    targetSchedule.regularPayment +=
+      schedule.regularPayment / factor;
+    targetSchedule.principal += schedule.principal / factor;
+    targetSchedule.lumpSumPrincipal +=
+      schedule.lumpSumPrincipal / factor;
+    targetSchedule.closingBalance = schedule.closingBalance / factor;
   }
   for (const program of ["tfsa", "rrsp"] as const) {
     const source = monthly.registeredAccountRoom[program];
@@ -623,6 +864,88 @@ function assertSurplusReconciled(view: ProjectionView, period: string): void {
     ) > 0.01
   ) {
     throw new Error(`Surplus allocation failed to reconcile for ${period}`);
+  }
+}
+
+function assertBalanceSheetReconciled(
+  view: ProjectionView,
+  period: string,
+): void {
+  const balances = view.balances;
+  const differencesInCents = [
+    centDifference(
+      [balances.financialAssets],
+      [
+        balances.cash,
+        balances.tfsa,
+        balances.rrspRrif,
+        balances.nonRegistered,
+      ],
+    ),
+    centDifference(
+      [balances.totalNonFinancialAssets],
+      [
+        balances.residenceValue,
+        balances.otherNonFinancialAssets,
+      ],
+    ),
+    centDifference(
+      [balances.totalAssets],
+      [
+        balances.financialAssets,
+        balances.totalNonFinancialAssets,
+      ],
+    ),
+    centDifference(
+      [balances.totalLiabilities],
+      [balances.mortgageBalance, balances.otherLiabilities],
+    ),
+    centDifference(
+      [balances.homeEquity, balances.mortgageBalance],
+      [balances.residenceValue],
+    ),
+    centDifference(
+      [balances.totalNetWorth, balances.totalLiabilities],
+      [balances.totalAssets],
+    ),
+  ];
+  if (
+    differencesInCents.some(
+      (difference) => Math.abs(difference) > 1,
+    )
+  ) {
+    throw new Error(`Balance sheet failed to reconcile for ${period}`);
+  }
+}
+
+function assertLiabilitySchedulesReconciled(
+  view: ProjectionView,
+  period: string,
+): void {
+  for (const [liabilityId, schedule] of Object.entries(
+    view.liabilitySchedules,
+  )) {
+    const scheduleDifferenceInCents = centDifference(
+      [schedule.openingBalance, schedule.interest],
+      [
+        schedule.regularPayment,
+        schedule.lumpSumPrincipal,
+        schedule.closingBalance,
+      ],
+    );
+    const principalDifferenceInCents = centDifference(
+      [schedule.regularPayment],
+      [schedule.interest, schedule.principal],
+    );
+    if (
+      Math.abs(scheduleDifferenceInCents) > 1 ||
+      Math.abs(principalDifferenceInCents) > 1 ||
+      schedule.closingBalance < -0.01
+    ) {
+      throw new Error(
+        `Liability schedule failed to reconcile for ${liabilityId} in ${period}`,
+      );
+    }
   }
 }
 
@@ -800,6 +1123,25 @@ export function calculateProjection(rawInputs: ProjectionInputs): ProjectionResu
     (inputs.person.retirementAge - inputs.person.currentAge) * MONTHS_PER_YEAR,
   );
   const balances = new Map(inputs.accounts.map((account) => [account.id, account.openingBalance]));
+  const nonFinancialAssetValues = new Map(
+    inputs.nonFinancialAssets.map((asset) => [
+      asset.id,
+      asset.openingValue,
+    ]),
+  );
+  const liabilityBalances = new Map(
+    inputs.liabilities.map((liability) => [
+      liability.id,
+      liability.openingBalance,
+    ]),
+  );
+  const liabilityPayoffDates: Record<string, string | null> =
+    Object.fromEntries(
+      inputs.liabilities.map((liability) => [
+        liability.id,
+        liability.openingBalance === 0 ? inputs.startDate : null,
+      ]),
+    );
   const reserveAccounts = inputs.surplusAllocation.reserveAccountIds.map(
     (accountId) =>
       inputs.accounts.find((account) => account.id === accountId)!,
@@ -820,9 +1162,27 @@ export function calculateProjection(rawInputs: ProjectionInputs): ProjectionResu
       : null;
   const annual: AnnualProjection[] = [];
   const observations: ProjectionObservation[] = [];
-  const startingFinancialAssets = accountBalances(inputs.accounts, balances).financialAssets;
+  const startingSheet = balanceSheet(
+    inputs.accounts,
+    balances,
+    inputs.nonFinancialAssets,
+    nonFinancialAssetValues,
+    inputs.liabilities,
+    liabilityBalances,
+  );
+  const startingFinancialAssets = startingSheet.financialAssets;
   const nominalBridge = emptyBridge(startingFinancialAssets);
   const realBridge = emptyBridge(startingFinancialAssets);
+  const nominalNetWorthBridge = emptyNetWorthBridge(
+    startingFinancialAssets,
+    startingSheet.totalNonFinancialAssets,
+    startingSheet.totalLiabilities,
+  );
+  const realNetWorthBridge = emptyNetWorthBridge(
+    startingFinancialAssets,
+    startingSheet.totalNonFinancialAssets,
+    startingSheet.totalLiabilities,
+  );
   let annualNominalFlow = emptyView();
   let annualRealFlow = emptyView();
   let annualEmploymentPhaseLabels = new Set<string>();
@@ -895,8 +1255,27 @@ export function calculateProjection(rawInputs: ProjectionInputs): ProjectionResu
   function snapshot(month: number, previousMonth: number, calendarYear: number): void {
     const factor = indexedFactor(inputs.annualInflation, month);
     const age = inputs.person.currentAge + month / MONTHS_PER_YEAR;
-    const nominal = snapshotView(annualNominalFlow, inputs.accounts, balances, 1);
-    const real = snapshotView(annualRealFlow, inputs.accounts, balances, factor);
+    const nominal = snapshotView(
+      annualNominalFlow,
+      inputs.accounts,
+      balances,
+      inputs.nonFinancialAssets,
+      nonFinancialAssetValues,
+      inputs.liabilities,
+      liabilityBalances,
+      1,
+    );
+    const real = snapshotView(
+      annualRealFlow,
+      inputs.accounts,
+      balances,
+      inputs.nonFinancialAssets,
+      nonFinancialAssetValues,
+      inputs.liabilities,
+      liabilityBalances,
+      factor,
+      annualNominalFlow.liabilitySchedules,
+    );
     assertSurplusReconciled(nominal, `${calendarYear} nominal`);
     assertSurplusReconciled(real, `${calendarYear} real`);
     assertContributionsReconciled(nominal, `${calendarYear} nominal`);
@@ -906,6 +1285,13 @@ export function calculateProjection(rawInputs: ProjectionInputs): ProjectionResu
       `${calendarYear} nominal`,
       inputs.savingsPolicy.mode,
     );
+    assertBalanceSheetReconciled(nominal, `${calendarYear} nominal`);
+    assertBalanceSheetReconciled(real, `${calendarYear} real`);
+    assertLiabilitySchedulesReconciled(
+      nominal,
+      `${calendarYear} nominal`,
+    );
+    assertLiabilitySchedulesReconciled(real, `${calendarYear} real`);
     assertSavingsPolicyReconciled(
       real,
       `${calendarYear} real`,
@@ -1024,16 +1410,55 @@ export function calculateProjection(rawInputs: ProjectionInputs): ProjectionResu
       inputs.surplusAllocation.targetCashReserveToday *
       indexedFactor(inputs.surplusAllocation.reserveIndexingRate, month);
 
-    const balancesBeforeReturn = accountBalances(inputs.accounts, balances).financialAssets;
+    const balancesBeforeReturn = balanceSheet(
+      inputs.accounts,
+      balances,
+    ).financialAssets;
     for (const account of inputs.accounts) {
       const current = balances.get(account.id) ?? 0;
       balances.set(account.id, Math.max(0, current * (1 + monthlyRate(account.annualReturn))));
     }
-    const balancesAfterReturn = accountBalances(inputs.accounts, balances).financialAssets;
+    const balancesAfterReturn = balanceSheet(
+      inputs.accounts,
+      balances,
+    ).financialAssets;
+    const nonFinancialAssetsBeforeAppreciation =
+      inputs.nonFinancialAssets.reduce(
+        (total, asset) =>
+          total + (nonFinancialAssetValues.get(asset.id) ?? 0),
+        0,
+      );
+    for (const asset of inputs.nonFinancialAssets) {
+      const current = nonFinancialAssetValues.get(asset.id) ?? 0;
+      nonFinancialAssetValues.set(
+        asset.id,
+        Math.max(
+          0,
+          current * (1 + monthlyRate(asset.annualAppreciation)),
+        ),
+      );
+    }
+    const nonFinancialAssetsAfterAppreciation =
+      inputs.nonFinancialAssets.reduce(
+        (total, asset) =>
+          total + (nonFinancialAssetValues.get(asset.id) ?? 0),
+        0,
+      );
     if (month <= retirementMonth) {
       nominalBridge.investmentReturns += balancesAfterReturn - balancesBeforeReturn;
       realBridge.investmentReturns +=
         balancesAfterReturn / factor - balancesBeforeReturn / previousFactor;
+      nominalNetWorthBridge.investmentReturns +=
+        balancesAfterReturn - balancesBeforeReturn;
+      realNetWorthBridge.investmentReturns +=
+        balancesAfterReturn / factor -
+        balancesBeforeReturn / previousFactor;
+      nominalNetWorthBridge.nonFinancialAssetAppreciation +=
+        nonFinancialAssetsAfterAppreciation -
+        nonFinancialAssetsBeforeAppreciation;
+      realNetWorthBridge.nonFinancialAssetAppreciation +=
+        nonFinancialAssetsAfterAppreciation / factor -
+        nonFinancialAssetsBeforeAppreciation / previousFactor;
     }
 
     const income = emptyIncome();
@@ -1119,6 +1544,105 @@ export function calculateProjection(rawInputs: ProjectionInputs): ProjectionResu
     const discretionary = inputs.monthlyDiscretionarySpendingToday * factor;
     monthlyFlow.outflows.essential += essential;
     monthlyFlow.outflows.discretionary += discretionary;
+
+    let liabilityCashPayment = 0;
+    let liabilityInterest = 0;
+    let liabilityPrincipal = 0;
+    let liabilityLumpSumPrincipal = 0;
+    const calendarMonthKey = `${calendarYear}-${String(
+      calendarMonth,
+    ).padStart(2, "0")}`;
+    for (const liability of inputs.liabilities) {
+      const openingBalance = liabilityBalances.get(liability.id) ?? 0;
+      let interest = 0;
+      let regularPayment = 0;
+      let principal = 0;
+      let lumpSumPrincipal = 0;
+      let closingBalance = openingBalance;
+      if (
+        openingBalance > 0 &&
+        liability.treatment.mode === "payoff_at_projection_start" &&
+        month === 1
+      ) {
+        regularPayment = openingBalance;
+        principal = openingBalance;
+        closingBalance = 0;
+      } else if (
+        openingBalance > 0 &&
+        liability.treatment.mode === "amortizing" &&
+        calendarMonthKey >=
+          liability.treatment.scheduleStartDate.slice(0, 7)
+      ) {
+        interest =
+          openingBalance *
+          monthlyRate(liability.treatment.annualInterestRate);
+        regularPayment = Math.min(
+          liability.treatment.regularPayment.monthlyEquivalent,
+          openingBalance + interest,
+        );
+        principal = Math.max(0, regularPayment - interest);
+        const afterRegular =
+          openingBalance + interest - regularPayment;
+        const configuredLumpSum = liability.treatment.lumpSumPayments
+          .filter((payment) => payment.date.slice(0, 7) === calendarMonthKey)
+          .reduce((total, payment) => total + payment.amount, 0);
+        if (configuredLumpSum > afterRegular + 0.01) {
+          throw new Error(
+            `Lump-sum payment for liability ${liability.id} exceeds its remaining projected principal`,
+          );
+        }
+        lumpSumPrincipal = Math.min(
+          configuredLumpSum,
+          Math.max(0, afterRegular),
+        );
+        closingBalance = Math.max(
+          0,
+          afterRegular - lumpSumPrincipal,
+        );
+      }
+      if (closingBalance <= 0.005) closingBalance = 0;
+      liabilityBalances.set(liability.id, closingBalance);
+      if (
+        openingBalance > 0 &&
+        closingBalance === 0 &&
+        liabilityPayoffDates[liability.id] === null
+      ) {
+        liabilityPayoffDates[liability.id] = lastDayOfMonth(
+          calendarYear,
+          calendarMonth,
+        );
+      }
+      monthlyFlow.liabilitySchedules[liability.id] = {
+        openingBalance,
+        interest,
+        regularPayment,
+        principal,
+        lumpSumPrincipal,
+        closingBalance,
+      };
+      liabilityInterest += interest;
+      liabilityPrincipal += principal;
+      liabilityLumpSumPrincipal += lumpSumPrincipal;
+      liabilityCashPayment += regularPayment + lumpSumPrincipal;
+
+      if (month <= retirementMonth) {
+        nominalNetWorthBridge.liabilityPrincipalPayments +=
+          principal + lumpSumPrincipal;
+        nominalNetWorthBridge.liabilityPrincipalReduction +=
+          openingBalance - closingBalance;
+        realNetWorthBridge.liabilityPrincipalPayments +=
+          (principal + lumpSumPrincipal) / factor;
+        realNetWorthBridge.liabilityPrincipalReduction +=
+          openingBalance / previousFactor -
+          closingBalance / factor;
+      }
+    }
+    monthlyFlow.outflows.liabilityInterest = liabilityInterest;
+    monthlyFlow.outflows.liabilityPrincipal = liabilityPrincipal;
+    monthlyFlow.outflows.liabilityLumpSumPrincipal =
+      liabilityLumpSumPrincipal;
+    monthlyFlow.outflows.liabilityCashPayment =
+      liabilityCashPayment;
 
     let cashFundedContributions = 0;
     let incomeWithheldContributions = 0;
@@ -1328,6 +1852,7 @@ export function calculateProjection(rawInputs: ProjectionInputs): ProjectionResu
       discretionary -
       regularTax -
       recoveryTax -
+      liabilityCashPayment -
       cashFundedContributions -
       eventOutflows;
 
@@ -1604,8 +2129,7 @@ export function calculateProjection(rawInputs: ProjectionInputs): ProjectionResu
     }
 
     let gap = Math.max(0, -cashPosition);
-    const withdrawalAccounts = inputs.accounts
-      .filter((account) => account.type !== "debt")
+    const withdrawalAccounts = [...inputs.accounts]
       .sort((left, right) => left.withdrawalPriority - right.withdrawalPriority);
 
     for (const account of withdrawalAccounts) {
@@ -1632,13 +2156,24 @@ export function calculateProjection(rawInputs: ProjectionInputs): ProjectionResu
       gap -= netCash;
     }
 
+    if (gap > 0 && liabilityCashPayment > 0) {
+      monthlyFlow.outflows.unmetRequiredOutflow = Math.min(
+        gap,
+        liabilityCashPayment,
+      );
+      throw new Error(
+        `Required liability payment could not be funded for ${calendarMonthKey}`,
+      );
+    }
     if (gap > 0) monthlyFlow.outflows.unmetSpending += gap;
     monthlyFlow.outflows.total =
       monthlyFlow.outflows.essential +
       monthlyFlow.outflows.discretionary +
+      monthlyFlow.outflows.liabilityCashPayment +
       monthlyFlow.outflows.oneTime +
       monthlyFlow.outflows.tax +
       monthlyFlow.outflows.contributions +
+      monthlyFlow.outflows.unmetRequiredOutflow +
       monthlyFlow.outflows.unmetSpending;
     monthlyFlow.registeredAccountRoom.tfsa.closingRoom = tfsaRoom;
     monthlyFlow.registeredAccountRoom.rrsp.closingRoom = rrspRoom;
@@ -1681,8 +2216,23 @@ export function calculateProjection(rawInputs: ProjectionInputs): ProjectionResu
       nominalBridge.essentialSpending += monthlyFlow.outflows.essential * fundedRatio;
       nominalBridge.discretionarySpending +=
         monthlyFlow.outflows.discretionary * fundedRatio;
+      nominalBridge.liabilityCashPayments += liabilityCashPayment;
       nominalBridge.oneTimeOutflows += monthlyFlow.outflows.oneTime * fundedRatio;
       nominalBridge.taxes += monthlyFlow.outflows.tax * fundedRatio;
+
+      nominalNetWorthBridge.externalNetCashInflows +=
+        income.total + eventInflows;
+      nominalNetWorthBridge.incomeWithheldContributions +=
+        incomeWithheldContributions;
+      nominalNetWorthBridge.nonDebtEssentialSpending +=
+        monthlyFlow.outflows.essential * fundedRatio;
+      nominalNetWorthBridge.discretionarySpending +=
+        monthlyFlow.outflows.discretionary * fundedRatio;
+      nominalNetWorthBridge.liabilityInterest += liabilityInterest;
+      nominalNetWorthBridge.taxes +=
+        monthlyFlow.outflows.tax * fundedRatio;
+      nominalNetWorthBridge.oneTimeConsumptionOutflows +=
+        monthlyFlow.outflows.oneTime * fundedRatio;
 
       realBridge.employmentNetCash += income.employment / factor;
       realBridge.publicBenefitsAndPension += publicBenefitsAndPension / factor;
@@ -1692,12 +2242,36 @@ export function calculateProjection(rawInputs: ProjectionInputs): ProjectionResu
         (monthlyFlow.outflows.essential * fundedRatio) / factor;
       realBridge.discretionarySpending +=
         (monthlyFlow.outflows.discretionary * fundedRatio) / factor;
+      realBridge.liabilityCashPayments +=
+        liabilityCashPayment / factor;
       realBridge.oneTimeOutflows +=
         (monthlyFlow.outflows.oneTime * fundedRatio) / factor;
       realBridge.taxes += (monthlyFlow.outflows.tax * fundedRatio) / factor;
+
+      realNetWorthBridge.externalNetCashInflows +=
+        (income.total + eventInflows) / factor;
+      realNetWorthBridge.incomeWithheldContributions +=
+        incomeWithheldContributions / factor;
+      realNetWorthBridge.nonDebtEssentialSpending +=
+        (monthlyFlow.outflows.essential * fundedRatio) / factor;
+      realNetWorthBridge.discretionarySpending +=
+        (monthlyFlow.outflows.discretionary * fundedRatio) / factor;
+      realNetWorthBridge.liabilityInterest +=
+        liabilityInterest / factor;
+      realNetWorthBridge.taxes +=
+        (monthlyFlow.outflows.tax * fundedRatio) / factor;
+      realNetWorthBridge.oneTimeConsumptionOutflows +=
+        (monthlyFlow.outflows.oneTime * fundedRatio) / factor;
     }
 
-    const currentBalances = accountBalances(inputs.accounts, balances);
+    const currentBalances = balanceSheet(
+      inputs.accounts,
+      balances,
+      inputs.nonFinancialAssets,
+      nonFinancialAssetValues,
+      inputs.liabilities,
+      liabilityBalances,
+    );
     if (financialAssetsDepletionAge === null && currentBalances.financialAssets <= 0.01) {
       financialAssetsDepletionAge = age;
     }
@@ -1711,8 +2285,27 @@ export function calculateProjection(rawInputs: ProjectionInputs): ProjectionResu
           kind: "final_working_month",
           calendarMonth: `${calendarYear}-${String(calendarMonth).padStart(2, "0")}`,
         },
-        nominal: snapshotView(monthlyFlow, inputs.accounts, balances, 1),
-        real: snapshotView(retirementRealMonthlyFlow, inputs.accounts, balances, factor),
+        nominal: snapshotView(
+          monthlyFlow,
+          inputs.accounts,
+          balances,
+          inputs.nonFinancialAssets,
+          nonFinancialAssetValues,
+          inputs.liabilities,
+          liabilityBalances,
+          1,
+        ),
+        real: snapshotView(
+          retirementRealMonthlyFlow,
+          inputs.accounts,
+          balances,
+          inputs.nonFinancialAssets,
+          nonFinancialAssetValues,
+          inputs.liabilities,
+          liabilityBalances,
+          factor,
+          monthlyFlow.liabilitySchedules,
+        ),
       };
       assertSurplusReconciled(
         retirementSnapshot.nominal,
@@ -1726,6 +2319,22 @@ export function calculateProjection(rawInputs: ProjectionInputs): ProjectionResu
         retirementSnapshot.nominal,
         "retirement snapshot nominal",
         inputs.savingsPolicy.mode,
+      );
+      assertBalanceSheetReconciled(
+        retirementSnapshot.nominal,
+        "retirement snapshot nominal",
+      );
+      assertBalanceSheetReconciled(
+        retirementSnapshot.real,
+        "retirement snapshot real",
+      );
+      assertLiabilitySchedulesReconciled(
+        retirementSnapshot.nominal,
+        "retirement snapshot nominal",
+      );
+      assertLiabilitySchedulesReconciled(
+        retirementSnapshot.real,
+        "retirement snapshot real",
       );
       assertSavingsPolicyReconciled(
         retirementSnapshot.real,
@@ -1751,6 +2360,10 @@ export function calculateProjection(rawInputs: ProjectionInputs): ProjectionResu
       nominalBridge.endingFinancialAssets =
         retirementSnapshot.nominal.balances.financialAssets;
       realBridge.endingFinancialAssets = retirementSnapshot.real.balances.financialAssets;
+      nominalNetWorthBridge.endingNetWorth =
+        retirementSnapshot.nominal.balances.totalNetWorth;
+      realNetWorthBridge.endingNetWorth =
+        retirementSnapshot.real.balances.totalNetWorth;
     }
     if (calendarMonth === MONTHS_PER_YEAR || month === totalMonths) {
       snapshot(month, previousSnapshotMonth, calendarYear);
@@ -1768,22 +2381,44 @@ export function calculateProjection(rawInputs: ProjectionInputs): ProjectionResu
     realSurplusThroughRetirement,
     "through retirement real",
   );
-  const nominalBridgeDifference =
-    bridgeCalculatedEnding(nominalBridge) - nominalBridge.endingFinancialAssets;
-  const realBridgeDifference =
-    bridgeCalculatedEnding(realBridge) - realBridge.endingFinancialAssets;
+  const nominalBridgeDifferenceInCents =
+    bridgeDifferenceInCents(nominalBridge);
+  const realBridgeDifferenceInCents = bridgeDifferenceInCents(realBridge);
+  const nominalNetWorthBridgeDifferenceInCents =
+    netWorthBridgeDifferenceInCents(nominalNetWorthBridge);
+  const realNetWorthBridgeDifferenceInCents =
+    netWorthBridgeDifferenceInCents(realNetWorthBridge);
   if (
-    Math.abs(nominalBridgeDifference) > 0.01 ||
-    Math.abs(realBridgeDifference) > 0.01
+    Math.abs(nominalBridgeDifferenceInCents) > 1 ||
+    Math.abs(realBridgeDifferenceInCents) > 1 ||
+    Math.abs(nominalNetWorthBridgeDifferenceInCents) > 1 ||
+    Math.abs(realNetWorthBridgeDifferenceInCents) > 1
   ) {
     throw new Error(
-      `Financial assets bridge failed to reconcile (nominal ${nominalBridgeDifference.toFixed(2)}, real ${realBridgeDifference.toFixed(2)})`,
+      `Balance-sheet bridges failed to reconcile (financial nominal ${monetaryValue(nominalBridgeDifferenceInCents).toFixed(2)}, financial real ${monetaryValue(realBridgeDifferenceInCents).toFixed(2)}, net worth nominal ${monetaryValue(nominalNetWorthBridgeDifferenceInCents).toFixed(2)}, net worth real ${monetaryValue(realNetWorthBridgeDifferenceInCents).toFixed(2)})`,
     );
   }
 
   const ending = annual.at(-1)!;
   const assetsAtRetirement = retirementSnapshot.real.balances.financialAssets;
   const retirementYear = Number(retirementSnapshot.calendarDate.slice(0, 4));
+  const mortgage = inputs.liabilities.find(
+    (liability) => liability.role === "primary_mortgage",
+  );
+  const mortgagePayoffDate = mortgage
+    ? liabilityPayoffDates[mortgage.id] ?? null
+    : null;
+  const mortgagePayoffAge = mortgagePayoffDate
+    ? (() => {
+        const payoffYear = Number(mortgagePayoffDate.slice(0, 4));
+        const payoffMonth = Number(mortgagePayoffDate.slice(5, 7));
+        const offset =
+          (payoffYear - startYear) * 12 +
+          (payoffMonth - startMonth) +
+          1;
+        return round(inputs.person.currentAge + offset / 12);
+      })()
+    : null;
 
   observations.push({
     code: "retirement",
@@ -1811,23 +2446,45 @@ export function calculateProjection(rawInputs: ProjectionInputs): ProjectionResu
   });
 
   return {
-    schemaVersion: "7.0",
+    schemaVersion: "8.0",
     inputs,
     summary: {
       retirementYear,
       retirementDate: retirementSnapshot.calendarDate,
       financialAssetsAtRetirementToday: round(assetsAtRetirement),
+      nonFinancialAssetsAtRetirementToday: round(
+        retirementSnapshot.real.balances.totalNonFinancialAssets,
+      ),
+      liabilitiesAtRetirementToday: round(
+        retirementSnapshot.real.balances.totalLiabilities,
+      ),
+      homeEquityAtRetirementToday: round(
+        retirementSnapshot.real.balances.homeEquity,
+      ),
+      totalNetWorthAtRetirementToday: round(
+        retirementSnapshot.real.balances.totalNetWorth,
+      ),
       retirementGoalToday: round(inputs.retirementGoalToday),
       goalGapToday: round(assetsAtRetirement - inputs.retirementGoalToday),
       financialAssetsDepletionAge:
         financialAssetsDepletionAge === null ? null : round(financialAssetsDepletionAge),
       endingFinancialAssetsToday: round(ending.real.balances.financialAssets),
+      endingNetWorthToday: round(
+        ending.real.balances.totalNetWorth,
+      ),
+      mortgagePayoffDate,
+      mortgagePayoffAge,
     },
     retirementSnapshot,
     financialAssetsBridge: {
       nominal: nominalBridge,
       real: realBridge,
     },
+    netWorthBridge: {
+      nominal: nominalNetWorthBridge,
+      real: realNetWorthBridge,
+    },
+    liabilityPayoffDates,
     governmentBenefits: benefits,
     surplusAllocation: {
       policy: {

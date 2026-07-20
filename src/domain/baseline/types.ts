@@ -27,6 +27,7 @@ export const baselineWarningCodes = [
   "legacy_zero_cpp_amount",
   "legacy_zero_oas_amount",
   "contribution_waterfall_compatibility",
+  "liability_payment_mismatch",
 ] as const;
 
 export type BaselineWarningCode = (typeof baselineWarningCodes)[number];
@@ -59,7 +60,7 @@ export type AccountBaseline = {
   lunchMoneyId: number | null;
   source: "manual" | "plaid" | "cash";
   name: string;
-  plannerType: ProjectionInputs["accounts"][number]["type"];
+  plannerType: ProjectionInputs["accounts"][number]["type"] | "debt";
   balance: number;
   balanceAsOf: string;
   monthlyContribution: number;
@@ -102,6 +103,14 @@ export type CashFlowAudit = {
   investmentContributions: DerivedMetric & {
     accounts: ContributionAccountAudit[];
   };
+  debtPayments: TransactionMetricAudit & {
+    liabilities: Array<{
+      liabilityId: string;
+      liabilityRole: "primary_mortgage" | null;
+      monthlyAverage: number;
+      scheduleReplaced: boolean;
+    }>;
+  };
   recurringExpenses: {
     monthlyTotal: number;
     count: number;
@@ -137,6 +146,7 @@ export type DerivedBaseline = {
       funding: ContributionFunding;
     }>;
   };
+  debtPayments: DerivedMetric;
   recurringExpenses: {
     monthlyTotal: number;
     count: number;
@@ -145,7 +155,7 @@ export type DerivedBaseline = {
 };
 
 export type CurrentBaseline = {
-  schemaVersion: "1.5";
+  schemaVersion: "1.6";
   connection: ConnectionStatus;
   projectionInputs: ProjectionInputs;
   provenance: Record<string, BaselineValue<unknown>>;
@@ -175,6 +185,7 @@ export type BaselineExportContext = Pick<
   | "projectionInputs"
   | "provenance"
   | "derived"
+  | "cashFlowAudit"
   | "dataThrough"
   | "transactionWindow"
   | "recordsAnalyzed"

@@ -43,4 +43,8 @@ export const explanationTooltips: Record<ExplanationTarget, string> = {
     "How explicit savings and remaining positive cash are retained or routed under the resolved simple or advanced policy.",
   "registered-account-room":
     "How one shared TFSA pool and one shared RRSP pool constrain explicit or advanced contribution plans, redirects, and unallocated amounts.",
+  "total-net-worth":
+    "Financial assets plus non-financial assets minus liabilities. Home equity is included here but is not available for retirement withdrawals.",
+  "liability-schedule":
+    "How configured payments split between interest and principal, when lump sums apply, and when each liability is paid off.",
 };

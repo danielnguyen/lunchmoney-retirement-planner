@@ -97,6 +97,16 @@ function fixed(value: number): (inputs: ProjectionInputs) => number {
   return () => value;
 }
 
+function monthlyPaymentEquivalent(
+  amount: number,
+  frequency: "monthly" | "semimonthly" | "biweekly" | "weekly",
+): number {
+  if (frequency === "monthly") return amount;
+  if (frequency === "semimonthly") return amount * 2;
+  if (frequency === "biweekly") return (amount * 26) / 12;
+  return (amount * 52) / 12;
+}
+
 export function buildControls(baseline: ProjectionInputs): ControlDefinition[] {
   const simplePolicy = baseline.savingsPolicy.mode === "simple";
   const controls: ControlDefinition[] = [
@@ -472,7 +482,6 @@ export function buildControls(baseline: ProjectionInputs): ControlDefinition[] {
     tfsa: "TFSA return",
     rrsp_rrif: "RRSP / RRIF return",
     non_registered: "Non-registered return",
-    debt: "Debt balance change",
   };
   const seenTypes = new Set<AccountType>();
   for (const account of baseline.accounts) {
@@ -493,6 +502,116 @@ export function buildControls(baseline: ProjectionInputs): ControlDefinition[] {
         }
       },
     });
+  }
+  const residence = baseline.nonFinancialAssets.find(
+    (asset) => asset.type === "primary_residence",
+  );
+  if (residence) {
+    controls.unshift(
+      {
+        key: "primaryResidence.currentValue",
+        sourceKey: "nonFinancialAssets.primaryResidence.openingValue",
+        label: "Primary residence value",
+        min: fixed(0),
+        max: fixed(Math.max(2_000_000, residence.openingValue * 3)),
+        step: 1_000,
+        format: currency.format,
+        get: (inputs) =>
+          inputs.nonFinancialAssets.find(
+            (asset) => asset.id === residence.id,
+          )!.openingValue,
+        set: (inputs, value) => {
+          inputs.nonFinancialAssets.find(
+            (asset) => asset.id === residence.id,
+          )!.openingValue = value;
+        },
+        inputType: "number",
+      },
+      {
+        key: "primaryResidence.annualAppreciation",
+        sourceKey: "nonFinancialAssets.primaryResidence.annualAppreciation",
+        label: "Residence annual appreciation",
+        min: fixed(-0.2),
+        max: fixed(0.5),
+        step: 0.001,
+        format: percent.format,
+        get: (inputs) =>
+          inputs.nonFinancialAssets.find(
+            (asset) => asset.id === residence.id,
+          )!.annualAppreciation,
+        set: (inputs, value) => {
+          inputs.nonFinancialAssets.find(
+            (asset) => asset.id === residence.id,
+          )!.annualAppreciation = value;
+        },
+        inputType: "number",
+      },
+    );
+  }
+  for (const liability of baseline.liabilities) {
+    if (liability.treatment.mode !== "amortizing") continue;
+    const baselineTreatment = liability.treatment;
+    controls.unshift(
+      {
+        key: `liability.${liability.id}.annualInterestRate`,
+        sourceKey: `liabilities.${liability.id}.treatment.annualInterestRate`,
+        label: `${liability.label} annual interest rate`,
+        min: fixed(0),
+        max: fixed(0.5),
+        step: 0.001,
+        format: percent.format,
+        get: (inputs) => {
+          const treatment = inputs.liabilities.find(
+            (item) => item.id === liability.id,
+          )!.treatment;
+          return treatment.mode === "amortizing"
+            ? treatment.annualInterestRate
+            : 0;
+        },
+        set: (inputs, value) => {
+          const treatment = inputs.liabilities.find(
+            (item) => item.id === liability.id,
+          )!.treatment;
+          if (treatment.mode === "amortizing") {
+            treatment.annualInterestRate = value;
+          }
+        },
+        inputType: "number",
+      },
+      {
+        key: `liability.${liability.id}.regularPayment.amount`,
+        sourceKey: `liabilities.${liability.id}.treatment.regularPaymentAmount`,
+        label: `${liability.label} regular payment`,
+        min: fixed(0.01),
+        max: fixed(
+          Math.max(20_000, baselineTreatment.regularPayment.amount * 3),
+        ),
+        step: 1,
+        format: exactCurrency.format,
+        get: (inputs) => {
+          const treatment = inputs.liabilities.find(
+            (item) => item.id === liability.id,
+          )!.treatment;
+          return treatment.mode === "amortizing"
+            ? treatment.regularPayment.amount
+            : 0;
+        },
+        set: (inputs, value) => {
+          const treatment = inputs.liabilities.find(
+            (item) => item.id === liability.id,
+          )!.treatment;
+          if (treatment.mode === "amortizing") {
+            treatment.regularPayment.amount = value;
+            treatment.regularPayment.monthlyEquivalent =
+              monthlyPaymentEquivalent(
+                value,
+                treatment.regularPayment.frequency,
+              );
+          }
+        },
+        inputType: "number",
+      },
+    );
   }
   return controls;
 }
@@ -742,7 +861,7 @@ export function PlannerDashboard() {
         { name: "Equity", value: selectedAllocationView.allocation.equity },
       ].filter((item) => item.value > 0)
     : [];
-  const financialAccounts = inputs.accounts.filter((account) => account.type !== "debt");
+  const financialAccounts = inputs.accounts;
   const importedStartingFinancialAssets = startingFinancialAssets(
     baseline.projectionInputs.accounts,
   );
@@ -874,18 +993,55 @@ export function PlannerDashboard() {
                 onExplain={openExplanation}
               />
               <strong>{currency.format(importedStartingFinancialAssets)}</strong>
-              <small>Imported balances as of {baseline.dataThrough} · debt excluded</small>
+              <small>Imported balances as of {baseline.dataThrough} · liabilities shown separately</small>
             </article>
             <article className="metric-card">
               <ExplainableHeading
                 compact
                 headingLevel="span"
                 target="assets-at-retirement"
-                title="Assets at retirement"
+                title="Retirement funding assets"
                 onExplain={openExplanation}
               />
               <strong>{currency.format(projection.summary.financialAssetsAtRetirementToday)}</strong>
-              <small>{projection.summary.retirementDate} · financial assets only</small>
+              <small>{projection.summary.retirementDate} · home equity unavailable</small>
+            </article>
+            <article className="metric-card">
+              <ExplainableHeading
+                compact
+                headingLevel="span"
+                target="total-net-worth"
+                title="Home equity"
+                onExplain={openExplanation}
+              />
+              <strong>{currency.format(projection.summary.homeEquityAtRetirementToday)}</strong>
+              <small>Residence less linked mortgage at retirement</small>
+            </article>
+            <article className="metric-card">
+              <ExplainableHeading
+                compact
+                headingLevel="span"
+                target="liability-schedule"
+                title="Total liabilities"
+                onExplain={openExplanation}
+              />
+              <strong>{currency.format(projection.summary.liabilitiesAtRetirementToday)}</strong>
+              <small>
+                {projection.summary.mortgagePayoffDate
+                  ? `Mortgage payoff ${projection.summary.mortgagePayoffDate}`
+                  : "At retirement"}
+              </small>
+            </article>
+            <article className="metric-card">
+              <ExplainableHeading
+                compact
+                headingLevel="span"
+                target="total-net-worth"
+                title="Total net worth"
+                onExplain={openExplanation}
+              />
+              <strong>{currency.format(projection.summary.totalNetWorthAtRetirementToday)}</strong>
+              <small>Financial and non-financial assets less liabilities</small>
             </article>
             <article className="metric-card">
               <ExplainableHeading
@@ -1063,7 +1219,7 @@ export function PlannerDashboard() {
                 <ExplainableHeading
                   kicker="Cash outflow"
                   target="annual-outflows"
-                  title="Spending, taxes, and contributions"
+                  title="Spending, liability payments, taxes, and contributions"
                   onExplain={openExplanation}
                 />
                 <div className="chart-shell medium">
@@ -1082,12 +1238,63 @@ export function PlannerDashboard() {
                       <Bar dataKey="essential" name="Essential" stackId="outflow" fill="#55b8d8" />
                       <Bar dataKey="discretionary" name="Discretionary" stackId="outflow" fill="#8c78dd" />
                       <Bar dataKey="oneTime" name="One-time events" stackId="outflow" fill="#d99269" />
+                      <Bar dataKey="liabilityCashPayment" name="Liability payments" stackId="outflow" fill="#d8bd65" />
                       <Bar dataKey="tax" name="Simplified retirement tax" stackId="outflow" fill="#ef7d86" />
                       <Bar dataKey="contributions" name="Cash-funded contributions" stackId="outflow" fill="#70d6b2" />
                     </BarChart>
                   </ResponsiveContainer>
                 </div>
               </article>
+
+              {inputs.nonFinancialAssets.length > 0 ||
+              inputs.liabilities.length > 0 ? (
+                <>
+                  <article className="report-card wide-chart">
+                    <ExplainableHeading
+                      kicker="Balance sheet"
+                      target="total-net-worth"
+                      title="Assets and total net worth"
+                      onExplain={openExplanation}
+                    />
+                    <div className="chart-shell medium">
+                      <ResponsiveContainer width="100%" height="100%">
+                        <ComposedChart data={chartData}>
+                          <CartesianGrid stroke="#24364d" strokeDasharray="3 3" vertical={false} />
+                          <XAxis dataKey="year" stroke="#9eb0c4" minTickGap={28} />
+                          <YAxis stroke="#9eb0c4" tickFormatter={compactCurrency} width={72} />
+                          <Tooltip formatter={(value) => currency.format(Number(value))} />
+                          <Legend />
+                          <Line dataKey="financialAssets" name="Retirement funding assets" stroke="#55b8d8" strokeWidth={2} dot={false} />
+                          <Line dataKey="residenceValue" name="Residence value" stroke="#d8bd65" strokeWidth={2} dot={false} />
+                          <Line dataKey="totalNetWorth" name="Total net worth" stroke="#f6f8fb" strokeWidth={3} dot={false} />
+                        </ComposedChart>
+                      </ResponsiveContainer>
+                    </div>
+                  </article>
+                  <article className="report-card wide-chart">
+                    <ExplainableHeading
+                      kicker="Home and liabilities"
+                      target="liability-schedule"
+                      title="Liabilities and home equity"
+                      onExplain={openExplanation}
+                    />
+                    <div className="chart-shell medium">
+                      <ResponsiveContainer width="100%" height="100%">
+                        <ComposedChart data={chartData}>
+                          <CartesianGrid stroke="#24364d" strokeDasharray="3 3" vertical={false} />
+                          <XAxis dataKey="year" stroke="#9eb0c4" minTickGap={28} />
+                          <YAxis stroke="#9eb0c4" tickFormatter={compactCurrency} width={72} />
+                          <Tooltip formatter={(value) => currency.format(Number(value))} />
+                          <Legend />
+                          <Area dataKey="homeEquity" name="Home equity" fill="#70d6b2" stroke="#70d6b2" />
+                          <Line dataKey="mortgageBalance" name="Mortgage balance" stroke="#ef7d86" strokeWidth={3} dot={false} />
+                          <Line dataKey="totalLiabilities" name="Total liabilities" stroke="#d99269" strokeWidth={2} dot={false} />
+                        </ComposedChart>
+                      </ResponsiveContainer>
+                    </div>
+                  </article>
+                </>
+              ) : null}
 
               <article className="report-card wide-chart">
                 <ExplainableHeading
@@ -1187,12 +1394,12 @@ export function PlannerDashboard() {
                 />
                 <div className="table-shell">
                   <table>
-                    <thead><tr><th>Year</th><th>Age</th><th>Income</th><th>Withdrawals</th><th>Tax</th><th>Spending</th><th>Actual contributions</th><th>{inputs.savingsPolicy.mode === "simple" ? "Reserve-plan investing" : "Surplus funded"}</th><th>Financial assets</th><th>Milestones</th></tr></thead>
+                    <thead><tr><th>Year</th><th>Age</th><th>Income</th><th>Withdrawals</th><th>Tax</th><th>Spending</th><th>Liability payments</th><th>Actual contributions</th><th>{inputs.savingsPolicy.mode === "simple" ? "Reserve-plan investing" : "Surplus funded"}</th><th>Financial assets</th><th>Total net worth</th><th>Milestones</th></tr></thead>
                     <tbody>
                       {ledgerData.map((row) => (
                         <tr key={row.year}>
                           <td>{row.periodLabel}</td><td>{row.age}</td><td>{currency.format(row.income)}</td><td>{currency.format(row.withdrawals)}</td><td>{currency.format(row.tax)}</td>
-                          <td>{currency.format(row.spending)}</td><td>{currency.format(row.actualContributions)}</td><td>{currency.format(row.surplusFundedContributions)}</td><td>{currency.format(row.financialAssets)}</td><td>{row.milestones}</td>
+                          <td>{currency.format(row.spending)}</td><td>{currency.format(row.liabilityCashPayment)}</td><td>{currency.format(row.actualContributions)}</td><td>{currency.format(row.surplusFundedContributions)}</td><td>{currency.format(row.financialAssets)}</td><td>{currency.format(row.totalNetWorth)}</td><td>{row.milestones}</td>
                         </tr>
                       ))}
                     </tbody>
@@ -1398,6 +1605,41 @@ export function PlannerDashboard() {
                     <div><dt>TFSA closing room</dt><dd>{currency.format(projection.annual[0]?.[mode].registeredAccountRoom.tfsa.closingRoom ?? 0)}</dd></div>
                     <div><dt>RRSP closing room</dt><dd>{currency.format(projection.annual[0]?.[mode].registeredAccountRoom.rrsp.closingRoom ?? 0)}</dd></div>
                     <div><dt>Room denomination</dt><dd>Nominal regulatory dollars · unaffected by display mode</dd></div>
+                  </dl>
+                </div>
+              ) : null}
+              {inputs.nonFinancialAssets.length > 0 ||
+              inputs.liabilities.length > 0 ? (
+                <div>
+                  <ExplainableHeading
+                    compact
+                    headingLevel="h3"
+                    target="total-net-worth"
+                    title="Residence and liabilities"
+                    onExplain={openExplanation}
+                  />
+                  <dl>
+                    {inputs.nonFinancialAssets.map((asset) => (
+                      <div key={asset.id}>
+                        <dt>{asset.label}</dt>
+                        <dd>
+                          {currency.format(asset.openingValue)} as of{" "}
+                          {asset.valueAsOf} ·{" "}
+                          {percent.format(asset.annualAppreciation)} annual
+                          appreciation · unavailable for withdrawals
+                        </dd>
+                      </div>
+                    ))}
+                    {inputs.liabilities.map((liability) => (
+                      <div key={liability.id}>
+                        <dt>{liability.label}</dt>
+                        <dd>
+                          {liability.treatment.mode === "amortizing"
+                            ? `${percent.format(liability.treatment.annualInterestRate)} · ${exactCurrency.format(liability.treatment.regularPayment.amount)} ${liability.treatment.regularPayment.frequency} · ${exactCurrency.format(liability.treatment.regularPayment.monthlyEquivalent)} monthly equivalent`
+                            : liability.treatment.mode.replaceAll("_", " ")}
+                        </dd>
+                      </div>
+                    ))}
                   </dl>
                 </div>
               ) : null}

@@ -8,10 +8,10 @@ The end-to-end MVP is defined in [plan/README.md](plan/README.md). The runtime n
 
 - Connects to Lunch Money API v2 with retrieval methods only
 - Fetches manual accounts, Plaid accounts, categories, recurring items, and paginated trailing transactions on demand
-- Derives account balances, net deposited employment cash, essential and discretionary spending, investment contributions, recurring expenses, and a data-through date
+- Derives financial-account and liability balances, net deposited employment cash, non-debt spending, historical debt-payment evidence, investment contributions, recurring expenses, and a data-through date
 - Requires explicit account and category mappings; unmapped live records are shown with the identifiers needed to configure them
 - Runs a deterministic monthly, single-person retirement projection with explicit employment assumptions, registered-room pools, and named savings plans
-- Shows annual spending, cash inflow, cash outflow, explicit savings and retained cash, account-level financial assets, allocation, milestones, and an annual ledger
+- Shows annual cash flow, explicit savings, financial assets, residence value, liabilities, home equity, total net worth, allocation, milestones, and an annual ledger
 - Explains every major summary, chart, ledger, cash-flow input, and account section with reconciled formulas, values, dates, and provenance
 - Supports temporary browser overrides, per-field reset, reset all, and explicit refresh
 - Exports an automatically anonymized resolved baseline, provenance, warnings, active overrides, and projection as JSON or CSV
@@ -54,7 +54,7 @@ The easiest configuration workflow is:
 2. Refresh. The blocking state lists every unmapped account ID and name.
 3. Map every account to `cash`, `tfsa`, `rrsp`, `non_registered`, `debt`, or `exclude`.
 4. Refresh again. The blocking state lists categories used by included accounts in the trailing window and reviewed recurring items.
-5. Map each listed category to `essential`, `discretionary`, `income`, `investment_contribution`, `transfer`, or `exclude`.
+5. Map each listed category to `essential`, `discretionary`, `income`, `investment_contribution`, `debt_payment`, `transfer`, or `exclude`.
 6. Assign the required account roles, then replace the generic room, savings-plan, reserve, government-benefit, goal, return, allocation, tax, and pension assumptions.
 
 Credit-card payments and internal movements must be mapped as `transfer` or `exclude`; the planner does not infer them from a payee or account name. Categories marked “exclude from totals” in Lunch Money are ignored automatically.
@@ -145,6 +145,25 @@ The primary configuration places every account ID in exactly one location: as a 
 
 When no included account has `personal_taxable`, the compiler creates a deterministic projection-only non-registered destination. It inherits the configured non-registered return and allocation, derives the next withdrawal priority, has no independent contribution phase, and opens at exactly zero. A later imported `personal_taxable` role replaces it without changing the policy. Projection-only accounts remain distinct from imported Lunch Money balances everywhere.
 
+### Residence, liabilities, and net worth
+
+`primaryResidence` records a dated market-value estimate and an explicit nominal appreciation assumption. A linked debt mapping uses the `primary_mortgage` role plus either an amortizing schedule or an explicit payoff-at-projection-start treatment. A mortgage-free residence needs no linked liability. Financial accounts contain only cash and investments; imported debts resolve once as liabilities and never remain duplicated in the account list.
+
+Amortizing schedules retain the entered payment amount and frequency, convert it to a monthly equivalent, split each payment between interest and principal, apply dated lump sums, reduce the last payment to the exact amount due, and stop at payoff. The full payment leaves financial assets. Interest is consumption; principal reduces financial assets and the liability together, so principal has no direct net-worth effect. Rate renewals, refinancing, and property sales are not modelled.
+
+The primary example removes debt return, allocation, and withdrawal-priority fields because liabilities are not investments. Legacy zero return, all-zero allocation, and debt priority values are accepted only as ignored migration compatibility; non-zero debt return/allocation and every untreated positive debt are rejected.
+
+Map historical mortgage or other scheduled-debt payment categories as `debt_payment`. They are excluded from ordinary essential and discretionary spending and retained as audit evidence, while the configured schedule supplies future payments exactly once. If historical payments are already absent because they are transfers or excluded, the configuration must say so explicitly. A material difference between the historical monthly evidence and the configured monthly equivalent produces a warning.
+
+The report keeps two distinct measures:
+
+```text
+retirement funding assets = cash + TFSA + RRSP/RRIF + non-registered investments
+total net worth = financial assets + non-financial assets - liabilities
+```
+
+Home equity is residence value less its linked mortgage. It contributes to total net worth but is not available for retirement withdrawals and cannot extend depletion age without a future explicit sale or conversion capability.
+
 ### Simplified registered room
 
 `registeredRoom` asks only for user-supplied TFSA and RRSP room available at projection start plus required effective dates. These values are remaining contribution room—not account balances, annual limits, or lifetime contributions. For February–December projection starts, RRSP `currentYearBeforePlanStart` provides eligible earned income, pension adjustment, and other reduction accumulated since January 1. January starts may omit that block; its internal values are then zero. Room is never inferred from balances, transactions, account age, or net deposited employment cash.
@@ -173,9 +192,9 @@ Registered-room ledgers are always labelled and displayed in nominal regulatory 
 
 The exact `retirementSnapshot` keeps end-of-final-working-month balances and allocation. Its flow fields describe only that final working month, identified by `flowPeriod`; cumulative activity from today through retirement belongs to `financialAssetsBridge`.
 
-Baseline schema `1.5` includes aggregate cash-flow audit evidence, simple/advanced mode, resolved employment and savings phases, role and compiler provenance, concrete CPP/OAS inputs, projection-only accounts, the resolved surplus policy, registered room, waterfall routing, and field-level provenance. It contains category/account names and reconciled aggregates—not raw transactions, transaction IDs, credentials, tokens, or private statement metadata.
+Baseline schema `1.6` includes aggregate cash-flow and debt-payment audit evidence, distinct financial accounts, non-financial assets and liabilities, simple/advanced mode, resolved employment and savings phases, concrete CPP/OAS inputs, registered room, routing, and field-level provenance. It contains category/account names and reconciled aggregates—not raw transactions, transaction IDs, credentials, tokens, or private statement metadata.
 
-The Assets at retirement explanation uses the exact end-of-final-working-month snapshot. It shows both the account-type sum and a today-dollar accumulation bridge from starting financial assets through income, public benefits, income-withheld contributions, returns, spending, events, and taxes. Cash-funded contributions are internal transfers and do not change the bridge total. A success label appears only when the bridge and displayed card value agree within one cent.
+The Retirement funding assets explanation uses the exact end-of-final-working-month snapshot and the financial-assets bridge. Separate total-net-worth and liability-schedule explanations show the three-part balance sheet, residence appreciation, interest/principal split, historical-payment replacement, payoff boundary, and a cent-stable net-worth bridge. Cash-funded contributions and principal repayment are internal balance-sheet movements; only interest is consumption. Success labels appear only when the shared result reconciles within one cent.
 
 Covered targets are the summary cards, main charts including annual explicit savings/retained cash and registered room, annual ledger, cash-flow provenance rows, imported and projection-only account sections, the resolved savings policy, registered contribution routing, and concrete CPP and OAS benefit calculations.
 
@@ -194,7 +213,7 @@ POST /api/v1/exports/projection-csv
 
 `GET /api/v1/lunchmoney/status` validates the token with a read-only categories request and returns a sanitized result.
 
-`GET /api/v1/baseline/current` returns schema `1.5` projection inputs, simple/advanced mode, role/compiler, phase, government-benefit, projection-account, savings-policy, registered-room, and waterfall provenance, derived values, aggregate cash-flow audit evidence, transaction window, records analysed, warnings, and mapping details.
+`GET /api/v1/baseline/current` returns schema `1.6` projection inputs, simple/advanced mode, role/compiler, phase, benefit, financial-account, non-financial-asset, liability, savings-policy, registered-room, and waterfall provenance; derived values; cash-flow and debt-payment audit evidence; warnings; and mapping details.
 
 Projection requests use this shape:
 
@@ -216,7 +235,7 @@ Export requests use the current baseline response, active inputs, and browser ov
 
 Every normal JSON and CSV export is automatically anonymized; there is no raw or private export mode. Financial amounts, dates, account types and origins, assumptions, CPP/OAS and savings calculation summaries, sanitized policy preview, public Canadian reference metadata, the exact retirement snapshot, and both accumulation bridges remain available for analysis. Imported and projection-only account IDs, role and policy references, account and institution labels, employer, category, event, recurring-expense, warning, and employment/contribution/savings-phase text are replaced with stable generic aliases based only on record type and order.
 
-Schema `7.0` JSON is the complete analysis document and uses a typed allowlist with export-local aliases; it never recursively copies source objects. JSON retains typed room ledgers, compiled route arrays, the simple policy preview, explicit plan totals, retained cash, and policy references containing only sanitized aliases. The flat CSV keeps one row per annual period with scalar explicit-plan, unplanned-cash, TFSA/RRSP room, contribution, and deterministic per-account fields. It never embeds role lists, route arrays, phase arrays, maps, JSON, or delimited lists in cells. Both formats remain automatically anonymized.
+Schema `8.0` JSON is the complete analysis document and uses a typed allowlist with export-local aliases; it never recursively copies source objects. JSON retains typed non-financial assets, liabilities and schedules, debt-payment evidence, balance sheets, financial-assets and net-worth bridges, room ledgers, routes, and policy results with sanitized references. The flat CSV keeps one row per annual period with scalar balance-sheet, liability-flow, explicit-plan, unplanned-cash, room, contribution, and deterministic per-account fields. It never embeds schedules, role lists, route arrays, phase arrays, maps, JSON, or delimited lists in cells. Both formats remain automatically anonymized.
 
 ## Docker Compose
 

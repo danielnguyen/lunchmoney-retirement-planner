@@ -262,16 +262,22 @@ function buildExportFixture(): ExportFixture {
       transactionCount: 3,
     },
   ];
-  Object.assign(baseline, {
-    cashFlowAudit: {
-      income: {
+  baseline.cashFlowAudit.income = {
+    trailingTotal: 1,
+    monthlyAverage: 1,
+    transactionCount: 1,
+    breakdown: [
+      {
+        categoryId: AUDIT_RAW_ID,
+        categoryName: PRIVATE_TEXT.merchant,
+        accountId: RAW_IDS.cash,
+        accountName: RAW_ACCOUNT_NAMES.cash,
+        transactionCount: 1,
         trailingTotal: 1,
         monthlyAverage: 1,
-        transactionCount: 1,
-        breakdown: [{ categoryId: AUDIT_RAW_ID, accountId: RAW_IDS.cash }],
       },
-    },
-  });
+    ],
+  };
 
   const projection = calculateProjection(inputs);
   const previousToken = process.env.LUNCHMONEY_API_TOKEN;
@@ -365,8 +371,8 @@ describe("automatically anonymized projection exports", () => {
     const { snapshot } = buildExportFixture();
     const serialized = JSON.stringify(snapshot);
 
-    expect(snapshot.schemaVersion).toBe("7.0");
-    expect(snapshot.projection.schemaVersion).toBe("7.0");
+    expect(snapshot.schemaVersion).toBe("8.0");
+    expect(snapshot.projection.schemaVersion).toBe("8.0");
     expect(snapshot.exportMetadata).toEqual({
       transformation: "typed_allowlist_and_automatic_anonymization",
       automaticSanitizationApplied: true,
@@ -378,6 +384,8 @@ describe("automatically anonymized projection exports", () => {
         { key: "cash_1", label: "Cash account 1", plannerType: "cash" },
         { key: "rrsp_1", label: "RRSP/RRIF account 1", plannerType: "rrsp_rrif" },
       ],
+      nonFinancialAssetAliases: [],
+      liabilityAliases: [],
     });
     expect(snapshot.resolvedBaseline.accounts.map(({ label }) => label)).toEqual([
       "Cash account 1",
@@ -788,7 +796,7 @@ describe("automatically anonymized projection exports", () => {
     expect(csv).not.toMatch(/[{}[\]]/);
     expect(lines).not.toContain("");
 
-    const financialAssetsColumn = header.indexOf("financialAssets");
+    const financialAssetsColumn = header.indexOf("financial_assets");
     expect(Number(parsed[1]![financialAssetsColumn])).toBe(
       snapshot.projection.annual[0]!.real.balances.financialAssets,
     );
@@ -993,7 +1001,7 @@ describe("automatically anonymized projection exports", () => {
     );
     const serialized = JSON.stringify(snapshot);
 
-    expect(snapshot.schemaVersion).toBe("7.0");
+    expect(snapshot.schemaVersion).toBe("8.0");
     expect(snapshot.projection.inputs.accounts.at(-1)).toMatchObject({
       id: "non_registered_1",
       label: "Non-registered account 1",
@@ -1595,6 +1603,175 @@ describe("automatically anonymized projection exports", () => {
       );
       expect(lines.flat().some((cell) => /[\[\]{}]/.test(cell))).toBe(false);
       expect(lines.flat().some((cell) => cell.includes(";"))).toBe(false);
+    }
+  });
+
+  it("aliases residence and liability structures while keeping balance-sheet CSV fields scalar and rectangular", () => {
+    const fixture = buildExportFixture();
+    const inputs = structuredClone(fixture.inputs);
+    const baseline = structuredClone(fixture.baseline);
+    const liabilityId = "manual:private-mortgage-919199";
+    const privateLiabilityLabel =
+      `${PRIVATE_TEXT.institution} mortgage at ${PRIVATE_TEXT.streetAddress}`;
+    const privateResidenceLabel =
+      `Home at ${PRIVATE_TEXT.streetAddress}`;
+    inputs.nonFinancialAssets = [
+      {
+        id: "non_financial:private-home-919198",
+        label: privateResidenceLabel,
+        origin: "projection_configuration",
+        type: "primary_residence",
+        openingValue: 500000,
+        valueAsOf: "2026-07-14",
+        annualAppreciation: 0.02,
+        availableForWithdrawals: false,
+      },
+    ];
+    inputs.liabilities = [
+      {
+        id: liabilityId,
+        label: privateLiabilityLabel,
+        origin: "lunchmoney",
+        openingBalance: 10000,
+        balanceAsOf: "2026-07-14",
+        role: "primary_mortgage",
+        treatment: {
+          mode: "amortizing",
+          annualInterestRate: 0.04,
+          regularPayment: {
+            amount: 1000,
+            frequency: "monthly",
+            monthlyEquivalent: 1000,
+          },
+          scheduleStartDate: "2026-07-01",
+          lumpSumPayments: [],
+        },
+        historicalPaymentHandling: "category_mapped",
+        historicalMonthlyAverage: 1000,
+      },
+    ];
+    baseline.projectionInputs = structuredClone(inputs);
+    baseline.derived.accountBalances.push({
+      id: liabilityId,
+      lunchMoneyId: 919199,
+      source: "manual",
+      name: privateLiabilityLabel,
+      plannerType: "debt",
+      balance: 10000,
+      balanceAsOf: "2026-07-14T00:00:00Z",
+      monthlyContribution: 0,
+      contributionSource: "lunchmoney_derived",
+      contributionFunding: undefined,
+    });
+    baseline.derived.debtPayments = {
+      trailingTotal: 12000,
+      monthlyAverage: 1000,
+      transactionCount: 12,
+    };
+    baseline.provenance[
+      `liabilities.${liabilityId}.openingBalance`
+    ] = {
+      value: 10000,
+      sourceType: "lunchmoney_derived",
+      sourceDescription: privateLiabilityLabel,
+      effectiveDate: "2026-07-14",
+    };
+    baseline.provenance[
+      `liabilities.${liabilityId}.treatment.annualInterestRate`
+    ] = {
+      value: 0.04,
+      sourceType: "local_configuration",
+      sourceDescription: PRIVATE_TEXT.note,
+      effectiveDate: "2026-07-14",
+    };
+    baseline.provenance[
+      "nonFinancialAssets.primaryResidence.openingValue"
+    ] = {
+      value: 500000,
+      sourceType: "local_configuration",
+      sourceDescription: privateResidenceLabel,
+      effectiveDate: "2026-07-14",
+    };
+    const projection = calculateProjection(inputs);
+    const snapshot = createProjectionSnapshot(
+      projection,
+      baseline,
+      {
+        "primaryResidence.currentValue": 510000,
+        [`liability.${liabilityId}.annualInterestRate`]: 0.05,
+        [`liability.${liabilityId}.regularPayment.amount`]: 1100,
+      },
+      "2026-07-14T00:00:00.000Z",
+    );
+    const serialized = JSON.stringify(snapshot);
+
+    expect(snapshot.exportMetadata.nonFinancialAssetAliases).toEqual([
+      {
+        key: "non_financial_asset_1",
+        label: "Non-financial asset 1",
+      },
+    ]);
+    expect(snapshot.exportMetadata.liabilityAliases).toEqual([
+      { key: "liability_1", label: "Liability 1" },
+    ]);
+    expect(snapshot.projection.inputs.nonFinancialAssets[0]).toMatchObject({
+      id: "non_financial_asset_1",
+      label: "Non-financial asset 1",
+      openingValue: 500000,
+    });
+    expect(snapshot.projection.inputs.liabilities[0]).toMatchObject({
+      id: "liability_1",
+      label: "Liability 1",
+      openingBalance: 10000,
+    });
+    expect(
+      snapshot.projection.annual[0]!.nominal.liabilitySchedules,
+    ).toHaveProperty("liability_1");
+    expect(snapshot.projection.liabilityPayoffDates).toHaveProperty(
+      "liability_1",
+    );
+    expect(snapshot.activeOverrides).toMatchObject({
+      "primaryResidence.currentValue": 510000,
+      "liability.liability_1.annualInterestRate": 0.05,
+      "liability.liability_1.regularPayment.amount": 1100,
+    });
+    for (const value of [
+      liabilityId,
+      privateLiabilityLabel,
+      privateResidenceLabel,
+      PRIVATE_TEXT.streetAddress,
+      PRIVATE_TEXT.institution,
+    ]) {
+      expect(serialized).not.toContain(value);
+    }
+
+    for (const mode of ["real", "nominal"] as const) {
+      const csv = projectionSnapshotToCsv(snapshot, mode);
+      const rows = csv.split("\n").map(parseCsvLine);
+      const header = rows[0]!;
+      expect(header).toEqual(
+        expect.arrayContaining([
+          "financial_assets",
+          "non_financial_assets",
+          "total_assets",
+          "mortgage_balance",
+          "other_liabilities",
+          "total_liabilities",
+          "home_equity",
+          "total_net_worth",
+          "liability_cash_payment",
+          "liability_interest",
+          "liability_principal",
+          "liability_lump_sum_principal",
+        ]),
+      );
+      expect(
+        rows.every((row) => row.length === header.length),
+      ).toBe(true);
+      expect(csv).not.toContain(liabilityId);
+      expect(csv).not.toContain(privateLiabilityLabel);
+      expect(csv).not.toContain(privateResidenceLabel);
+      expect(csv).not.toMatch(/[{}[\]]/);
     }
   });
 });

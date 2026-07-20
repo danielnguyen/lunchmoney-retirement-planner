@@ -24,6 +24,8 @@ export const explanationTargets = [
   "oas-benefit",
   "surplus-allocation",
   "registered-account-room",
+  "total-net-worth",
+  "liability-schedule",
 ] as const;
 
 export type ExplanationTarget = (typeof explanationTargets)[number];

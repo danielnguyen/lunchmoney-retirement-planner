@@ -277,6 +277,70 @@ function section(document: ExplanationDocument, title: string) {
   return document.dataSections.find((item) => item.title === title)!;
 }
 
+function balanceSheetContext(
+  mode: "real" | "nominal" = "nominal",
+): ExplanationContext {
+  return context((draft) => {
+    draft.displayMode = mode;
+    draft.inputs.nonFinancialAssets = [
+      {
+        id: "non_financial:primary_residence",
+        label: "Synthetic residence",
+        origin: "projection_configuration",
+        type: "primary_residence",
+        openingValue: 500000,
+        valueAsOf: "2026-07-14",
+        annualAppreciation: 0.02,
+        availableForWithdrawals: false,
+      },
+    ];
+    draft.inputs.liabilities = [
+      {
+        id: "synthetic:mortgage",
+        label: "Synthetic mortgage",
+        origin: "lunchmoney",
+        openingBalance: 20000,
+        balanceAsOf: "2026-07-14",
+        role: "primary_mortgage",
+        treatment: {
+          mode: "amortizing",
+          annualInterestRate: 0.04,
+          regularPayment: {
+            amount: 1000,
+            frequency: "monthly",
+            monthlyEquivalent: 1000,
+          },
+          scheduleStartDate: "2026-07-01",
+          lumpSumPayments: [],
+        },
+        historicalPaymentHandling: "category_mapped",
+        historicalMonthlyAverage: 1000,
+      },
+    ];
+    draft.baseline.projectionInputs = structuredClone(draft.inputs);
+    draft.baseline.cashFlowAudit.debtPayments = {
+      trailingTotal: 12000,
+      monthlyAverage: 1000,
+      transactionCount: 12,
+      breakdown: [],
+      liabilities: [
+        {
+          liabilityId: "synthetic:mortgage",
+          liabilityRole: "primary_mortgage",
+          monthlyAverage: 1000,
+          scheduleReplaced: true,
+        },
+      ],
+    };
+    draft.baseline.derived.debtPayments = {
+      trailingTotal: 12000,
+      monthlyAverage: 1000,
+      transactionCount: 12,
+    };
+    draft.projection = calculateProjection(draft.inputs);
+  });
+}
+
 function finiteNumbers(value: unknown): boolean {
   if (typeof value === "number") return Number.isFinite(value);
   if (Array.isArray(value)) return value.every(finiteNumbers);
@@ -289,17 +353,6 @@ function finiteNumbers(value: unknown): boolean {
 describe("calculation explanations", () => {
   it("reconciles starting financial-asset account rows and excludes debt", () => {
     const value = context((draft) => {
-      draft.baseline.projectionInputs.accounts.push({
-        id: "manual:debt",
-        label: "Synthetic debt",
-        origin: "lunchmoney",
-        type: "debt",
-        openingBalance: 50000,
-        annualReturn: 0,
-        contributionPhases: [],
-        withdrawalPriority: 999,
-        allocation: { cash: 0, fixedIncome: 0, equity: 0 },
-      });
       draft.baseline.derived.accountBalances.push({
         id: "manual:debt",
         lunchMoneyId: 99,
@@ -404,7 +457,7 @@ describe("calculation explanations", () => {
       buildExplanation("annual-ledger", value),
       "Displayed ledger data",
     ).rows;
-    const accounts = value.inputs.accounts.filter((account) => account.type !== "debt");
+    const accounts = value.inputs.accounts;
 
     expect(funding).toEqual(plotted.map((row) => ({
       periodLabel: row.periodLabel,
@@ -424,6 +477,7 @@ describe("calculation explanations", () => {
       contributionPhases: row.contributionPhases || "No active contribution phase",
       essential: row.essential,
       discretionary: row.discretionary,
+      liabilityCashPayment: row.liabilityCashPayment,
       oneTime: row.oneTime,
       tax: row.tax,
       contributions: row.contributions,
@@ -583,34 +637,34 @@ describe("calculation explanations", () => {
     ).some((warning) => warning.code === "long_live_baseline_income")).toBe(false);
   });
 
-  it("reconciles multiple financial and debt accounts to the total included-account count", () => {
-    const debtAccounts: FinancialAccountInput[] = [
+  it("reconciles imported and projection-only financial accounts to the included-account count", () => {
+    const additionalAccounts: FinancialAccountInput[] = [
       {
-        id: "manual:debt-1",
-        label: "Synthetic debt one",
+        id: "manual:extra-tfsa",
+        label: "Synthetic TFSA",
         origin: "lunchmoney",
-        type: "debt",
+        type: "tfsa",
         openingBalance: 10000,
-        annualReturn: 0,
+        annualReturn: 0.04,
         contributionPhases: [],
-        withdrawalPriority: 98,
-        allocation: { cash: 0, fixedIncome: 0, equity: 0 },
+        withdrawalPriority: 3,
+        allocation: { cash: 0, fixedIncome: 0.2, equity: 0.8 },
       },
       {
-        id: "manual:debt-2",
-        label: "Synthetic debt two",
-        origin: "lunchmoney",
-        type: "debt",
-        openingBalance: 20000,
-        annualReturn: 0,
+        id: "projection:extra-taxable",
+        label: "Synthetic future taxable",
+        origin: "projection_configuration",
+        type: "non_registered",
+        openingBalance: 0,
+        annualReturn: 0.05,
         contributionPhases: [],
-        withdrawalPriority: 99,
-        allocation: { cash: 0, fixedIncome: 0, equity: 0 },
+        withdrawalPriority: 4,
+        allocation: { cash: 0, fixedIncome: 0.2, equity: 0.8 },
       },
     ];
     const value = context((draft) => {
-      draft.inputs.accounts.push(...structuredClone(debtAccounts));
-      draft.baseline.projectionInputs.accounts.push(...structuredClone(debtAccounts));
+      draft.inputs.accounts.push(...structuredClone(additionalAccounts));
+      draft.baseline.projectionInputs.accounts.push(...structuredClone(additionalAccounts));
       draft.projection = calculateProjection(draft.inputs);
     });
     const document = buildExplanation("lunchmoney-accounts", value);
@@ -624,12 +678,12 @@ describe("calculation explanations", () => {
       {
         label: "Financial-asset accounts",
         operation: "input",
-        rawValue: 2,
+        rawValue: 3,
       },
       {
-        label: "Debt accounts excluded from financial assets",
+        label: "Projection-only financial accounts",
         operation: "add",
-        rawValue: 2,
+        rawValue: 1,
       },
       {
         label: "Total included accounts",
@@ -1515,5 +1569,69 @@ describe("calculation explanations", () => {
       reset.steps.find((step) => step.label === "Starting TFSA room")
         ?.sourceType,
     ).toBe("configuration");
+  });
+
+  it("explains total net worth and liability schedules from the shared result in both dollar modes", () => {
+    for (const mode of ["nominal", "real"] as const) {
+      const value = balanceSheetContext(mode);
+      const netWorth = buildExplanation("total-net-worth", value);
+      const liability = buildExplanation("liability-schedule", value);
+
+      expect(netWorth.formula).toBe(
+        "Financial assets + non-financial assets − total liabilities = total net worth",
+      );
+      expect(netWorth.reconciliation?.matched).toBe(true);
+      expect(
+        section(netWorth, "Annual balance sheet").rows,
+      ).toHaveLength(value.projection.annual.length);
+      expect(
+        netWorth.caveats.join(" "),
+      ).toContain("not available to retirement withdrawals");
+
+      expect(liability.formula).toBe(
+        "Opening principal + interest − regular payment − lump-sum principal = closing principal",
+      );
+      expect(liability.reconciliation?.matched).toBe(true);
+      expect(
+        section(liability, "Annual liability schedule").rows,
+      ).toHaveLength(value.projection.annual.length);
+      expect(
+        section(
+          liability,
+          "Historical payment replacement evidence",
+        ).rows,
+      ).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({
+            metric: "Liabilities with schedule replacement",
+            value: 1,
+          }),
+        ]),
+      );
+      expect(liability.caveats.join(" ")).toContain(
+        "Rate renewals",
+      );
+    }
+  });
+
+  it("marks net-worth and liability explanations unmatched after independent one-cent-plus mutations", () => {
+    const netWorthValue = balanceSheetContext("nominal");
+    netWorthValue.projection.netWorthBridge.nominal.liabilityInterest +=
+      0.02;
+    expect(
+      buildExplanation("total-net-worth", netWorthValue).reconciliation
+        ?.matched,
+    ).toBe(false);
+
+    const liabilityValue = balanceSheetContext("nominal");
+    liabilityValue.projection.annual[0]!.nominal.liabilitySchedules[
+      "synthetic:mortgage"
+    ]!.closingBalance += 0.02;
+    expect(
+      buildExplanation(
+        "liability-schedule",
+        liabilityValue,
+      ).reconciliation?.matched,
+    ).toBe(false);
   });
 });
