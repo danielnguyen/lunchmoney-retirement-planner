@@ -290,7 +290,8 @@ Required account pools:
 - TFSA
 - RRSP/RRIF
 - non-registered investments
-- debt, when mapped
+
+Mapped debt is not a financial-account pool. Positive included debts resolve once as liabilities with an explicit amortizing or payoff-at-start treatment. A configured primary residence resolves as a non-financial asset and may link to one amortizing primary mortgage.
 
 Required income streams:
 
@@ -303,6 +304,7 @@ Required outflows:
 
 - essential spending
 - discretionary spending
+- liability interest, principal, and optional lump-sum payments from explicit schedules
 - simplified taxes
 - per-account phased investment contributions before retirement
 - portfolio withdrawals after cash-flow shortfalls
@@ -318,7 +320,7 @@ The existing simplified tax model may remain for the MVP, but the interface and 
 
 The first projected month is the calendar month containing the live baseline data-through date. Employment and contribution phases are selected from each month’s working-age interval, use phase-local growth/indexing, and stop at retirement. Future events, retirement, CPP, OAS, RRIF milestones, calendar years, and annual ledger rows use the real calendar anchor. The first and last annual rows may therefore represent partial calendar years.
 
-The exact retirement snapshot is captured at the end of the final working month, immediately before the first fully retired month. The Assets at retirement summary uses this real-dollar snapshot rather than the next December row. The projection also emits nominal and real accumulation bridges from starting financial assets to this boundary. Cash-funded contributions and surplus routing are internal transfers; income-withheld contributions are external additions. Both bridges must reconcile within one cent.
+The exact retirement snapshot is captured at the end of the final working month, immediately before the first fully retired month. Retirement funding assets use this real-dollar snapshot rather than the next December row. The projection also emits nominal and real financial-assets and net-worth bridges. Required liability payments are funded before their balance changes are committed. Liability cash payments reduce financial assets; principal reduces the liability by the same amount and is not consumption; interest reduces net worth. The selected annual-rate convention drives one shared monthly-rate calculation. Both bridges and every funded liability schedule must reconcile within one cent.
 
 In simple mode, only explicit savings plans are invested. Workplace RRSP is processed first, then personal savings, then the reserve-building plan. The reserve plan compares the combined reserve-member balance after returns with the indexed target, retains only the funded shortfall in the refill account, and sends a same-month crossing amount through the personal order. Remaining positive cash is deposited into operating cash and is not swept into investments. Account ordering never selects a route. Advanced compatibility preserves the previous resolved surplus behavior.
 
@@ -359,6 +361,8 @@ Required controls:
 - projection end age
 - starting TFSA and RRSP room amounts
 - RRSP-eligible earned income, pension adjustment, and other room reduction for each employment phase
+- primary-residence value and appreciation
+- amortizing-liability interest rate and regular payment
 
 Resetting a field restores the currently loaded live baseline.
 
@@ -378,23 +382,25 @@ Every major summary card, main chart, annual ledger, resolved cash-flow value, a
 - Lunch Money, local configuration, Canadian reference, temporary override, and projection source labels
 - effective dates, the transaction window, assumptions, caveats, and data tables
 
-Explanation documents are typed domain output. They consume the same current baseline, active phase inputs, overrides, projection result, dollar mode, and selected allocation year as the report. Shared presentation-data builders feed both chart/ledger rendering and explanation tables. The Assets at retirement explanation includes the exact snapshot, accumulation bridge, employment path, contribution path, and any long-current-income warning. A reconciliation confirmation is shown only after exact model-precision agreement.
+Explanation documents are typed domain output. They consume the same current baseline, active inputs, overrides, projection result, dollar mode, and selected allocation year as the report. Shared presentation-data builders feed both chart/ledger rendering and explanation tables. Dedicated total-net-worth and liability-schedule explanations show the exact balance sheet, bridge, payment split, payoff boundary, historical replacement evidence and limitations. A reconciliation confirmation is shown only after cent-stable agreement.
 
 Registered-room chart and explanation rows remain nominal regulatory dollars in both display modes. Their reconciliation enforces personal, workplace, reserve, positive-cash, total, funding-split, account-deposit, per-source, per-destination, TFSA-room, RRSP-room, nominal bridge, and real bridge equations against shared displayed rows.
 
-The baseline API schema `1.5` includes aggregate cash-flow audit evidence, resolved phase provenance, concrete CPP/OAS inputs with dated source and statutory-rule provenance, projection-only account provenance, surplus-policy provenance, registered-room provenance, and resolved waterfall routes:
+The baseline API schema `1.7` includes aggregate cash-flow audit evidence, debt-payment replacement evidence, typed imported non-financial-asset balances, distinct financial accounts/non-financial assets/liabilities, resolved phase provenance, concrete CPP/OAS inputs, projection-only account provenance, surplus-policy provenance, registered-room provenance, and resolved waterfall routes:
 
-- income, essential spending, and discretionary spending grouped by category and account
+- income, non-debt essential spending, non-debt discretionary spending, and historical debt payments grouped by category and account
 - investment contributions grouped by account with funding and derivation source
 - normalized reviewed recurring-expense items with category/account names
 
-The audit excludes raw transaction payloads, transaction IDs, credentials, and tokens. It remains outside the default export allowlist, so raw Lunch Money identifiers are not added to JSON or CSV.
+An amortizing liability may use an exact normalized payee plus canonical source-account matcher before category classification. This preserves unrelated transactions in a shared category and prevents a matching reviewed recurring item from adding the scheduled payment back to spending. Raw matcher text and source identifiers remain outside resolved projection inputs and exports.
+
+The audit excludes raw transaction payloads, transaction IDs, credentials, and tokens. Detailed category/account rows remain outside the export allowlist; JSON receives only the typed, aliased debt-payment summary needed to prove schedule replacement.
 
 Temporary overrides replace the active explanation input while retaining the refreshed value as evidence. Resetting one control or all controls removes the temporary source immediately. Dollar-mode and allocation-year changes also update an open explanation.
 
 Phase overrides affect an amount, growth, or indexing field only. Phase boundaries remain YAML-only to prevent browser-created gaps or overlaps. Refresh clears every override and re-resolves any `live_baseline` phase.
 
-Covered targets are the five summary cards, annual spending, annual funding, outflows, surplus allocation, registered room and contribution routing, account burndown, asset allocation, the annual ledger, resolved cash-flow rows, the account section, and dedicated CPP/OAS calculations.
+Covered targets include retirement funding assets, home equity, liabilities, total net worth, annual spending/funding/outflows, balance-sheet and liability charts, surplus allocation, registered room, account burndown, asset allocation, the ledger, resolved inputs, and CPP/OAS calculations.
 
 ## Reports
 
@@ -404,14 +410,13 @@ Retain these report views when backed by live inputs:
 - stacked annual cash inflow
 - stacked annual cash outflow
 - account-level financial-asset burndown
+- financial assets, residence value, mortgage/liabilities, home equity, and total net worth
 - CPP, OAS, retirement, and RRIF milestone markers
 - asset allocation at a selected year
 - annual projection ledger
 - today's-dollar and future-dollar views
 
-The primary goal metric must use financial assets, not total net worth including non-liquid real assets.
-
-Real assets are out of scope for the MVP unless they are represented as an explicit one-time future inflow in local configuration.
+The primary goal metric and depletion age use financial assets, not total net worth. A primary residence is included in total net worth but remains unavailable for retirement withdrawals until a future explicit sale or conversion capability exists.
 
 ## API surface
 
@@ -468,7 +473,7 @@ The JSON transformation is typed and allowlisted. It must not copy arbitrary sou
 
 Financial context is preserved through analytical amounts, balances, dates, ages, account types, classifications, directions, growth and return assumptions, contribution funding, warning codes and severities, provenance source types and effective dates, benefit calculation summaries, safe public Canadian references, and reconciliation bridges. Private account, institution, employer, category, event, recurring, warning, and phase text is replaced with generic aliases. Provenance descriptions use fixed safe wording derived from source type and compatibility state.
 
-Schema `7.0` JSON remains the complete analysis export and includes resolved aliased phases and accounts, origins, sanitized policy preview, explicit savings totals, registered-room assumptions and nominal-regulatory annual ledgers, aliased compiled routes, safe public references, the exact retirement snapshot, bridges, and automatic-anonymization metadata. CSV is one flat annual table with scalar explicit-plan, retained-cash, reserve, registered-room, contribution, and deterministic per-account columns. CSV must not contain metadata preambles, blank separators, role/route/phase arrays, maps, JSON, delimited lists, private labels, or multiple schemas.
+Schema `8.0` JSON remains the complete analysis export and includes aliased financial accounts, non-financial assets, liabilities and schedules, debt-payment evidence, balance sheets, policy/room results, the exact retirement snapshot, financial-assets and net-worth bridges, and automatic-anonymization metadata. CSV is one flat annual table with scalar balance-sheet, liability-flow, plan, reserve, room, contribution, and deterministic per-account columns. CSV must not contain metadata preambles, schedules, arrays, maps, JSON, delimited lists, private labels, or multiple schemas.
 
 ## Docker runtime
 

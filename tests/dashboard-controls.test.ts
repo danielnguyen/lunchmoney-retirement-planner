@@ -165,4 +165,95 @@ describe("simple savings dashboard controls", () => {
     );
     expect(refreshBody).toContain("setOverrides({})");
   });
+
+  it("overrides residence value, appreciation, mortgage rate, and entered payment through shared inputs", () => {
+    const baseline = simpleControlFixture();
+    baseline.nonFinancialAssets = [
+      {
+        id: "manual:synthetic-residence",
+        label: "Synthetic residence",
+        origin: "lunchmoney",
+        type: "primary_residence",
+        openingValue: 500000,
+        valueAsOf: "2026-07-14",
+        annualAppreciation: 0.02,
+        availableForWithdrawals: false,
+      },
+    ];
+    baseline.liabilities = [
+      {
+        id: "synthetic:mortgage",
+        label: "Synthetic mortgage",
+        origin: "lunchmoney",
+        openingBalance: 100000,
+        balanceAsOf: "2026-07-14",
+        role: "primary_mortgage",
+        treatment: {
+          mode: "amortizing",
+          annualInterestRate: 0.04,
+          interestRateConvention: "canadian_mortgage",
+          regularPayment: {
+            amount: 1200,
+            frequency: "biweekly",
+            monthlyEquivalent: 2600,
+          },
+          scheduleStartDate: "2026-07-01",
+          lumpSumPayments: [],
+        },
+        historicalPaymentHandling: "category_mapped",
+        historicalMonthlyAverage: 2600,
+      },
+    ];
+    const controls = buildControls(baseline);
+
+    expect(controls).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          key: "primaryResidence.currentValue",
+          sourceKey:
+            "nonFinancialAssets.manual:synthetic-residence.openingValue",
+          label: "Primary residence value",
+        }),
+        expect.objectContaining({
+          key: "primaryResidence.annualAppreciation",
+          sourceKey:
+            "nonFinancialAssets.manual:synthetic-residence.annualAppreciation",
+          label: "Residence annual appreciation",
+        }),
+        expect.objectContaining({
+          key: "liability.synthetic:mortgage.annualInterestRate",
+        }),
+        expect.objectContaining({
+          key: "liability.synthetic:mortgage.regularPayment.amount",
+        }),
+      ]),
+    );
+
+    const active = materializeInputs(baseline, controls, {
+      "primaryResidence.currentValue": 525000,
+      "primaryResidence.annualAppreciation": 0.03,
+      "liability.synthetic:mortgage.annualInterestRate": 0.05,
+      "liability.synthetic:mortgage.regularPayment.amount": 1300,
+    });
+    const treatment = active.liabilities[0]!.treatment;
+    expect(active.nonFinancialAssets[0]).toMatchObject({
+      openingValue: 525000,
+      annualAppreciation: 0.03,
+    });
+    expect(treatment).toMatchObject({
+      mode: "amortizing",
+      annualInterestRate: 0.05,
+      regularPayment: {
+        amount: 1300,
+        frequency: "biweekly",
+        monthlyEquivalent: (1300 * 26) / 12,
+      },
+    });
+    expect(baseline.nonFinancialAssets[0]!.openingValue).toBe(500000);
+    expect(
+      baseline.liabilities[0]!.treatment.mode === "amortizing" &&
+        baseline.liabilities[0]!.treatment.regularPayment.amount,
+    ).toBe(1200);
+    expect(materializeInputs(baseline, controls, {})).toEqual(baseline);
+  });
 });

@@ -8,18 +8,18 @@ Public content must remain generic. Do not add private financial values, account
 
 ## Current position
 
-- Open implementation pull request: [#10 Add registered-account room and contribution waterfall](https://github.com/danielnguyen/lunchmoney-retirement-planner/pull/10)
+- Open implementation pull request: [#11 Add real net worth and debt amortization](https://github.com/danielnguyen/lunchmoney-retirement-planner/pull/11)
 - Pull request state: Open draft
-- Active capability: Registered-account room and contribution waterfall
+- Active capability: Net worth, real estate, and debt amortization
 - Status: In progress
-- Branch: `agent/add-registered-account-room`
-- Latest validated implementation head: `63bc545c0890ccff93b1711e8524516be4f938ba`
-- Synthetic validation: Passed — 12 test files and 208 tests, typecheck, lint, production build, Docker image build, Compose configuration validation, diff check, focused simple parsing/compiler, plain-language example guidance, the `currentYearBeforePlanStart` simple-field migration, January and partial-year room handling, explicit-savings, reserve-transition, workplace-priority, taxable-destination, controls, long-horizon cent-stable nominal/real explanation reconciliation, one-cent-plus and cancellation-resistant negative checks, bridge checks, advanced-compatibility and mixed-mode checks, and adversarial JSON/real-CSV/nominal-CSV privacy review
-- Repository-owner private migration: Passed in the ignored local file
-- Private live smoke test: Passed — schema, live baseline and projection, dashboard/API, controls and override/reset/refresh, nominal and real explanations, contribution and room reconciliation, nominal and real bridges, and anonymized JSON/real-CSV/nominal-CSV checks
-- Remaining step: final review before marking draft PR #10 ready
-- Next action: complete final review before marking draft PR #10 ready
-- Last completed capability: Surplus allocation policy
+- Branch: `agent/add-net-worth-and-debt-amortization`
+- Latest validated implementation head: `18d3ed72fa77745e9f7a4cc2e8ad2efa0b512f5f`
+- Synthetic validation: Passed — 271 tests, shared two-line calendar-year and exact projected-age ticks on all eight annual charts including partial years, preserved calendar-year reference-line alignment and tick density, Scenario controls placed before Print in the responsive hero actions with the existing accessible drawer behavior, dedicated active-mode retirement-date explanations for Home equity and Total liabilities, imported residence and exact mortgage-payment matching coverage, nominal/real bridge reconciliation, typecheck, lint, production build, Docker image build, Docker Compose validation, JSON and CSV privacy/shape checks, and `git diff --check`
+- Repository-owner private migration: Passed — imported residence, primary mortgage, exact historical-payment matching, mixed-category replacement, live reconciliation, and anonymized-export privacy were validated locally without publishing private values.
+- Private live smoke test: Passed — the live baseline and projection rendered successfully, matched historical mortgage evidence reconciled to the configured schedule, and retirement-funding assets remained separate from home equity and total net worth.
+- Remaining step: final public review and ready-for-merge decision
+- Next action: final public review of draft PR #11, then mark ready and merge only after explicit owner approval
+- Last completed capability: Registered-account room and contribution waterfall
 
 ## Terminology boundary
 
@@ -39,9 +39,10 @@ Branches, pull-request titles, commits, tests, documentation headings, types, fu
 |---|---|---|---|---|
 | 1 | Government benefits | Phased income model | Completed | [#8](https://github.com/danielnguyen/lunchmoney-retirement-planner/pull/8) |
 | 2 | Surplus allocation policy | Government benefits | Completed | [#9](https://github.com/danielnguyen/lunchmoney-retirement-planner/pull/9) |
-| 3 | Registered-account room and contribution waterfall | Surplus allocation policy | In progress | [#10](https://github.com/danielnguyen/lunchmoney-retirement-planner/pull/10) |
-| 4 | Debt amortization and spending phases | Phased contribution model | Planned | — |
-| 5 | RRIF minimum withdrawals and Canadian taxes | Surplus allocation policy and debt/spending model | Planned | — |
+| 3 | Registered-account room and contribution waterfall | Surplus allocation policy | Completed | [#10](https://github.com/danielnguyen/lunchmoney-retirement-planner/pull/10) |
+| 4 | Net worth, real estate, and debt amortization | Registered-account contribution model | In progress | [#11](https://github.com/danielnguyen/lunchmoney-retirement-planner/pull/11) |
+| 5 | General spending phases | Net-worth and debt model | Planned | — |
+| 6 | RRIF minimum withdrawals and Canadian taxes | Surplus policy, debt model, and spending phases | Planned | — |
 
 ## Delivery rules
 

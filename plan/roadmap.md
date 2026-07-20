@@ -248,13 +248,58 @@ For each registered account and annual period, show:
 
 ---
 
-### 4. Debt amortization and spending phases
+### 4. Net worth, real estate, and debt amortization
 
 #### Goal
 
-Model debts and lifestyle expenses as changing over time rather than carrying current balances and spending indefinitely.
+Make projected net worth conceptually and mathematically complete by separating
+financial accounts, non-financial assets, and liabilities, then replacing
+static positive debt with explicit payoff behaviour.
 
-#### Debt schedules
+The model must distinguish:
+
+- retirement-funding financial assets that are available to the withdrawal
+  engine
+- non-financial assets, beginning with a primary residence
+- liabilities, including a linked primary mortgage
+- home equity
+- total assets, total liabilities, and total net worth
+
+Home equity is part of net worth but is not available for retirement
+withdrawals until a later explicit sale or conversion capability is added.
+
+#### Primary residence and balance sheet
+
+Support either an imported Lunch Money real-estate account or an explicit
+fallback current residence value and valuation date, plus a nominal
+appreciation assumption. The two sources are mutually exclusive. The imported
+form uses the account balance and balance date and does not duplicate the
+valuation in local configuration. The residence remains unavailable to
+withdrawals.
+
+The resolved balance sheet must reconcile:
+
+```text
+retirement funding assets
+= cash + TFSA + RRSP/RRIF + non-registered investments
+
+total assets
+= retirement funding assets + non-financial assets
+
+total liabilities
+= the sum of liability balances
+
+home equity
+= residence value - linked mortgage balance
+
+total net worth
+= total assets - total liabilities
+```
+
+Liabilities must not remain inside the resolved financial-account collection,
+and the same opening debt must never appear in both places.
+
+#### Debt schedules and spending replacement
 
 Support explicit amortization schedules for mapped debts that materially affect the projection.
 
@@ -262,69 +307,117 @@ A schedule should support:
 
 - opening principal
 - interest rate
+- explicit interest-rate convention
 - regular payment
 - payment frequency or monthly equivalent
 - start date
-- expected payoff date or amortization period
 - optional lump-sum payments
-- renewal or rate-change phases when configured
+
+The schedule effective date must be on or before projection start for an
+imported opening liability. The imported balance remains authoritative; the
+projection must not replay historical amortization or imply future debt
+origination. Required liability demand must be fully funded before the
+liability closing balance is committed, and a configured lump sum must be
+consumed exactly once or rejected clearly.
 
 The engine must distinguish:
 
 - interest expense
 - principal repayment
+- lump-sum principal repayment
+- total liability cash payment
 - remaining debt balance
 - payoff date
 
-Debt balances must not remain nominally fixed merely because their configured return is zero.
+Principal repayment reduces financial assets and the liability equally, so it
+has no direct net-worth effect. Interest is consumption. The full payment still
+leaves the financial portfolio, and payments stop automatically at payoff.
 
-#### Spending phases
+Historical debt-payment categories must be excluded from essential and
+discretionary spending, retained as audit evidence, and replaced exactly once
+by the configured schedule. The planner must not infer future interest rates,
+payments, or amortization terms from transaction history.
 
-Support explicit essential and discretionary spending phases.
-
-Required semantics:
-
-- starts are inclusive and ends are exclusive
-- boundaries align to projection months
-- gaps and overlaps follow explicit validation rules
-- inflation or phase-local growth is explicit
-- current Lunch Money spending may seed only phases that intentionally use it
-
-#### Expense transitions
-
-Allow configured expenses to end or begin with lifecycle events, including:
-
-- debt payments ending at payoff
-- employment-related costs ending at retirement
-- temporary household expenses
-- later-life healthcare or care costs
-- known one-time replacements or assessments
-
-The planner must not infer personal life events automatically.
+When a liability payment shares a category with unrelated ordinary spending,
+support an exact normalized payee plus exact canonical source-account matcher.
+Run that matcher before category and reviewed-recurring-item classification.
+Only debit/outflow records matching both fields become debt-payment evidence;
+unrelated records in the same category retain their normal classification.
+Amount, date, cadence, substring and fuzzy matching must not select payments.
+Dedicated debt-payment categories and an explicit already-excluded/transfer
+assertion remain mutually exclusive compatibility alternatives.
 
 #### Explanations
 
 Show:
 
-- active spending phase by period
-- phase transition dates
+- retirement-funding assets, non-financial assets, liabilities, home equity,
+  and total net worth
+- the total-net-worth formula and bridge
+- residence value and appreciation provenance
+- opening liability principal and treatment
+- entered payment amount and frequency plus its monthly equivalent
 - debt payment, interest, and principal components
-- debt payoff effects on future spending
-- one-time and recurring expense sources
+- lump sums, closing balance, and payoff date
+- historical-payment replacement evidence
+- the limitation that residence equity cannot fund retirement
+- the limitation that mortgage renewal and rate-change phases are not yet
+  modelled
 
 #### Acceptance criteria
 
+- Financial accounts contain only cash, TFSA, RRSP/RRIF, and non-registered
+  assets.
+- The residence is a typed non-financial asset and is unavailable to
+  withdrawals.
+- An included imported real-estate account supplies the residence value and
+  valuation date without also entering financial accounts.
+- Imported and fallback residence sources are mutually exclusive.
+- Imported debts resolve once as typed liabilities with explicit treatment.
 - Debt balances reconcile to amortization schedules.
 - Principal repayment reduces debt without being counted as consumption twice.
 - Interest remains an expense.
-- Spending changes exactly at configured phase boundaries.
-- Debt-linked spending stops or changes when the schedule requires it.
-- Ledger views expose debt principal, debt interest, and other spending where useful.
-- Current spending reconciles to Lunch Money audit evidence and future phases reconcile to configuration.
+- Debt-linked spending stops at payoff.
+- Historical debt payments are replaced by the schedule exactly once.
+- Exact liability-payment matching runs before categories and preserves
+  unrelated mixed-category spending.
+- Financial-assets and net-worth bridges both reconcile within one cent.
+- Dashboard, explanations, annual rows, JSON, and rectangular CSV consume the
+  same balance-sheet result.
+- Total net worth includes the residence and liabilities, while retirement
+  depletion continues to use financial assets only.
+- Static positive debt cannot run silently.
 
 ---
 
-### 5. RRIF minimum withdrawals and improved Canadian taxes
+### 5. General spending phases
+
+#### Goal
+
+Model non-debt lifestyle expenses that change over time without coupling them
+to liability amortization.
+
+Support explicit essential and discretionary spending phases with:
+
+- inclusive starts and exclusive ends
+- projection-month-aligned boundaries
+- explicit gap and overlap validation
+- explicit inflation or phase-local growth
+- optional use of the current Lunch Money spending baseline only when the
+  configured phase requests it
+
+Allow configured transitions for employment-related costs, temporary
+household expenses, later-life healthcare or care costs, and other known
+lifestyle changes. The planner must not infer personal life events
+automatically.
+
+Acceptance requires spending to change at exact configured boundaries and
+future phases to reconcile to their explicit configuration and baseline
+evidence.
+
+---
+
+### 6. RRIF minimum withdrawals and improved Canadian taxes
 
 #### Goal
 
@@ -475,11 +568,16 @@ Add indexed cash reserve, projection-only investment destinations, explicit surp
 
 Add TFSA/RRSP room ledgers and a configurable contribution waterfall.
 
-### Phase D — Debt and spending phases
+### Phase D — Net worth and debt amortization
 
-Add debt amortization, debt-linked expense transitions, and lifecycle spending phases.
+Add the residence balance sheet, liability schedules, debt-payment spending
+replacement, home equity, and reconciled total net worth.
 
-### Phase E — RRIF and taxes
+### Phase E — General spending phases
+
+Add explicit non-debt lifestyle spending transitions.
+
+### Phase F — RRIF and taxes
 
 Add statutory RRIF minimums and annual Canadian retirement-tax calculations.
 
@@ -494,7 +592,9 @@ The current planned sequence is complete when the planner can demonstrate all of
 - Government benefits are explicit, dated, and officially sourced or clearly labelled as references.
 - Positive surplus follows an explicit reserve and investment policy.
 - Registered contributions never exceed modelled room.
-- Debts amortize and expenses change at configured lifecycle boundaries.
+- Net worth includes non-financial assets and liabilities, debts amortize, and
+  debt-linked payments end at payoff.
+- Non-debt expenses change at configured lifecycle boundaries.
 - RRIF minimums and annual retirement taxes are modelled consistently.
 - Starting assets, accumulation, retirement balances, withdrawals, taxes, and ending assets reconcile.
 - Every major result can be traced to Lunch Money data, private configuration, dated reference data, or a temporary override.

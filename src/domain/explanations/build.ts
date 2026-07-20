@@ -4,6 +4,7 @@ import {
   buildAnnualChartData,
   buildAnnualLedgerData,
   buildContributionReconciliation,
+  buildBalanceSheetReconciliation,
   buildSavingsPolicyPreview,
   annualPeriodLabel,
   closestAnnualPoint,
@@ -15,6 +16,9 @@ import {
   projectionMonthOffset,
   type FinancialAccountInput,
 } from "@/src/domain/projection/types";
+import {
+  liabilityInterestRateConventionLabel,
+} from "@/src/domain/projection/liability-interest";
 import type {
   ExplanationContext,
   ExplanationDocument,
@@ -46,7 +50,6 @@ const accountTypeLabels: Record<FinancialAccountInput["type"], string> = {
   tfsa: "TFSA",
   rrsp_rrif: "RRSP / RRIF",
   non_registered: "Non-registered",
-  debt: "Debt",
 };
 
 function round(value: number): number {
@@ -414,7 +417,10 @@ function startingFinancialAssetsDocument(context: ExplanationContext): Explanati
         ],
         rows: accounts.map((account) => ({
           account: account.name,
-          plannerType: accountTypeLabels[account.plannerType],
+          plannerType:
+            account.plannerType === "debt"
+              ? "Liability"
+              : accountTypeLabels[account.plannerType],
           balance: account.balance,
           balanceAsOf: account.balanceAsOf,
           source: accountSourceLabel(account.source),
@@ -448,6 +454,7 @@ function assetsAtRetirementDocument(context: ExplanationContext): ExplanationDoc
     bridge.investmentReturns -
     bridge.essentialSpending -
     bridge.discretionarySpending -
+    bridge.liabilityCashPayments -
     bridge.oneTimeOutflows -
     bridge.taxes;
   const bridgeMatched = sameValue(bridgeCalculated, bridge.endingFinancialAssets);
@@ -459,11 +466,11 @@ function assetsAtRetirementDocument(context: ExplanationContext): ExplanationDoc
   ];
   return {
     id: "assets-at-retirement",
-    title: "Assets at retirement",
+    title: "Retirement funding assets",
     plainLanguage:
       "Projected cash and investment balances at the end of the final working month, immediately before the first fully retired month, expressed in today’s dollars.",
     displayedResult: {
-      label: "Assets at retirement",
+      label: "Retirement funding assets",
       value: currency.format(result),
       dollarMode: "real",
       period: `${retirement.calendarDate} · age ${retirement.age}`,
@@ -478,7 +485,7 @@ function assetsAtRetirementDocument(context: ExplanationContext): ExplanationDoc
         sourceType: "projection",
       })),
       {
-        label: "Assets at retirement",
+        label: "Retirement funding assets",
         value: exactCurrency.format(calculated),
         rawValue: calculated,
         operation: "result",
@@ -515,9 +522,10 @@ function assetsAtRetirementDocument(context: ExplanationContext): ExplanationDoc
           { operation: "+", component: "Investment returns", value: bridge.investmentReturns, source: "Projection" },
           { operation: "−", component: "Essential spending", value: bridge.essentialSpending, source: "Lunch Money baseline / override" },
           { operation: "−", component: "Discretionary spending", value: bridge.discretionarySpending, source: "Lunch Money baseline / override" },
+          { operation: "−", component: "Liability cash payments", value: bridge.liabilityCashPayments, source: "Configured liability schedules" },
           { operation: "−", component: "One-time outflows", value: bridge.oneTimeOutflows, source: "Local configuration" },
           { operation: "−", component: "Taxes", value: bridge.taxes, source: "Projection from local assumptions" },
-          { operation: "=", component: "Assets at retirement", value: bridge.endingFinancialAssets, source: "Exact retirement snapshot" },
+          { operation: "=", component: "Retirement funding assets", value: bridge.endingFinancialAssets, source: "Exact retirement snapshot" },
           ...(bridgeMatched
             ? [{ operation: "✓", component: "Reconciles to displayed value", value: bridge.endingFinancialAssets, source: "Projection" }]
             : []),
@@ -645,7 +653,7 @@ function goalDocument(context: ExplanationContext): ExplanationDocument {
     assumptions: [],
     caveats: [
       "The goal comparison includes financial assets only.",
-      "Real property and other non-financial assets are not included.",
+      "The primary residence is included in total net worth but is not available for retirement withdrawals or the retirement goal.",
     ],
     reconciliation: matched(context.inputs.retirementGoalToday, displayed),
   };
@@ -668,10 +676,10 @@ function goalGapDocument(context: ExplanationContext): ExplanationDocument {
       value: currency.format(displayed),
       dollarMode: "real",
     },
-    formula: "Assets at retirement − retirement goal = goal gap",
+    formula: "Retirement funding assets − retirement goal = goal gap",
     steps: [
       {
-        label: "Assets at retirement",
+        label: "Retirement funding assets",
         value: exactCurrency.format(assets),
         rawValue: assets,
         operation: "input",
@@ -1242,7 +1250,6 @@ function fundingChartDocument(context: ExplanationContext): ExplanationDocument 
     formula:
       "Employment + CPP + OAS + pension + account withdrawals; simplified retirement tax is shown as the line",
     steps: context.inputs.accounts
-      .filter((account) => account.type !== "debt")
       .sort((left, right) => left.withdrawalPriority - right.withdrawalPriority)
       .map((account): ExplanationStep => ({
         label: `${account.withdrawalPriority}. ${account.label}`,
@@ -1350,9 +1357,9 @@ function outflowChartDocument(context: ExplanationContext): ExplanationDocument 
   });
   return {
     id: "annual-outflows",
-    title: "Spending, taxes, and contributions",
+    title: "Spending, liability payments, taxes, and contributions",
     plainLanguage:
-      "Cash leaving the projected budget for spending, one-time events, simplified retirement tax, and cash-funded contributions.",
+      "Cash leaving the projected budget for non-debt spending, configured liability payments, one-time events, simplified retirement tax, and cash-funded contributions.",
     displayedResult: {
       label: "Chart view",
       value: modeLabel(context),
@@ -1360,7 +1367,7 @@ function outflowChartDocument(context: ExplanationContext): ExplanationDocument 
       period: period(context),
     },
     formula:
-      "Essential + discretionary + one-time events + simplified tax + cash-funded contributions",
+      "Essential + discretionary + liability cash payments + one-time events + simplified tax + cash-funded contributions",
     steps: [
       {
         label: "Cash-funded contribution accounts",
@@ -1407,6 +1414,11 @@ function outflowChartDocument(context: ExplanationContext): ExplanationDocument 
               "Configured outflow events assigned to the period containing their date.",
           },
           {
+            series: "Liability payments",
+            calculation:
+              "Regular principal-and-interest payments plus dated lump-sum principal from the resolved liability schedules.",
+          },
+          {
             series: "Simplified retirement tax",
             calculation:
               "Tax calculated on retirement income and taxable RRSP/RRIF withdrawals for the period.",
@@ -1426,6 +1438,7 @@ function outflowChartDocument(context: ExplanationContext): ExplanationDocument 
           { key: "contributionPhases", label: "Active contribution phases" },
           { key: "essential", label: "Essential" },
           { key: "discretionary", label: "Discretionary" },
+          { key: "liabilityCashPayment", label: "Liability payments" },
           { key: "oneTime", label: "One-time events" },
           { key: "tax", label: "Simplified tax" },
           { key: "contributions", label: "Cash-funded contributions" },
@@ -1436,6 +1449,7 @@ function outflowChartDocument(context: ExplanationContext): ExplanationDocument 
             contributionPhases,
             essential,
             discretionary,
+            liabilityCashPayment,
             oneTime,
             tax,
             contributions,
@@ -1444,6 +1458,7 @@ function outflowChartDocument(context: ExplanationContext): ExplanationDocument 
             contributionPhases: contributionPhases || "No active contribution phase",
             essential,
             discretionary,
+            liabilityCashPayment,
             oneTime,
             tax,
             contributions,
@@ -1505,6 +1520,7 @@ function outflowChartDocument(context: ExplanationContext): ExplanationDocument 
     ],
     assumptions: commonAssumptions(context),
     caveats: [
+      "The full liability payment reduces cash. Principal is not consumption because it also reduces the liability; interest reduces net worth.",
       "Income-withheld contributions increase investment balances but do not appear as cash outflows because they were withheld before income reached Lunch Money.",
       "Only cash-funded contributions appear in the contribution series.",
       ...chartCaveats(context),
@@ -1529,8 +1545,7 @@ function accountDetailsRows(context: ExplanationContext) {
           ? "Imported Lunch Money account"
           : "Projection-only configuration",
       plannerType: accountTypeLabels[account.type],
-      financialAssetsTreatment:
-        account.type === "debt" ? "Excluded — debt" : "Included",
+      financialAssetsTreatment: "Included",
       openingBalance: account.openingBalance,
       openingBalanceSource:
         account.origin === "lunchmoney"
@@ -1562,7 +1577,7 @@ function accountDetailsRows(context: ExplanationContext) {
 
 function burndownDocument(context: ExplanationContext): ExplanationDocument {
   const chartRows = buildAnnualChartData(context.inputs, context.projection, context.displayMode);
-  const accounts = context.inputs.accounts.filter((account) => account.type !== "debt");
+  const accounts = context.inputs.accounts;
   const accountColumns = accounts.map((account, index) => ({
     key: `account${index}`,
     label: account.label,
@@ -1579,7 +1594,7 @@ function burndownDocument(context: ExplanationContext): ExplanationDocument {
       period: period(context),
     },
     formula:
-      "Each ending account balance = previous balance + return + contributions − withdrawals; financial assets = sum of non-debt balances",
+      "Each ending account balance = previous balance + return + contributions − withdrawals; financial assets = sum of cash and investment balances",
     steps: accounts.map((account): ExplanationStep => ({
       label: account.label,
       value: exactCurrency.format(account.openingBalance),
@@ -1605,7 +1620,7 @@ function burndownDocument(context: ExplanationContext): ExplanationDocument {
           { key: "withdrawalPriority", label: "Withdrawal priority" },
           { key: "allocation", label: "Allocation" },
         ],
-        rows: accountDetailsRows(context).filter((row) => row.plannerType !== "Debt"),
+        rows: accountDetailsRows(context),
       },
       {
         title: "Data behind this chart",
@@ -1767,6 +1782,7 @@ function ledgerDocument(context: ExplanationContext): ExplanationDocument {
           { column: "Withdrawals", meaning: "Gross amounts withdrawn from financial accounts during the period." },
           { column: "Tax", meaning: "Simplified retirement and RRSP/RRIF withdrawal tax during the period." },
           { column: "Spending", meaning: "Essential, discretionary, and one-time spending during the period." },
+          { column: "Liability payment", meaning: "Required scheduled cash payment, split into interest and principal." },
           {
             column: "Actual contributions",
             meaning: simple
@@ -1791,6 +1807,7 @@ function ledgerDocument(context: ExplanationContext): ExplanationDocument {
           { column: "Unplanned cash retained", meaning: "Remaining positive cash retained in operating cash rather than invested." },
           { column: "Total investment deposits", meaning: "All actual personal, workplace, and reserve-plan investment deposits." },
           { column: "Financial assets", meaning: "End-of-period cash and investment balance snapshot; debt excluded." },
+          { column: "Total net worth", meaning: "End-of-period total assets minus total liabilities." },
           { column: "Milestones", meaning: "Events crossed during the period: retirement, CPP, OAS, or RRIF conversion." },
         ],
       },
@@ -1804,6 +1821,10 @@ function ledgerDocument(context: ExplanationContext): ExplanationDocument {
           { key: "withdrawals", label: "Withdrawals" },
           { key: "tax", label: "Tax" },
           { key: "spending", label: "Spending" },
+          { key: "liabilityCashPayment", label: "Liability payment" },
+          { key: "liabilityInterest", label: "Liability interest" },
+          { key: "liabilityPrincipal", label: "Liability principal" },
+          { key: "liabilityLumpSumPrincipal", label: "Liability lump sums" },
           { key: "actualContributions", label: "Actual contributions" },
           {
             key: "surplusFundedContributions",
@@ -1829,6 +1850,10 @@ function ledgerDocument(context: ExplanationContext): ExplanationDocument {
           { key: "unplannedCashRetained", label: "Unplanned cash retained" },
           { key: "totalInvestmentDeposits", label: "Investment deposits" },
           { key: "financialAssets", label: "Financial assets" },
+          { key: "totalNonFinancialAssets", label: "Non-financial assets" },
+          { key: "totalLiabilities", label: "Total liabilities" },
+          { key: "homeEquity", label: "Home equity" },
+          { key: "totalNetWorth", label: "Total net worth" },
           { key: "milestones", label: "Milestones" },
         ],
         rows,
@@ -1853,10 +1878,8 @@ function accountsDocument(context: ExplanationContext): ExplanationDocument {
     (_, index) =>
       context.inputs.accounts[index]?.origin === "projection_configuration",
   );
-  const financialAssets = rows.filter((row) => row.plannerType !== "Debt");
-  const debt = rows.filter((row) => row.plannerType === "Debt");
   const totalIncludedAccounts = rows.length;
-  const calculatedTotal = financialAssets.length + debt.length;
+  const calculatedTotal = rows.length;
   return {
     id: "lunchmoney-accounts",
     title: "Financial accounts",
@@ -1867,19 +1890,19 @@ function accountsDocument(context: ExplanationContext): ExplanationDocument {
       value: String(totalIncludedAccounts),
       period: `Balances through ${context.baseline.dataThrough}`,
     },
-    formula: "Financial-asset accounts + debt accounts = total included accounts",
+    formula: "Imported financial accounts + projection-only financial accounts = total included accounts",
     steps: [
       {
         label: "Financial-asset accounts",
-        value: String(financialAssets.length),
-        rawValue: financialAssets.length,
+        value: String(importedRows.length),
+        rawValue: importedRows.length,
         operation: "input",
         sourceType: "lunchmoney",
       },
       {
-        label: "Debt accounts excluded from financial assets",
-        value: String(debt.length),
-        rawValue: debt.length,
+        label: "Projection-only financial accounts",
+        value: String(projectionRows.length),
+        rawValue: projectionRows.length,
         operation: "add",
         sourceType: "configuration",
       },
@@ -1942,7 +1965,7 @@ function accountsDocument(context: ExplanationContext): ExplanationDocument {
     assumptions: commonAssumptions(context),
     caveats: [
       "No raw transactions are included in this explanation.",
-      "Debt balances reduce net worth but are not part of the financial-assets total.",
+      "Liabilities are modelled separately from these financial accounts.",
       "Projection-only opening balances are fixed at zero in configuration and never come from Lunch Money.",
     ],
     reconciliation: matched(calculatedTotal, totalIncludedAccounts),
@@ -3378,6 +3401,537 @@ function registeredAccountRoomDocument(
   };
 }
 
+function homeEquityAtRetirementDocument(
+  context: ExplanationContext,
+): ExplanationDocument {
+  const snapshot =
+    context.projection.retirementSnapshot[context.displayMode];
+  const balances = snapshot.balances;
+  const calculatedHomeEquity =
+    balances.residenceValue - balances.mortgageBalance;
+  const hasResidence = context.inputs.nonFinancialAssets.some(
+    (asset) => asset.type === "primary_residence",
+  );
+  return {
+    id: "home-equity-at-retirement",
+    title: "Home equity at retirement",
+    plainLanguage:
+      "Home equity is the projected residence value at retirement minus the linked mortgage balance at retirement. It contributes to total net worth but is not available to fund retirement unless a future sale or conversion is explicitly modelled.",
+    displayedResult: {
+      label: "Home equity at retirement",
+      value: currency.format(balances.homeEquity),
+      dollarMode: context.displayMode,
+      period: `${context.projection.retirementSnapshot.calendarDate} · age ${context.projection.retirementSnapshot.age}`,
+    },
+    formula:
+      "Residence value at retirement − linked mortgage at retirement = home equity at retirement",
+    steps: [
+      {
+        label: "Residence value at retirement",
+        value: exactCurrency.format(balances.residenceValue),
+        rawValue: balances.residenceValue,
+        operation: "input",
+        sourceType: "projection",
+      },
+      {
+        label: "Linked mortgage at retirement",
+        value: exactCurrency.format(balances.mortgageBalance),
+        rawValue: balances.mortgageBalance,
+        operation: "subtract",
+        sourceType: "projection",
+      },
+      {
+        label: "Home equity at retirement",
+        value: exactCurrency.format(balances.homeEquity),
+        rawValue: balances.homeEquity,
+        operation: "result",
+        sourceType: "projection",
+      },
+    ],
+    dataSections: [],
+    assumptions: [],
+    caveats: [
+      "Home equity is unavailable to retirement withdrawals unless a future explicit sale or conversion is modelled.",
+      "This explanation does not model a sale, downsizing, HELOC, or reverse mortgage.",
+      ...(hasResidence
+        ? []
+        : ["No primary residence is configured, so this explanation is not normally reachable."]),
+    ],
+    reconciliation: matched(calculatedHomeEquity, balances.homeEquity),
+  };
+}
+
+function liabilitiesAtRetirementDocument(
+  context: ExplanationContext,
+): ExplanationDocument {
+  const snapshot =
+    context.projection.retirementSnapshot[context.displayMode];
+  const balances = snapshot.balances;
+  const calculatedLiabilities =
+    balances.mortgageBalance + balances.otherLiabilities;
+  return {
+    id: "liabilities-at-retirement",
+    title: "Total liabilities at retirement",
+    plainLanguage:
+      "This is the total outstanding debt projected at retirement. It is separate from retirement-funding assets and is subtracted when calculating total net worth.",
+    displayedResult: {
+      label: "Total liabilities at retirement",
+      value: currency.format(balances.totalLiabilities),
+      dollarMode: context.displayMode,
+      period: `${context.projection.retirementSnapshot.calendarDate} · age ${context.projection.retirementSnapshot.age}`,
+    },
+    formula:
+      "Mortgage balance at retirement + other liabilities at retirement = total liabilities at retirement",
+    steps: [
+      {
+        label: "Mortgage balance at retirement",
+        value: exactCurrency.format(balances.mortgageBalance),
+        rawValue: balances.mortgageBalance,
+        operation: "input",
+        sourceType: "projection",
+      },
+      {
+        label: "Other liabilities at retirement",
+        value: exactCurrency.format(balances.otherLiabilities),
+        rawValue: balances.otherLiabilities,
+        operation: "add",
+        sourceType: "projection",
+      },
+      {
+        label: "Total liabilities at retirement",
+        value: exactCurrency.format(balances.totalLiabilities),
+        rawValue: balances.totalLiabilities,
+        operation: "result",
+        sourceType: "projection",
+      },
+    ],
+    dataSections: [],
+    assumptions: [],
+    caveats: [
+      "Total liabilities are separate from retirement-funding assets and reduce total net worth.",
+      "Open Mortgage and debt schedule from the liabilities and home equity chart for the full amortization detail.",
+    ],
+    reconciliation: matched(
+      calculatedLiabilities,
+      balances.totalLiabilities,
+    ),
+  };
+}
+
+function totalNetWorthDocument(
+  context: ExplanationContext,
+): ExplanationDocument {
+  const snapshot =
+    context.projection.retirementSnapshot[context.displayMode];
+  const balances = snapshot.balances;
+  const reconciliation = buildBalanceSheetReconciliation(
+    context.projection,
+    context.displayMode,
+  );
+  const bridge = context.projection.netWorthBridge[context.displayMode];
+  const endingDisplayed = balances.totalNetWorth;
+  return {
+    id: "total-net-worth",
+    title: "Total net worth",
+    plainLanguage:
+      "Total net worth includes cash and investments, the primary residence, and all modelled liabilities. Retirement funding assets remain the separate amount available to fund retirement.",
+    displayedResult: {
+      label: "Total net worth at retirement",
+      value: currency.format(balances.totalNetWorth),
+      dollarMode: context.displayMode,
+      period: `${context.projection.retirementSnapshot.calendarDate} · age ${context.projection.retirementSnapshot.age}`,
+    },
+    formula:
+      "Financial assets + non-financial assets − total liabilities = total net worth",
+    steps: [
+      {
+        label: "Retirement funding financial assets",
+        value: exactCurrency.format(balances.retirementFundingAssets),
+        rawValue: balances.retirementFundingAssets,
+        operation: "input",
+        sourceType: "projection",
+      },
+      {
+        label: "Non-financial assets",
+        value: exactCurrency.format(balances.totalNonFinancialAssets),
+        rawValue: balances.totalNonFinancialAssets,
+        operation: "add",
+        sourceType: "projection",
+      },
+      {
+        label: "Liabilities",
+        value: exactCurrency.format(balances.totalLiabilities),
+        rawValue: balances.totalLiabilities,
+        operation: "subtract",
+        sourceType: "projection",
+      },
+      {
+        label: "Total net worth",
+        value: exactCurrency.format(balances.totalNetWorth),
+        rawValue: balances.totalNetWorth,
+        operation: "result",
+        sourceType: "projection",
+      },
+      {
+        label: "Maximum annual balance-sheet difference",
+        value: exactCurrency.format(
+          reconciliation.maximumBalanceSheetDifference,
+        ),
+        rawValue: reconciliation.maximumBalanceSheetDifference,
+        sourceType: "projection",
+      },
+      {
+        label: "Net-worth bridge difference",
+        value: exactCurrency.format(reconciliation.netWorthBridgeDifference),
+        rawValue: reconciliation.netWorthBridgeDifference,
+        sourceType: "projection",
+      },
+    ],
+    dataSections: [
+      {
+        title: "Annual balance sheet",
+        columns: [
+          { key: "period", label: "Period" },
+          { key: "financialAssets", label: "Financial assets" },
+          { key: "nonFinancialAssets", label: "Non-financial assets" },
+          { key: "totalAssets", label: "Total assets" },
+          { key: "liabilities", label: "Liabilities" },
+          { key: "homeEquity", label: "Home equity" },
+          { key: "netWorth", label: "Total net worth" },
+        ],
+        rows: context.projection.annual.map((point) => {
+          const annualBalances = point[context.displayMode].balances;
+          return {
+            period: annualPeriodLabel(context.inputs, point.calendarYear),
+            financialAssets: annualBalances.financialAssets,
+            nonFinancialAssets: annualBalances.totalNonFinancialAssets,
+            totalAssets: annualBalances.totalAssets,
+            liabilities: annualBalances.totalLiabilities,
+            homeEquity: annualBalances.homeEquity,
+            netWorth: annualBalances.totalNetWorth,
+          };
+        }),
+        initiallyExpanded: true,
+      },
+      {
+        title: "Net-worth bridge through retirement",
+        columns: [
+          { key: "operation", label: "" },
+          { key: "component", label: "Component" },
+          { key: "value", label: modeLabel(context) },
+        ],
+        rows: [
+          { operation: "+", component: "Starting financial assets", value: bridge.startingFinancialAssets },
+          { operation: "+", component: "Starting non-financial assets", value: bridge.startingNonFinancialAssets },
+          { operation: "−", component: "Starting liabilities", value: bridge.startingLiabilities },
+          { operation: "+", component: "External net cash inflows", value: bridge.externalNetCashInflows },
+          { operation: "+", component: "Income-withheld contributions", value: bridge.incomeWithheldContributions },
+          { operation: "+", component: "Investment returns", value: bridge.investmentReturns },
+          { operation: "+", component: "Non-financial-asset appreciation", value: bridge.nonFinancialAssetAppreciation },
+          { operation: "−", component: "Non-debt essential spending", value: bridge.nonDebtEssentialSpending },
+          { operation: "−", component: "Discretionary spending", value: bridge.discretionarySpending },
+          { operation: "−", component: "Liability interest", value: bridge.liabilityInterest },
+          { operation: "−", component: "Taxes", value: bridge.taxes },
+          { operation: "−", component: "One-time consumption outflows", value: bridge.oneTimeConsumptionOutflows },
+          { operation: "±", component: "Principal payment / liability reduction", value: bridge.liabilityPrincipalReduction - bridge.liabilityPrincipalPayments },
+          { operation: "=", component: "Total net worth at retirement", value: bridge.endingNetWorth },
+        ],
+      },
+    ],
+    assumptions: context.inputs.nonFinancialAssets.map((asset) => {
+      const provenanceKey =
+        asset.origin === "lunchmoney"
+          ? `nonFinancialAssets.${asset.id}.openingValue`
+          : "nonFinancialAssets.primaryResidence.openingValue";
+      const provenance = context.baseline.provenance[provenanceKey];
+      return {
+        label: asset.label,
+        value: `${exactCurrency.format(asset.openingValue)} valued ${asset.valueAsOf}; ${percent.format(asset.annualAppreciation)} annual appreciation; ${asset.origin === "lunchmoney" ? "imported Lunch Money residence" : "configured residence fallback"}`,
+        sourceType:
+          asset.origin === "lunchmoney"
+            ? ("lunchmoney" as const)
+            : ("configuration" as const),
+        sourceDescription:
+          provenance?.sourceDescription ??
+          (asset.origin === "lunchmoney"
+            ? "Imported Lunch Money primary-residence value with a configured appreciation assumption"
+            : "Owner-supplied non-financial-asset valuation and appreciation assumption"),
+        effectiveDate: provenance?.effectiveDate ?? asset.valueAsOf,
+      };
+    }),
+    caveats: [
+      "Home equity is included in total net worth but is not available to retirement withdrawals. A future explicit sale or conversion capability would be required.",
+      "Mortgage principal repayment lowers financial assets and liabilities together, so it has no direct net-worth effect. Interest is consumption and reduces net worth.",
+      `The net-worth bridge starts with financial assets, non-financial assets, and liabilities, then reconciles to ${modeLabel(context).toLowerCase()} ending net worth.`,
+    ],
+    reconciliation: {
+      matched: reconciliation.matched,
+      calculatedValue: round(bridge.endingNetWorth),
+      displayedValue: round(endingDisplayed),
+    },
+  };
+}
+
+function liabilityScheduleDocument(
+  context: ExplanationContext,
+): ExplanationDocument {
+  const reconciliation = buildBalanceSheetReconciliation(
+    context.projection,
+    context.displayMode,
+  );
+  const liabilities = context.inputs.liabilities;
+  const scheduledLiabilities = liabilities.filter(
+    (liability) => liability.openingBalance > 0,
+  );
+  const annualRows = context.projection.annual.flatMap((point) =>
+    scheduledLiabilities.map((liability) => {
+      const schedule =
+        point[context.displayMode].liabilitySchedules[liability.id];
+      return {
+        period: annualPeriodLabel(context.inputs, point.calendarYear),
+        liability: liability.label,
+        openingPrincipal: schedule?.openingBalance ?? 0,
+        interest: schedule?.interest ?? 0,
+        regularPayment: schedule?.regularPayment ?? 0,
+        principal: schedule?.principal ?? 0,
+        lumpSums: schedule?.lumpSumPrincipal ?? 0,
+        closingBalance: schedule?.closingBalance ?? 0,
+      };
+    }),
+  );
+  const finalView =
+    context.projection.annual.at(-1)?.[context.displayMode];
+  const calculatedClosing = liabilities.reduce(
+    (total, liability) =>
+      total + (finalView?.liabilityBalances[liability.id] ?? 0),
+    0,
+  );
+  const displayedClosing =
+    finalView?.balances.totalLiabilities ?? 0;
+  const liabilityFundingComplete = context.projection.annual.every(
+    (point) =>
+      point.nominal.outflows.unmetRequiredOutflow <= 0.01 &&
+      point.real.outflows.unmetRequiredOutflow <= 0.01,
+  );
+  const historicalHandlingLabel = (
+    handling: (typeof liabilities)[number]["historicalPaymentHandling"],
+  ): string => {
+    if (handling === "payee_and_source_account") {
+      return "Matched by configured payee and source account";
+    }
+    if (handling === "category_mapped") {
+      return "Matched through a dedicated debt-payment category";
+    }
+    if (handling === "already_excluded_or_transfer") {
+      return "Already excluded or represented as a transfer";
+    }
+    return "Not applicable";
+  };
+  const liabilitySteps = liabilities.map((liability) => {
+    const treatment = liability.treatment;
+    const payoffDate =
+      context.projection.liabilityPayoffDates[liability.id];
+    if (
+      liability.openingBalance === 0 ||
+      treatment.mode === "zero_balance"
+    ) {
+      return {
+        label: liability.label,
+        value: "Zero balance at projection start",
+        operation: "input" as const,
+        sourceType: "lunchmoney" as const,
+        effectiveDate: liability.balanceAsOf,
+      };
+    }
+    if (treatment.mode === "payoff_at_projection_start") {
+      return {
+        label: liability.label,
+        value: "Paid in the first projected month",
+        operation: "input" as const,
+        sourceType: "lunchmoney" as const,
+        effectiveDate: liability.balanceAsOf,
+        details: [
+          {
+            label: "Opening balance",
+            value: exactCurrency.format(liability.openingBalance),
+            sourceType: "lunchmoney" as const,
+            effectiveDate: liability.balanceAsOf,
+          },
+          {
+            label: "Treatment",
+            value: "Paid in the first projected month",
+            sourceType: "configuration" as const,
+          },
+          {
+            label: "Projected payoff date",
+            value: payoffDate ?? "Not paid off within the projection",
+            sourceType: "projection" as const,
+          },
+        ],
+      };
+    }
+    return {
+      label: liability.label,
+      value: "Amortizing payment schedule",
+      operation: "input" as const,
+      sourceType: "lunchmoney" as const,
+      effectiveDate: liability.balanceAsOf,
+      details: [
+        {
+          label: "Opening principal",
+          value: exactCurrency.format(liability.openingBalance),
+          sourceType: "lunchmoney" as const,
+          effectiveDate: liability.balanceAsOf,
+        },
+        {
+          label: "Annual interest rate",
+          value: percent.format(treatment.annualInterestRate),
+          sourceType: (context.overrides[
+            `liability.${liability.id}.annualInterestRate`
+          ] !== undefined
+            ? "override"
+            : "configuration") as ExplanationSourceType,
+        },
+        {
+          label: "Interest-rate convention",
+          value: liabilityInterestRateConventionLabel(
+            treatment.interestRateConvention,
+          ),
+          sourceType: "configuration" as const,
+        },
+        {
+          label: "Entered regular payment",
+          value: `${exactCurrency.format(treatment.regularPayment.amount)} ${treatment.regularPayment.frequency}`,
+          sourceType: (context.overrides[
+            `liability.${liability.id}.regularPayment.amount`
+          ] !== undefined
+            ? "override"
+            : "configuration") as ExplanationSourceType,
+        },
+        {
+          label: "Monthly equivalent",
+          value: exactCurrency.format(
+            treatment.regularPayment.monthlyEquivalent,
+          ),
+          sourceType: "projection" as const,
+        },
+        {
+          label: "Current schedule effective date",
+          value: treatment.scheduleStartDate,
+          sourceType: "configuration" as const,
+          effectiveDate: treatment.scheduleStartDate,
+        },
+        {
+          label: "Historical payment handling",
+          value: historicalHandlingLabel(
+            liability.historicalPaymentHandling,
+          ),
+          sourceType: "configuration" as const,
+        },
+        {
+          label: "Historical monthly average",
+          value: exactCurrency.format(
+            liability.historicalMonthlyAverage,
+          ),
+          sourceType: "lunchmoney" as const,
+        },
+        {
+          label: "Projected payoff date",
+          value: payoffDate ?? "Not paid off within the projection",
+          sourceType: "projection" as const,
+        },
+      ],
+    };
+  });
+  return {
+    id: "liability-schedule",
+    title: "Mortgage and debt schedule",
+    plainLanguage:
+      liabilities.length === 0
+        ? "No liability schedule is active in this projection."
+        : "Each required liability payment is funded before ordinary spending or cash-funded saving, then split between interest and principal. Principal reduces both cash and the liability; payments stop automatically when the balance reaches zero.",
+    displayedResult: {
+      label: "Ending liabilities",
+      value: currency.format(displayedClosing),
+      dollarMode: context.displayMode,
+      period: period(context),
+    },
+    formula:
+      "Opening principal + interest − funded regular payment − funded lump-sum principal = closing principal",
+    steps: [
+      ...(scheduledLiabilities.length > 0
+        ? [
+            {
+              label: "Required liability payment funding",
+              value: liabilityFundingComplete
+                ? "All required liability payments in the projection were fully funded"
+                : "At least one required liability payment in the projection was not fully funded",
+              sourceType: "projection" as const,
+            },
+          ]
+        : []),
+      ...liabilitySteps,
+    ],
+    dataSections: [
+      {
+        title: "Annual liability schedule",
+        columns: [
+          { key: "period", label: "Period" },
+          { key: "liability", label: "Liability" },
+          { key: "openingPrincipal", label: "Opening principal" },
+          { key: "interest", label: "Interest" },
+          { key: "regularPayment", label: "Funded regular payment" },
+          { key: "principal", label: "Regular principal" },
+          { key: "lumpSums", label: "Funded lump sums" },
+          { key: "closingBalance", label: "Closing balance" },
+        ],
+        rows: annualRows,
+        initiallyExpanded: true,
+      },
+      {
+        title: "Historical payment replacement evidence",
+        description:
+          "Matched historical debt payments are aggregate audit evidence only; the configured schedule replaces them in the projection.",
+        columns: [
+          { key: "metric", label: "Metric" },
+          { key: "value", label: "Value" },
+        ],
+        rows: [
+          {
+            metric: "Historical monthly average",
+            value: context.baseline.cashFlowAudit.debtPayments.monthlyAverage,
+          },
+          {
+            metric: "Historical transactions",
+            value: context.baseline.cashFlowAudit.debtPayments.transactionCount,
+          },
+          {
+            metric: "Liabilities with schedule replacement",
+            value:
+              context.baseline.cashFlowAudit.debtPayments.liabilities.filter(
+                (liability) => liability.scheduleReplaced,
+              ).length,
+          },
+        ],
+      },
+    ],
+    assumptions: [],
+    caveats: [
+      "Historical payment activity does not infer the future interest rate, payment, or amortization terms.",
+      "The final regular payment is reduced to the exact principal plus interest; no payment occurs after payoff.",
+      "The schedule effective date must be on or before projection start. The imported opening balance remains authoritative; historical amortization is not replayed.",
+      "A configured lump sum that exceeds the remaining balance or falls after projected payoff is rejected instead of being silently ignored.",
+      "Rate renewals, refinancing, variable-rate trigger payments, HELOC draws, and home sale or conversion are not modelled.",
+      "Home equity is not used to fund retirement withdrawals.",
+    ],
+    reconciliation: {
+      matched: reconciliation.matched,
+      calculatedValue: round(calculatedClosing),
+      displayedValue: round(displayedClosing),
+    },
+  };
+}
+
 export function buildExplanation(
   target: ExplanationTarget,
   context: ExplanationContext,
@@ -3400,6 +3954,18 @@ export function buildExplanation(
   }
   if (target === "registered-account-room") {
     return registeredAccountRoomDocument(context);
+  }
+  if (target === "home-equity-at-retirement") {
+    return homeEquityAtRetirementDocument(context);
+  }
+  if (target === "liabilities-at-retirement") {
+    return liabilitiesAtRetirementDocument(context);
+  }
+  if (target === "total-net-worth") {
+    return totalNetWorthDocument(context);
+  }
+  if (target === "liability-schedule") {
+    return liabilityScheduleDocument(context);
   }
   if (
     target === "baseline-income" ||

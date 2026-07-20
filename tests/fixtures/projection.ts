@@ -86,6 +86,8 @@ export const projectionFixture: ProjectionInputs = {
       allocation: { cash: 0, fixedIncome: 0.3, equity: 0.7 },
     },
   ],
+  nonFinancialAssets: [],
+  liabilities: [],
   registeredAccountRoom: {
     tfsa: {
       startingAvailableRoom: {
@@ -186,6 +188,7 @@ export const baselineContextFixture: BaselineExportContext = {
         contributionFunding: "cash",
       },
     ],
+    nonFinancialAssetBalances: [],
     monthlyIncome: {
       trailingTotal: 84000,
       monthlyAverage: 7000,
@@ -207,7 +210,50 @@ export const baselineContextFixture: BaselineExportContext = {
         },
       ],
     },
+    debtPayments: {
+      trailingTotal: 0,
+      monthlyAverage: 0,
+      transactionCount: 0,
+    },
     recurringExpenses: { monthlyTotal: 100, count: 1, items: [] },
+  },
+  cashFlowAudit: {
+    income: {
+      trailingTotal: 84000,
+      monthlyAverage: 7000,
+      transactionCount: 12,
+      breakdown: [],
+    },
+    essentialSpending: {
+      trailingTotal: 38400,
+      monthlyAverage: 3200,
+      transactionCount: 40,
+      breakdown: [],
+    },
+    discretionarySpending: {
+      trailingTotal: 9600,
+      monthlyAverage: 800,
+      transactionCount: 20,
+      breakdown: [],
+    },
+    investmentContributions: {
+      trailingTotal: 12000,
+      monthlyAverage: 1000,
+      transactionCount: 12,
+      accounts: [],
+    },
+    debtPayments: {
+      trailingTotal: 0,
+      monthlyAverage: 0,
+      transactionCount: 0,
+      breakdown: [],
+      liabilities: [],
+    },
+    recurringExpenses: {
+      monthlyTotal: 100,
+      count: 1,
+      items: [],
+    },
   },
   dataThrough: "2026-07-14",
   transactionWindow: {
@@ -226,7 +272,7 @@ export const baselineContextFixture: BaselineExportContext = {
 
 export const currentBaselineFixture: CurrentBaseline = {
   ...baselineContextFixture,
-  schemaVersion: "1.5",
+  schemaVersion: "1.7",
   provenance: {
     ...baselineContextFixture.provenance,
     monthlyDiscretionarySpendingToday: {
@@ -442,6 +488,13 @@ export const currentBaselineFixture: CurrentBaseline = {
           funding: "cash",
         },
       ],
+    },
+    debtPayments: {
+      trailingTotal: 0,
+      monthlyAverage: 0,
+      transactionCount: 0,
+      breakdown: [],
+      liabilities: [],
     },
     recurringExpenses: {
       monthlyTotal: 100,

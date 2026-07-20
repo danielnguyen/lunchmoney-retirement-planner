@@ -6,12 +6,14 @@ import type {
   ContributionWaterfallInput,
   SurplusAllocationPolicyInput,
 } from "@/src/domain/projection/types";
+import type { LiabilityInterestRateConvention } from "@/src/domain/projection/liability-interest";
 
 export const plannerAccountTypes = [
   "cash",
   "tfsa",
   "rrsp",
   "non_registered",
+  "real_estate",
   "debt",
   "exclude",
 ] as const;
@@ -23,6 +25,7 @@ export const transactionClassifications = [
   "discretionary",
   "income",
   "investment_contribution",
+  "debt_payment",
   "transfer",
   "exclude",
 ] as const;
@@ -39,6 +42,8 @@ export const accountRoles = [
   "personal_rrsp",
   "workplace_rrsp",
   "personal_taxable",
+  "primary_residence",
+  "primary_mortgage",
 ] as const;
 
 export type AccountRole = (typeof accountRoles)[number];
@@ -82,13 +87,66 @@ export type AccountMapping = {
   contributionFunding?: ContributionFunding;
   contributionPhases?: ContributionPhaseConfig[];
   annualReturn?: number;
+  annualAppreciation?: number;
   withdrawalPriority?: number;
   allocation?: AssetAllocation;
+  liability?: LiabilityTreatmentConfig;
+};
+
+export const liabilityPaymentFrequencies = [
+  "monthly",
+  "semimonthly",
+  "biweekly",
+  "weekly",
+] as const;
+
+export type LiabilityPaymentFrequency =
+  (typeof liabilityPaymentFrequencies)[number];
+
+export type LiabilityTreatmentConfig =
+  | {
+      mode: "amortizing";
+      annualInterestRate: number;
+      interestRateConvention: LiabilityInterestRateConvention;
+      regularPayment: {
+        amount: number;
+        frequency: LiabilityPaymentFrequency;
+      };
+      scheduleStartDate: string;
+      lumpSumPayments: Array<{
+        date: string;
+        amount: number;
+      }>;
+      historicalPayment?:
+        | {
+            mode: "payee_and_source_account";
+            sourceAccountId: string;
+            payee: string;
+          }
+        | {
+            mode: "already_excluded_or_transfer";
+          };
+      /** @deprecated Use historicalPayment.mode: already_excluded_or_transfer. */
+      historicalPaymentHandling?: "already_excluded_or_transfer";
+    }
+  | {
+      mode: "payoff_at_projection_start";
+      historicalPayment?: {
+        mode: "already_excluded_or_transfer";
+      };
+      /** @deprecated Use historicalPayment.mode: already_excluded_or_transfer. */
+      historicalPaymentHandling?: "already_excluded_or_transfer";
+    };
+
+export type PrimaryResidenceConfig = {
+  currentValue: number;
+  asOf: string;
+  annualAppreciation: number;
 };
 
 export type ProjectionAccountConfig = {
   label: string;
-  type: Exclude<PlannerAccountType, "debt" | "exclude">;
+  type: Exclude<PlannerAccountType, "debt" | "exclude" | "real_estate">;
   annualReturn: number;
   withdrawalPriority: number;
   allocation: AssetAllocation;
@@ -145,6 +203,8 @@ export type CategoryMapping =
       classification: TransactionClassification;
       contributionAccountId?: string;
       contributionDirection?: "debit" | "credit";
+      liabilityRole?: "primary_mortgage";
+      liabilityId?: string;
     };
 
 export type PlannerAssumptions = {
@@ -153,7 +213,7 @@ export type PlannerAssumptions = {
   tfsaReturn: number;
   rrspReturn: number;
   nonRegisteredReturn: number;
-  debtReturn: number;
+  debtReturn?: number;
   incomeGrowth: number;
   contributionIndexing: number;
   cppIndexing?: number;
@@ -165,7 +225,9 @@ export type PlannerAssumptions = {
   pensionStartAge: number;
   pensionIndexing: number;
   rrifConversionAge: number;
-  allocations: Record<"cash" | "tfsa" | "rrsp" | "non_registered" | "debt", AssetAllocation>;
+  allocations: Record<"cash" | "tfsa" | "rrsp" | "non_registered", AssetAllocation> & {
+    debt?: AssetAllocation;
+  };
 };
 
 export type CppAmountAt65Config =
@@ -233,6 +295,7 @@ export type PlannerConfig = {
   accountMappings: Record<string, AccountMapping>;
   registeredRoom?: RegisteredRoomConfig;
   savingsPolicy?: SavingsPolicyConfig;
+  primaryResidence?: PrimaryResidenceConfig;
   projectionAccounts?: Record<string, ProjectionAccountConfig>;
   registeredAccountRoom?: RegisteredAccountRoomInput;
   contributionWaterfall?: Omit<ContributionWaterfallInput, "mode">;

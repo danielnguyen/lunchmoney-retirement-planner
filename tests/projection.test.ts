@@ -480,14 +480,18 @@ describe("public benefit timing", () => {
     expect(
       result.financialAssetsBridge.real.publicBenefitsAndPension,
     ).toBeCloseTo(expectedAnnual, 2);
-    expect(bridgeEnding(result, "nominal")).toBeCloseTo(
-      result.financialAssetsBridge.nominal.endingFinancialAssets,
-      2,
-    );
-    expect(bridgeEnding(result, "real")).toBeCloseTo(
-      result.financialAssetsBridge.real.endingFinancialAssets,
-      2,
-    );
+    expect(
+      Math.abs(
+        bridgeEnding(result, "nominal") -
+          result.financialAssetsBridge.nominal.endingFinancialAssets,
+      ),
+    ).toBeLessThanOrEqual(0.01);
+    expect(
+      Math.abs(
+        bridgeEnding(result, "real") -
+          result.financialAssetsBridge.real.endingFinancialAssets,
+      ),
+    ).toBeLessThanOrEqual(0.01);
 
   });
 
@@ -802,7 +806,7 @@ describe("exact retirement snapshot and accumulation bridge", () => {
   it("captures an integer-age retirement after the final working month", () => {
     const result = calculateProjection(oneYearFixture());
 
-    expect(result.schemaVersion).toBe("7.0");
+    expect(result.schemaVersion).toBe("8.0");
     expect(result.retirementSnapshot.calendarDate).toBe("2026-12-31");
     expect(result.retirementSnapshot.age).toBe(41);
     expect(result.retirementSnapshot.flowPeriod).toEqual({
@@ -900,14 +904,18 @@ describe("exact retirement snapshot and accumulation bridge", () => {
   it("reconciles real and nominal bridges within one cent", () => {
     const result = calculateProjection(projectionFixture);
 
-    expect(bridgeEnding(result, "nominal")).toBeCloseTo(
-      result.financialAssetsBridge.nominal.endingFinancialAssets,
-      2,
-    );
-    expect(bridgeEnding(result, "real")).toBeCloseTo(
-      result.summary.financialAssetsAtRetirementToday,
-      2,
-    );
+    expect(
+      Math.abs(
+        bridgeEnding(result, "nominal") -
+          result.financialAssetsBridge.nominal.endingFinancialAssets,
+      ),
+    ).toBeLessThanOrEqual(0.01);
+    expect(
+      Math.abs(
+        bridgeEnding(result, "real") -
+          result.summary.financialAssetsAtRetirementToday,
+      ),
+    ).toBeLessThanOrEqual(0.01);
   });
 
   it("includes actual investment returns and future events in the bridge", () => {
@@ -1588,24 +1596,23 @@ describe("annual presentation compatibility", () => {
     );
   });
 
-  it("keeps debt out of financial assets and the retirement bridge", () => {
+  it("keeps liabilities out of financial assets and records them in the net-worth bridge", () => {
     const input = structuredClone(projectionFixture);
-    input.accounts.push({
+    input.liabilities.push({
       id: "manual:3",
-      label: "Debt",
+      label: "Synthetic liability",
       origin: "lunchmoney",
-      type: "debt",
-      openingBalance: 50000,
-      annualReturn: 0,
-      contributionPhases: [],
-      withdrawalPriority: 999,
-      allocation: { cash: 0, fixedIncome: 0, equity: 0 },
+      openingBalance: 10000,
+      balanceAsOf: input.startDate,
+      role: null,
+      treatment: { mode: "payoff_at_projection_start" },
+      historicalPaymentHandling: "already_excluded_or_transfer",
+      historicalMonthlyAverage: 0,
     });
     const result = calculateProjection(input);
 
-    expect(result.retirementSnapshot.real.balances.netWorth).toBeLessThan(
-      result.retirementSnapshot.real.balances.financialAssets,
-    );
     expect(result.financialAssetsBridge.real.startingFinancialAssets).toBe(200000);
+    expect(result.netWorthBridge.real.startingLiabilities).toBe(10000);
+    expect(result.inputs.accounts.some((account) => account.id === "manual:3")).toBe(false);
   });
 });

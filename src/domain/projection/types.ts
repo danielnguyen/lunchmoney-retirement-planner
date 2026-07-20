@@ -1,4 +1,10 @@
-export const accountTypes = ["cash", "tfsa", "rrsp_rrif", "non_registered", "debt"] as const;
+import {
+  liabilityInterestRateConventions,
+  monthlyLiabilityInterestRate,
+  type LiabilityInterestRateConvention,
+} from "./liability-interest";
+
+export const accountTypes = ["cash", "tfsa", "rrsp_rrif", "non_registered"] as const;
 export const contributionFundingTypes = ["cash", "income_withheld"] as const;
 
 export type AccountType = (typeof accountTypes)[number];
@@ -90,6 +96,62 @@ export type FinancialAccountInput = {
   contributionPhases: ContributionPhase[];
   withdrawalPriority: number;
   allocation: AssetAllocation;
+};
+
+export type NonFinancialAssetInput = {
+  id: string;
+  label: string;
+  origin: "lunchmoney" | "projection_configuration";
+  type: "primary_residence";
+  openingValue: number;
+  valueAsOf: string;
+  annualAppreciation: number;
+  availableForWithdrawals: false;
+};
+
+export type LiabilityPaymentFrequency =
+  | "monthly"
+  | "semimonthly"
+  | "biweekly"
+  | "weekly";
+
+export type LiabilityTreatmentInput =
+  | {
+      mode: "amortizing";
+      annualInterestRate: number;
+      interestRateConvention: LiabilityInterestRateConvention;
+      regularPayment: {
+        amount: number;
+        frequency: LiabilityPaymentFrequency;
+        monthlyEquivalent: number;
+      };
+      scheduleStartDate: string;
+      lumpSumPayments: Array<{
+        date: string;
+        amount: number;
+      }>;
+    }
+  | {
+      mode: "payoff_at_projection_start";
+    }
+  | {
+      mode: "zero_balance";
+    };
+
+export type LiabilityInput = {
+  id: string;
+  label: string;
+  origin: "lunchmoney";
+  openingBalance: number;
+  balanceAsOf: string;
+  role: "primary_mortgage" | null;
+  treatment: LiabilityTreatmentInput;
+  historicalPaymentHandling:
+    | "category_mapped"
+    | "payee_and_source_account"
+    | "already_excluded_or_transfer"
+    | "not_applicable";
+  historicalMonthlyAverage: number;
 };
 
 export type SurplusAllocationPolicyInput = {
@@ -205,6 +267,8 @@ export type ProjectionInputs = {
   tax: TaxAssumptions;
   person: PersonInput;
   accounts: FinancialAccountInput[];
+  nonFinancialAssets: NonFinancialAssetInput[];
+  liabilities: LiabilityInput[];
   registeredAccountRoom?: RegisteredAccountRoomInput;
   contributionWaterfall: ContributionWaterfallInput;
   surplusAllocation: SurplusAllocationPolicyInput;
@@ -232,10 +296,15 @@ export type WithdrawalBreakdown = {
 export type OutflowBreakdown = {
   essential: number;
   discretionary: number;
+  liabilityInterest: number;
+  liabilityPrincipal: number;
+  liabilityLumpSumPrincipal: number;
+  liabilityCashPayment: number;
   oneTime: number;
   tax: number;
   oasRecoveryTax: number;
   contributions: number;
+  unmetRequiredOutflow: number;
   unmetSpending: number;
   total: number;
 };
@@ -297,9 +366,26 @@ export type BalanceBreakdown = {
   tfsa: number;
   rrspRrif: number;
   nonRegistered: number;
-  debts: number;
   financialAssets: number;
-  netWorth: number;
+  retirementFundingAssets: number;
+  residenceValue: number;
+  otherNonFinancialAssets: number;
+  totalNonFinancialAssets: number;
+  totalAssets: number;
+  mortgageBalance: number;
+  otherLiabilities: number;
+  totalLiabilities: number;
+  homeEquity: number;
+  totalNetWorth: number;
+};
+
+export type LiabilityScheduleBreakdown = {
+  openingBalance: number;
+  interest: number;
+  regularPayment: number;
+  principal: number;
+  lumpSumPrincipal: number;
+  closingBalance: number;
 };
 
 export type SurplusAllocationBreakdown = {
@@ -334,6 +420,9 @@ export type ProjectionView = {
   contributions: ContributionBreakdown;
   balances: BalanceBreakdown;
   accountBalances: Record<string, number>;
+  nonFinancialAssetValues: Record<string, number>;
+  liabilityBalances: Record<string, number>;
+  liabilitySchedules: Record<string, LiabilityScheduleBreakdown>;
   accountContributions: Record<string, number>;
   accountContributionDetails: Record<string, AccountContributionDetail>;
   registeredAccountRoom: RegisteredAccountRoomBreakdown;
@@ -358,10 +447,17 @@ export type ProjectionSummary = {
   retirementYear: number;
   retirementDate: string;
   financialAssetsAtRetirementToday: number;
+  nonFinancialAssetsAtRetirementToday: number;
+  liabilitiesAtRetirementToday: number;
+  homeEquityAtRetirementToday: number;
+  totalNetWorthAtRetirementToday: number;
   retirementGoalToday: number;
   goalGapToday: number;
   financialAssetsDepletionAge: number | null;
   endingFinancialAssetsToday: number;
+  endingNetWorthToday: number;
+  mortgagePayoffDate: string | null;
+  mortgagePayoffAge: number | null;
 };
 
 export type ProjectionObservation = {
@@ -391,9 +487,28 @@ export type FinancialAssetsBridge = {
   investmentReturns: number;
   essentialSpending: number;
   discretionarySpending: number;
+  liabilityCashPayments: number;
   oneTimeOutflows: number;
   taxes: number;
   endingFinancialAssets: number;
+};
+
+export type NetWorthBridge = {
+  startingFinancialAssets: number;
+  startingNonFinancialAssets: number;
+  startingLiabilities: number;
+  externalNetCashInflows: number;
+  incomeWithheldContributions: number;
+  investmentReturns: number;
+  nonFinancialAssetAppreciation: number;
+  nonDebtEssentialSpending: number;
+  discretionarySpending: number;
+  liabilityInterest: number;
+  liabilityPrincipalPayments: number;
+  liabilityPrincipalReduction: number;
+  taxes: number;
+  oneTimeConsumptionOutflows: number;
+  endingNetWorth: number;
 };
 
 export type GovernmentBenefitCalculationSummary = {
@@ -525,7 +640,7 @@ export type SavingsPolicyCalculationSummary = {
 };
 
 export type ProjectionResult = {
-  schemaVersion: "7.0";
+  schemaVersion: "8.0";
   inputs: ProjectionInputs;
   summary: ProjectionSummary;
   retirementSnapshot: RetirementSnapshot;
@@ -533,6 +648,11 @@ export type ProjectionResult = {
     nominal: FinancialAssetsBridge;
     real: FinancialAssetsBridge;
   };
+  netWorthBridge: {
+    nominal: NetWorthBridge;
+    real: NetWorthBridge;
+  };
+  liabilityPayoffDates: Record<string, string | null>;
   governmentBenefits: GovernmentBenefitCalculationSummary;
   surplusAllocation: SurplusAllocationCalculationSummary;
   registeredAccountRoom: RegisteredAccountRoomCalculationSummary;
@@ -604,8 +724,16 @@ export function validateProjectionInputs(value: unknown): ProjectionInputs {
   if (!input.person || typeof input.person !== "object") {
     throw new Error("A person projection input is required");
   }
-  if (!Array.isArray(input.accounts) || input.accounts.length === 0 || !Array.isArray(input.events)) {
-    throw new Error("At least one account and an events array are required");
+  if (
+    !Array.isArray(input.accounts) ||
+    input.accounts.length === 0 ||
+    !Array.isArray(input.nonFinancialAssets) ||
+    !Array.isArray(input.liabilities) ||
+    !Array.isArray(input.events)
+  ) {
+    throw new Error(
+      "Financial accounts, nonFinancialAssets, liabilities, and events must be resolved arrays",
+    );
   }
   if (!isFiniteNumber(input.person.currentAge) || input.person.currentAge < 18 || input.person.currentAge > 100) {
     throw new Error("currentAge must be between 18 and 100");
@@ -792,11 +920,6 @@ export function validateProjectionInputs(value: unknown): ProjectionInputs {
           `Projection-configured account ${account.id} must have a fixed zero opening balance`,
         );
       }
-      if (account.type === "debt") {
-        throw new Error(
-          `Projection-configured account ${account.id} cannot use debt`,
-        );
-      }
     }
     if (!accountTypes.includes(account.type)) {
       throw new Error(`Unsupported account type ${account.type}`);
@@ -882,15 +1005,260 @@ export function validateProjectionInputs(value: unknown): ProjectionInputs {
     );
     const allocationTotal =
       account.allocation.cash + account.allocation.fixedIncome + account.allocation.equity;
-    if (account.type !== "debt" && Math.abs(allocationTotal - 1) > 0.001) {
+    if (Math.abs(allocationTotal - 1) > 0.001) {
       throw new Error(`Allocation must total 1 for ${account.id}`);
-    }
-    if (account.type === "debt" && Math.abs(allocationTotal) > 0.001) {
-      throw new Error(`Debt allocation must total 0 for ${account.id}`);
     }
   }
   if (!hasCashAccount) {
     throw new Error("At least one included cash account is required for cash-flow projection");
+  }
+
+  const nonFinancialAssetIds = new Set<string>();
+  for (const asset of input.nonFinancialAssets) {
+    assertNonEmptyString("non-financial asset id", asset.id);
+    assertNonEmptyString(`label for ${asset.id}`, asset.label);
+    if (
+      nonFinancialAssetIds.has(asset.id) ||
+      accountIds.has(asset.id)
+    ) {
+      throw new Error(
+        "Financial account and non-financial asset ids must be unique",
+      );
+    }
+    nonFinancialAssetIds.add(asset.id);
+    if (
+      (asset.origin !== "projection_configuration" &&
+        asset.origin !== "lunchmoney") ||
+      asset.type !== "primary_residence"
+    ) {
+      throw new Error(`Unsupported non-financial asset ${asset.id}`);
+    }
+    if (asset.availableForWithdrawals !== false) {
+      throw new Error(
+        `Non-financial asset ${asset.id} must remain unavailable for withdrawals`,
+      );
+    }
+    assertNonNegative(`openingValue for ${asset.id}`, asset.openingValue);
+    assertRate(
+      `annualAppreciation for ${asset.id}`,
+      asset.annualAppreciation,
+      -0.99,
+      1,
+    );
+    if (!isIsoCalendarDate(asset.valueAsOf)) {
+      throw new Error(
+        `valueAsOf for ${asset.id} must be a valid ISO calendar date`,
+      );
+    }
+  }
+  const residences = input.nonFinancialAssets.filter(
+    (asset) => asset.type === "primary_residence",
+  );
+  if (residences.length > 1) {
+    throw new Error("At most one primary residence may be configured");
+  }
+
+  const projectionMonths = Math.round(
+    (input.endAge - input.person.currentAge) * 12,
+  );
+  const projectionStartYear = Number(input.startDate.slice(0, 4));
+  const projectionStartMonth = Number(input.startDate.slice(5, 7));
+  const projectionEndMonthIndex =
+    projectionStartMonth - 1 + projectionMonths - 1;
+  const projectionEndMonthKey =
+    `${projectionStartYear + Math.floor(projectionEndMonthIndex / 12)}-` +
+    String((projectionEndMonthIndex % 12) + 1).padStart(2, "0");
+
+  const liabilityIds = new Set<string>();
+  let primaryMortgage: LiabilityInput | undefined;
+  for (const liability of input.liabilities) {
+    assertNonEmptyString("liability id", liability.id);
+    assertNonEmptyString(`label for ${liability.id}`, liability.label);
+    if (
+      liabilityIds.has(liability.id) ||
+      accountIds.has(liability.id) ||
+      nonFinancialAssetIds.has(liability.id)
+    ) {
+      throw new Error(
+        "Financial account, non-financial asset, and liability ids must be unique",
+      );
+    }
+    liabilityIds.add(liability.id);
+    if (liability.origin !== "lunchmoney") {
+      throw new Error(`Unsupported liability origin for ${liability.id}`);
+    }
+    assertNonNegative(
+      `openingBalance for liability ${liability.id}`,
+      liability.openingBalance,
+    );
+    if (!isIsoCalendarDate(liability.balanceAsOf)) {
+      throw new Error(
+        `balanceAsOf for liability ${liability.id} must be a valid ISO calendar date`,
+      );
+    }
+    if (
+      ![
+        "category_mapped",
+        "payee_and_source_account",
+        "already_excluded_or_transfer",
+        "not_applicable",
+      ].includes(liability.historicalPaymentHandling)
+    ) {
+      throw new Error(
+        `historicalPaymentHandling for liability ${liability.id} is invalid`,
+      );
+    }
+    assertNonNegative(
+      `historicalMonthlyAverage for liability ${liability.id}`,
+      liability.historicalMonthlyAverage,
+    );
+    if (liability.role === "primary_mortgage") {
+      if (primaryMortgage) {
+        throw new Error("The primary_mortgage liability role must be unique");
+      }
+      primaryMortgage = liability;
+    } else if (liability.role !== null) {
+      throw new Error(`Unsupported liability role for ${liability.id}`);
+    }
+    const treatment = liability.treatment;
+    if (!treatment || typeof treatment !== "object") {
+      throw new Error(`Liability ${liability.id} requires a treatment`);
+    }
+    if (treatment.mode === "zero_balance") {
+      if (liability.openingBalance !== 0) {
+        throw new Error(
+          `Positive liability ${liability.id} requires amortizing or payoff_at_projection_start treatment`,
+        );
+      }
+      continue;
+    }
+    if (liability.openingBalance <= 0) {
+      throw new Error(
+        `Liability ${liability.id} cannot use ${treatment.mode} with a zero opening balance`,
+      );
+    }
+    if (treatment.mode === "payoff_at_projection_start") continue;
+    if (treatment.mode !== "amortizing") {
+      throw new Error(`Unsupported liability treatment for ${liability.id}`);
+    }
+    assertRate(
+      `annualInterestRate for liability ${liability.id}`,
+      treatment.annualInterestRate,
+      0,
+      1,
+    );
+    if (
+      !liabilityInterestRateConventions.includes(
+        treatment.interestRateConvention,
+      )
+    ) {
+      throw new Error(
+        `interestRateConvention for liability ${liability.id} must be canadian_mortgage or effective_annual`,
+      );
+    }
+    if (
+      !["monthly", "semimonthly", "biweekly", "weekly"].includes(
+        treatment.regularPayment.frequency,
+      )
+    ) {
+      throw new Error(
+        `regular payment frequency for liability ${liability.id} is invalid`,
+      );
+    }
+    if (
+      !isFiniteNumber(treatment.regularPayment.amount) ||
+      treatment.regularPayment.amount <= 0
+    ) {
+      throw new Error(
+        `regular payment amount for liability ${liability.id} must be positive`,
+      );
+    }
+    const paymentsPerYear = {
+      monthly: 12,
+      semimonthly: 24,
+      biweekly: 26,
+      weekly: 52,
+    }[treatment.regularPayment.frequency];
+    const expectedMonthly =
+      (treatment.regularPayment.amount * paymentsPerYear) / 12;
+    if (
+      !isFiniteNumber(treatment.regularPayment.monthlyEquivalent) ||
+      Math.abs(
+        treatment.regularPayment.monthlyEquivalent - expectedMonthly
+      ) > 0.005
+    ) {
+      throw new Error(
+        `regular payment monthly equivalent for liability ${liability.id} is inconsistent`,
+      );
+    }
+    const firstMonthInterest =
+      liability.openingBalance *
+      monthlyLiabilityInterestRate(
+        treatment.annualInterestRate,
+        treatment.interestRateConvention,
+      );
+    if (treatment.regularPayment.monthlyEquivalent <= firstMonthInterest) {
+      throw new Error(
+        `Regular payment for liability ${liability.id} must exceed monthly interest`,
+      );
+    }
+    if (!isIsoCalendarDate(treatment.scheduleStartDate)) {
+      throw new Error(
+        `scheduleStartDate for liability ${liability.id} must be a valid ISO calendar date`,
+      );
+    }
+    if (treatment.scheduleStartDate > input.startDate) {
+      throw new Error(
+        `scheduleStartDate for liability ${liability.id} must be on or before projection startDate; future debt origination is not modelled`,
+      );
+    }
+    if (!Array.isArray(treatment.lumpSumPayments)) {
+      throw new Error(
+        `lumpSumPayments for liability ${liability.id} must be an array`,
+      );
+    }
+    const lumpDates = new Set<string>();
+    for (const [index, lump] of treatment.lumpSumPayments.entries()) {
+      if (!isIsoCalendarDate(lump.date)) {
+        throw new Error(
+          `lumpSumPayments[${index}].date for liability ${liability.id} must be a valid ISO calendar date`,
+        );
+      }
+      if (lump.date < input.startDate) {
+        throw new Error(
+          `Lump-sum payment for liability ${liability.id} cannot precede projection start`,
+        );
+      }
+      if (lump.date.slice(0, 7) > projectionEndMonthKey) {
+        throw new Error(
+          `Lump-sum payment for liability ${liability.id} must occur within the projection so it cannot be ignored`,
+        );
+      }
+      if (lumpDates.has(lump.date)) {
+        throw new Error(
+          `Lump-sum payment dates for liability ${liability.id} must be unique`,
+        );
+      }
+      lumpDates.add(lump.date);
+      if (!isFiniteNumber(lump.amount) || lump.amount <= 0) {
+        throw new Error(
+          `lumpSumPayments[${index}].amount for liability ${liability.id} must be positive`,
+        );
+      }
+    }
+  }
+  if (primaryMortgage && residences.length !== 1) {
+    throw new Error(
+      "The primary_mortgage role requires one configured primary residence",
+    );
+  }
+  if (
+    primaryMortgage &&
+    primaryMortgage.treatment.mode !== "amortizing"
+  ) {
+    throw new Error(
+      "The primary_mortgage role requires amortizing liability treatment",
+    );
   }
 
   const registeredAccountIds = new Set(

@@ -20,6 +20,9 @@ import {
   type ContributionFunding,
   type FinancialAccountInput,
   type FinancialAssetsBridge,
+  type LiabilityInput,
+  type NetWorthBridge,
+  type NonFinancialAssetInput,
   type ProjectionEventInput,
   type ProjectionInputs,
   type ProjectionResult,
@@ -39,6 +42,11 @@ export type ShareSafeAccountAlias = {
   plannerType: AccountType;
 };
 
+export type ShareSafeBalanceSheetAlias = {
+  key: string;
+  label: string;
+};
+
 export type ShareSafeProvenanceData =
   | string
   | number
@@ -46,6 +54,7 @@ export type ShareSafeProvenanceData =
   | null
   | AssetAllocation
   | string[]
+  | Array<{ date: string; amount: number }>
   | ProjectionEventInput[];
 
 export type ShareSafeProvenanceValue = {
@@ -63,12 +72,20 @@ export type ShareSafeDerivedBaseline = {
     id: string;
     source: "manual" | "plaid" | "cash";
     name: string;
-    plannerType: AccountType;
+    plannerType: AccountType | "debt";
     balance: number;
     balanceAsOf: string;
     monthlyContribution: number;
     contributionSource: "lunchmoney_derived" | "local_configuration";
     contributionFunding: ContributionFunding | undefined;
+  }>;
+  nonFinancialAssetBalances: Array<{
+    id: string;
+    source: "manual" | "plaid";
+    name: string;
+    plannerType: "real_estate";
+    value: number;
+    valueAsOf: string;
   }>;
   monthlyIncome: DerivedBaseline["monthlyIncome"];
   essentialSpending: DerivedBaseline["essentialSpending"];
@@ -96,10 +113,11 @@ export type ShareSafeDerivedBaseline = {
       categoryId: string;
     }>;
   };
+  debtPayments: DerivedBaseline["debtPayments"];
 };
 
 export type ProjectionSnapshot = {
-  schemaVersion: "7.0";
+  schemaVersion: "8.0";
   generatedAt: string;
   exportMetadata: {
     transformation: "typed_allowlist_and_automatic_anonymization";
@@ -109,6 +127,8 @@ export type ProjectionSnapshot = {
     descriptiveFinancialTextIncluded: false;
     credentialsIncluded: false;
     accountAliases: ShareSafeAccountAlias[];
+    nonFinancialAssetAliases: ShareSafeBalanceSheetAlias[];
+    liabilityAliases: ShareSafeBalanceSheetAlias[];
   };
   connection: {
     status: "connected";
@@ -127,6 +147,17 @@ export type ProjectionSnapshot = {
   };
   provenance: Record<string, ShareSafeProvenanceValue>;
   derivedBaseline: ShareSafeDerivedBaseline;
+  debtPaymentAudit: {
+    trailingTotal: number;
+    monthlyAverage: number;
+    transactionCount: number;
+    liabilities: Array<{
+      liabilityId: string;
+      liabilityRole: "primary_mortgage" | null;
+      monthlyAverage: number;
+      scheduleReplaced: boolean;
+    }>;
+  };
   warnings: Array<{
     code: string;
     severity: "warning" | "error";
@@ -158,9 +189,17 @@ type RecordAlias = {
   label: string;
 };
 
+type RawRecordAlias = RecordAlias & {
+  rawId: string;
+};
+
 type ShareSafeContext = {
   accounts: AccountAlias[];
   accountByRawId: Map<string, AccountAlias>;
+  nonFinancialAssets: RawRecordAlias[];
+  nonFinancialAssetByRawId: Map<string, RawRecordAlias>;
+  liabilities: RawRecordAlias[];
+  liabilityByRawId: Map<string, RawRecordAlias>;
   accountByNumericId: Map<string, RecordAlias>;
   employmentPhaseByRawId: Map<string, RecordAlias>;
   employmentPhaseByRawLabel: Map<string, RecordAlias>;
@@ -183,6 +222,7 @@ type ProvenanceField = {
   employmentPhase?: RecordAlias;
   contributionPhase?: RecordAlias;
   savingsPhase?: RecordAlias;
+  balanceSheetRecord?: RawRecordAlias;
   finalField?: string;
 };
 
@@ -191,7 +231,6 @@ const ACCOUNT_ALIAS_BASE: Record<AccountType, string> = {
   tfsa: "tfsa",
   rrsp_rrif: "rrsp",
   non_registered: "non_registered",
-  debt: "debt",
 };
 
 const ACCOUNT_ALIAS_LABEL: Record<AccountType, string> = {
@@ -199,7 +238,6 @@ const ACCOUNT_ALIAS_LABEL: Record<AccountType, string> = {
   tfsa: "TFSA account",
   rrsp_rrif: "RRSP/RRIF account",
   non_registered: "Non-registered account",
-  debt: "Debt account",
 };
 
 const ACCOUNT_TYPE_ORDER: AccountType[] = [
@@ -207,7 +245,6 @@ const ACCOUNT_TYPE_ORDER: AccountType[] = [
   "tfsa",
   "rrsp_rrif",
   "non_registered",
-  "debt",
 ];
 
 const ACCOUNT_PROVENANCE_FIELDS = new Set([
@@ -340,6 +377,10 @@ const SAFE_PROVENANCE_FIELDS = new Set([
   "registeredRoom.rrsp.currentYearBeforePlanStart.eligibleEarnedIncome",
   "registeredRoom.rrsp.currentYearBeforePlanStart.pensionAdjustment",
   "registeredRoom.rrsp.currentYearBeforePlanStart.otherReduction",
+  "nonFinancialAssets.primaryResidence.openingValue",
+  "nonFinancialAssets.primaryResidence.valueAsOf",
+  "nonFinancialAssets.primaryResidence.annualAppreciation",
+  "nonFinancialAssets.primaryResidence.availableForWithdrawals",
 ]);
 
 const SIMPLE_OVERRIDE_KEYS = new Set([
@@ -358,6 +399,8 @@ const SIMPLE_OVERRIDE_KEYS = new Set([
   "registeredRoom.rrsp.availableAtStart",
   "savingsPolicy.reserveBuilding.targetToday",
   "savingsPolicy.reserveBuilding.indexingRate",
+  "primaryResidence.currentValue",
+  "primaryResidence.annualAppreciation",
 ]);
 
 const SAFE_MILESTONES = new Set([
@@ -408,6 +451,8 @@ const SAFE_WARNING_MESSAGES: Record<BaselineWarningCode, string> = {
     "A legacy zero OAS amount remains in effect until canonical configuration is supplied.",
   contribution_waterfall_compatibility:
     "Contribution plans use fixed source-only compatibility routes.",
+  liability_payment_mismatch:
+    "A configured liability payment differs materially from historical payment evidence.",
 };
 
 const REFERENCE_KINDS = new Set<CanadianReferenceKind>([
@@ -477,7 +522,7 @@ function createShareSafeContext(
     }
   }
   for (const account of baseline.derived.accountBalances) {
-    if (!descriptors.has(account.id)) {
+    if (account.plannerType !== "debt" && !descriptors.has(account.id)) {
       descriptors.set(account.id, {
         id: account.id,
         type: account.plannerType,
@@ -485,7 +530,6 @@ function createShareSafeContext(
       });
     }
   }
-
   const counters = Object.fromEntries(ACCOUNT_TYPE_ORDER.map((type) => [type, 0])) as Record<
     AccountType,
     number
@@ -501,11 +545,57 @@ function createShareSafeContext(
       };
     });
   const accountByRawId = new Map(accounts.map((account) => [account.rawId, account]));
+  const nonFinancialAssetDescriptors = new Map<string, string>();
+  for (const asset of [
+    ...baseline.projectionInputs.nonFinancialAssets,
+    ...projection.inputs.nonFinancialAssets,
+  ]) {
+    if (!nonFinancialAssetDescriptors.has(asset.id)) {
+      nonFinancialAssetDescriptors.set(asset.id, asset.label);
+    }
+  }
+  const nonFinancialAssets = [...nonFinancialAssetDescriptors].map(
+    ([rawId], index): RawRecordAlias => ({
+      rawId,
+      key: `non_financial_asset_${index + 1}`,
+      label: `Non-financial asset ${index + 1}`,
+    }),
+  );
+  const nonFinancialAssetByRawId = new Map(
+    nonFinancialAssets.map((asset) => [asset.rawId, asset]),
+  );
+  const liabilityDescriptors = new Map<string, string>();
+  for (const liability of [
+    ...baseline.projectionInputs.liabilities,
+    ...projection.inputs.liabilities,
+  ]) {
+    if (!liabilityDescriptors.has(liability.id)) {
+      liabilityDescriptors.set(liability.id, liability.label);
+    }
+  }
+  const liabilities = [...liabilityDescriptors].map(
+    ([rawId], index): RawRecordAlias => ({
+      rawId,
+      key: `liability_${index + 1}`,
+      label: `Liability ${index + 1}`,
+    }),
+  );
+  const liabilityByRawId = new Map(
+    liabilities.map((liability) => [liability.rawId, liability]),
+  );
   const accountByNumericId = new Map<string, RecordAlias>();
   for (const account of baseline.derived.accountBalances) {
-    const alias = accountByRawId.get(account.id);
+    const alias =
+      accountByRawId.get(account.id) ??
+      liabilityByRawId.get(account.id);
     if (alias && account.lunchMoneyId !== null) {
       accountByNumericId.set(String(account.lunchMoneyId), alias);
+    }
+  }
+  for (const asset of baseline.derived.nonFinancialAssetBalances) {
+    const alias = nonFinancialAssetByRawId.get(asset.id);
+    if (alias && asset.lunchMoneyId !== null) {
+      accountByNumericId.set(String(asset.lunchMoneyId), alias);
     }
   }
 
@@ -623,6 +713,10 @@ function createShareSafeContext(
   return {
     accounts,
     accountByRawId,
+    nonFinancialAssets,
+    nonFinancialAssetByRawId,
+    liabilities,
+    liabilityByRawId,
     accountByNumericId,
     employmentPhaseByRawId,
     employmentPhaseByRawLabel,
@@ -640,6 +734,26 @@ function createShareSafeContext(
 function requiredAccountAlias(rawId: string, context: ShareSafeContext): AccountAlias {
   const alias = context.accountByRawId.get(rawId);
   if (!alias) throw new Error("Export encountered an unknown account reference");
+  return alias;
+}
+
+function requiredNonFinancialAssetAlias(
+  rawId: string,
+  context: ShareSafeContext,
+): RawRecordAlias {
+  const alias = context.nonFinancialAssetByRawId.get(rawId);
+  if (!alias) {
+    throw new Error("Export encountered an unknown non-financial asset reference");
+  }
+  return alias;
+}
+
+function requiredLiabilityAlias(
+  rawId: string,
+  context: ShareSafeContext,
+): RawRecordAlias {
+  const alias = context.liabilityByRawId.get(rawId);
+  if (!alias) throw new Error("Export encountered an unknown liability reference");
   return alias;
 }
 
@@ -714,6 +828,54 @@ function safeAccountInput(
     }),
     withdrawalPriority: account.withdrawalPriority,
     allocation: safeAllocation(account.allocation),
+  };
+}
+
+function safeNonFinancialAssetInput(
+  asset: NonFinancialAssetInput,
+  context: ShareSafeContext,
+): NonFinancialAssetInput {
+  const alias = requiredNonFinancialAssetAlias(asset.id, context);
+  return {
+    id: alias.key,
+    label: alias.label,
+    origin: asset.origin,
+    type: asset.type,
+    openingValue: asset.openingValue,
+    valueAsOf: asset.valueAsOf,
+    annualAppreciation: asset.annualAppreciation,
+    availableForWithdrawals: false,
+  };
+}
+
+function safeLiabilityInput(
+  liability: LiabilityInput,
+  context: ShareSafeContext,
+): LiabilityInput {
+  const alias = requiredLiabilityAlias(liability.id, context);
+  return {
+    id: alias.key,
+    label: alias.label,
+    origin: liability.origin,
+    openingBalance: liability.openingBalance,
+    balanceAsOf: liability.balanceAsOf,
+    role: liability.role,
+    treatment:
+      liability.treatment.mode === "amortizing"
+        ? {
+            mode: "amortizing",
+            annualInterestRate: liability.treatment.annualInterestRate,
+            interestRateConvention:
+              liability.treatment.interestRateConvention,
+            regularPayment: { ...liability.treatment.regularPayment },
+            scheduleStartDate: liability.treatment.scheduleStartDate,
+            lumpSumPayments: liability.treatment.lumpSumPayments.map(
+              (payment) => ({ ...payment }),
+            ),
+          }
+        : { mode: liability.treatment.mode },
+    historicalPaymentHandling: liability.historicalPaymentHandling,
+    historicalMonthlyAverage: liability.historicalMonthlyAverage,
   };
 }
 
@@ -792,6 +954,12 @@ function safeProjectionInputs(
       rrifConversionAge: inputs.person.rrifConversionAge,
     },
     accounts: inputs.accounts.map((account) => safeAccountInput(account, context)),
+    nonFinancialAssets: inputs.nonFinancialAssets.map((asset) =>
+      safeNonFinancialAssetInput(asset, context),
+    ),
+    liabilities: inputs.liabilities.map((liability) =>
+      safeLiabilityInput(liability, context),
+    ),
     ...(inputs.registeredAccountRoom
       ? {
           registeredAccountRoom: {
@@ -948,6 +1116,24 @@ function safeProjectionView(view: ProjectionView, context: ShareSafeContext): Pr
       { ...detail },
     ]),
   );
+  const nonFinancialAssetValues = Object.fromEntries(
+    Object.entries(view.nonFinancialAssetValues).map(([rawId, value]) => [
+      requiredNonFinancialAssetAlias(rawId, context).key,
+      value,
+    ]),
+  );
+  const liabilityBalances = Object.fromEntries(
+    Object.entries(view.liabilityBalances).map(([rawId, value]) => [
+      requiredLiabilityAlias(rawId, context).key,
+      value,
+    ]),
+  );
+  const liabilitySchedules = Object.fromEntries(
+    Object.entries(view.liabilitySchedules).map(([rawId, schedule]) => [
+      requiredLiabilityAlias(rawId, context).key,
+      { ...schedule },
+    ]),
+  );
   return {
     income: {
       employment: view.income.employment,
@@ -971,6 +1157,12 @@ function safeProjectionView(view: ProjectionView, context: ShareSafeContext): Pr
       tax: view.outflows.tax,
       oasRecoveryTax: view.outflows.oasRecoveryTax,
       contributions: view.outflows.contributions,
+      liabilityInterest: view.outflows.liabilityInterest,
+      liabilityPrincipal: view.outflows.liabilityPrincipal,
+      liabilityLumpSumPrincipal:
+        view.outflows.liabilityLumpSumPrincipal,
+      liabilityCashPayment: view.outflows.liabilityCashPayment,
+      unmetRequiredOutflow: view.outflows.unmetRequiredOutflow,
       unmetSpending: view.outflows.unmetSpending,
       total: view.outflows.total,
     },
@@ -993,11 +1185,22 @@ function safeProjectionView(view: ProjectionView, context: ShareSafeContext): Pr
       tfsa: view.balances.tfsa,
       rrspRrif: view.balances.rrspRrif,
       nonRegistered: view.balances.nonRegistered,
-      debts: view.balances.debts,
       financialAssets: view.balances.financialAssets,
-      netWorth: view.balances.netWorth,
+      retirementFundingAssets: view.balances.retirementFundingAssets,
+      residenceValue: view.balances.residenceValue,
+      otherNonFinancialAssets: view.balances.otherNonFinancialAssets,
+      totalNonFinancialAssets: view.balances.totalNonFinancialAssets,
+      totalAssets: view.balances.totalAssets,
+      mortgageBalance: view.balances.mortgageBalance,
+      otherLiabilities: view.balances.otherLiabilities,
+      totalLiabilities: view.balances.totalLiabilities,
+      homeEquity: view.balances.homeEquity,
+      totalNetWorth: view.balances.totalNetWorth,
     },
     accountBalances,
+    nonFinancialAssetValues,
+    liabilityBalances,
+    liabilitySchedules,
     accountContributions,
     accountContributionDetails,
     registeredAccountRoom: {
@@ -1045,10 +1248,15 @@ function safeFinancialAssetsBridge(bridge: FinancialAssetsBridge): FinancialAsse
     investmentReturns: bridge.investmentReturns,
     essentialSpending: bridge.essentialSpending,
     discretionarySpending: bridge.discretionarySpending,
+    liabilityCashPayments: bridge.liabilityCashPayments,
     oneTimeOutflows: bridge.oneTimeOutflows,
     taxes: bridge.taxes,
     endingFinancialAssets: bridge.endingFinancialAssets,
   };
+}
+
+function safeNetWorthBridge(bridge: NetWorthBridge): NetWorthBridge {
+  return { ...bridge };
 }
 
 function safeObservationMessage(
@@ -1071,16 +1279,27 @@ function safeProjectionResult(
   context: ShareSafeContext,
 ): ProjectionResult {
   return {
-    schemaVersion: "7.0",
+    schemaVersion: "8.0",
     inputs: safeProjectionInputs(projection.inputs, context),
     summary: {
       retirementYear: projection.summary.retirementYear,
       retirementDate: projection.summary.retirementDate,
       financialAssetsAtRetirementToday: projection.summary.financialAssetsAtRetirementToday,
+      nonFinancialAssetsAtRetirementToday:
+        projection.summary.nonFinancialAssetsAtRetirementToday,
+      liabilitiesAtRetirementToday:
+        projection.summary.liabilitiesAtRetirementToday,
+      homeEquityAtRetirementToday:
+        projection.summary.homeEquityAtRetirementToday,
+      totalNetWorthAtRetirementToday:
+        projection.summary.totalNetWorthAtRetirementToday,
       retirementGoalToday: projection.summary.retirementGoalToday,
       goalGapToday: projection.summary.goalGapToday,
       financialAssetsDepletionAge: projection.summary.financialAssetsDepletionAge,
       endingFinancialAssetsToday: projection.summary.endingFinancialAssetsToday,
+      endingNetWorthToday: projection.summary.endingNetWorthToday,
+      mortgagePayoffDate: projection.summary.mortgagePayoffDate,
+      mortgagePayoffAge: projection.summary.mortgagePayoffAge,
     },
     retirementSnapshot: {
       calendarDate: projection.retirementSnapshot.calendarDate,
@@ -1096,6 +1315,18 @@ function safeProjectionResult(
       nominal: safeFinancialAssetsBridge(projection.financialAssetsBridge.nominal),
       real: safeFinancialAssetsBridge(projection.financialAssetsBridge.real),
     },
+    netWorthBridge: {
+      nominal: safeNetWorthBridge(projection.netWorthBridge.nominal),
+      real: safeNetWorthBridge(projection.netWorthBridge.real),
+    },
+    liabilityPayoffDates: Object.fromEntries(
+      Object.entries(projection.liabilityPayoffDates).map(
+        ([rawId, payoffDate]) => [
+          requiredLiabilityAlias(rawId, context).key,
+          payoffDate,
+        ],
+      ),
+    ),
     governmentBenefits: {
       cpp: {
         ...projection.governmentBenefits.cpp,
@@ -1346,12 +1577,19 @@ function safeDerivedBaseline(
 ): ShareSafeDerivedBaseline {
   return {
     accountBalances: derived.accountBalances.map((account) => {
-      const alias = requiredAccountAlias(account.id, context);
+      const alias =
+        account.plannerType === "debt"
+          ? requiredLiabilityAlias(account.id, context)
+          : requiredAccountAlias(account.id, context);
       return {
         id: alias.key,
         source: allowedValue(account.source, ACCOUNT_SOURCES, "account source"),
         name: alias.label,
-        plannerType: allowedValue(account.plannerType, ACCOUNT_TYPE_ORDER, "planner account type"),
+        plannerType: allowedValue(
+          account.plannerType,
+          [...ACCOUNT_TYPE_ORDER, "debt"] as const,
+          "planner account type",
+        ),
         balance: finiteNumber(account.balance, "account balance"),
         balanceAsOf: safeDateLike(account.balanceAsOf, dataThrough),
         monthlyContribution: finiteNumber(account.monthlyContribution, "monthly contribution"),
@@ -1369,6 +1607,28 @@ function safeDerivedBaseline(
           : undefined,
       };
     }),
+    nonFinancialAssetBalances:
+      derived.nonFinancialAssetBalances.map((asset) => {
+        const alias = requiredNonFinancialAssetAlias(
+          asset.id,
+          context,
+        );
+        return {
+          id: alias.key,
+          source: allowedValue(
+            asset.source,
+            ["manual", "plaid"] as const,
+            "non-financial asset source",
+          ),
+          name: alias.label,
+          plannerType: "real_estate",
+          value: finiteNumber(
+            asset.value,
+            "non-financial asset value",
+          ),
+          valueAsOf: safeDateLike(asset.valueAsOf, dataThrough),
+        };
+      }),
     monthlyIncome: {
       ...metric(derived.monthlyIncome),
       basis: "net_deposited_cash",
@@ -1384,6 +1644,7 @@ function safeDerivedBaseline(
         funding: allowedValue(account.funding, CONTRIBUTION_FUNDING, "contribution funding"),
       })),
     },
+    debtPayments: metric(derived.debtPayments),
     recurringExpenses: {
       monthlyTotal: finiteNumber(derived.recurringExpenses.monthlyTotal, "recurring monthly total"),
       count: finiteNumber(derived.recurringExpenses.count, "recurring count"),
@@ -1411,6 +1672,41 @@ function safeDerivedBaseline(
         };
       }),
     },
+  };
+}
+
+function safeDebtPaymentAudit(
+  baseline: BaselineExportContext,
+  context: ShareSafeContext,
+): ProjectionSnapshot["debtPaymentAudit"] {
+  return {
+    trailingTotal: finiteNumber(
+      baseline.cashFlowAudit.debtPayments.trailingTotal,
+      "debt-payment trailing total",
+    ),
+    monthlyAverage: finiteNumber(
+      baseline.cashFlowAudit.debtPayments.monthlyAverage,
+      "debt-payment monthly average",
+    ),
+    transactionCount: finiteNumber(
+      baseline.cashFlowAudit.debtPayments.transactionCount,
+      "debt-payment transaction count",
+    ),
+    liabilities:
+      baseline.cashFlowAudit.debtPayments.liabilities.map(
+        (liability) => ({
+          liabilityId: requiredLiabilityAlias(
+            liability.liabilityId,
+            context,
+          ).key,
+          liabilityRole: liability.liabilityRole,
+          monthlyAverage: finiteNumber(
+            liability.monthlyAverage,
+            "liability historical monthly average",
+          ),
+          scheduleReplaced: liability.scheduleReplaced,
+        }),
+      ),
   };
 }
 
@@ -1569,6 +1865,64 @@ function provenanceField(
       finalField: rawField.slice(rawField.lastIndexOf(".") + 1),
     };
   }
+  const nonFinancialAssetPrefix = "nonFinancialAssets.";
+  if (rawField.startsWith(nonFinancialAssetPrefix)) {
+    const remainder = rawField.slice(
+      nonFinancialAssetPrefix.length,
+    );
+    for (const asset of context.nonFinancialAssets) {
+      const prefix = `${asset.rawId}.`;
+      if (!remainder.startsWith(prefix)) continue;
+      const finalField = remainder.slice(prefix.length);
+      if (
+        ![
+          "openingValue",
+          "valueAsOf",
+          "annualAppreciation",
+          "availableForWithdrawals",
+        ].includes(finalField)
+      ) {
+        return undefined;
+      }
+      return {
+        reference: `nonFinancialAssets.${asset.key}.${finalField}`,
+        balanceSheetRecord: asset,
+        finalField,
+      };
+    }
+  }
+  const liabilityPrefix = "liabilities.";
+  if (rawField.startsWith(liabilityPrefix)) {
+    const remainder = rawField.slice(liabilityPrefix.length);
+    for (const liability of context.liabilities) {
+      const prefix = `${liability.rawId}.`;
+      if (!remainder.startsWith(prefix)) continue;
+      const finalField = remainder.slice(prefix.length);
+      if (
+        ![
+          "openingBalance",
+          "balanceAsOf",
+          "role",
+          "treatment.mode",
+          "treatment.annualInterestRate",
+          "treatment.interestRateConvention",
+          "treatment.regularPaymentAmount",
+          "treatment.regularPaymentFrequency",
+          "treatment.monthlyEquivalent",
+          "treatment.scheduleStartDate",
+          "treatment.lumpSumPayments",
+          "historicalPaymentHandling",
+        ].includes(finalField)
+      ) {
+        return undefined;
+      }
+      return {
+        reference: `liabilities.${liability.key}.${finalField}`,
+        balanceSheetRecord: liability,
+        finalField,
+      };
+    }
+  }
   const employmentPrefix = "person.employmentIncomePhases.";
   if (rawField.startsWith(employmentPrefix)) {
     const remainder = rawField.slice(employmentPrefix.length);
@@ -1705,6 +2059,21 @@ function safeProvenanceValue(
     return field.savingsPhase.label;
   }
   if (
+    field.finalField === "treatment.lumpSumPayments" &&
+    Array.isArray(value) &&
+    value.every(
+      (payment) =>
+        payment &&
+        typeof payment === "object" &&
+        typeof (payment as { date?: unknown }).date === "string" &&
+        typeof (payment as { amount?: unknown }).amount === "number",
+    )
+  ) {
+    return (value as Array<{ date: string; amount: number }>).map(
+      (payment) => ({ ...payment }),
+    );
+  }
+  if (
     field.accountField === "roles" &&
     Array.isArray(value) &&
     value.every(
@@ -1718,6 +2087,7 @@ function safeProvenanceValue(
           "personal_rrsp",
           "workplace_rrsp",
           "personal_taxable",
+          "primary_mortgage",
         ].includes(role),
     )
   ) {
@@ -1738,6 +2108,16 @@ function safeProvenanceValue(
   if (typeof value === "string") {
     if (
       field.reference.endsWith(".effectiveDate") &&
+      /^\d{4}-\d{2}-\d{2}$/.test(value)
+    ) {
+      return value;
+    }
+    if (
+      [
+        "valueAsOf",
+        "balanceAsOf",
+        "treatment.scheduleStartDate",
+      ].includes(field.finalField ?? "") &&
       /^\d{4}-\d{2}-\d{2}$/.test(value)
     ) {
       return value;
@@ -1819,6 +2199,45 @@ function safeProvenanceValue(
     if (
       field.reference === "savingsPolicy.reserveAfterTarget" &&
       value === "personal_investing"
+    ) {
+      return value;
+    }
+    if (
+      field.finalField === "role" &&
+      (value === "primary_mortgage" || value === null)
+    ) {
+      return value;
+    }
+    if (
+      field.finalField === "treatment.mode" &&
+      [
+        "amortizing",
+        "payoff_at_projection_start",
+        "zero_balance",
+      ].includes(value)
+    ) {
+      return value;
+    }
+    if (
+      field.finalField === "treatment.interestRateConvention" &&
+      ["canadian_mortgage", "effective_annual"].includes(value)
+    ) {
+      return value;
+    }
+    if (
+      field.finalField === "treatment.regularPaymentFrequency" &&
+      ["monthly", "semimonthly", "biweekly", "weekly"].includes(value)
+    ) {
+      return value;
+    }
+    if (
+      field.finalField === "historicalPaymentHandling" &&
+      [
+        "category_mapped",
+        "payee_and_source_account",
+        "already_excluded_or_transfer",
+        "not_applicable",
+      ].includes(value)
     ) {
       return value;
     }
@@ -1923,6 +2342,17 @@ function safeOverrideKey(
   context: ShareSafeContext,
 ): string | undefined {
   if (SIMPLE_OVERRIDE_KEYS.has(rawKey)) return rawKey;
+  if (rawKey.startsWith("liability.")) {
+    for (const liability of context.liabilities) {
+      const prefix = `liability.${liability.rawId}.`;
+      if (!rawKey.startsWith(prefix)) continue;
+      const field = rawKey.slice(prefix.length);
+      return ["annualInterestRate", "regularPayment.amount"].includes(field)
+        ? `liability.${liability.key}.${field}`
+        : undefined;
+    }
+    return undefined;
+  }
   if (rawKey.startsWith("employmentPhase.")) {
     const remainder = rawKey.slice("employmentPhase.".length);
     const separator = remainder.lastIndexOf(".");
@@ -2025,6 +2455,7 @@ export function validateProjectionExportRequest(value: unknown): ProjectionExpor
   if (!Array.isArray(baseline.warnings)) throw new Error("baseline.warnings must be an array");
   record(baseline.provenance, "baseline.provenance");
   record(baseline.derived, "baseline.derived");
+  record(baseline.cashFlowAudit, "baseline.cashFlowAudit");
   record(baseline.transactionWindow, "baseline.transactionWindow");
   record(baseline.recordsAnalyzed, "baseline.recordsAnalyzed");
   return {
@@ -2034,6 +2465,8 @@ export function validateProjectionExportRequest(value: unknown): ProjectionExpor
       projectionInputs: validateProjectionInputs(baseline.projectionInputs),
       provenance: baseline.provenance as BaselineExportContext["provenance"],
       derived: baseline.derived as DerivedBaseline,
+      cashFlowAudit:
+        baseline.cashFlowAudit as BaselineExportContext["cashFlowAudit"],
       dataThrough: baseline.dataThrough,
       transactionWindow:
         baseline.transactionWindow as BaselineExportContext["transactionWindow"],
@@ -2062,7 +2495,7 @@ export function createProjectionSnapshot(
   const dataThrough = safeDateLike(baseline.dataThrough, projection.inputs.startDate);
   const safeGeneratedAt = requireIsoTimestamp(generatedAt);
   return {
-    schemaVersion: "7.0",
+    schemaVersion: "8.0",
     generatedAt: safeGeneratedAt,
     exportMetadata: {
       transformation: "typed_allowlist_and_automatic_anonymization",
@@ -2075,6 +2508,13 @@ export function createProjectionSnapshot(
         key,
         label,
         plannerType,
+      })),
+      nonFinancialAssetAliases: context.nonFinancialAssets.map(
+        ({ key, label }) => ({ key, label }),
+      ),
+      liabilityAliases: context.liabilities.map(({ key, label }) => ({
+        key,
+        label,
       })),
     },
     connection: {
@@ -2121,6 +2561,7 @@ export function createProjectionSnapshot(
       dataThrough,
     ),
     derivedBaseline: safeDerivedBaseline(baseline.derived, context, dataThrough),
+    debtPaymentAudit: safeDebtPaymentAudit(baseline, context),
     warnings: safeWarnings(baseline.warnings),
     unmappedAccounts: baseline.unmappedAccounts.map((account) => {
       const alias = requiredRecordAlias(
@@ -2218,6 +2659,10 @@ export function projectionSnapshotToCsv(
     "essentialSpending",
     "discretionarySpending",
     "oneTimeOutflows",
+    "liability_cash_payment",
+    "liability_interest",
+    "liability_principal",
+    "liability_lump_sum_principal",
     "tax",
     "oasRecoveryTax",
     "cashFundedContributions",
@@ -2273,14 +2718,23 @@ export function projectionSnapshotToCsv(
     "rrsp_room_closing",
     "registered_room_basis",
     "unmetSpending",
+    "unmetRequiredOutflow",
     "totalOutflows",
     "cashBalance",
     "tfsaBalance",
     "rrspRrifBalance",
     "nonRegisteredBalance",
-    "debts",
-    "financialAssets",
-    "netWorth",
+    "financial_assets",
+    "retirement_funding_assets",
+    "residence_value",
+    "other_non_financial_assets",
+    "non_financial_assets",
+    "total_assets",
+    "mortgage_balance",
+    "other_liabilities",
+    "total_liabilities",
+    "home_equity",
+    "total_net_worth",
     ...accountAliases.map((account) => `account_${account.key}`),
     ...accountAliases.map(
       (account) => `surplus_allocation_${account.key}`,
@@ -2356,6 +2810,10 @@ export function projectionSnapshotToCsv(
       view.outflows.essential,
       view.outflows.discretionary,
       view.outflows.oneTime,
+      view.outflows.liabilityCashPayment,
+      view.outflows.liabilityInterest,
+      view.outflows.liabilityPrincipal,
+      view.outflows.liabilityLumpSumPrincipal,
       view.outflows.tax,
       view.outflows.oasRecoveryTax,
       view.outflows.contributions,
@@ -2419,14 +2877,23 @@ export function projectionSnapshotToCsv(
       view.registeredAccountRoom.rrsp.closingRoom,
       snapshot.projection.registeredAccountRoom.denomination,
       view.outflows.unmetSpending,
+      view.outflows.unmetRequiredOutflow,
       view.outflows.total,
       view.balances.cash,
       view.balances.tfsa,
       view.balances.rrspRrif,
       view.balances.nonRegistered,
-      view.balances.debts,
       view.balances.financialAssets,
-      view.balances.netWorth,
+      view.balances.retirementFundingAssets,
+      view.balances.residenceValue,
+      view.balances.otherNonFinancialAssets,
+      view.balances.totalNonFinancialAssets,
+      view.balances.totalAssets,
+      view.balances.mortgageBalance,
+      view.balances.otherLiabilities,
+      view.balances.totalLiabilities,
+      view.balances.homeEquity,
+      view.balances.totalNetWorth,
       ...accountAliases.map((account) => view.accountBalances[account.key] ?? 0),
       ...accountAliases.map(
         (account) => view.accountSurplusAllocations[account.key] ?? 0,

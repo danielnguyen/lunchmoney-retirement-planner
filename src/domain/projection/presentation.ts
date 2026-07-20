@@ -5,6 +5,12 @@ import type {
   ProjectionResult,
   ProjectionView,
 } from "./types";
+import {
+  centDifference,
+  monetaryCents,
+  monetaryValue,
+  sumMonetaryCents,
+} from "./monetary-reconciliation";
 
 const FINANCIAL_ASSET_TYPES = new Set(["cash", "tfsa", "rrsp_rrif", "non_registered"]);
 const MONTH_LABELS = [
@@ -120,25 +126,6 @@ type MonetaryEquationDefinition = {
   right: (view: ProjectionView) => number[];
 };
 
-function monetaryCents(value: number): number {
-  return Math.round((value + Number.EPSILON) * 100);
-}
-
-function monetaryValue(cents: number): number {
-  return cents / 100;
-}
-
-function sumCents(values: number[]): number {
-  return values.reduce(
-    (total, value) => total + monetaryCents(value),
-    0,
-  );
-}
-
-function centDifference(left: number[], right: number[]): number {
-  return sumCents(left) - sumCents(right);
-}
-
 function reconcileMonetaryEquation(
   views: ProjectionView[],
   definition: MonetaryEquationDefinition,
@@ -150,8 +137,8 @@ function reconcileMonetaryEquation(
   let periodsMatched = true;
 
   for (const view of views) {
-    const leftCents = sumCents(definition.left(view));
-    const rightCents = sumCents(definition.right(view));
+    const leftCents = sumMonetaryCents(definition.left(view));
+    const rightCents = sumMonetaryCents(definition.right(view));
     const differenceCents = Math.abs(leftCents - rightCents);
     const periodMatched = differenceCents <= 1;
     calculatedCents += leftCents;
@@ -433,6 +420,152 @@ export function buildContributionReconciliation(
   };
 }
 
+export type BalanceSheetReconciliationSummary = {
+  maximumBalanceSheetDifference: number;
+  maximumLiabilityScheduleDifference: number;
+  financialAssetsBridgeDifference: number;
+  netWorthBridgeDifference: number;
+  matched: boolean;
+};
+
+export function buildBalanceSheetReconciliation(
+  projection: ProjectionResult,
+  mode: DisplayMode,
+): BalanceSheetReconciliationSummary {
+  let maximumBalanceSheetDifferenceCents = 0;
+  let maximumLiabilityScheduleDifferenceCents = 0;
+  for (const point of projection.annual) {
+    const view = point[mode];
+    const balances = view.balances;
+    const balanceDifferences = [
+      centDifference(
+        [balances.financialAssets],
+        [
+          balances.cash,
+          balances.tfsa,
+          balances.rrspRrif,
+          balances.nonRegistered,
+        ],
+      ),
+      centDifference(
+        [balances.totalNonFinancialAssets],
+        [
+          balances.residenceValue,
+          balances.otherNonFinancialAssets,
+        ],
+      ),
+      centDifference(
+        [balances.totalAssets],
+        [
+          balances.financialAssets,
+          balances.totalNonFinancialAssets,
+        ],
+      ),
+      centDifference(
+        [balances.totalLiabilities],
+        [balances.mortgageBalance, balances.otherLiabilities],
+      ),
+      centDifference(
+        [balances.homeEquity, balances.mortgageBalance],
+        [balances.residenceValue],
+      ),
+      centDifference(
+        [balances.totalNetWorth, balances.totalLiabilities],
+        [balances.totalAssets],
+      ),
+    ];
+    maximumBalanceSheetDifferenceCents = Math.max(
+      maximumBalanceSheetDifferenceCents,
+      ...balanceDifferences.map(Math.abs),
+    );
+    for (const schedule of Object.values(view.liabilitySchedules)) {
+      maximumLiabilityScheduleDifferenceCents = Math.max(
+        maximumLiabilityScheduleDifferenceCents,
+        Math.abs(
+          centDifference(
+            [schedule.openingBalance, schedule.interest],
+            [
+              schedule.regularPayment,
+              schedule.lumpSumPrincipal,
+              schedule.closingBalance,
+            ],
+          ),
+        ),
+        Math.abs(
+          centDifference(
+            [schedule.regularPayment],
+            [schedule.interest, schedule.principal],
+          ),
+        ),
+      );
+    }
+  }
+  const financial = projection.financialAssetsBridge[mode];
+  const financialAssetsBridgeDifference = monetaryValue(
+    Math.abs(
+      centDifference(
+        [
+          financial.startingFinancialAssets,
+          financial.employmentNetCash,
+          financial.publicBenefitsAndPension,
+          financial.otherInflows,
+          financial.incomeWithheldContributions,
+          financial.investmentReturns,
+        ],
+        [
+          financial.essentialSpending,
+          financial.discretionarySpending,
+          financial.liabilityCashPayments,
+          financial.oneTimeOutflows,
+          financial.taxes,
+          financial.endingFinancialAssets,
+        ],
+      ),
+    ),
+  );
+  const netWorth = projection.netWorthBridge[mode];
+  const netWorthBridgeDifference = monetaryValue(
+    Math.abs(
+      centDifference(
+        [
+          netWorth.startingFinancialAssets,
+          netWorth.startingNonFinancialAssets,
+          netWorth.externalNetCashInflows,
+          netWorth.incomeWithheldContributions,
+          netWorth.investmentReturns,
+          netWorth.nonFinancialAssetAppreciation,
+          netWorth.liabilityPrincipalReduction,
+        ],
+        [
+          netWorth.startingLiabilities,
+          netWorth.nonDebtEssentialSpending,
+          netWorth.discretionarySpending,
+          netWorth.liabilityInterest,
+          netWorth.liabilityPrincipalPayments,
+          netWorth.taxes,
+          netWorth.oneTimeConsumptionOutflows,
+          netWorth.endingNetWorth,
+        ],
+      ),
+    ),
+  );
+  return {
+    maximumBalanceSheetDifference: monetaryValue(
+      maximumBalanceSheetDifferenceCents,
+    ),
+    maximumLiabilityScheduleDifference: monetaryValue(
+      maximumLiabilityScheduleDifferenceCents,
+    ),
+    financialAssetsBridgeDifference,
+    netWorthBridgeDifference,
+    matched:
+      maximumBalanceSheetDifferenceCents <= 1 &&
+      maximumLiabilityScheduleDifferenceCents <= 1 &&
+      financialAssetsBridgeDifference <= 0.01 &&
+      netWorthBridgeDifference <= 0.01,
+  };
+}
+
 export type AnnualChartRow = {
   [key: string]: string | number;
   year: number;
@@ -442,6 +575,10 @@ export type AnnualChartRow = {
   discretionary: number;
   oneTime: number;
   tax: number;
+  liabilityCashPayment: number;
+  liabilityInterest: number;
+  liabilityPrincipal: number;
+  liabilityLumpSumPrincipal: number;
   contributions: number;
   cashFundedContributions: number;
   incomeWithheldContributions: number;
@@ -504,6 +641,14 @@ export type AnnualChartRow = {
   unplannedCashRetained: number;
   totalInvestmentDeposits: number;
   financialAssets: number;
+  nonFinancialAssets: number;
+  totalAssets: number;
+  mortgageBalance: number;
+  otherLiabilities: number;
+  totalLiabilities: number;
+  residenceValue: number;
+  homeEquity: number;
+  totalNetWorth: number;
   goal: number;
   milestones: string;
 };
@@ -516,6 +661,10 @@ export type AnnualLedgerRow = {
   withdrawals: number;
   tax: number;
   spending: number;
+  liabilityCashPayment: number;
+  liabilityInterest: number;
+  liabilityPrincipal: number;
+  liabilityLumpSumPrincipal: number;
   actualContributions: number;
   surplusFundedContributions: number;
   surplusGenerated: number;
@@ -538,6 +687,11 @@ export type AnnualLedgerRow = {
   unplannedCashRetained: number;
   totalInvestmentDeposits: number;
   financialAssets: number;
+  nonFinancialAssets: number;
+  totalAssets: number;
+  totalLiabilities: number;
+  homeEquity: number;
+  totalNetWorth: number;
   milestones: string;
 };
 
@@ -556,6 +710,11 @@ export function buildAnnualChartData(
       discretionary: view.outflows.discretionary,
       oneTime: view.outflows.oneTime,
       tax: view.outflows.tax,
+      liabilityCashPayment: view.outflows.liabilityCashPayment,
+      liabilityInterest: view.outflows.liabilityInterest,
+      liabilityPrincipal: view.outflows.liabilityPrincipal,
+      liabilityLumpSumPrincipal:
+        view.outflows.liabilityLumpSumPrincipal,
       contributions: view.outflows.contributions,
       cashFundedContributions: view.contributions.cashFunded,
       incomeWithheldContributions: view.contributions.incomeWithheld,
@@ -643,6 +802,15 @@ export function buildAnnualChartData(
       totalInvestmentDeposits:
         view.savingsPolicy.totalInvestmentDeposits,
       financialAssets: view.balances.financialAssets,
+      nonFinancialAssets:
+        view.balances.totalNonFinancialAssets,
+      totalAssets: view.balances.totalAssets,
+      residenceValue: view.balances.residenceValue,
+      mortgageBalance: view.balances.mortgageBalance,
+      otherLiabilities: view.balances.otherLiabilities,
+      totalLiabilities: view.balances.totalLiabilities,
+      homeEquity: view.balances.homeEquity,
+      totalNetWorth: view.balances.totalNetWorth,
       goal:
         mode === "real"
           ? inputs.retirementGoalToday
@@ -651,6 +819,16 @@ export function buildAnnualChartData(
       milestones: point.milestones.join(" · "),
       ...Object.fromEntries(
         Object.entries(view.accountBalances).map(([id, value]) => [`account:${id}`, value]),
+      ),
+      ...Object.fromEntries(
+        Object.entries(view.nonFinancialAssetValues).map(
+          ([id, value]) => [`nonFinancialAsset:${id}`, value],
+        ),
+      ),
+      ...Object.fromEntries(
+        Object.entries(view.liabilityBalances).map(
+          ([id, value]) => [`liability:${id}`, value],
+        ),
       ),
       ...Object.fromEntries(
         Object.entries(view.accountContributions).map(([id, value]) => [
@@ -696,6 +874,11 @@ export function buildAnnualLedgerData(
       spending: roundCurrency(
         view.outflows.essential + view.outflows.discretionary + view.outflows.oneTime,
       ),
+      liabilityCashPayment: view.outflows.liabilityCashPayment,
+      liabilityInterest: view.outflows.liabilityInterest,
+      liabilityPrincipal: view.outflows.liabilityPrincipal,
+      liabilityLumpSumPrincipal:
+        view.outflows.liabilityLumpSumPrincipal,
       actualContributions: view.contributions.total,
       surplusFundedContributions: view.contributions.surplusFunded,
       surplusGenerated: view.surplusAllocation.generated,
@@ -726,6 +909,12 @@ export function buildAnnualLedgerData(
       totalInvestmentDeposits:
         view.savingsPolicy.totalInvestmentDeposits,
       financialAssets: view.balances.financialAssets,
+      nonFinancialAssets:
+        view.balances.totalNonFinancialAssets,
+      totalAssets: view.balances.totalAssets,
+      totalLiabilities: view.balances.totalLiabilities,
+      homeEquity: view.balances.homeEquity,
+      totalNetWorth: view.balances.totalNetWorth,
       milestones: point.milestones.join(" · ") || "—",
     };
   });

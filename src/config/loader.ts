@@ -12,6 +12,9 @@ import {
   type ContributionWaterfallInput,
   type SurplusAllocationPolicyInput,
 } from "@/src/domain/projection/types";
+import {
+  liabilityInterestRateConventions,
+} from "@/src/domain/projection/liability-interest";
 import { PlannerRuntimeError } from "@/src/runtime/errors";
 import {
   accountRoles,
@@ -25,12 +28,14 @@ import {
   type EmploymentIncomePhaseConfig,
   type GovernmentBenefitsConfig,
   type LiveBaselineAmount,
+  type LiabilityTreatmentConfig,
   type OasEligibilityConfig,
   type OasFullAmountAt65Config,
   type PlannerAccountType,
   type PlannerAssumptions,
   type PlannerConfig,
   type ProjectionAccountConfig,
+  type PrimaryResidenceConfig,
   type RegisteredRoomConfig,
   type SavingsPlanPhaseConfig,
   type SavingsPolicyConfig,
@@ -387,6 +392,192 @@ function registeredRoom(value: unknown): RegisteredRoomConfig {
           }
         : {}),
     },
+  };
+}
+
+function primaryResidence(value: unknown): PrimaryResidenceConfig {
+  const item = record(value, "primaryResidence");
+  return {
+    currentValue: number(
+      item.currentValue,
+      "primaryResidence.currentValue",
+      { min: 0 },
+    ),
+    asOf: isoCalendarDate(item.asOf, "primaryResidence.asOf"),
+    annualAppreciation: number(
+      item.annualAppreciation,
+      "primaryResidence.annualAppreciation",
+      { min: -0.99, max: 1 },
+    ),
+  };
+}
+
+function liabilityTreatment(
+  value: unknown,
+  field: string,
+): LiabilityTreatmentConfig {
+  const item = record(value, field);
+  if (
+    item.historicalPayment !== undefined &&
+    item.historicalPaymentHandling !== undefined
+  ) {
+    throw new PlannerRuntimeError(
+      "invalid_planner_config",
+      `${field} cannot combine historicalPayment with the legacy historicalPaymentHandling field.`,
+      422,
+    );
+  }
+  const historicalPaymentHandling =
+    item.historicalPaymentHandling === undefined
+      ? undefined
+      : item.historicalPaymentHandling;
+  if (
+    historicalPaymentHandling !== undefined &&
+    historicalPaymentHandling !== "already_excluded_or_transfer"
+  ) {
+    throw new PlannerRuntimeError(
+      "invalid_planner_config",
+      `${field}.historicalPaymentHandling must be already_excluded_or_transfer when debt payments are intentionally absent from category mappings.`,
+      422,
+    );
+  }
+  let historicalPayment:
+    | NonNullable<LiabilityTreatmentConfig["historicalPayment"]>
+    | undefined;
+  if (item.historicalPayment !== undefined) {
+    const handling = record(
+      item.historicalPayment,
+      `${field}.historicalPayment`,
+    );
+    if (handling.mode === "payee_and_source_account") {
+      historicalPayment = {
+        mode: "payee_and_source_account",
+        sourceAccountId: nonEmptyString(
+          handling.sourceAccountId,
+          `${field}.historicalPayment.sourceAccountId`,
+        ),
+        payee: nonEmptyString(
+          handling.payee,
+          `${field}.historicalPayment.payee`,
+        ),
+      };
+    } else if (handling.mode === "already_excluded_or_transfer") {
+      rejectFields(handling, `${field}.historicalPayment`, [
+        "sourceAccountId",
+        "payee",
+      ]);
+      historicalPayment = {
+        mode: "already_excluded_or_transfer",
+      };
+    } else {
+      throw new PlannerRuntimeError(
+        "invalid_planner_config",
+        `${field}.historicalPayment.mode must be payee_and_source_account or already_excluded_or_transfer.`,
+        422,
+      );
+    }
+  }
+  if (item.mode === "payoff_at_projection_start") {
+    rejectFields(item, field, [
+      "annualInterestRate",
+      "interestRateConvention",
+      "regularPayment",
+      "scheduleStartDate",
+      "lumpSumPayments",
+    ]);
+    if (historicalPayment?.mode === "payee_and_source_account") {
+      throw new PlannerRuntimeError(
+        "invalid_planner_config",
+        `${field}.historicalPayment.mode payee_and_source_account is supported only for amortizing liabilities.`,
+        422,
+      );
+    }
+    return {
+      mode: "payoff_at_projection_start",
+      ...(historicalPayment ? { historicalPayment } : {}),
+      ...(historicalPaymentHandling
+        ? { historicalPaymentHandling }
+        : {}),
+    };
+  }
+  if (item.mode !== "amortizing") {
+    throw new PlannerRuntimeError(
+      "invalid_planner_config",
+      `${field}.mode must be amortizing or payoff_at_projection_start.`,
+      422,
+    );
+  }
+  const payment = record(item.regularPayment, `${field}.regularPayment`);
+  if (
+    payment.frequency !== "monthly" &&
+    payment.frequency !== "semimonthly" &&
+    payment.frequency !== "biweekly" &&
+    payment.frequency !== "weekly"
+  ) {
+    throw new PlannerRuntimeError(
+      "invalid_planner_config",
+      `${field}.regularPayment.frequency must be monthly, semimonthly, biweekly, or weekly.`,
+      422,
+    );
+  }
+  if (
+    typeof item.interestRateConvention !== "string" ||
+    !liabilityInterestRateConventions.includes(
+      item.interestRateConvention as
+        (typeof liabilityInterestRateConventions)[number],
+    )
+  ) {
+    throw new PlannerRuntimeError(
+      "invalid_planner_config",
+      `${field}.interestRateConvention must be canadian_mortgage or effective_annual. Existing configurations must choose the convention stated in the lending agreement.`,
+      422,
+    );
+  }
+  if (!Array.isArray(item.lumpSumPayments)) {
+    throw new PlannerRuntimeError(
+      "invalid_planner_config",
+      `${field}.lumpSumPayments must be an array, including [] when none apply.`,
+      422,
+    );
+  }
+  return {
+    mode: "amortizing",
+    annualInterestRate: number(
+      item.annualInterestRate,
+      `${field}.annualInterestRate`,
+      { min: 0, max: 1 },
+    ),
+    interestRateConvention:
+      item.interestRateConvention as
+        (typeof liabilityInterestRateConventions)[number],
+    regularPayment: {
+      amount: number(payment.amount, `${field}.regularPayment.amount`, {
+        min: Number.MIN_VALUE,
+      }),
+      frequency: payment.frequency,
+    },
+    scheduleStartDate: isoCalendarDate(
+      item.scheduleStartDate,
+      `${field}.scheduleStartDate`,
+    ),
+    lumpSumPayments: item.lumpSumPayments.map((raw, index) => {
+      const lump = record(raw, `${field}.lumpSumPayments[${index}]`);
+      return {
+        date: isoCalendarDate(
+          lump.date,
+          `${field}.lumpSumPayments[${index}].date`,
+        ),
+        amount: number(
+          lump.amount,
+          `${field}.lumpSumPayments[${index}].amount`,
+          { min: Number.MIN_VALUE },
+        ),
+      };
+    }),
+    ...(historicalPayment ? { historicalPayment } : {}),
+    ...(historicalPaymentHandling
+      ? { historicalPaymentHandling }
+      : {}),
   };
 }
 
@@ -895,7 +1086,7 @@ function accountMapping(value: unknown, field: string): AccountMapping {
   if ((item.include && item.type === "exclude") || (!item.include && item.type !== "exclude")) {
     throw new PlannerRuntimeError(
       "invalid_planner_config",
-      `${field} must use include=true with a financial type or include=false with type=exclude.`,
+      `${field} must use include=true with a supported planner type or include=false with type=exclude.`,
       422,
     );
   }
@@ -986,6 +1177,88 @@ function accountMapping(value: unknown, field: string): AccountMapping {
       422,
     );
   }
+  if (item.liability !== undefined && item.type !== "debt") {
+    throw new PlannerRuntimeError(
+      "invalid_planner_config",
+      `${field}.liability may be configured only for an included debt account.`,
+      422,
+    );
+  }
+  if (
+    item.annualAppreciation !== undefined &&
+    item.type !== "real_estate"
+  ) {
+    throw new PlannerRuntimeError(
+      "invalid_planner_config",
+      `${field}.annualAppreciation may be configured only for an included real_estate account.`,
+      422,
+    );
+  }
+  if (item.type === "real_estate") {
+    if (!item.include) {
+      throw new PlannerRuntimeError(
+        "invalid_planner_config",
+        `${field} must use include: true when type is real_estate.`,
+        422,
+      );
+    }
+    if (
+      !roles ||
+      roles.length !== 1 ||
+      roles[0] !== "primary_residence"
+    ) {
+      throw new PlannerRuntimeError(
+        "invalid_planner_config",
+        `${field} with type real_estate must use exactly roles: [primary_residence].`,
+        422,
+      );
+    }
+    if (item.annualAppreciation === undefined) {
+      throw new PlannerRuntimeError(
+        "invalid_planner_config",
+        `${field}.annualAppreciation is required for an included real_estate account.`,
+        422,
+      );
+    }
+    for (const invalidField of [
+      "annualReturn",
+      "withdrawalPriority",
+      "allocation",
+      "monthlyContribution",
+      "contributionFunding",
+      "contributionPhases",
+      "liability",
+    ]) {
+      if (item[invalidField] !== undefined) {
+        throw new PlannerRuntimeError(
+          "invalid_planner_config",
+          `${field}.${invalidField} is not valid for real_estate. A residence is a non-financial asset and cannot receive investment, contribution, withdrawal, or liability settings.`,
+          422,
+        );
+      }
+    }
+  }
+  if (item.type === "debt") {
+    if (item.annualReturn !== undefined && item.annualReturn !== 0) {
+      throw new PlannerRuntimeError(
+        "invalid_planner_config",
+        `${field}.annualReturn is not valid for a liability. Remove it; debt interest belongs in liability.annualInterestRate.`,
+        422,
+      );
+    }
+    if (
+      item.allocation !== undefined &&
+      Object.values(allocation(item.allocation, `${field}.allocation`)).some(
+        (value) => value !== 0,
+      )
+    ) {
+      throw new PlannerRuntimeError(
+        "invalid_planner_config",
+        `${field}.allocation must be removed for a liability; debt is not an investment account.`,
+        422,
+      );
+    }
+  }
   return {
     include: item.include,
     type: item.type as AccountMapping["type"],
@@ -1011,6 +1284,15 @@ function accountMapping(value: unknown, field: string): AccountMapping {
     ...(item.annualReturn === undefined
       ? {}
       : { annualReturn: number(item.annualReturn, `${field}.annualReturn`, { min: -0.99, max: 1 }) }),
+    ...(item.annualAppreciation === undefined
+      ? {}
+      : {
+          annualAppreciation: number(
+            item.annualAppreciation,
+            `${field}.annualAppreciation`,
+            { min: -0.99, max: 1 },
+          ),
+        }),
     ...(item.withdrawalPriority === undefined
       ? {}
       : {
@@ -1020,6 +1302,14 @@ function accountMapping(value: unknown, field: string): AccountMapping {
           }),
         }),
     ...(item.allocation === undefined ? {} : { allocation: allocation(item.allocation, `${field}.allocation`) }),
+    ...(item.liability === undefined
+      ? {}
+      : {
+          liability: liabilityTreatment(
+            item.liability,
+            `${field}.liability`,
+          ),
+        }),
   };
 }
 
@@ -1035,7 +1325,17 @@ function classification(value: unknown, field: string): TransactionClassificatio
 }
 
 function categoryMapping(value: unknown, field: string): CategoryMapping {
-  if (typeof value === "string") return classification(value, field);
+  if (typeof value === "string") {
+    const result = classification(value, field);
+    if (result === "debt_payment") {
+      throw new PlannerRuntimeError(
+        "invalid_planner_config",
+        `${field} must use an object with classification: debt_payment and a liabilityRole or liabilityId.`,
+        422,
+      );
+    }
+    return result;
+  }
   const item = record(value, field);
   const mapped: Exclude<CategoryMapping, string> = {
     classification: classification(item.classification, `${field}.classification`),
@@ -1060,6 +1360,22 @@ function categoryMapping(value: unknown, field: string): CategoryMapping {
     }
     mapped.contributionDirection = item.contributionDirection;
   }
+  if (item.liabilityRole !== undefined) {
+    if (item.liabilityRole !== "primary_mortgage") {
+      throw new PlannerRuntimeError(
+        "invalid_planner_config",
+        `${field}.liabilityRole must be primary_mortgage.`,
+        422,
+      );
+    }
+    mapped.liabilityRole = item.liabilityRole;
+  }
+  if (item.liabilityId !== undefined) {
+    mapped.liabilityId = nonEmptyString(
+      item.liabilityId,
+      `${field}.liabilityId`,
+    );
+  }
   if (
     mapped.classification !== "investment_contribution" &&
     (mapped.contributionAccountId || mapped.contributionDirection)
@@ -1070,12 +1386,48 @@ function categoryMapping(value: unknown, field: string): CategoryMapping {
       422,
     );
   }
+  if (mapped.classification === "debt_payment") {
+    if (Boolean(mapped.liabilityRole) === Boolean(mapped.liabilityId)) {
+      throw new PlannerRuntimeError(
+        "invalid_planner_config",
+        `${field} with classification debt_payment requires exactly one liabilityRole or liabilityId.`,
+        422,
+      );
+    }
+  } else if (mapped.liabilityRole || mapped.liabilityId) {
+    throw new PlannerRuntimeError(
+      "invalid_planner_config",
+      `${field} may set liability fields only for debt_payment.`,
+      422,
+    );
+  }
   return mapped;
 }
 
 function assumptions(value: unknown): PlannerAssumptions {
   const item = record(value, "assumptions");
   const allocations = record(item.allocations, "assumptions.allocations");
+  if (item.debtReturn !== undefined && item.debtReturn !== 0) {
+    throw new PlannerRuntimeError(
+      "invalid_planner_config",
+      "assumptions.debtReturn must be removed; a liability is not an investment account. A legacy zero is accepted temporarily.",
+      422,
+    );
+  }
+  const legacyDebtAllocation =
+    allocations.debt === undefined
+      ? undefined
+      : allocation(allocations.debt, "assumptions.allocations.debt");
+  if (
+    legacyDebtAllocation &&
+    Object.values(legacyDebtAllocation).some((value) => value !== 0)
+  ) {
+    throw new PlannerRuntimeError(
+      "invalid_planner_config",
+      "assumptions.allocations.debt must be removed; a liability has no asset allocation. A legacy all-zero allocation is accepted temporarily.",
+      422,
+    );
+  }
   return {
     inflation: number(item.inflation, "assumptions.inflation", { min: -0.2, max: 0.5 }),
     cashReturn: number(item.cashReturn, "assumptions.cashReturn", { min: -0.99, max: 1 }),
@@ -1085,7 +1437,7 @@ function assumptions(value: unknown): PlannerAssumptions {
       min: -0.99,
       max: 1,
     }),
-    debtReturn: number(item.debtReturn, "assumptions.debtReturn", { min: -0.99, max: 1 }),
+    ...(item.debtReturn === undefined ? {} : { debtReturn: 0 }),
     incomeGrowth:
       item.incomeGrowth === undefined
         ? 0
@@ -1144,7 +1496,7 @@ function assumptions(value: unknown): PlannerAssumptions {
         allocations.non_registered,
         "assumptions.allocations.non_registered",
       ),
-      debt: allocation(allocations.debt, "assumptions.allocations.debt"),
+      ...(legacyDebtAllocation ? { debt: legacyDebtAllocation } : {}),
     },
   };
 }
@@ -1278,13 +1630,14 @@ function configurationMode(
     ? item.futureEvents
     : [];
   const hasSimpleFields =
+    item.primaryResidence !== undefined ||
     item.registeredRoom !== undefined ||
     item.savingsPolicy !== undefined ||
     Object.values(rawAccountMappings).some((value) => {
       if (!value || typeof value !== "object" || Array.isArray(value)) {
         return false;
       }
-      return "roles" in value;
+      return "roles" in value || "liability" in value;
     }) ||
     rawEmployment.some(
       (value) =>
@@ -1448,6 +1801,91 @@ function validateSimpleAccountRoles(config: PlannerConfig): void {
       "personal_rrsp and workplace_rrsp must be different accounts.",
       422,
     );
+  }
+  const mortgages = roleAccounts(config, "primary_mortgage");
+  if (mortgages.length > 1) {
+    throw new PlannerRuntimeError(
+      "invalid_planner_config",
+      `Simple configuration permits at most one included primary_mortgage role; found ${mortgages.length}.`,
+      422,
+    );
+  }
+  if (mortgages[0] && mortgages[0][1].type !== "debt") {
+    throw new PlannerRuntimeError(
+      "invalid_planner_config",
+      "Account role primary_mortgage requires planner type debt.",
+      422,
+    );
+  }
+  if (
+    mortgages[0] &&
+    mortgages[0][1].liability?.mode !== "amortizing"
+  ) {
+    throw new PlannerRuntimeError(
+      "invalid_planner_config",
+      "The primary_mortgage role requires liability.mode: amortizing.",
+      422,
+    );
+  }
+  const importedResidences = roleAccounts(config, "primary_residence");
+  if (importedResidences.length > 1) {
+    throw new PlannerRuntimeError(
+      "invalid_planner_config",
+      `Simple configuration permits at most one included primary_residence role; found ${importedResidences.length}.`,
+      422,
+    );
+  }
+  if (
+    importedResidences[0] &&
+    importedResidences[0][1].type !== "real_estate"
+  ) {
+    throw new PlannerRuntimeError(
+      "invalid_planner_config",
+      "Account role primary_residence requires planner type real_estate.",
+      422,
+    );
+  }
+  if (importedResidences.length > 0 && config.primaryResidence) {
+    throw new PlannerRuntimeError(
+      "invalid_planner_config",
+      "Configure exactly one primary-residence source: an included real_estate account with role primary_residence or the top-level primaryResidence fallback, not both.",
+      422,
+    );
+  }
+  const residenceSources =
+    importedResidences.length + (config.primaryResidence ? 1 : 0);
+  if (mortgages.length > 0 && residenceSources !== 1) {
+    throw new PlannerRuntimeError(
+      "invalid_planner_config",
+      "The primary_mortgage role requires exactly one resolved primary residence from an included real_estate account or the top-level primaryResidence fallback.",
+      422,
+    );
+  }
+  if (mortgages[0]?.[1].liability?.mode === "amortizing") {
+    const liability = mortgages[0][1].liability;
+    const matcher =
+      liability.historicalPayment?.mode ===
+      "payee_and_source_account";
+    const assertion =
+      liability.historicalPayment?.mode ===
+        "already_excluded_or_transfer" ||
+      liability.historicalPaymentHandling ===
+        "already_excluded_or_transfer";
+    const categoryRoute = Object.values(config.categoryMappings).some(
+      (mapping) =>
+        typeof mapping !== "string" &&
+        mapping.classification === "debt_payment" &&
+        mapping.liabilityRole === "primary_mortgage",
+    );
+    const handlingCount =
+      Number(matcher) + Number(assertion) + Number(categoryRoute);
+    if (handlingCount > 1) {
+      throw new PlannerRuntimeError(
+        "invalid_planner_config",
+        "A positive amortizing liability must use exactly one historical-payment handling source: a debt_payment category, historicalPayment payee_and_source_account matcher, or historicalPayment already_excluded_or_transfer assertion.",
+        422,
+      );
+    }
   }
 }
 
@@ -1890,6 +2328,13 @@ export function validatePlannerConfig(value: unknown): PlannerConfig {
       ? {
           registeredRoom: registeredRoom(item.registeredRoom),
           savingsPolicy: savingsPolicy(item.savingsPolicy),
+          ...(item.primaryResidence === undefined
+            ? {}
+            : {
+                primaryResidence: primaryResidence(
+                  item.primaryResidence,
+                ),
+              }),
         }
       : {}),
     ...(item.registeredAccountRoom === undefined
@@ -1923,6 +2368,47 @@ export function validatePlannerConfig(value: unknown): PlannerConfig {
     throw new PlannerRuntimeError(
       "invalid_planner_config",
       "retirementAge must be greater than currentAge in the planner configuration.",
+      422,
+    );
+  }
+  for (const [categoryId, mapping] of Object.entries(
+    config.categoryMappings,
+  )) {
+    if (
+      typeof mapping !== "string" &&
+      mapping.classification === "debt_payment"
+    ) {
+      if (
+        config.configurationMode === "simple" &&
+        mapping.liabilityRole !== "primary_mortgage"
+      ) {
+        throw new PlannerRuntimeError(
+          "invalid_planner_config",
+          `categoryMappings.${categoryId} must use liabilityRole: primary_mortgage in simple configuration.`,
+          422,
+        );
+      }
+      if (
+        config.configurationMode === "advanced" &&
+        !mapping.liabilityId
+      ) {
+        throw new PlannerRuntimeError(
+          "invalid_planner_config",
+          `categoryMappings.${categoryId} must use an explicit liabilityId in advanced configuration.`,
+          422,
+        );
+      }
+    }
+  }
+  if (
+    config.configurationMode === "advanced" &&
+    Object.values(config.accountMappings).some(
+      (mapping) => mapping.include && mapping.type === "debt",
+    )
+  ) {
+    throw new PlannerRuntimeError(
+      "invalid_planner_config",
+      "Advanced static debt accounts are no longer supported. Migrate each included debt to simple accountMappings with an explicit liability treatment so balances cannot remain fixed silently.",
       422,
     );
   }

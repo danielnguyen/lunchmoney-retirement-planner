@@ -9,6 +9,7 @@ import type {
 import type {
   AccountMapping,
   CategoryMapping,
+  LiabilityTreatmentConfig,
   PlannerConfig,
   ProjectionAccountConfig,
 } from "@/src/config/types";
@@ -30,7 +31,12 @@ import {
   TFSA_ANNUAL_LIMITS,
   TFSA_WITHDRAWAL_REFERENCE_URL,
 } from "@/src/domain/defaults/canadian-registered-account-room";
-import { validateProjectionInputs, type AccountType, type ProjectionInputs } from "@/src/domain/projection/types";
+import {
+  validateProjectionInputs,
+  type AccountType,
+  type ProjectionInputs,
+} from "@/src/domain/projection/types";
+import { monthlyLiabilityInterestRate } from "@/src/domain/projection/liability-interest";
 import type { LunchMoneyData } from "@/src/integrations/lunchmoney/read-service";
 import { PlannerRuntimeError } from "@/src/runtime/errors";
 import type {
@@ -59,6 +65,8 @@ type MappingDetails = {
   classification: Exclude<CategoryMapping, string>["classification"];
   contributionAccountId?: string;
   contributionDirection: "debit" | "credit";
+  liabilityRole?: "primary_mortgage";
+  liabilityId?: string;
 };
 
 type AuditAccumulator = Omit<
@@ -227,15 +235,44 @@ function mappingDetails(mapping: CategoryMapping): MappingDetails {
     classification: mapping.classification,
     contributionAccountId: mapping.contributionAccountId,
     contributionDirection: mapping.contributionDirection ?? "debit",
+    liabilityRole: mapping.liabilityRole,
+    liabilityId: mapping.liabilityId,
   };
 }
 
-function accountType(mapping: AccountMapping): AccountType {
+function accountType(mapping: AccountMapping): AccountType | "debt" {
   if (mapping.type === "rrsp") return "rrsp_rrif";
-  if (mapping.type === "exclude") {
-    throw new Error("Excluded mappings cannot be converted to projection accounts");
+  if (mapping.type === "exclude" || mapping.type === "real_estate") {
+    throw new Error(
+      "Excluded and real-estate mappings cannot be converted to financial projection accounts",
+    );
   }
   return mapping.type;
+}
+
+function normalizedExactPayee(value: string | null | undefined): string {
+  return (value ?? "").trim().replace(/\s+/g, " ").toLocaleLowerCase("en-CA");
+}
+
+function historicalPaymentConfiguration(
+  treatment: LiabilityTreatmentConfig | undefined,
+): LiabilityTreatmentConfig["historicalPayment"] | undefined {
+  if (!treatment) return undefined;
+  if (
+    treatment.historicalPayment &&
+    treatment.historicalPaymentHandling
+  ) {
+    throw new PlannerRuntimeError(
+      "invalid_planner_config",
+      "A liability cannot combine historicalPayment with the legacy historicalPaymentHandling field.",
+      422,
+    );
+  }
+  if (treatment.historicalPayment) return treatment.historicalPayment;
+  return treatment.historicalPaymentHandling ===
+    "already_excluded_or_transfer"
+    ? { mode: "already_excluded_or_transfer" }
+    : undefined;
 }
 
 function monthlyRecurringAmount(item: RecurringItem): number {
@@ -253,13 +290,34 @@ function projectionReturn(config: PlannerConfig, mapping: AccountMapping): numbe
   if (mapping.type === "tfsa") return config.assumptions.tfsaReturn;
   if (mapping.type === "rrsp") return config.assumptions.rrspReturn;
   if (mapping.type === "non_registered") return config.assumptions.nonRegisteredReturn;
-  return config.assumptions.debtReturn;
+  throw new Error("Liabilities do not have investment returns");
 }
 
 function projectionAllocation(config: PlannerConfig, mapping: AccountMapping) {
   if (mapping.allocation) return mapping.allocation;
-  if (mapping.type === "exclude") throw new Error("Excluded accounts have no allocation");
+  if (
+    mapping.type === "exclude" ||
+    mapping.type === "debt" ||
+    mapping.type === "real_estate"
+  ) {
+    throw new Error(
+      "Excluded accounts, liabilities, and real estate have no financial asset allocation",
+    );
+  }
   return config.assumptions.allocations[mapping.type];
+}
+
+function monthlyPaymentEquivalent(
+  amount: number,
+  frequency: "monthly" | "semimonthly" | "biweekly" | "weekly",
+): number {
+  const paymentsPerYear = {
+    monthly: 12,
+    semimonthly: 24,
+    biweekly: 26,
+    weekly: 52,
+  }[frequency];
+  return (amount * paymentsPerYear) / 12;
 }
 
 function uniqueTransactions(transactions: Transaction[]): Transaction[] {
@@ -353,9 +411,13 @@ export function deriveCurrentBaseline(
   let discretionaryCount = 0;
   let contributionTransactionTotal = 0;
   let contributionTransactionCount = 0;
+  let debtPaymentTotal = 0;
+  let debtPaymentCount = 0;
+  const debtPaymentTotals = new Map<string, number>();
   const incomeAudit = new Map<string, AuditAccumulator>();
   const essentialAudit = new Map<string, AuditAccumulator>();
   const discretionaryAudit = new Map<string, AuditAccumulator>();
+  const debtPaymentAudit = new Map<string, AuditAccumulator>();
   function noteUnmappedCategory(categoryId: string): void {
     unmappedCategoryCounts.set(categoryId, (unmappedCategoryCounts.get(categoryId) ?? 0) + 1);
   }
@@ -397,6 +459,148 @@ export function deriveCurrentBaseline(
     return target;
   }
 
+  function resolveLiabilityTarget(
+    details: MappingDetails,
+    categoryId: string,
+  ): string {
+    if (details.liabilityRole === "primary_mortgage") {
+      const matches = accounts.filter((account) =>
+        resolvedMapping
+          .get(account.canonicalId)
+          ?.roles?.includes("primary_mortgage"),
+      );
+      if (matches.length !== 1) {
+        throw new PlannerRuntimeError(
+          "configuration_required",
+          `Debt-payment category ${categoryId} requires exactly one included primary_mortgage role.`,
+          422,
+        );
+      }
+      return matches[0]!.canonicalId;
+    }
+    let target = details.liabilityId;
+    if (target && !accountById.has(target) && /^\d+$/.test(target)) {
+      const matches = accounts.filter(
+        (account) => account.lunchMoneyId === Number(target),
+      );
+      if (matches.length === 1) target = matches[0]!.canonicalId;
+    }
+    const targetMapping = target ? resolvedMapping.get(target) : undefined;
+    if (
+      !target ||
+      !targetMapping ||
+      !targetMapping.include ||
+      targetMapping.type !== "debt"
+    ) {
+      throw new PlannerRuntimeError(
+        "configuration_required",
+        `Debt-payment category ${categoryId} requires an included debt liability reference.`,
+        422,
+      );
+    }
+    return target;
+  }
+
+  function resolveIncludedSourceAccount(reference: string): string {
+    const direct = accountById.has(reference)
+      ? [accountById.get(reference)!]
+      : /^\d+$/.test(reference)
+        ? accounts.filter(
+            (account) => account.lunchMoneyId === Number(reference),
+          )
+        : [];
+    const matches = direct.filter((account) => {
+      const mapping = resolvedMapping.get(account.canonicalId);
+      return (
+        mapping?.include &&
+        mapping.type !== "debt" &&
+        mapping.type !== "real_estate" &&
+        mapping.type !== "exclude"
+      );
+    });
+    if (matches.length !== 1) {
+      throw new PlannerRuntimeError(
+        "configuration_required",
+        "historicalPayment.sourceAccountId must resolve to exactly one included financial account.",
+        422,
+      );
+    }
+    return matches[0]!.canonicalId;
+  }
+
+  const debtPaymentCategoryCounts = new Map<string, number>();
+  for (const [categoryId, configuredCategory] of Object.entries(
+    config.categoryMappings,
+  )) {
+    const details = mappingDetails(configuredCategory);
+    if (details.classification !== "debt_payment") continue;
+    const target = resolveLiabilityTarget(details, categoryId);
+    debtPaymentCategoryCounts.set(
+      target,
+      (debtPaymentCategoryCounts.get(target) ?? 0) + 1,
+    );
+  }
+
+  const liabilityMatchers = new Map<
+    string,
+    { liabilityId: string; sourceAccountId: string; normalizedPayee: string }
+  >();
+  const matcherByLiabilityId = new Map<
+    string,
+    { sourceAccountId: string; normalizedPayee: string }
+  >();
+  for (const account of accounts) {
+    const mapping = resolvedMapping.get(account.canonicalId);
+    if (!mapping?.include || mapping.type !== "debt") continue;
+    const historicalPayment = historicalPaymentConfiguration(
+      mapping.liability,
+    );
+    if (
+      historicalPayment?.mode !== "payee_and_source_account"
+    ) {
+      continue;
+    }
+    const sourceAccountId = resolveIncludedSourceAccount(
+      historicalPayment.sourceAccountId,
+    );
+    const normalizedPayee = normalizedExactPayee(
+      historicalPayment.payee,
+    );
+    if (!normalizedPayee) {
+      throw new PlannerRuntimeError(
+        "invalid_planner_config",
+        "historicalPayment.payee must contain non-whitespace text.",
+        422,
+      );
+    }
+    const key = `${sourceAccountId}\u0000${normalizedPayee}`;
+    const existing = liabilityMatchers.get(key);
+    if (
+      existing &&
+      existing.liabilityId !== account.canonicalId
+    ) {
+      throw new PlannerRuntimeError(
+        "invalid_planner_config",
+        "A payee-and-source historical-payment matcher must target exactly one liability.",
+        422,
+      );
+    }
+    if (matcherByLiabilityId.has(account.canonicalId)) {
+      throw new PlannerRuntimeError(
+        "invalid_planner_config",
+        "An amortizing liability may have only one payee-and-source historical-payment matcher.",
+        422,
+      );
+    }
+    const matcher = {
+      liabilityId: account.canonicalId,
+      sourceAccountId,
+      normalizedPayee,
+    };
+    liabilityMatchers.set(key, matcher);
+    matcherByLiabilityId.set(account.canonicalId, matcher);
+  }
+
   for (const transaction of transactions) {
     const sourceAccount = transactionAccountId(transaction);
     const accountMapping = resolvedMapping.get(sourceAccount);
@@ -404,6 +608,29 @@ export function deriveCurrentBaseline(
 
     const categoryId = transaction.category_id === null ? "uncategorized" : String(transaction.category_id);
     const category = transaction.category_id === null ? undefined : categories.get(transaction.category_id);
+    const amount = transaction.to_base;
+    const auditDetails = {
+      categoryId,
+      categoryName: category?.name ?? "Uncategorized",
+      accountId: sourceAccount,
+      accountName: accountById.get(sourceAccount)?.name ?? "Cash transactions",
+    };
+    const matcher =
+      amount > 0
+        ? liabilityMatchers.get(
+            `${sourceAccount}\u0000${normalizedExactPayee(transaction.payee)}`,
+          )
+        : undefined;
+    if (matcher) {
+      debtPaymentTotal += amount;
+      debtPaymentCount += 1;
+      debtPaymentTotals.set(
+        matcher.liabilityId,
+        (debtPaymentTotals.get(matcher.liabilityId) ?? 0) + amount,
+      );
+      addAuditValue(debtPaymentAudit, auditDetails, amount);
+      continue;
+    }
     if (category?.exclude_from_totals) continue;
     const configuredCategory = config.categoryMappings[categoryId];
     if (!configuredCategory) {
@@ -412,13 +639,6 @@ export function deriveCurrentBaseline(
     }
 
     const details = mappingDetails(configuredCategory);
-    const amount = transaction.to_base;
-    const auditDetails = {
-      categoryId,
-      categoryName: category?.name ?? "Uncategorized",
-      accountId: sourceAccount,
-      accountName: accountById.get(sourceAccount)?.name ?? "Cash transactions",
-    };
     if (details.classification === "essential") {
       essentialTotal += amount;
       essentialCount += 1;
@@ -437,6 +657,18 @@ export function deriveCurrentBaseline(
       contributionTransactionTotal += contribution;
       contributionTransactionCount += 1;
       if (target) contributionTotals.set(target, (contributionTotals.get(target) ?? 0) + contribution);
+    } else if (details.classification === "debt_payment") {
+      // Lunch Money debits are positive. A mirrored credit or transfer record
+      // is evidence of the same movement and is not counted a second time.
+      if (amount <= 0) continue;
+      const target = resolveLiabilityTarget(details, categoryId);
+      debtPaymentTotal += amount;
+      debtPaymentCount += 1;
+      debtPaymentTotals.set(
+        target,
+        (debtPaymentTotals.get(target) ?? 0) + amount,
+      );
+      addAuditValue(debtPaymentAudit, auditDetails, amount);
     }
   }
 
@@ -457,6 +689,19 @@ export function deriveCurrentBaseline(
     const sourceAccount = recurringAccountId(item);
     const accountMapping = resolvedMapping.get(sourceAccount);
     if (!accountMapping || !accountMapping.include) continue;
+    if (
+      item.transaction_criteria.to_base > 0 &&
+      liabilityMatchers.has(
+        `${sourceAccount}\u0000${normalizedExactPayee(
+          item.transaction_criteria.payee,
+        )}`,
+      )
+    ) {
+      // Historical matching is authoritative before recurring/category
+      // classification so a reviewed mortgage item cannot reintroduce the
+      // scheduled payment as ordinary spending.
+      continue;
+    }
     const categoryId =
       item.overrides.category_id === undefined ? "uncategorized" : String(item.overrides.category_id);
     const category =
@@ -528,7 +773,12 @@ export function deriveCurrentBaseline(
   }
 
   const accountBaselines: AccountBaseline[] = [];
+  const nonFinancialAssetBaselines: CurrentBaseline["derived"]["nonFinancialAssetBalances"] =
+    [];
   const projectionAccounts: ProjectionInputs["accounts"] = [];
+  const importedNonFinancialAssets: ProjectionInputs["nonFinancialAssets"] =
+    [];
+  const liabilities: ProjectionInputs["liabilities"] = [];
   const provenance: Record<string, BaselineValue<unknown>> = {};
   const dataThrough =
     transactions.reduce(
@@ -540,6 +790,72 @@ export function deriveCurrentBaseline(
   for (const account of includedAccountRecords) {
     const mapping = resolvedMapping.get(account.canonicalId)!;
     if (mapping.type === "exclude") continue;
+    if (mapping.type === "real_estate") {
+      if (account.source === "cash") {
+        throw new PlannerRuntimeError(
+          "invalid_planner_config",
+          "A real_estate mapping must resolve to an imported Lunch Money account.",
+          422,
+        );
+      }
+      if (account.balance < 0) {
+        throw new PlannerRuntimeError(
+          "invalid_planner_config",
+          "An included real_estate account must have a non-negative imported balance.",
+          422,
+        );
+      }
+      if (mapping.annualAppreciation === undefined) {
+        throw new PlannerRuntimeError(
+          "invalid_planner_config",
+          "An included real_estate account requires annualAppreciation.",
+          422,
+        );
+      }
+      const openingValue = round(account.balance);
+      const valueAsOf = account.balanceAsOf.slice(0, 10);
+      nonFinancialAssetBaselines.push({
+        id: account.canonicalId,
+        lunchMoneyId: account.lunchMoneyId,
+        source: account.source,
+        name: account.name,
+        plannerType: "real_estate",
+        value: openingValue,
+        valueAsOf: account.balanceAsOf,
+      });
+      importedNonFinancialAssets.push({
+        id: account.canonicalId,
+        label: account.name,
+        origin: "lunchmoney",
+        type: "primary_residence",
+        openingValue,
+        valueAsOf,
+        annualAppreciation: mapping.annualAppreciation,
+        availableForWithdrawals: false,
+      });
+      const prefix = `nonFinancialAssets.${account.canonicalId}`;
+      provenance[`${prefix}.openingValue`] = derivedValue(
+        openingValue,
+        "Imported Lunch Money primary-residence value",
+        account.balanceAsOf,
+      );
+      provenance[`${prefix}.valueAsOf`] = derivedValue(
+        valueAsOf,
+        "Effective date of the imported primary-residence value",
+        account.balanceAsOf,
+      );
+      provenance[`${prefix}.annualAppreciation`] = localValue(
+        mapping.annualAppreciation,
+        "Configured nominal annual primary-residence appreciation",
+        window.endDate,
+      );
+      provenance[`${prefix}.availableForWithdrawals`] = localValue(
+        false,
+        "Primary residence is included in net worth but unavailable to retirement withdrawals",
+        window.endDate,
+      );
+      continue;
+    }
     const type = accountType(mapping);
     if (mapping.monthlyContribution !== undefined && !["tfsa", "rrsp_rrif", "non_registered"].includes(type)) {
       warnings.push({
@@ -566,6 +882,201 @@ export function deriveCurrentBaseline(
         name: account.name,
         message: `Included asset ${account.canonicalId} has a negative Lunch Money balance and must be mapped as debt or excluded.`,
       });
+    }
+    const balance = round(Math.max(0, rawBalance));
+    if (type === "debt") {
+      const treatment = mapping.liability;
+      if (balance > 0 && !treatment) {
+        throw new PlannerRuntimeError(
+          "configuration_required",
+          `Included debt ${account.canonicalId} has a positive balance and requires an explicit liability treatment.`,
+          422,
+        );
+      }
+      const historicalMonthlyAverage = round(
+        (debtPaymentTotals.get(account.canonicalId) ?? 0) /
+          window.trailingMonths,
+      );
+      const debtPaymentCategoryCount =
+        debtPaymentCategoryCounts.get(account.canonicalId) ?? 0;
+      const hasDebtPaymentCategory = debtPaymentCategoryCount > 0;
+      const hasMatcher = matcherByLiabilityId.has(account.canonicalId);
+      const historicalPayment = historicalPaymentConfiguration(treatment);
+      const hasAlreadyExcludedAssertion =
+        historicalPayment?.mode ===
+        "already_excluded_or_transfer";
+      const handlingSourceCount =
+        Number(hasDebtPaymentCategory) +
+        Number(hasMatcher) +
+        Number(hasAlreadyExcludedAssertion);
+      if (debtPaymentCategoryCount > 1 || handlingSourceCount > 1) {
+        throw new PlannerRuntimeError(
+          "invalid_planner_config",
+          "Each positive liability must use exactly one historical-payment handling source: one debt_payment category route, one payee-and-source matcher, or one already-excluded/transfer assertion.",
+          422,
+        );
+      }
+      const historicalPaymentHandling =
+        hasDebtPaymentCategory
+          ? ("category_mapped" as const)
+          : hasMatcher
+            ? ("payee_and_source_account" as const)
+          : hasAlreadyExcludedAssertion
+            ? ("already_excluded_or_transfer" as const)
+            : balance === 0
+              ? ("not_applicable" as const)
+              : null;
+      if (!historicalPaymentHandling) {
+        throw new PlannerRuntimeError(
+          "configuration_required",
+          "A positive liability needs exactly one historical-payment handling source: a debt_payment category route, historicalPayment payee_and_source_account matcher, or historicalPayment already_excluded_or_transfer assertion.",
+          422,
+        );
+      }
+      const resolvedTreatment: ProjectionInputs["liabilities"][number]["treatment"] =
+        balance === 0 && !treatment
+          ? { mode: "zero_balance" }
+          : treatment?.mode === "amortizing"
+            ? {
+                mode: "amortizing",
+                annualInterestRate: treatment.annualInterestRate,
+                interestRateConvention:
+                  treatment.interestRateConvention,
+                regularPayment: {
+                  amount: treatment.regularPayment.amount,
+                  frequency: treatment.regularPayment.frequency,
+                  monthlyEquivalent: monthlyPaymentEquivalent(
+                    treatment.regularPayment.amount,
+                    treatment.regularPayment.frequency,
+                  ),
+                },
+                scheduleStartDate: treatment.scheduleStartDate,
+                lumpSumPayments: treatment.lumpSumPayments,
+              }
+            : { mode: "payoff_at_projection_start" };
+      if (
+        resolvedTreatment.mode === "amortizing" &&
+        resolvedTreatment.regularPayment.monthlyEquivalent <=
+          balance *
+            monthlyLiabilityInterestRate(
+              resolvedTreatment.annualInterestRate,
+              resolvedTreatment.interestRateConvention,
+            )
+      ) {
+        throw new PlannerRuntimeError(
+          "invalid_planner_config",
+          `Configured regular payment for liability ${account.canonicalId} cannot cover the first projected month's interest.`,
+          422,
+        );
+      }
+      if (
+        resolvedTreatment.mode === "amortizing" &&
+        historicalMonthlyAverage > 0
+      ) {
+        const difference = Math.abs(
+          resolvedTreatment.regularPayment.monthlyEquivalent -
+            historicalMonthlyAverage,
+        );
+        if (
+          difference >
+          Math.max(
+            10,
+            historicalMonthlyAverage * 0.1,
+          )
+        ) {
+          warnings.push({
+            code: "liability_payment_mismatch",
+            severity: "warning",
+            identifier: account.canonicalId,
+            message:
+              "The configured liability payment differs materially from trailing debt-payment audit evidence.",
+          });
+        }
+      }
+      accountBaselines.push({
+        id: account.canonicalId,
+        lunchMoneyId: account.lunchMoneyId,
+        source: account.source,
+        name: account.name,
+        plannerType: "debt",
+        balance,
+        balanceAsOf: account.balanceAsOf,
+        monthlyContribution: 0,
+        contributionSource: "lunchmoney_derived",
+        contributionFunding: undefined,
+      });
+      liabilities.push({
+        id: account.canonicalId,
+        label: account.name,
+        origin: "lunchmoney",
+        openingBalance: balance,
+        balanceAsOf: account.balanceAsOf.slice(0, 10),
+        role: mapping.roles?.includes("primary_mortgage")
+          ? "primary_mortgage"
+          : null,
+        treatment: resolvedTreatment,
+        historicalPaymentHandling,
+        historicalMonthlyAverage,
+      });
+      const prefix = `liabilities.${account.canonicalId}`;
+      provenance[`${prefix}.openingBalance`] = derivedValue(
+        balance,
+        "Imported Lunch Money liability opening balance",
+        account.balanceAsOf,
+      );
+      provenance[`${prefix}.balanceAsOf`] = derivedValue(
+        account.balanceAsOf,
+        "Effective date of the imported liability balance",
+        account.balanceAsOf,
+      );
+      provenance[`${prefix}.role`] = localValue(
+        mapping.roles?.includes("primary_mortgage")
+          ? "primary_mortgage"
+          : null,
+        "Owner-selected liability role",
+        window.endDate,
+      );
+      provenance[`${prefix}.treatment.mode`] = localValue(
+        resolvedTreatment.mode,
+        "Explicit liability treatment",
+        window.endDate,
+      );
+      provenance[`${prefix}.historicalPaymentHandling`] =
+        hasDebtPaymentCategory || hasMatcher
+          ? derivedValue(
+              historicalPaymentHandling,
+              hasMatcher
+                ? "Historical debt-payment evidence matched by exact payee and source account is replaced by the configured schedule"
+                : "Historical debt-payment category evidence is replaced by the configured schedule",
+              dataThrough,
+            )
+          : localValue(
+              historicalPaymentHandling,
+              "Owner assertion that historical debt payments are already excluded or represented as transfers",
+              window.endDate,
+            );
+      if (resolvedTreatment.mode === "amortizing") {
+        for (const [field, value] of Object.entries({
+          annualInterestRate: resolvedTreatment.annualInterestRate,
+          interestRateConvention:
+            resolvedTreatment.interestRateConvention,
+          regularPaymentAmount:
+            resolvedTreatment.regularPayment.amount,
+          regularPaymentFrequency:
+            resolvedTreatment.regularPayment.frequency,
+          monthlyEquivalent:
+            resolvedTreatment.regularPayment.monthlyEquivalent,
+          scheduleStartDate: resolvedTreatment.scheduleStartDate,
+          lumpSumPayments: resolvedTreatment.lumpSumPayments,
+        })) {
+          provenance[`${prefix}.treatment.${field}`] = localValue(
+            value,
+            "Configured amortizing-liability schedule assumption",
+            window.endDate,
+          );
+        }
+      }
+      continue;
     }
     const contributionFromConfig = mapping.monthlyContribution;
     const contributionFromTransactions = (contributionTotals.get(account.canonicalId) ?? 0) / window.trailingMonths;
@@ -618,7 +1129,6 @@ export function deriveCurrentBaseline(
             },
           ]
         : []);
-    const balance = round(Math.max(0, rawBalance));
     const annualReturn = projectionReturn(config, mapping);
     const allocation = projectionAllocation(config, mapping);
 
@@ -777,7 +1287,6 @@ export function deriveCurrentBaseline(
         Math.max(
           0,
           ...projectionAccounts
-            .filter((account) => account.type !== "debt")
             .map((account) => account.withdrawalPriority),
         ) + 1;
       resolvedProjectionAccountConfigs[accountId] = {
@@ -1175,6 +1684,17 @@ export function deriveCurrentBaseline(
       (account) => account.id === destinationAccountId,
     );
     if (!destinationAccount) {
+      if (
+        liabilities.some(
+          (liability) => liability.id === destinationAccountId,
+        )
+      ) {
+        throw new PlannerRuntimeError(
+          "configuration_required",
+          `Surplus allocation destination ${destinationAccountId} must be a non-registered account; automatic TFSA, RRSP/RRIF, cash, and debt routing is unavailable.`,
+          422,
+        );
+      }
       throw new PlannerRuntimeError(
         "configuration_required",
         `Unknown surplusAllocation excess destination account ${destinationAccountId}.`,
@@ -1934,6 +2454,53 @@ export function deriveCurrentBaseline(
     }
   }
 
+  const nonFinancialAssets: ProjectionInputs["nonFinancialAssets"] = [
+    ...importedNonFinancialAssets,
+    ...(config.primaryResidence
+      ? [
+          {
+            id: "non_financial:primary_residence",
+            label: "Primary residence",
+            origin: "projection_configuration" as const,
+            type: "primary_residence" as const,
+            openingValue: config.primaryResidence.currentValue,
+            valueAsOf: config.primaryResidence.asOf,
+            annualAppreciation:
+              config.primaryResidence.annualAppreciation,
+            availableForWithdrawals: false as const,
+          },
+        ]
+      : []),
+  ];
+  if (config.primaryResidence) {
+    provenance["nonFinancialAssets.primaryResidence.openingValue"] =
+      localValue(
+        config.primaryResidence.currentValue,
+        "Configured current market-value estimate for the primary residence",
+        config.primaryResidence.asOf,
+      );
+    provenance["nonFinancialAssets.primaryResidence.valueAsOf"] =
+      localValue(
+        config.primaryResidence.asOf,
+        "Valuation date for the primary residence",
+        config.primaryResidence.asOf,
+      );
+    provenance[
+      "nonFinancialAssets.primaryResidence.annualAppreciation"
+    ] = localValue(
+      config.primaryResidence.annualAppreciation,
+      "Configured nominal annual primary-residence appreciation",
+      config.primaryResidence.asOf,
+    );
+    provenance[
+      "nonFinancialAssets.primaryResidence.availableForWithdrawals"
+    ] = localValue(
+      false,
+      "Primary residence is included in net worth but unavailable to retirement withdrawals",
+      config.primaryResidence.asOf,
+    );
+  }
+
   const projectionInputs = validateProjectionInputs({
     startDate: dataThrough,
     endAge: config.projectionEndAge,
@@ -1968,6 +2535,8 @@ export function deriveCurrentBaseline(
       rrifConversionAge: config.assumptions.rrifConversionAge,
     },
     accounts: projectionAccounts,
+    nonFinancialAssets,
+    liabilities,
     ...(registeredAccountRoom
       ? { registeredAccountRoom }
       : {}),
@@ -1978,12 +2547,13 @@ export function deriveCurrentBaseline(
   });
 
   return {
-    schemaVersion: "1.5",
+    schemaVersion: "1.7",
     connection,
     projectionInputs,
     provenance,
     derived: {
       accountBalances: accountBaselines,
+      nonFinancialAssetBalances: nonFinancialAssetBaselines,
       monthlyIncome: {
         trailingTotal: round(incomeTotal),
         monthlyAverage: monthlyIncome,
@@ -2005,6 +2575,13 @@ export function deriveCurrentBaseline(
         monthlyAverage: resolvedMonthlyContributions,
         transactionCount: contributionTransactionCount,
         accounts: contributionAccounts,
+      },
+      debtPayments: {
+        trailingTotal: round(debtPaymentTotal),
+        monthlyAverage: round(
+          debtPaymentTotal / window.trailingMonths,
+        ),
+        transactionCount: debtPaymentCount,
       },
       recurringExpenses: {
         monthlyTotal: round(recurringExpenses.reduce((total, item) => total + item.monthlyAmount, 0)),
@@ -2040,6 +2617,25 @@ export function deriveCurrentBaseline(
         monthlyAverage: resolvedMonthlyContributions,
         transactionCount: contributionTransactionCount,
         accounts: contributionAuditAccounts,
+      },
+      debtPayments: {
+        trailingTotal: round(debtPaymentTotal),
+        monthlyAverage: round(
+          debtPaymentTotal / window.trailingMonths,
+        ),
+        transactionCount: debtPaymentCount,
+        breakdown: auditBreakdown(
+          debtPaymentAudit,
+          window.trailingMonths,
+          round(debtPaymentTotal / window.trailingMonths),
+        ),
+        liabilities: liabilities.map((liability) => ({
+          liabilityId: liability.id,
+          liabilityRole: liability.role,
+          monthlyAverage: liability.historicalMonthlyAverage,
+          scheduleReplaced:
+            liability.treatment.mode !== "zero_balance",
+        })),
       },
       recurringExpenses: {
         monthlyTotal: round(recurringExpenses.reduce((total, item) => total + item.monthlyAmount, 0)),

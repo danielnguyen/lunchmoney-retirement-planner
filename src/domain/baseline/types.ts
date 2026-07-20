@@ -27,6 +27,7 @@ export const baselineWarningCodes = [
   "legacy_zero_cpp_amount",
   "legacy_zero_oas_amount",
   "contribution_waterfall_compatibility",
+  "liability_payment_mismatch",
 ] as const;
 
 export type BaselineWarningCode = (typeof baselineWarningCodes)[number];
@@ -59,12 +60,22 @@ export type AccountBaseline = {
   lunchMoneyId: number | null;
   source: "manual" | "plaid" | "cash";
   name: string;
-  plannerType: ProjectionInputs["accounts"][number]["type"];
+  plannerType: ProjectionInputs["accounts"][number]["type"] | "debt";
   balance: number;
   balanceAsOf: string;
   monthlyContribution: number;
   contributionSource: "lunchmoney_derived" | "local_configuration";
   contributionFunding: ContributionFunding | undefined;
+};
+
+export type NonFinancialAssetBaseline = {
+  id: string;
+  lunchMoneyId: number | null;
+  source: "manual" | "plaid";
+  name: string;
+  plannerType: "real_estate";
+  value: number;
+  valueAsOf: string;
 };
 
 export type DerivedMetric = {
@@ -102,6 +113,14 @@ export type CashFlowAudit = {
   investmentContributions: DerivedMetric & {
     accounts: ContributionAccountAudit[];
   };
+  debtPayments: TransactionMetricAudit & {
+    liabilities: Array<{
+      liabilityId: string;
+      liabilityRole: "primary_mortgage" | null;
+      monthlyAverage: number;
+      scheduleReplaced: boolean;
+    }>;
+  };
   recurringExpenses: {
     monthlyTotal: number;
     count: number;
@@ -126,6 +145,7 @@ export type RecurringExpense = {
 
 export type DerivedBaseline = {
   accountBalances: AccountBaseline[];
+  nonFinancialAssetBalances: NonFinancialAssetBaseline[];
   monthlyIncome: DerivedMetric & { basis: "net_deposited_cash" };
   essentialSpending: DerivedMetric;
   discretionarySpending: DerivedMetric;
@@ -137,6 +157,7 @@ export type DerivedBaseline = {
       funding: ContributionFunding;
     }>;
   };
+  debtPayments: DerivedMetric;
   recurringExpenses: {
     monthlyTotal: number;
     count: number;
@@ -145,7 +166,7 @@ export type DerivedBaseline = {
 };
 
 export type CurrentBaseline = {
-  schemaVersion: "1.5";
+  schemaVersion: "1.7";
   connection: ConnectionStatus;
   projectionInputs: ProjectionInputs;
   provenance: Record<string, BaselineValue<unknown>>;
@@ -175,6 +196,7 @@ export type BaselineExportContext = Pick<
   | "projectionInputs"
   | "provenance"
   | "derived"
+  | "cashFlowAudit"
   | "dataThrough"
   | "transactionWindow"
   | "recordsAnalyzed"

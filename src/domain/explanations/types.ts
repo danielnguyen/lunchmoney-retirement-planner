@@ -24,6 +24,10 @@ export const explanationTargets = [
   "oas-benefit",
   "surplus-allocation",
   "registered-account-room",
+  "home-equity-at-retirement",
+  "liabilities-at-retirement",
+  "total-net-worth",
+  "liability-schedule",
 ] as const;
 
 export type ExplanationTarget = (typeof explanationTargets)[number];
@@ -43,6 +47,13 @@ export type ExplanationStep = {
   sourceType?: ExplanationSourceType;
   sourceDescription?: string;
   effectiveDate?: string;
+  details?: Array<{
+    label: string;
+    value: string;
+    sourceType?: ExplanationSourceType;
+    sourceDescription?: string;
+    effectiveDate?: string;
+  }>;
 };
 
 export type ExplanationDataSection = {

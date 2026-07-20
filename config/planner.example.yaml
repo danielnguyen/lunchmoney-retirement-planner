@@ -95,6 +95,10 @@ employmentIncomePhases:
 # - personal_taxable: an optional real non-registered investment account. If
 #   you leave this role out, the planner adds a future taxable account starting
 #   at $0.
+# - primary_residence: the Lunch Money manual asset whose balance is your
+#   current home-value estimate. The balance date becomes the valuation date.
+# - primary_mortgage: the one debt linked to the primary residence. Leave this
+#   role out when the residence is mortgage-free.
 #
 # For example, chequing can be both operating_cash and reserve_member, while a
 # savings account can be both reserve_member and reserve_refill. Personal and
@@ -134,6 +138,67 @@ accountMappings:
     type: rrsp
     roles: [workplace_rrsp]
     withdrawalPriority: 5
+
+  "manual:synthetic-primary-residence":
+    # Your home recorded as a Lunch Money manual asset. Keep its balance and
+    # balance date current in Lunch Money; do not repeat the value here.
+    include: true
+    type: real_estate
+    roles: [primary_residence]
+    # Enter the yearly growth assumption used after the imported valuation.
+    # For example, 0.02 is 2% and 0 keeps the value flat. The home contributes
+    # to net worth but is not available for retirement withdrawals.
+    annualAppreciation: 0.02
+
+  # If your home is not a Lunch Money account, leave out the real_estate
+  # mapping above and use the top-level primaryResidence fallback documented
+  # in README.md. Never configure both sources.
+
+  "manual:synthetic-primary-mortgage":
+    # The mortgage linked to the primary residence. Debt has no investment
+    # return, asset allocation, or withdrawal priority.
+    include: true
+    type: debt
+    roles: [primary_mortgage]
+    liability:
+      mode: amortizing
+      # Enter the current annual mortgage rate from the lender statement.
+      # Then choose the compounding convention stated in the agreement.
+      # Standard Canadian mortgages normally use canadian_mortgage; use
+      # effective_annual only when the agreement explicitly quotes an
+      # effective annual rate. Renewal and rate changes are not modelled.
+      annualInterestRate: 0.04
+      interestRateConvention: canadian_mortgage
+      # Enter the amount and frequency shown in the payment agreement. The
+      # planner converts it to a monthly equivalent but retains both values.
+      regularPayment:
+        amount: 1200
+        frequency: biweekly
+      # Enter the effective date of the current rate and payment schedule,
+      # usually shown on the latest mortgage agreement or renewal statement.
+      # It must be on or before the projection start because future borrowing
+      # is not modelled. Optional lump sums need an explicit date and amount;
+      # find both in your lender records and use [] when none are planned.
+      scheduleStartDate: "2026-01-15"
+      lumpSumPayments: []
+      # Use this matcher when mortgage payments share a category with other
+      # spending. Enter the exact Lunch Money account that pays the mortgage
+      # and the payee as it appears on posted transactions. Matching ignores
+      # case and harmless extra spaces, but never uses amount, date, partial
+      # text, or fuzzy matching. The raw payee and account ID are never
+      # included in planner exports.
+      historicalPayment:
+        mode: payee_and_source_account
+        sourceAccountId: "manual:synthetic-operating-cash"
+        payee: "Synthetic mortgage payment"
+
+      # The full scheduled payment reduces retirement cash. Interest is an
+      # expense; principal reduces cash and debt together, so it is not
+      # consumption. Payments stop when the balance reaches $0.
+      #
+      # For a non-zero short-term debt you intend to settle immediately, use
+      # `mode: payoff_at_projection_start` instead of the schedule fields. That
+      # opening balance appears in starting net worth and is paid in month one.
 
   "manual:synthetic-excluded-account":
     # Set include to false and type to exclude for a closed or out-of-scope
@@ -246,12 +311,21 @@ savingsPolicy:
 # as `id` in the category snapshot JSON. Use essential for needs, discretionary
 # for optional spending, income for cash income, transfer for money moved
 # between your accounts, and exclude for anything the plan should ignore.
+# The mortgage matcher above runs before these category rules. This means a
+# matched mortgage payment can share the broad home/auto category below while
+# unrelated transactions in that category remain ordinary spending.
+#
+# If a liability has its own dedicated category instead, you may map that
+# category as debt_payment with liabilityRole: primary_mortgage. Use only one
+# historical-payment method for a liability. Principal reduces both cash and
+# debt, while interest is consumption.
 categoryMappings:
   "synthetic-essential-category": essential # For example, groceries.
   "synthetic-discretionary-category": discretionary # For example, entertainment.
   "synthetic-income-category": income # For example, employment income.
   "synthetic-transfer-category": transfer # For example, an internal transfer.
   "synthetic-investment-transfer-category": transfer
+  "synthetic-home-auto-category": essential
   "uncategorized": exclude
 
 assumptions:
@@ -263,7 +337,6 @@ assumptions:
   tfsaReturn: 0.05
   rrspReturn: 0.05
   nonRegisteredReturn: 0.05
-  debtReturn: 0
   effectiveTaxRate: 0.22
   oasRecoveryThreshold: 90000
   oasRecoveryRate: 0.15
@@ -279,7 +352,6 @@ assumptions:
     tfsa: { cash: 0, fixedIncome: 0.2, equity: 0.8 }
     rrsp: { cash: 0, fixedIncome: 0.3, equity: 0.7 }
     non_registered: { cash: 0.05, fixedIncome: 0.25, equity: 0.7 }
-    debt: { cash: 0, fixedIncome: 0, equity: 0 }
 
 # Add known one-time future income or expenses here, in today's dollars. Leave
 # [] when there are none. Account-specific event destinations are available in

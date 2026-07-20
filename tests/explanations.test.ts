@@ -277,6 +277,71 @@ function section(document: ExplanationDocument, title: string) {
   return document.dataSections.find((item) => item.title === title)!;
 }
 
+function balanceSheetContext(
+  mode: "real" | "nominal" = "nominal",
+): ExplanationContext {
+  return context((draft) => {
+    draft.displayMode = mode;
+    draft.inputs.nonFinancialAssets = [
+      {
+        id: "non_financial:primary_residence",
+        label: "Synthetic residence",
+        origin: "projection_configuration",
+        type: "primary_residence",
+        openingValue: 500000,
+        valueAsOf: "2026-07-14",
+        annualAppreciation: 0.02,
+        availableForWithdrawals: false,
+      },
+    ];
+    draft.inputs.liabilities = [
+      {
+        id: "synthetic:mortgage",
+        label: "Synthetic mortgage",
+        origin: "lunchmoney",
+        openingBalance: 20000,
+        balanceAsOf: "2026-07-14",
+        role: "primary_mortgage",
+        treatment: {
+          mode: "amortizing",
+          annualInterestRate: 0.04,
+          interestRateConvention: "canadian_mortgage",
+          regularPayment: {
+            amount: 1000,
+            frequency: "monthly",
+            monthlyEquivalent: 1000,
+          },
+          scheduleStartDate: "2026-07-01",
+          lumpSumPayments: [],
+        },
+        historicalPaymentHandling: "category_mapped",
+        historicalMonthlyAverage: 1000,
+      },
+    ];
+    draft.baseline.projectionInputs = structuredClone(draft.inputs);
+    draft.baseline.cashFlowAudit.debtPayments = {
+      trailingTotal: 12000,
+      monthlyAverage: 1000,
+      transactionCount: 12,
+      breakdown: [],
+      liabilities: [
+        {
+          liabilityId: "synthetic:mortgage",
+          liabilityRole: "primary_mortgage",
+          monthlyAverage: 1000,
+          scheduleReplaced: true,
+        },
+      ],
+    };
+    draft.baseline.derived.debtPayments = {
+      trailingTotal: 12000,
+      monthlyAverage: 1000,
+      transactionCount: 12,
+    };
+    draft.projection = calculateProjection(draft.inputs);
+  });
+}
+
 function finiteNumbers(value: unknown): boolean {
   if (typeof value === "number") return Number.isFinite(value);
   if (Array.isArray(value)) return value.every(finiteNumbers);
@@ -289,17 +354,6 @@ function finiteNumbers(value: unknown): boolean {
 describe("calculation explanations", () => {
   it("reconciles starting financial-asset account rows and excludes debt", () => {
     const value = context((draft) => {
-      draft.baseline.projectionInputs.accounts.push({
-        id: "manual:debt",
-        label: "Synthetic debt",
-        origin: "lunchmoney",
-        type: "debt",
-        openingBalance: 50000,
-        annualReturn: 0,
-        contributionPhases: [],
-        withdrawalPriority: 999,
-        allocation: { cash: 0, fixedIncome: 0, equity: 0 },
-      });
       draft.baseline.derived.accountBalances.push({
         id: "manual:debt",
         lunchMoneyId: 99,
@@ -404,7 +458,7 @@ describe("calculation explanations", () => {
       buildExplanation("annual-ledger", value),
       "Displayed ledger data",
     ).rows;
-    const accounts = value.inputs.accounts.filter((account) => account.type !== "debt");
+    const accounts = value.inputs.accounts;
 
     expect(funding).toEqual(plotted.map((row) => ({
       periodLabel: row.periodLabel,
@@ -424,6 +478,7 @@ describe("calculation explanations", () => {
       contributionPhases: row.contributionPhases || "No active contribution phase",
       essential: row.essential,
       discretionary: row.discretionary,
+      liabilityCashPayment: row.liabilityCashPayment,
       oneTime: row.oneTime,
       tax: row.tax,
       contributions: row.contributions,
@@ -583,34 +638,34 @@ describe("calculation explanations", () => {
     ).some((warning) => warning.code === "long_live_baseline_income")).toBe(false);
   });
 
-  it("reconciles multiple financial and debt accounts to the total included-account count", () => {
-    const debtAccounts: FinancialAccountInput[] = [
+  it("reconciles imported and projection-only financial accounts to the included-account count", () => {
+    const additionalAccounts: FinancialAccountInput[] = [
       {
-        id: "manual:debt-1",
-        label: "Synthetic debt one",
+        id: "manual:extra-tfsa",
+        label: "Synthetic TFSA",
         origin: "lunchmoney",
-        type: "debt",
+        type: "tfsa",
         openingBalance: 10000,
-        annualReturn: 0,
+        annualReturn: 0.04,
         contributionPhases: [],
-        withdrawalPriority: 98,
-        allocation: { cash: 0, fixedIncome: 0, equity: 0 },
+        withdrawalPriority: 3,
+        allocation: { cash: 0, fixedIncome: 0.2, equity: 0.8 },
       },
       {
-        id: "manual:debt-2",
-        label: "Synthetic debt two",
-        origin: "lunchmoney",
-        type: "debt",
-        openingBalance: 20000,
-        annualReturn: 0,
+        id: "projection:extra-taxable",
+        label: "Synthetic future taxable",
+        origin: "projection_configuration",
+        type: "non_registered",
+        openingBalance: 0,
+        annualReturn: 0.05,
         contributionPhases: [],
-        withdrawalPriority: 99,
-        allocation: { cash: 0, fixedIncome: 0, equity: 0 },
+        withdrawalPriority: 4,
+        allocation: { cash: 0, fixedIncome: 0.2, equity: 0.8 },
       },
     ];
     const value = context((draft) => {
-      draft.inputs.accounts.push(...structuredClone(debtAccounts));
-      draft.baseline.projectionInputs.accounts.push(...structuredClone(debtAccounts));
+      draft.inputs.accounts.push(...structuredClone(additionalAccounts));
+      draft.baseline.projectionInputs.accounts.push(...structuredClone(additionalAccounts));
       draft.projection = calculateProjection(draft.inputs);
     });
     const document = buildExplanation("lunchmoney-accounts", value);
@@ -624,12 +679,12 @@ describe("calculation explanations", () => {
       {
         label: "Financial-asset accounts",
         operation: "input",
-        rawValue: 2,
+        rawValue: 3,
       },
       {
-        label: "Debt accounts excluded from financial assets",
+        label: "Projection-only financial accounts",
         operation: "add",
-        rawValue: 2,
+        rawValue: 1,
       },
       {
         label: "Total included accounts",
@@ -1515,5 +1570,334 @@ describe("calculation explanations", () => {
       reset.steps.find((step) => step.label === "Starting TFSA room")
         ?.sourceType,
     ).toBe("configuration");
+  });
+
+  it("explains total net worth and liability schedules from the shared result in both dollar modes", () => {
+    for (const mode of ["nominal", "real"] as const) {
+      const value = balanceSheetContext(mode);
+      const netWorth = buildExplanation("total-net-worth", value);
+      const liability = buildExplanation("liability-schedule", value);
+
+      expect(netWorth.formula).toBe(
+        "Financial assets + non-financial assets − total liabilities = total net worth",
+      );
+      expect(netWorth.reconciliation?.matched).toBe(true);
+      expect(
+        section(netWorth, "Annual balance sheet").rows,
+      ).toHaveLength(value.projection.annual.length);
+      expect(
+        netWorth.caveats.join(" "),
+      ).toContain("not available to retirement withdrawals");
+
+      expect(liability.formula).toBe(
+        "Opening principal + interest − funded regular payment − funded lump-sum principal = closing principal",
+      );
+      expect(liability.reconciliation?.matched).toBe(true);
+      const mortgageSummary = liability.steps.find(
+        (step) => step.label === "Synthetic mortgage",
+      );
+      expect(
+        mortgageSummary?.details?.find(
+          (detail) => detail.label === "Interest-rate convention",
+        )?.value,
+      ).toContain("Canadian mortgage rate");
+      expect(
+        liability.steps.filter(
+          (step) => step.label === "Required liability payment funding",
+        ),
+      ).toEqual([
+        expect.objectContaining({ value: expect.stringContaining("fully funded") }),
+      ]);
+      expect(
+        section(liability, "Annual liability schedule").rows,
+      ).toHaveLength(value.projection.annual.length);
+      expect(
+        section(
+          liability,
+          "Historical payment replacement evidence",
+        ).rows,
+      ).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({
+            metric: "Liabilities with schedule replacement",
+            value: 1,
+          }),
+        ]),
+      );
+      expect(liability.caveats.join(" ")).toContain(
+        "Rate renewals",
+      );
+      expect(liability.caveats.join(" ")).toContain(
+        "after projected payoff is rejected",
+      );
+    }
+  });
+
+  it("explains retirement-date home equity and liabilities from the active display mode", () => {
+    for (const mode of ["nominal", "real"] as const) {
+      const value = balanceSheetContext(mode);
+      const mortgage = value.inputs.liabilities[0]!;
+      if (mortgage.treatment.mode !== "amortizing") {
+        throw new Error("Synthetic mortgage must be amortizing");
+      }
+      mortgage.treatment.annualInterestRate = 0;
+      mortgage.treatment.regularPayment.amount = 10;
+      mortgage.treatment.regularPayment.monthlyEquivalent = 10;
+      mortgage.historicalMonthlyAverage = 10;
+      value.baseline.projectionInputs = structuredClone(value.inputs);
+      value.projection = calculateProjection(value.inputs);
+      const snapshot = value.projection.retirementSnapshot[mode];
+      const ending = value.projection.annual.at(-1)![mode].balances;
+      const retirementPeriod = `${value.projection.retirementSnapshot.calendarDate} · age ${value.projection.retirementSnapshot.age}`;
+      const homeEquity = buildExplanation(
+        "home-equity-at-retirement",
+        value,
+      );
+      const liabilities = buildExplanation(
+        "liabilities-at-retirement",
+        value,
+      );
+
+      expect(homeEquity).toMatchObject({
+        title: "Home equity at retirement",
+        displayedResult: {
+          label: "Home equity at retirement",
+          dollarMode: mode,
+          period: retirementPeriod,
+        },
+        reconciliation: {
+          matched: true,
+          displayedValue: snapshot.balances.homeEquity,
+        },
+      });
+      expect(homeEquity.formula).toBe(
+        "Residence value at retirement − linked mortgage at retirement = home equity at retirement",
+      );
+      expect(homeEquity.steps).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({
+            label: "Residence value at retirement",
+            rawValue: snapshot.balances.residenceValue,
+          }),
+          expect.objectContaining({
+            label: "Linked mortgage at retirement",
+            rawValue: snapshot.balances.mortgageBalance,
+          }),
+          expect.objectContaining({
+            label: "Home equity at retirement",
+            rawValue: snapshot.balances.homeEquity,
+          }),
+        ]),
+      );
+      expect(homeEquity.plainLanguage).toContain(
+        "not available to fund retirement",
+      );
+      expect(snapshot.balances.homeEquity).not.toBe(ending.homeEquity);
+
+      expect(liabilities).toMatchObject({
+        title: "Total liabilities at retirement",
+        displayedResult: {
+          label: "Total liabilities at retirement",
+          dollarMode: mode,
+          period: retirementPeriod,
+        },
+        reconciliation: {
+          matched: true,
+          displayedValue: snapshot.balances.totalLiabilities,
+        },
+      });
+      expect(liabilities.formula).toBe(
+        "Mortgage balance at retirement + other liabilities at retirement = total liabilities at retirement",
+      );
+      expect(liabilities.steps).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({
+            label: "Mortgage balance at retirement",
+            rawValue: snapshot.balances.mortgageBalance,
+          }),
+          expect.objectContaining({
+            label: "Other liabilities at retirement",
+            rawValue: snapshot.balances.otherLiabilities,
+          }),
+          expect.objectContaining({
+            label: "Total liabilities at retirement",
+            rawValue: snapshot.balances.totalLiabilities,
+          }),
+        ]),
+      );
+      expect(snapshot.balances.totalLiabilities).not.toBe(
+        ending.totalLiabilities,
+      );
+
+      const safeDocuments = JSON.stringify([homeEquity, liabilities]);
+      expect(safeDocuments).not.toContain("synthetic:mortgage");
+      expect(safeDocuments).not.toContain("Synthetic mortgage");
+      expect(safeDocuments).not.toContain("non_financial:primary_residence");
+      expect(safeDocuments).not.toContain("Synthetic residence");
+    }
+  });
+
+  it("subtracts a zero linked mortgage for a mortgage-free residence", () => {
+    const value = balanceSheetContext("nominal");
+    value.inputs.liabilities = [];
+    value.baseline.projectionInputs = structuredClone(value.inputs);
+    value.baseline.cashFlowAudit.debtPayments = {
+      trailingTotal: 0,
+      monthlyAverage: 0,
+      transactionCount: 0,
+      breakdown: [],
+      liabilities: [],
+    };
+    value.baseline.derived.debtPayments = {
+      trailingTotal: 0,
+      monthlyAverage: 0,
+      transactionCount: 0,
+    };
+    value.projection = calculateProjection(value.inputs);
+
+    const document = buildExplanation(
+      "home-equity-at-retirement",
+      value,
+    );
+    expect(
+      document.steps.find(
+        (step) => step.label === "Linked mortgage at retirement",
+      )?.rawValue,
+    ).toBe(0);
+    expect(document.reconciliation?.matched).toBe(true);
+  });
+
+  it("groups zero-balance, payoff-at-start, and amortizing liability summaries", () => {
+    const value = balanceSheetContext("nominal");
+    const amortizing = value.inputs.liabilities[0]!;
+    amortizing.historicalPaymentHandling = "payee_and_source_account";
+    value.inputs.liabilities = [
+      {
+        ...structuredClone(amortizing),
+        id: "synthetic:zero-liability",
+        label: "Synthetic zero liability",
+        openingBalance: 0,
+        role: null,
+        treatment: { mode: "zero_balance" },
+        historicalPaymentHandling: "not_applicable",
+        historicalMonthlyAverage: 0,
+      },
+      {
+        ...structuredClone(amortizing),
+        id: "synthetic:payoff-liability",
+        label: "Synthetic payoff liability",
+        openingBalance: 500,
+        role: null,
+        treatment: { mode: "payoff_at_projection_start" },
+        historicalPaymentHandling: "already_excluded_or_transfer",
+        historicalMonthlyAverage: 0,
+      },
+      amortizing,
+    ];
+    value.baseline.projectionInputs = structuredClone(value.inputs);
+    value.projection = calculateProjection(value.inputs);
+
+    const document = buildExplanation("liability-schedule", value);
+    const zero = document.steps.filter(
+      (step) => step.label === "Synthetic zero liability",
+    );
+    expect(zero).toEqual([
+      expect.objectContaining({
+        value: "Zero balance at projection start",
+      }),
+    ]);
+    expect(zero[0]?.details).toBeUndefined();
+    expect(JSON.stringify(zero)).not.toContain("funding");
+    expect(JSON.stringify(zero)).not.toContain("payoff");
+
+    const payoff = document.steps.find(
+      (step) => step.label === "Synthetic payoff liability",
+    );
+    expect(payoff?.value).toBe("Paid in the first projected month");
+    expect(payoff?.details?.map((detail) => detail.label)).toEqual([
+      "Opening balance",
+      "Treatment",
+      "Projected payoff date",
+    ]);
+
+    const mortgage = document.steps.find(
+      (step) => step.label === "Synthetic mortgage",
+    );
+    expect(mortgage?.value).toBe("Amortizing payment schedule");
+    expect(mortgage?.details?.map((detail) => detail.label)).toEqual([
+      "Opening principal",
+      "Annual interest rate",
+      "Interest-rate convention",
+      "Entered regular payment",
+      "Monthly equivalent",
+      "Current schedule effective date",
+      "Historical payment handling",
+      "Historical monthly average",
+      "Projected payoff date",
+    ]);
+    expect(
+      mortgage?.details?.find(
+        (detail) => detail.label === "Historical payment handling",
+      )?.value,
+    ).toBe("Matched by configured payee and source account");
+    expect(
+      document.steps.filter(
+        (step) => step.label === "Required liability payment funding",
+      ),
+    ).toHaveLength(1);
+    expect(
+      section(document, "Annual liability schedule").rows,
+    ).toHaveLength(value.projection.annual.length * 2);
+    expect(document.reconciliation?.matched).toBe(true);
+    expect(JSON.stringify(document)).not.toContain("plaid:synthetic-source");
+    expect(JSON.stringify(document)).not.toContain(
+      "Synthetic exact mortgage payee",
+    );
+  });
+
+  it("identifies an imported residence separately from the configured fallback", () => {
+    const value = balanceSheetContext("nominal");
+    const asset = value.inputs.nonFinancialAssets[0]!;
+    asset.id = "manual:synthetic-residence";
+    asset.origin = "lunchmoney";
+    value.baseline.projectionInputs = structuredClone(value.inputs);
+    value.baseline.provenance[
+      "nonFinancialAssets.manual:synthetic-residence.openingValue"
+    ] = {
+      value: asset.openingValue,
+      sourceType: "lunchmoney_derived",
+      sourceDescription: "Imported Lunch Money primary-residence value",
+      effectiveDate: asset.valueAsOf,
+    };
+    value.projection = calculateProjection(value.inputs);
+
+    const document = buildExplanation("total-net-worth", value);
+    expect(document.assumptions[0]).toMatchObject({
+      sourceType: "lunchmoney",
+    });
+    expect(document.assumptions[0]!.value).toContain(
+      "imported Lunch Money residence",
+    );
+  });
+
+  it("marks net-worth and liability explanations unmatched after independent one-cent-plus mutations", () => {
+    const netWorthValue = balanceSheetContext("nominal");
+    netWorthValue.projection.netWorthBridge.nominal.liabilityInterest +=
+      0.02;
+    expect(
+      buildExplanation("total-net-worth", netWorthValue).reconciliation
+        ?.matched,
+    ).toBe(false);
+
+    const liabilityValue = balanceSheetContext("nominal");
+    liabilityValue.projection.annual[0]!.nominal.liabilitySchedules[
+      "synthetic:mortgage"
+    ]!.closingBalance += 0.02;
+    expect(
+      buildExplanation(
+        "liability-schedule",
+        liabilityValue,
+      ).reconciliation?.matched,
+    ).toBe(false);
   });
 });

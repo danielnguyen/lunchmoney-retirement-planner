@@ -896,17 +896,23 @@ describe("registered-room validation boundaries", () => {
     );
 
     const debt = roomFixture();
-    debt.accounts.push({
-      ...investmentAccount("debt:one", "non_registered"),
-      type: "debt",
-      allocation: { cash: 0, fixedIncome: 0, equity: 0 },
+    debt.liabilities.push({
+      id: "debt:one",
+      label: "Synthetic liability",
+      origin: "lunchmoney",
+      openingBalance: 1,
+      balanceAsOf: debt.startDate,
+      role: null,
+      treatment: { mode: "payoff_at_projection_start" },
+      historicalPaymentHandling: "already_excluded_or_transfer",
+      historicalMonthlyAverage: 0,
     });
     debt.contributionWaterfall.routes[0]!.destinationAccountIds = [
       "tfsa:one",
       "debt:one",
     ];
     expect(() => validateProjectionInputs(debt)).toThrow(
-      "must be an investment account",
+      "Unknown contribution waterfall destination",
     );
 
     const nonRegisteredFirst = roomFixture();

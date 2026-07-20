@@ -1,6 +1,13 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import {
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  type ReactNode,
+} from "react";
 import {
   Area,
   Bar,
@@ -31,6 +38,7 @@ import {
   buildAnnualLedgerData,
   buildSavingsPolicyPreview,
   closestAnnualPoint,
+  type AnnualChartRow,
   type DisplayMode,
   monthlyEmploymentNetCash,
   monthlyInvestmentContributions,
@@ -66,6 +74,68 @@ const exactCurrency = new Intl.NumberFormat("en-CA", {
 
 const accountColors = ["#d8bd65", "#d99269", "#8072d7", "#4eb5d2", "#70d6b2", "#a9cf6c"];
 
+const AGE_INTEGER_EPSILON = 0.000001;
+
+export function formatProjectedAge(age: number): string {
+  const nearestInteger = Math.round(age);
+  if (Math.abs(age - nearestInteger) <= AGE_INTEGER_EPSILON) {
+    return String(nearestInteger);
+  }
+  return age.toFixed(1);
+}
+
+type YearAgeTickProps = {
+  x?: number;
+  y?: number;
+  payload?: { value?: string | number };
+  chartData: ReadonlyArray<Pick<AnnualChartRow, "year" | "age">>;
+};
+
+export function YearAgeTick({
+  x = 0,
+  y = 0,
+  payload,
+  chartData,
+}: YearAgeTickProps) {
+  const year = Number(payload?.value);
+  const row = chartData.find((candidate) => candidate.year === year);
+  if (!Number.isFinite(year) || !row) return null;
+
+  return (
+    <g transform={`translate(${x}, ${y})`}>
+      <text
+        aria-label={`${year}, Age ${formatProjectedAge(row.age)}`}
+        fill="#9eb0c4"
+        textAnchor="middle"
+      >
+        <tspan x="0" dy="14">{year}</tspan>
+        <tspan x="0" dy="15" fill="#7f93aa" fontSize="11">
+          Age {formatProjectedAge(row.age)}
+        </tspan>
+      </text>
+    </g>
+  );
+}
+
+export function AnnualXAxis({
+  chartData,
+}: {
+  chartData: ReadonlyArray<Pick<AnnualChartRow, "year" | "age">>;
+}) {
+  return (
+    <XAxis
+      className="annual-year-age-axis"
+      dataKey="year"
+      stroke="#9eb0c4"
+      minTickGap={28}
+      height={52}
+      tickMargin={8}
+      fontSize={12}
+      tick={<YearAgeTick chartData={chartData} />}
+    />
+  );
+}
+
 type Overrides = Record<string, number>;
 
 type BlockingError = {
@@ -95,6 +165,16 @@ export type ControlDefinition = {
 
 function fixed(value: number): (inputs: ProjectionInputs) => number {
   return () => value;
+}
+
+function monthlyPaymentEquivalent(
+  amount: number,
+  frequency: "monthly" | "semimonthly" | "biweekly" | "weekly",
+): number {
+  if (frequency === "monthly") return amount;
+  if (frequency === "semimonthly") return amount * 2;
+  if (frequency === "biweekly") return (amount * 26) / 12;
+  return (amount * 52) / 12;
 }
 
 export function buildControls(baseline: ProjectionInputs): ControlDefinition[] {
@@ -472,7 +552,6 @@ export function buildControls(baseline: ProjectionInputs): ControlDefinition[] {
     tfsa: "TFSA return",
     rrsp_rrif: "RRSP / RRIF return",
     non_registered: "Non-registered return",
-    debt: "Debt balance change",
   };
   const seenTypes = new Set<AccountType>();
   for (const account of baseline.accounts) {
@@ -493,6 +572,120 @@ export function buildControls(baseline: ProjectionInputs): ControlDefinition[] {
         }
       },
     });
+  }
+  const residence = baseline.nonFinancialAssets.find(
+    (asset) => asset.type === "primary_residence",
+  );
+  if (residence) {
+    const residenceSourcePrefix =
+      residence.origin === "lunchmoney"
+        ? `nonFinancialAssets.${residence.id}`
+        : "nonFinancialAssets.primaryResidence";
+    controls.unshift(
+      {
+        key: "primaryResidence.currentValue",
+        sourceKey: `${residenceSourcePrefix}.openingValue`,
+        label: "Primary residence value",
+        min: fixed(0),
+        max: fixed(Math.max(2_000_000, residence.openingValue * 3)),
+        step: 1_000,
+        format: currency.format,
+        get: (inputs) =>
+          inputs.nonFinancialAssets.find(
+            (asset) => asset.id === residence.id,
+          )!.openingValue,
+        set: (inputs, value) => {
+          inputs.nonFinancialAssets.find(
+            (asset) => asset.id === residence.id,
+          )!.openingValue = value;
+        },
+        inputType: "number",
+      },
+      {
+        key: "primaryResidence.annualAppreciation",
+        sourceKey: `${residenceSourcePrefix}.annualAppreciation`,
+        label: "Residence annual appreciation",
+        min: fixed(-0.2),
+        max: fixed(0.5),
+        step: 0.001,
+        format: percent.format,
+        get: (inputs) =>
+          inputs.nonFinancialAssets.find(
+            (asset) => asset.id === residence.id,
+          )!.annualAppreciation,
+        set: (inputs, value) => {
+          inputs.nonFinancialAssets.find(
+            (asset) => asset.id === residence.id,
+          )!.annualAppreciation = value;
+        },
+        inputType: "number",
+      },
+    );
+  }
+  for (const liability of baseline.liabilities) {
+    if (liability.treatment.mode !== "amortizing") continue;
+    const baselineTreatment = liability.treatment;
+    controls.unshift(
+      {
+        key: `liability.${liability.id}.annualInterestRate`,
+        sourceKey: `liabilities.${liability.id}.treatment.annualInterestRate`,
+        label: `${liability.label} annual interest rate`,
+        min: fixed(0),
+        max: fixed(0.5),
+        step: 0.001,
+        format: percent.format,
+        get: (inputs) => {
+          const treatment = inputs.liabilities.find(
+            (item) => item.id === liability.id,
+          )!.treatment;
+          return treatment.mode === "amortizing"
+            ? treatment.annualInterestRate
+            : 0;
+        },
+        set: (inputs, value) => {
+          const treatment = inputs.liabilities.find(
+            (item) => item.id === liability.id,
+          )!.treatment;
+          if (treatment.mode === "amortizing") {
+            treatment.annualInterestRate = value;
+          }
+        },
+        inputType: "number",
+      },
+      {
+        key: `liability.${liability.id}.regularPayment.amount`,
+        sourceKey: `liabilities.${liability.id}.treatment.regularPaymentAmount`,
+        label: `${liability.label} regular payment`,
+        min: fixed(0.01),
+        max: fixed(
+          Math.max(20_000, baselineTreatment.regularPayment.amount * 3),
+        ),
+        step: 1,
+        format: exactCurrency.format,
+        get: (inputs) => {
+          const treatment = inputs.liabilities.find(
+            (item) => item.id === liability.id,
+          )!.treatment;
+          return treatment.mode === "amortizing"
+            ? treatment.regularPayment.amount
+            : 0;
+        },
+        set: (inputs, value) => {
+          const treatment = inputs.liabilities.find(
+            (item) => item.id === liability.id,
+          )!.treatment;
+          if (treatment.mode === "amortizing") {
+            treatment.regularPayment.amount = value;
+            treatment.regularPayment.monthlyEquivalent =
+              monthlyPaymentEquivalent(
+                value,
+                treatment.regularPayment.frequency,
+              );
+          }
+        },
+        inputType: "number",
+      },
+    );
   }
   return controls;
 }
@@ -519,6 +712,134 @@ function compactCurrency(value: number): string {
 
 function sourceLabel(baseline: CurrentBaseline, key: string): string {
   return baseline.provenance[key]?.sourceType.replaceAll("_", " ") ?? "live baseline";
+}
+
+function ScenarioControlsPanel({
+  baseline,
+  inputs,
+  controls,
+  overrides,
+  setOverrides,
+}: {
+  baseline: CurrentBaseline;
+  inputs: ProjectionInputs;
+  controls: ControlDefinition[];
+  overrides: Overrides;
+  setOverrides: React.Dispatch<React.SetStateAction<Overrides>>;
+}) {
+  return (
+    <>
+      <div className="section-heading">
+        <div><span className="section-kicker">Scenario</span><h2>Calculator controls</h2></div>
+        <button className="text-button" onClick={() => setOverrides({})}>Reset all</button>
+      </div>
+      <p className="panel-copy">Reset restores this refreshed live baseline. Refresh clears every temporary override.</p>
+      <div className="control-list">
+        {controls.map((control) => {
+          const baselineValue = control.get(baseline.projectionInputs);
+          const currentValue = control.get(inputs);
+          const overridden = overrides[control.key] !== undefined;
+          const inputId = `drawer-${control.key}`;
+          return (
+            <div className={`control ${overridden ? "is-overridden" : ""}`} key={control.key}>
+              <div className="control-head"><label htmlFor={inputId}>{control.label}</label><output>{control.format(currentValue)}</output></div>
+              <input id={inputId} type={control.inputType ?? "range"} min={control.min(inputs)} max={control.max(inputs)} step={control.step} value={currentValue} onChange={(event) => setOverrides((current) => ({ ...current, [control.key]: Number(event.target.value) }))} />
+              <div className="control-meta">
+                <span>{sourceLabel(baseline, control.sourceKey)}</span>
+                <button className="text-button" disabled={!overridden} onClick={() => setOverrides((current) => { const next = { ...current }; delete next[control.key]; return next; })}>Reset to {control.format(baselineValue)}</button>
+              </div>
+            </div>
+          );
+        })}
+      </div>
+    </>
+  );
+}
+
+function focusableScenarioElements(container: HTMLElement): HTMLElement[] {
+  return [...container.querySelectorAll<HTMLElement>(
+    'button:not([disabled]), [href], input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])',
+  )].filter((element) => !element.hasAttribute("hidden"));
+}
+
+export function ScenarioControlsDrawer({
+  opener,
+  onClose,
+  children,
+}: {
+  opener: HTMLButtonElement | null;
+  onClose: () => void;
+  children: ReactNode;
+}) {
+  const dialogRef = useRef<HTMLElement>(null);
+
+  useEffect(() => {
+    const dialog = dialogRef.current;
+    if (!dialog) return;
+    const previousOverflow = window.document.body.style.overflow;
+    window.document.body.style.overflow = "hidden";
+    focusableScenarioElements(dialog)[0]?.focus();
+
+    function onKeyDown(event: KeyboardEvent) {
+      if (event.key === "Escape") {
+        event.preventDefault();
+        onClose();
+        return;
+      }
+      if (event.key !== "Tab") return;
+      const elements = focusableScenarioElements(dialog!);
+      if (elements.length === 0) {
+        event.preventDefault();
+        return;
+      }
+      const first = elements[0]!;
+      const last = elements.at(-1)!;
+      if (event.shiftKey && window.document.activeElement === first) {
+        event.preventDefault();
+        last.focus();
+      } else if (!event.shiftKey && window.document.activeElement === last) {
+        event.preventDefault();
+        first.focus();
+      }
+    }
+
+    window.document.addEventListener("keydown", onKeyDown);
+    return () => {
+      window.document.removeEventListener("keydown", onKeyDown);
+      window.document.body.style.overflow = previousOverflow;
+      opener?.focus();
+    };
+  }, [onClose, opener]);
+
+  return (
+    <div
+      className="scenario-controls-overlay no-print"
+      data-testid="scenario-controls-overlay"
+      onClick={(event) => {
+        if (event.target === event.currentTarget) onClose();
+      }}
+    >
+      <aside
+        className="scenario-controls-drawer"
+        id="scenario-controls-drawer"
+        ref={dialogRef}
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="scenario-controls-title"
+      >
+        <header className="scenario-controls-drawer-header">
+          <div>
+            <span className="section-kicker">Scenario</span>
+            <h2 id="scenario-controls-title">Scenario controls</h2>
+          </div>
+          <button type="button" className="drawer-close" aria-label="Close scenario controls" onClick={onClose}>
+            ×
+          </button>
+        </header>
+        <div className="scenario-controls-drawer-content">{children}</div>
+      </aside>
+    </div>
+  );
 }
 
 function benefitSourceLabel(
@@ -607,20 +928,26 @@ export function PlannerDashboard() {
     target: ExplanationTarget;
     opener: HTMLButtonElement;
   } | null>(null);
+  const [scenarioControls, setScenarioControls] = useState<{
+    opener: HTMLButtonElement;
+  } | null>(null);
 
   const openExplanation = useCallback(
     (target: ExplanationTarget, opener: HTMLButtonElement) => {
+      setScenarioControls(null);
       setActiveExplanation({ target, opener });
     },
     [],
   );
   const closeExplanation = useCallback(() => setActiveExplanation(null), []);
+  const closeScenarioControls = useCallback(() => setScenarioControls(null), []);
 
   const refresh = useCallback(() => {
     setRefreshGeneration((current) => current + 1);
     setOverrides({});
     setExportStatus("");
     setActiveExplanation(null);
+    setScenarioControls(null);
   }, []);
 
   useEffect(() => {
@@ -742,7 +1069,7 @@ export function PlannerDashboard() {
         { name: "Equity", value: selectedAllocationView.allocation.equity },
       ].filter((item) => item.value > 0)
     : [];
-  const financialAccounts = inputs.accounts.filter((account) => account.type !== "debt");
+  const financialAccounts = inputs.accounts;
   const importedStartingFinancialAssets = startingFinancialAssets(
     baseline.projectionInputs.accounts,
   );
@@ -802,6 +1129,18 @@ export function PlannerDashboard() {
           </p>
         </div>
         <div className="hero-actions no-print">
+          <button
+            type="button"
+            className="button secondary"
+            aria-expanded={scenarioControls !== null}
+            aria-controls="scenario-controls-drawer"
+            onClick={(event) => {
+              setActiveExplanation(null);
+              setScenarioControls({ opener: event.currentTarget });
+            }}
+          >
+            Scenario controls
+          </button>
           <button className="button secondary" onClick={() => window.print()}>Print</button>
           <button
             className="button"
@@ -874,18 +1213,55 @@ export function PlannerDashboard() {
                 onExplain={openExplanation}
               />
               <strong>{currency.format(importedStartingFinancialAssets)}</strong>
-              <small>Imported balances as of {baseline.dataThrough} · debt excluded</small>
+              <small>Imported balances as of {baseline.dataThrough} · liabilities shown separately</small>
             </article>
             <article className="metric-card">
               <ExplainableHeading
                 compact
                 headingLevel="span"
                 target="assets-at-retirement"
-                title="Assets at retirement"
+                title="Retirement funding assets"
                 onExplain={openExplanation}
               />
               <strong>{currency.format(projection.summary.financialAssetsAtRetirementToday)}</strong>
-              <small>{projection.summary.retirementDate} · financial assets only</small>
+              <small>{projection.summary.retirementDate} · home equity unavailable</small>
+            </article>
+            <article className="metric-card">
+              <ExplainableHeading
+                compact
+                headingLevel="span"
+                target="home-equity-at-retirement"
+                title="Home equity"
+                onExplain={openExplanation}
+              />
+              <strong>{currency.format(projection.retirementSnapshot[mode].balances.homeEquity)}</strong>
+              <small>Residence less linked mortgage at retirement</small>
+            </article>
+            <article className="metric-card">
+              <ExplainableHeading
+                compact
+                headingLevel="span"
+                target="liabilities-at-retirement"
+                title="Total liabilities"
+                onExplain={openExplanation}
+              />
+              <strong>{currency.format(projection.retirementSnapshot[mode].balances.totalLiabilities)}</strong>
+              <small>
+                {projection.summary.mortgagePayoffDate
+                  ? `Mortgage payoff ${projection.summary.mortgagePayoffDate}`
+                  : "At retirement"}
+              </small>
+            </article>
+            <article className="metric-card">
+              <ExplainableHeading
+                compact
+                headingLevel="span"
+                target="total-net-worth"
+                title="Total net worth"
+                onExplain={openExplanation}
+              />
+              <strong>{currency.format(projection.summary.totalNetWorthAtRetirementToday)}</strong>
+              <small>Financial and non-financial assets less liabilities</small>
             </article>
             <article className="metric-card">
               <ExplainableHeading
@@ -940,7 +1316,7 @@ export function PlannerDashboard() {
                   <ResponsiveContainer width="100%" height="100%">
                     <BarChart data={chartData}>
                       <CartesianGrid stroke="#24364d" strokeDasharray="3 3" vertical={false} />
-                      <XAxis dataKey="year" stroke="#9eb0c4" minTickGap={28} />
+                      <AnnualXAxis chartData={chartData} />
                       <YAxis stroke="#9eb0c4" tickFormatter={compactCurrency} width={72} />
                       <Tooltip
                         formatter={(value) => currency.format(Number(value))}
@@ -969,7 +1345,7 @@ export function PlannerDashboard() {
                     <ResponsiveContainer width="100%" height="100%">
                       <ComposedChart data={chartData}>
                         <CartesianGrid stroke="#24364d" strokeDasharray="3 3" vertical={false} />
-                        <XAxis dataKey="year" stroke="#9eb0c4" minTickGap={28} />
+                        <AnnualXAxis chartData={chartData} />
                         <YAxis stroke="#9eb0c4" tickFormatter={compactCurrency} width={72} />
                         <Tooltip formatter={(value) => currency.format(Number(value))} />
                         <Legend />
@@ -998,7 +1374,7 @@ export function PlannerDashboard() {
                   <ResponsiveContainer width="100%" height="100%">
                     <ComposedChart data={chartData}>
                       <CartesianGrid stroke="#24364d" strokeDasharray="3 3" vertical={false} />
-                      <XAxis dataKey="year" stroke="#9eb0c4" minTickGap={28} />
+                      <AnnualXAxis chartData={chartData} />
                       <YAxis stroke="#9eb0c4" tickFormatter={compactCurrency} width={72} />
                       <Tooltip
                         formatter={(value) => currency.format(Number(value))}
@@ -1036,7 +1412,7 @@ export function PlannerDashboard() {
                   <ResponsiveContainer width="100%" height="100%">
                     <ComposedChart data={chartData}>
                       <CartesianGrid stroke="#24364d" strokeDasharray="3 3" vertical={false} />
-                      <XAxis dataKey="year" stroke="#9eb0c4" minTickGap={28} />
+                      <AnnualXAxis chartData={chartData} />
                       <YAxis stroke="#9eb0c4" tickFormatter={compactCurrency} width={72} />
                       <Tooltip
                         formatter={(value) => currency.format(Number(value))}
@@ -1063,14 +1439,14 @@ export function PlannerDashboard() {
                 <ExplainableHeading
                   kicker="Cash outflow"
                   target="annual-outflows"
-                  title="Spending, taxes, and contributions"
+                  title="Spending, liability payments, taxes, and contributions"
                   onExplain={openExplanation}
                 />
                 <div className="chart-shell medium">
                   <ResponsiveContainer width="100%" height="100%">
                     <BarChart data={chartData}>
                       <CartesianGrid stroke="#24364d" strokeDasharray="3 3" vertical={false} />
-                      <XAxis dataKey="year" stroke="#9eb0c4" minTickGap={28} />
+                      <AnnualXAxis chartData={chartData} />
                       <YAxis stroke="#9eb0c4" tickFormatter={compactCurrency} width={72} />
                       <Tooltip
                         formatter={(value) => currency.format(Number(value))}
@@ -1082,12 +1458,63 @@ export function PlannerDashboard() {
                       <Bar dataKey="essential" name="Essential" stackId="outflow" fill="#55b8d8" />
                       <Bar dataKey="discretionary" name="Discretionary" stackId="outflow" fill="#8c78dd" />
                       <Bar dataKey="oneTime" name="One-time events" stackId="outflow" fill="#d99269" />
+                      <Bar dataKey="liabilityCashPayment" name="Liability payments" stackId="outflow" fill="#d8bd65" />
                       <Bar dataKey="tax" name="Simplified retirement tax" stackId="outflow" fill="#ef7d86" />
                       <Bar dataKey="contributions" name="Cash-funded contributions" stackId="outflow" fill="#70d6b2" />
                     </BarChart>
                   </ResponsiveContainer>
                 </div>
               </article>
+
+              {inputs.nonFinancialAssets.length > 0 ||
+              inputs.liabilities.length > 0 ? (
+                <>
+                  <article className="report-card wide-chart">
+                    <ExplainableHeading
+                      kicker="Balance sheet"
+                      target="total-net-worth"
+                      title="Assets and total net worth"
+                      onExplain={openExplanation}
+                    />
+                    <div className="chart-shell medium">
+                      <ResponsiveContainer width="100%" height="100%">
+                        <ComposedChart data={chartData}>
+                          <CartesianGrid stroke="#24364d" strokeDasharray="3 3" vertical={false} />
+                          <AnnualXAxis chartData={chartData} />
+                          <YAxis stroke="#9eb0c4" tickFormatter={compactCurrency} width={72} />
+                          <Tooltip formatter={(value) => currency.format(Number(value))} />
+                          <Legend />
+                          <Line dataKey="financialAssets" name="Retirement funding assets" stroke="#55b8d8" strokeWidth={2} dot={false} />
+                          <Line dataKey="residenceValue" name="Residence value" stroke="#d8bd65" strokeWidth={2} dot={false} />
+                          <Line dataKey="totalNetWorth" name="Total net worth" stroke="#f6f8fb" strokeWidth={3} dot={false} />
+                        </ComposedChart>
+                      </ResponsiveContainer>
+                    </div>
+                  </article>
+                  <article className="report-card wide-chart">
+                    <ExplainableHeading
+                      kicker="Home and liabilities"
+                      target="liability-schedule"
+                      title="Liabilities and home equity"
+                      onExplain={openExplanation}
+                    />
+                    <div className="chart-shell medium">
+                      <ResponsiveContainer width="100%" height="100%">
+                        <ComposedChart data={chartData}>
+                          <CartesianGrid stroke="#24364d" strokeDasharray="3 3" vertical={false} />
+                          <AnnualXAxis chartData={chartData} />
+                          <YAxis stroke="#9eb0c4" tickFormatter={compactCurrency} width={72} />
+                          <Tooltip formatter={(value) => currency.format(Number(value))} />
+                          <Legend />
+                          <Area dataKey="homeEquity" name="Home equity" fill="#70d6b2" stroke="#70d6b2" />
+                          <Line dataKey="mortgageBalance" name="Mortgage balance" stroke="#ef7d86" strokeWidth={3} dot={false} />
+                          <Line dataKey="totalLiabilities" name="Total liabilities" stroke="#d99269" strokeWidth={2} dot={false} />
+                        </ComposedChart>
+                      </ResponsiveContainer>
+                    </div>
+                  </article>
+                </>
+              ) : null}
 
               <article className="report-card wide-chart">
                 <ExplainableHeading
@@ -1100,7 +1527,7 @@ export function PlannerDashboard() {
                   <ResponsiveContainer width="100%" height="100%">
                     <ComposedChart data={chartData}>
                       <CartesianGrid stroke="#24364d" strokeDasharray="3 3" vertical={false} />
-                      <XAxis dataKey="year" stroke="#9eb0c4" minTickGap={28} />
+                      <AnnualXAxis chartData={chartData} />
                       <YAxis stroke="#9eb0c4" tickFormatter={compactCurrency} width={72} />
                       <Tooltip
                         formatter={(value) => currency.format(Number(value))}
@@ -1187,12 +1614,12 @@ export function PlannerDashboard() {
                 />
                 <div className="table-shell">
                   <table>
-                    <thead><tr><th>Year</th><th>Age</th><th>Income</th><th>Withdrawals</th><th>Tax</th><th>Spending</th><th>Actual contributions</th><th>{inputs.savingsPolicy.mode === "simple" ? "Reserve-plan investing" : "Surplus funded"}</th><th>Financial assets</th><th>Milestones</th></tr></thead>
+                    <thead><tr><th>Year</th><th>Age</th><th>Income</th><th>Withdrawals</th><th>Tax</th><th>Spending</th><th>Liability payments</th><th>Actual contributions</th><th>{inputs.savingsPolicy.mode === "simple" ? "Reserve-plan investing" : "Surplus funded"}</th><th>Financial assets</th><th>Total net worth</th><th>Milestones</th></tr></thead>
                     <tbody>
                       {ledgerData.map((row) => (
                         <tr key={row.year}>
                           <td>{row.periodLabel}</td><td>{row.age}</td><td>{currency.format(row.income)}</td><td>{currency.format(row.withdrawals)}</td><td>{currency.format(row.tax)}</td>
-                          <td>{currency.format(row.spending)}</td><td>{currency.format(row.actualContributions)}</td><td>{currency.format(row.surplusFundedContributions)}</td><td>{currency.format(row.financialAssets)}</td><td>{row.milestones}</td>
+                          <td>{currency.format(row.spending)}</td><td>{currency.format(row.liabilityCashPayment)}</td><td>{currency.format(row.actualContributions)}</td><td>{currency.format(row.surplusFundedContributions)}</td><td>{currency.format(row.financialAssets)}</td><td>{currency.format(row.totalNetWorth)}</td><td>{row.milestones}</td>
                         </tr>
                       ))}
                     </tbody>
@@ -1200,31 +1627,6 @@ export function PlannerDashboard() {
                 </div>
               </article>
             </div>
-
-            <aside className="controls-panel no-print">
-              <div className="section-heading">
-                <div><span className="section-kicker">Scenario</span><h2>Calculator controls</h2></div>
-                <button className="text-button" onClick={() => setOverrides({})}>Reset all</button>
-              </div>
-              <p className="panel-copy">Reset restores this refreshed live baseline. Refresh clears every temporary override.</p>
-              <div className="control-list">
-                {controls.map((control) => {
-                  const baselineValue = control.get(baseline.projectionInputs);
-                  const currentValue = control.get(inputs);
-                  const overridden = overrides[control.key] !== undefined;
-                  return (
-                    <div className={`control ${overridden ? "is-overridden" : ""}`} key={control.key}>
-                      <div className="control-head"><label htmlFor={control.key}>{control.label}</label><output>{control.format(currentValue)}</output></div>
-                      <input id={control.key} type={control.inputType ?? "range"} min={control.min(inputs)} max={control.max(inputs)} step={control.step} value={currentValue} onChange={(event) => setOverrides((current) => ({ ...current, [control.key]: Number(event.target.value) }))} />
-                      <div className="control-meta">
-                        <span>{sourceLabel(baseline, control.sourceKey)}</span>
-                        <button className="text-button" disabled={!overridden} onClick={() => setOverrides((current) => { const next = { ...current }; delete next[control.key]; return next; })}>Reset to {control.format(baselineValue)}</button>
-                      </div>
-                    </div>
-                  );
-                })}
-              </div>
-            </aside>
           </section>
 
           <section className="report-card assumptions">
@@ -1401,6 +1803,45 @@ export function PlannerDashboard() {
                   </dl>
                 </div>
               ) : null}
+              {inputs.nonFinancialAssets.length > 0 ||
+              inputs.liabilities.length > 0 ? (
+                <div>
+                  <ExplainableHeading
+                    compact
+                    headingLevel="h3"
+                    target="total-net-worth"
+                    title="Residence and liabilities"
+                    onExplain={openExplanation}
+                  />
+                  <dl>
+                    {inputs.nonFinancialAssets.map((asset) => (
+                      <div key={asset.id}>
+                        <dt>{asset.label}</dt>
+                        <dd>
+                          {currency.format(asset.openingValue)} as of{" "}
+                          {asset.valueAsOf} ·{" "}
+                          {percent.format(asset.annualAppreciation)} annual
+                          appreciation ·{" "}
+                          {asset.origin === "lunchmoney"
+                            ? "imported residence value"
+                            : "configured residence fallback"}{" "}
+                          · unavailable for withdrawals
+                        </dd>
+                      </div>
+                    ))}
+                    {inputs.liabilities.map((liability) => (
+                      <div key={liability.id}>
+                        <dt>{liability.label}</dt>
+                        <dd>
+                          {liability.treatment.mode === "amortizing"
+                            ? `${percent.format(liability.treatment.annualInterestRate)} · ${exactCurrency.format(liability.treatment.regularPayment.amount)} ${liability.treatment.regularPayment.frequency} · ${exactCurrency.format(liability.treatment.regularPayment.monthlyEquivalent)} monthly equivalent`
+                            : liability.treatment.mode.replaceAll("_", " ")}
+                        </dd>
+                      </div>
+                    ))}
+                  </dl>
+                </div>
+              ) : null}
               <div>
                 <h3>Personal settings</h3>
                 <dl>
@@ -1467,6 +1908,20 @@ export function PlannerDashboard() {
           opener={activeExplanation.opener}
           onClose={closeExplanation}
         />
+      ) : null}
+      {scenarioControls ? (
+        <ScenarioControlsDrawer
+          opener={scenarioControls.opener}
+          onClose={closeScenarioControls}
+        >
+          <ScenarioControlsPanel
+            baseline={baseline}
+            inputs={inputs}
+            controls={controls}
+            overrides={overrides}
+            setOverrides={setOverrides}
+          />
+        </ScenarioControlsDrawer>
       ) : null}
     </main>
   );
