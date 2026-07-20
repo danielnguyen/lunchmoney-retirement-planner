@@ -8,17 +8,17 @@ Public content must remain generic. Do not add private financial values, account
 
 ## Current position
 
-- Open implementation pull request: None
-- Pull request state: None
+- Open implementation pull request: [#11 Add real net worth and debt amortization](https://github.com/danielnguyen/lunchmoney-retirement-planner/pull/11)
+- Pull request state: Open draft
 - Active capability: Net worth, real estate, and debt amortization
-- Status: Next
+- Status: In progress
 - Branch: `agent/add-net-worth-and-debt-amortization`
 - Latest validated implementation head: Not yet available
 - Synthetic validation: Not yet run
 - Repository-owner private migration: Outstanding
 - Private live smoke test: Outstanding
-- Remaining step: implement and validate the public capability
-- Next action: implement Net worth, real estate, and debt amortization from merged `main`
+- Remaining step: implement and validate the public capability in draft PR #11
+- Next action: implement the typed balance sheet and debt schedules, then run synthetic validation
 - Last completed capability: Registered-account room and contribution waterfall
 
 ## Terminology boundary
@@ -40,7 +40,7 @@ Branches, pull-request titles, commits, tests, documentation headings, types, fu
 | 1 | Government benefits | Phased income model | Completed | [#8](https://github.com/danielnguyen/lunchmoney-retirement-planner/pull/8) |
 | 2 | Surplus allocation policy | Government benefits | Completed | [#9](https://github.com/danielnguyen/lunchmoney-retirement-planner/pull/9) |
 | 3 | Registered-account room and contribution waterfall | Surplus allocation policy | Completed | [#10](https://github.com/danielnguyen/lunchmoney-retirement-planner/pull/10) |
-| 4 | Net worth, real estate, and debt amortization | Registered-account contribution model | Next | — |
+| 4 | Net worth, real estate, and debt amortization | Registered-account contribution model | In progress | [#11](https://github.com/danielnguyen/lunchmoney-retirement-planner/pull/11) |
 | 5 | General spending phases | Net-worth and debt model | Planned | — |
 | 6 | RRIF minimum withdrawals and Canadian taxes | Surplus policy, debt model, and spending phases | Planned | — |
 
