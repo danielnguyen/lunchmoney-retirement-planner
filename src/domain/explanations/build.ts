@@ -3401,6 +3401,123 @@ function registeredAccountRoomDocument(
   };
 }
 
+function homeEquityAtRetirementDocument(
+  context: ExplanationContext,
+): ExplanationDocument {
+  const snapshot =
+    context.projection.retirementSnapshot[context.displayMode];
+  const balances = snapshot.balances;
+  const calculatedHomeEquity =
+    balances.residenceValue - balances.mortgageBalance;
+  const hasResidence = context.inputs.nonFinancialAssets.some(
+    (asset) => asset.type === "primary_residence",
+  );
+  return {
+    id: "home-equity-at-retirement",
+    title: "Home equity at retirement",
+    plainLanguage:
+      "Home equity is the projected residence value at retirement minus the linked mortgage balance at retirement. It contributes to total net worth but is not available to fund retirement unless a future sale or conversion is explicitly modelled.",
+    displayedResult: {
+      label: "Home equity at retirement",
+      value: currency.format(balances.homeEquity),
+      dollarMode: context.displayMode,
+      period: `${context.projection.retirementSnapshot.calendarDate} · age ${context.projection.retirementSnapshot.age}`,
+    },
+    formula:
+      "Residence value at retirement − linked mortgage at retirement = home equity at retirement",
+    steps: [
+      {
+        label: "Residence value at retirement",
+        value: exactCurrency.format(balances.residenceValue),
+        rawValue: balances.residenceValue,
+        operation: "input",
+        sourceType: "projection",
+      },
+      {
+        label: "Linked mortgage at retirement",
+        value: exactCurrency.format(balances.mortgageBalance),
+        rawValue: balances.mortgageBalance,
+        operation: "subtract",
+        sourceType: "projection",
+      },
+      {
+        label: "Home equity at retirement",
+        value: exactCurrency.format(balances.homeEquity),
+        rawValue: balances.homeEquity,
+        operation: "result",
+        sourceType: "projection",
+      },
+    ],
+    dataSections: [],
+    assumptions: [],
+    caveats: [
+      "Home equity is unavailable to retirement withdrawals unless a future explicit sale or conversion is modelled.",
+      "This explanation does not model a sale, downsizing, HELOC, or reverse mortgage.",
+      ...(hasResidence
+        ? []
+        : ["No primary residence is configured, so this explanation is not normally reachable."]),
+    ],
+    reconciliation: matched(calculatedHomeEquity, balances.homeEquity),
+  };
+}
+
+function liabilitiesAtRetirementDocument(
+  context: ExplanationContext,
+): ExplanationDocument {
+  const snapshot =
+    context.projection.retirementSnapshot[context.displayMode];
+  const balances = snapshot.balances;
+  const calculatedLiabilities =
+    balances.mortgageBalance + balances.otherLiabilities;
+  return {
+    id: "liabilities-at-retirement",
+    title: "Total liabilities at retirement",
+    plainLanguage:
+      "This is the total outstanding debt projected at retirement. It is separate from retirement-funding assets and is subtracted when calculating total net worth.",
+    displayedResult: {
+      label: "Total liabilities at retirement",
+      value: currency.format(balances.totalLiabilities),
+      dollarMode: context.displayMode,
+      period: `${context.projection.retirementSnapshot.calendarDate} · age ${context.projection.retirementSnapshot.age}`,
+    },
+    formula:
+      "Mortgage balance at retirement + other liabilities at retirement = total liabilities at retirement",
+    steps: [
+      {
+        label: "Mortgage balance at retirement",
+        value: exactCurrency.format(balances.mortgageBalance),
+        rawValue: balances.mortgageBalance,
+        operation: "input",
+        sourceType: "projection",
+      },
+      {
+        label: "Other liabilities at retirement",
+        value: exactCurrency.format(balances.otherLiabilities),
+        rawValue: balances.otherLiabilities,
+        operation: "add",
+        sourceType: "projection",
+      },
+      {
+        label: "Total liabilities at retirement",
+        value: exactCurrency.format(balances.totalLiabilities),
+        rawValue: balances.totalLiabilities,
+        operation: "result",
+        sourceType: "projection",
+      },
+    ],
+    dataSections: [],
+    assumptions: [],
+    caveats: [
+      "Total liabilities are separate from retirement-funding assets and reduce total net worth.",
+      "Open Mortgage and debt schedule from the liabilities and home equity chart for the full amortization detail.",
+    ],
+    reconciliation: matched(
+      calculatedLiabilities,
+      balances.totalLiabilities,
+    ),
+  };
+}
+
 function totalNetWorthDocument(
   context: ExplanationContext,
 ): ExplanationDocument {
@@ -3837,6 +3954,12 @@ export function buildExplanation(
   }
   if (target === "registered-account-room") {
     return registeredAccountRoomDocument(context);
+  }
+  if (target === "home-equity-at-retirement") {
+    return homeEquityAtRetirementDocument(context);
+  }
+  if (target === "liabilities-at-retirement") {
+    return liabilitiesAtRetirementDocument(context);
   }
   if (target === "total-net-worth") {
     return totalNetWorthDocument(context);

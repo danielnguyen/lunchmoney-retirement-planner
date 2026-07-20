@@ -24,6 +24,8 @@ export const explanationTargets = [
   "oas-benefit",
   "surplus-allocation",
   "registered-account-room",
+  "home-equity-at-retirement",
+  "liabilities-at-retirement",
   "total-net-worth",
   "liability-schedule",
 ] as const;

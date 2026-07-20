@@ -41,16 +41,31 @@ function ScenarioHarness() {
 }
 
 describe("responsive scenario controls", () => {
-  it("keeps the report full width and the toolbar trigger visible at every width", async () => {
+  it("keeps the report full width and places one trigger first in the hero actions", async () => {
     const css = await readFile("app/globals.css", "utf8");
     const dashboard = await readFile("components/planner-dashboard.tsx", "utf8");
+    const heroActions = dashboard.slice(
+      dashboard.indexOf('<div className="hero-actions no-print">'),
+      dashboard.indexOf("</div>", dashboard.indexOf('<div className="hero-actions no-print">')),
+    );
+    const toolbar = dashboard.slice(
+      dashboard.indexOf('<section className="toolbar no-print"'),
+      dashboard.indexOf("</section>", dashboard.indexOf('<section className="toolbar no-print"')),
+    );
 
     expect(css).toContain(".report-layout { display: block; }");
     expect(css).not.toContain("@media (min-width: 1480px)");
     expect(css).not.toContain("controls-panel-desktop");
     expect(css).not.toContain("grid-template-columns: minmax(0, 3fr)");
     expect(css).not.toContain("scenario-controls-trigger");
-    expect(dashboard).toContain(">\n          Scenario controls\n        </button>");
+    expect(heroActions.indexOf("Scenario controls")).toBeLessThan(
+      heroActions.indexOf("Print"),
+    );
+    expect(heroActions.indexOf("Print")).toBeLessThan(
+      heroActions.indexOf("Export JSON"),
+    );
+    expect(toolbar).not.toContain("Scenario controls");
+    expect(dashboard.match(/aria-controls="scenario-controls-drawer"/g)).toHaveLength(1);
     expect(dashboard).not.toContain("controls-panel-desktop");
   });
 
@@ -72,6 +87,29 @@ describe("responsive scenario controls", () => {
     expect(report).not.toContain("controls-panel");
     expect(drawer).toContain("<ScenarioControlsDrawer");
     expect(drawer).toContain("<ScenarioControlsPanel");
+  });
+
+  it("routes retirement summary cards separately while preserving the schedule chart", async () => {
+    const dashboard = await readFile("components/planner-dashboard.tsx", "utf8");
+    const homeEquityCard = dashboard.slice(
+      dashboard.indexOf('target="home-equity-at-retirement"'),
+      dashboard.indexOf("</article>", dashboard.indexOf('target="home-equity-at-retirement"')),
+    );
+    const liabilitiesCard = dashboard.slice(
+      dashboard.indexOf('target="liabilities-at-retirement"'),
+      dashboard.indexOf("</article>", dashboard.indexOf('target="liabilities-at-retirement"')),
+    );
+    const liabilitiesChart = dashboard.slice(
+      dashboard.indexOf('kicker="Home and liabilities"'),
+      dashboard.indexOf("</article>", dashboard.indexOf('kicker="Home and liabilities"')),
+    );
+
+    expect(homeEquityCard).toContain('title="Home equity"');
+    expect(homeEquityCard).toContain("retirementSnapshot[mode].balances.homeEquity");
+    expect(liabilitiesCard).toContain('title="Total liabilities"');
+    expect(liabilitiesCard).toContain("retirementSnapshot[mode].balances.totalLiabilities");
+    expect(liabilitiesChart).toContain('target="liability-schedule"');
+    expect(liabilitiesChart).toContain('title="Liabilities and home equity"');
   });
 
   it("keeps the narrow drawer closed by default and exposes its ARIA contract", () => {
@@ -134,7 +172,7 @@ describe("responsive scenario controls", () => {
     );
     const scenarioButton = dashboard.slice(
       dashboard.indexOf('aria-controls="scenario-controls-drawer"'),
-      dashboard.indexOf('<span className="status">'),
+      dashboard.indexOf("</button>", dashboard.indexOf('aria-controls="scenario-controls-drawer"')),
     );
 
     expect(openExplanation).toContain("setScenarioControls(null)");
@@ -149,6 +187,7 @@ describe("responsive scenario controls", () => {
     const print = css.slice(css.indexOf("@media print"));
 
     expect(mobile).toContain(".scenario-controls-drawer { width: 100vw");
+    expect(mobile).toContain("grid-template-columns: repeat(3, minmax(0, 1fr))");
     expect(css).toContain(".scenario-controls-drawer-content { height: calc(100% - 84px)");
     expect(css).toContain("overflow-y: auto");
     expect(print).toContain(".scenario-controls-overlay");

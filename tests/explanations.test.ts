@@ -1633,6 +1633,140 @@ describe("calculation explanations", () => {
     }
   });
 
+  it("explains retirement-date home equity and liabilities from the active display mode", () => {
+    for (const mode of ["nominal", "real"] as const) {
+      const value = balanceSheetContext(mode);
+      const mortgage = value.inputs.liabilities[0]!;
+      if (mortgage.treatment.mode !== "amortizing") {
+        throw new Error("Synthetic mortgage must be amortizing");
+      }
+      mortgage.treatment.annualInterestRate = 0;
+      mortgage.treatment.regularPayment.amount = 10;
+      mortgage.treatment.regularPayment.monthlyEquivalent = 10;
+      mortgage.historicalMonthlyAverage = 10;
+      value.baseline.projectionInputs = structuredClone(value.inputs);
+      value.projection = calculateProjection(value.inputs);
+      const snapshot = value.projection.retirementSnapshot[mode];
+      const ending = value.projection.annual.at(-1)![mode].balances;
+      const retirementPeriod = `${value.projection.retirementSnapshot.calendarDate} · age ${value.projection.retirementSnapshot.age}`;
+      const homeEquity = buildExplanation(
+        "home-equity-at-retirement",
+        value,
+      );
+      const liabilities = buildExplanation(
+        "liabilities-at-retirement",
+        value,
+      );
+
+      expect(homeEquity).toMatchObject({
+        title: "Home equity at retirement",
+        displayedResult: {
+          label: "Home equity at retirement",
+          dollarMode: mode,
+          period: retirementPeriod,
+        },
+        reconciliation: {
+          matched: true,
+          displayedValue: snapshot.balances.homeEquity,
+        },
+      });
+      expect(homeEquity.formula).toBe(
+        "Residence value at retirement − linked mortgage at retirement = home equity at retirement",
+      );
+      expect(homeEquity.steps).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({
+            label: "Residence value at retirement",
+            rawValue: snapshot.balances.residenceValue,
+          }),
+          expect.objectContaining({
+            label: "Linked mortgage at retirement",
+            rawValue: snapshot.balances.mortgageBalance,
+          }),
+          expect.objectContaining({
+            label: "Home equity at retirement",
+            rawValue: snapshot.balances.homeEquity,
+          }),
+        ]),
+      );
+      expect(homeEquity.plainLanguage).toContain(
+        "not available to fund retirement",
+      );
+      expect(snapshot.balances.homeEquity).not.toBe(ending.homeEquity);
+
+      expect(liabilities).toMatchObject({
+        title: "Total liabilities at retirement",
+        displayedResult: {
+          label: "Total liabilities at retirement",
+          dollarMode: mode,
+          period: retirementPeriod,
+        },
+        reconciliation: {
+          matched: true,
+          displayedValue: snapshot.balances.totalLiabilities,
+        },
+      });
+      expect(liabilities.formula).toBe(
+        "Mortgage balance at retirement + other liabilities at retirement = total liabilities at retirement",
+      );
+      expect(liabilities.steps).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({
+            label: "Mortgage balance at retirement",
+            rawValue: snapshot.balances.mortgageBalance,
+          }),
+          expect.objectContaining({
+            label: "Other liabilities at retirement",
+            rawValue: snapshot.balances.otherLiabilities,
+          }),
+          expect.objectContaining({
+            label: "Total liabilities at retirement",
+            rawValue: snapshot.balances.totalLiabilities,
+          }),
+        ]),
+      );
+      expect(snapshot.balances.totalLiabilities).not.toBe(
+        ending.totalLiabilities,
+      );
+
+      const safeDocuments = JSON.stringify([homeEquity, liabilities]);
+      expect(safeDocuments).not.toContain("synthetic:mortgage");
+      expect(safeDocuments).not.toContain("Synthetic mortgage");
+      expect(safeDocuments).not.toContain("non_financial:primary_residence");
+      expect(safeDocuments).not.toContain("Synthetic residence");
+    }
+  });
+
+  it("subtracts a zero linked mortgage for a mortgage-free residence", () => {
+    const value = balanceSheetContext("nominal");
+    value.inputs.liabilities = [];
+    value.baseline.projectionInputs = structuredClone(value.inputs);
+    value.baseline.cashFlowAudit.debtPayments = {
+      trailingTotal: 0,
+      monthlyAverage: 0,
+      transactionCount: 0,
+      breakdown: [],
+      liabilities: [],
+    };
+    value.baseline.derived.debtPayments = {
+      trailingTotal: 0,
+      monthlyAverage: 0,
+      transactionCount: 0,
+    };
+    value.projection = calculateProjection(value.inputs);
+
+    const document = buildExplanation(
+      "home-equity-at-retirement",
+      value,
+    );
+    expect(
+      document.steps.find(
+        (step) => step.label === "Linked mortgage at retirement",
+      )?.rawValue,
+    ).toBe(0);
+    expect(document.reconciliation?.matched).toBe(true);
+  });
+
   it("groups zero-balance, payoff-at-start, and amortizing liability summaries", () => {
     const value = balanceSheetContext("nominal");
     const amortizing = value.inputs.liabilities[0]!;

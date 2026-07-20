@@ -1066,6 +1066,18 @@ export function PlannerDashboard() {
           </p>
         </div>
         <div className="hero-actions no-print">
+          <button
+            type="button"
+            className="button secondary"
+            aria-expanded={scenarioControls !== null}
+            aria-controls="scenario-controls-drawer"
+            onClick={(event) => {
+              setActiveExplanation(null);
+              setScenarioControls({ opener: event.currentTarget });
+            }}
+          >
+            Scenario controls
+          </button>
           <button className="button secondary" onClick={() => window.print()}>Print</button>
           <button
             className="button"
@@ -1114,18 +1126,6 @@ export function PlannerDashboard() {
             Future dollars
           </button>
         </div>
-        <button
-          type="button"
-          className="button secondary"
-          aria-expanded={scenarioControls !== null}
-          aria-controls="scenario-controls-drawer"
-          onClick={(event) => {
-            setActiveExplanation(null);
-            setScenarioControls({ opener: event.currentTarget });
-          }}
-        >
-          Scenario controls
-        </button>
         <span className="status">
           {projectionError || exportStatus || (projecting ? "Recalculating…" : "Live baseline active")}
         </span>
@@ -1167,22 +1167,22 @@ export function PlannerDashboard() {
               <ExplainableHeading
                 compact
                 headingLevel="span"
-                target="total-net-worth"
+                target="home-equity-at-retirement"
                 title="Home equity"
                 onExplain={openExplanation}
               />
-              <strong>{currency.format(projection.summary.homeEquityAtRetirementToday)}</strong>
+              <strong>{currency.format(projection.retirementSnapshot[mode].balances.homeEquity)}</strong>
               <small>Residence less linked mortgage at retirement</small>
             </article>
             <article className="metric-card">
               <ExplainableHeading
                 compact
                 headingLevel="span"
-                target="liability-schedule"
+                target="liabilities-at-retirement"
                 title="Total liabilities"
                 onExplain={openExplanation}
               />
-              <strong>{currency.format(projection.summary.liabilitiesAtRetirementToday)}</strong>
+              <strong>{currency.format(projection.retirementSnapshot[mode].balances.totalLiabilities)}</strong>
               <small>
                 {projection.summary.mortgagePayoffDate
                   ? `Mortgage payoff ${projection.summary.mortgagePayoffDate}`

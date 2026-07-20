@@ -214,7 +214,8 @@ dd { margin: 0; text-align: right; font-size: 0.78rem; }
   .summary-grid, .assumption-grid { grid-template-columns: 1fr; }
   .toolbar { align-items: stretch; flex-direction: column; }
   .status { margin-left: 0; }
-  .hero-actions { display: grid; grid-template-columns: 1fr 1fr; }
+  .hero-actions { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); }
+  .hero-actions .button { min-width: 0; white-space: normal; }
   .chart-shell.medium { height: 330px; }
   .chart-shell.tall { height: 390px; }
   .explainable-heading { align-items: flex-start; }
