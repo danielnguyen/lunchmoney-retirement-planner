@@ -13,8 +13,8 @@ Public content must remain generic. Do not add private financial values, account
 - Active capability: Net worth, real estate, and debt amortization
 - Status: In progress
 - Branch: `agent/add-net-worth-and-debt-amortization`
-- Latest validated implementation head: `166350e6f4704ef6b6e60255350262be94b76941`
-- Synthetic validation: Passed — 265 tests, Scenario controls placed before Print in the responsive hero actions with the existing accessible drawer behavior, dedicated active-mode retirement-date explanations for Home equity and Total liabilities, preserved full liability-schedule routing from the chart, grouped zero-balance/payoff/amortizing liability explanations, imported residence and exact mortgage-payment matching coverage, nominal/real bridge reconciliation, typecheck, lint, production build, Docker image build, Docker Compose validation, JSON and CSV privacy/shape checks, and `git diff --check`
+- Latest validated implementation head: `18d3ed72fa77745e9f7a4cc2e8ad2efa0b512f5f`
+- Synthetic validation: Passed — 271 tests, shared two-line calendar-year and exact projected-age ticks on all eight annual charts including partial years, preserved calendar-year reference-line alignment and tick density, Scenario controls placed before Print in the responsive hero actions with the existing accessible drawer behavior, dedicated active-mode retirement-date explanations for Home equity and Total liabilities, imported residence and exact mortgage-payment matching coverage, nominal/real bridge reconciliation, typecheck, lint, production build, Docker image build, Docker Compose validation, JSON and CSV privacy/shape checks, and `git diff --check`
 - Repository-owner private migration: Outstanding
 - Private live smoke test: Outstanding
 - Remaining step: final public review, then migrate private residence/liability and exact historical-payment matching inputs and run the explicitly authorized private smoke test
