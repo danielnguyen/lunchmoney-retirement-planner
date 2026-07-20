@@ -38,6 +38,7 @@ import {
   buildAnnualLedgerData,
   buildSavingsPolicyPreview,
   closestAnnualPoint,
+  type AnnualChartRow,
   type DisplayMode,
   monthlyEmploymentNetCash,
   monthlyInvestmentContributions,
@@ -72,6 +73,68 @@ const exactCurrency = new Intl.NumberFormat("en-CA", {
 });
 
 const accountColors = ["#d8bd65", "#d99269", "#8072d7", "#4eb5d2", "#70d6b2", "#a9cf6c"];
+
+const AGE_INTEGER_EPSILON = 0.000001;
+
+export function formatProjectedAge(age: number): string {
+  const nearestInteger = Math.round(age);
+  if (Math.abs(age - nearestInteger) <= AGE_INTEGER_EPSILON) {
+    return String(nearestInteger);
+  }
+  return age.toFixed(1);
+}
+
+type YearAgeTickProps = {
+  x?: number;
+  y?: number;
+  payload?: { value?: string | number };
+  chartData: ReadonlyArray<Pick<AnnualChartRow, "year" | "age">>;
+};
+
+export function YearAgeTick({
+  x = 0,
+  y = 0,
+  payload,
+  chartData,
+}: YearAgeTickProps) {
+  const year = Number(payload?.value);
+  const row = chartData.find((candidate) => candidate.year === year);
+  if (!Number.isFinite(year) || !row) return null;
+
+  return (
+    <g transform={`translate(${x}, ${y})`}>
+      <text
+        aria-label={`${year}, Age ${formatProjectedAge(row.age)}`}
+        fill="#9eb0c4"
+        textAnchor="middle"
+      >
+        <tspan x="0" dy="14">{year}</tspan>
+        <tspan x="0" dy="15" fill="#7f93aa" fontSize="11">
+          Age {formatProjectedAge(row.age)}
+        </tspan>
+      </text>
+    </g>
+  );
+}
+
+export function AnnualXAxis({
+  chartData,
+}: {
+  chartData: ReadonlyArray<Pick<AnnualChartRow, "year" | "age">>;
+}) {
+  return (
+    <XAxis
+      className="annual-year-age-axis"
+      dataKey="year"
+      stroke="#9eb0c4"
+      minTickGap={28}
+      height={52}
+      tickMargin={8}
+      fontSize={12}
+      tick={<YearAgeTick chartData={chartData} />}
+    />
+  );
+}
 
 type Overrides = Record<string, number>;
 
@@ -1253,7 +1316,7 @@ export function PlannerDashboard() {
                   <ResponsiveContainer width="100%" height="100%">
                     <BarChart data={chartData}>
                       <CartesianGrid stroke="#24364d" strokeDasharray="3 3" vertical={false} />
-                      <XAxis dataKey="year" stroke="#9eb0c4" minTickGap={28} />
+                      <AnnualXAxis chartData={chartData} />
                       <YAxis stroke="#9eb0c4" tickFormatter={compactCurrency} width={72} />
                       <Tooltip
                         formatter={(value) => currency.format(Number(value))}
@@ -1282,7 +1345,7 @@ export function PlannerDashboard() {
                     <ResponsiveContainer width="100%" height="100%">
                       <ComposedChart data={chartData}>
                         <CartesianGrid stroke="#24364d" strokeDasharray="3 3" vertical={false} />
-                        <XAxis dataKey="year" stroke="#9eb0c4" minTickGap={28} />
+                        <AnnualXAxis chartData={chartData} />
                         <YAxis stroke="#9eb0c4" tickFormatter={compactCurrency} width={72} />
                         <Tooltip formatter={(value) => currency.format(Number(value))} />
                         <Legend />
@@ -1311,7 +1374,7 @@ export function PlannerDashboard() {
                   <ResponsiveContainer width="100%" height="100%">
                     <ComposedChart data={chartData}>
                       <CartesianGrid stroke="#24364d" strokeDasharray="3 3" vertical={false} />
-                      <XAxis dataKey="year" stroke="#9eb0c4" minTickGap={28} />
+                      <AnnualXAxis chartData={chartData} />
                       <YAxis stroke="#9eb0c4" tickFormatter={compactCurrency} width={72} />
                       <Tooltip
                         formatter={(value) => currency.format(Number(value))}
@@ -1349,7 +1412,7 @@ export function PlannerDashboard() {
                   <ResponsiveContainer width="100%" height="100%">
                     <ComposedChart data={chartData}>
                       <CartesianGrid stroke="#24364d" strokeDasharray="3 3" vertical={false} />
-                      <XAxis dataKey="year" stroke="#9eb0c4" minTickGap={28} />
+                      <AnnualXAxis chartData={chartData} />
                       <YAxis stroke="#9eb0c4" tickFormatter={compactCurrency} width={72} />
                       <Tooltip
                         formatter={(value) => currency.format(Number(value))}
@@ -1383,7 +1446,7 @@ export function PlannerDashboard() {
                   <ResponsiveContainer width="100%" height="100%">
                     <BarChart data={chartData}>
                       <CartesianGrid stroke="#24364d" strokeDasharray="3 3" vertical={false} />
-                      <XAxis dataKey="year" stroke="#9eb0c4" minTickGap={28} />
+                      <AnnualXAxis chartData={chartData} />
                       <YAxis stroke="#9eb0c4" tickFormatter={compactCurrency} width={72} />
                       <Tooltip
                         formatter={(value) => currency.format(Number(value))}
@@ -1417,7 +1480,7 @@ export function PlannerDashboard() {
                       <ResponsiveContainer width="100%" height="100%">
                         <ComposedChart data={chartData}>
                           <CartesianGrid stroke="#24364d" strokeDasharray="3 3" vertical={false} />
-                          <XAxis dataKey="year" stroke="#9eb0c4" minTickGap={28} />
+                          <AnnualXAxis chartData={chartData} />
                           <YAxis stroke="#9eb0c4" tickFormatter={compactCurrency} width={72} />
                           <Tooltip formatter={(value) => currency.format(Number(value))} />
                           <Legend />
@@ -1439,7 +1502,7 @@ export function PlannerDashboard() {
                       <ResponsiveContainer width="100%" height="100%">
                         <ComposedChart data={chartData}>
                           <CartesianGrid stroke="#24364d" strokeDasharray="3 3" vertical={false} />
-                          <XAxis dataKey="year" stroke="#9eb0c4" minTickGap={28} />
+                          <AnnualXAxis chartData={chartData} />
                           <YAxis stroke="#9eb0c4" tickFormatter={compactCurrency} width={72} />
                           <Tooltip formatter={(value) => currency.format(Number(value))} />
                           <Legend />
@@ -1464,7 +1527,7 @@ export function PlannerDashboard() {
                   <ResponsiveContainer width="100%" height="100%">
                     <ComposedChart data={chartData}>
                       <CartesianGrid stroke="#24364d" strokeDasharray="3 3" vertical={false} />
-                      <XAxis dataKey="year" stroke="#9eb0c4" minTickGap={28} />
+                      <AnnualXAxis chartData={chartData} />
                       <YAxis stroke="#9eb0c4" tickFormatter={compactCurrency} width={72} />
                       <Tooltip
                         formatter={(value) => currency.format(Number(value))}

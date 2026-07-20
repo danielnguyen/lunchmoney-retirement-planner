@@ -5,7 +5,12 @@ import { readFile } from "node:fs/promises";
 import { useState } from "react";
 import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { afterEach, describe, expect, it } from "vitest";
-import { ScenarioControlsDrawer } from "@/components/planner-dashboard";
+import {
+  AnnualXAxis,
+  formatProjectedAge,
+  ScenarioControlsDrawer,
+  YearAgeTick,
+} from "@/components/planner-dashboard";
 
 afterEach(() => {
   cleanup();
@@ -192,5 +197,69 @@ describe("responsive scenario controls", () => {
     expect(css).toContain("overflow-y: auto");
     expect(print).toContain(".scenario-controls-overlay");
     expect(print).toContain("display: none !important");
+  });
+});
+
+describe("annual chart year and age axes", () => {
+  const chartData = [
+    { year: 2026, age: 40.5 },
+    { year: 2051, age: 65.5 },
+  ];
+
+  it("formats integer, half-year, and near-integer projected ages", () => {
+    expect(formatProjectedAge(39)).toBe("39");
+    expect(formatProjectedAge(39.5)).toBe("39.5");
+    expect(formatProjectedAge(55.0000001)).toBe("55");
+  });
+
+  it("renders the calendar year above the exact age supplied by its chart row", () => {
+    render(
+      <svg>
+        <YearAgeTick
+          x={100}
+          y={200}
+          payload={{ value: 2026 }}
+          chartData={chartData}
+        />
+      </svg>,
+    );
+
+    expect(screen.getByText("2026")).toBeInTheDocument();
+    expect(screen.getByText("Age 40.5")).toBeInTheDocument();
+    expect(screen.getByLabelText("2026, Age 40.5")).toBeInTheDocument();
+  });
+
+  it("preserves the numeric year domain, tick density, and label clearance", () => {
+    const axis = AnnualXAxis({ chartData });
+
+    expect(axis.props).toMatchObject({
+      className: "annual-year-age-axis",
+      dataKey: "year",
+      minTickGap: 28,
+      height: 52,
+      tickMargin: 8,
+      fontSize: 12,
+    });
+  });
+
+  it("uses the shared axis for every annual chart and keeps reference lines on calendar years", async () => {
+    const dashboard = await readFile("components/planner-dashboard.tsx", "utf8");
+    const annualAxes = dashboard.match(
+      /<AnnualXAxis chartData=\{chartData\} \/>/g,
+    ) ?? [];
+
+    expect(annualAxes).toHaveLength(8);
+    expect(dashboard).not.toContain('<XAxis dataKey="year"');
+    expect(dashboard).toContain("dataKey=\"year\"");
+    expect(dashboard).toContain("minTickGap={28}");
+    expect(dashboard).toContain("x={point.calendarYear}");
+    expect(dashboard).not.toContain("x={point.age}");
+  });
+
+  it("does not hide the shared age markers in mobile CSS", async () => {
+    const css = await readFile("app/globals.css", "utf8");
+    const mobile = css.slice(css.indexOf("@media (max-width: 620px)"));
+
+    expect(mobile).not.toContain("annual-year-age-axis");
   });
 });

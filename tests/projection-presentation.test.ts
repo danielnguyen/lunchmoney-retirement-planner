@@ -71,6 +71,31 @@ describe("projection presentation metadata", () => {
     expect(annualPeriodLabel(inputs, 2028)).toBe("2028 (Jan–Jun)");
   });
 
+  it("copies every annual projection age directly into chart rows, including partial and retirement years", () => {
+    const projection = calculateProjection(projectionFixture);
+    const chart = buildAnnualChartData(
+      projectionFixture,
+      projection,
+      "real",
+    );
+
+    expect(chart.map((row) => row.age)).toEqual(
+      projection.annual.map((point) => point.age),
+    );
+    expect(chart[0]!.age).toBe(projection.annual[0]!.age);
+    expect(chart[0]!.age).toBe(40.5);
+
+    const retirementYear = Number(
+      projection.retirementSnapshot.calendarDate.slice(0, 4),
+    );
+    const retirementRow = chart.find((row) => row.year === retirementYear);
+    const retirementPoint = projection.annual.find(
+      (point) => point.calendarYear === retirementYear,
+    );
+    expect(retirementRow?.age).toBe(retirementPoint?.age);
+    expect(retirementRow?.age).toBe(65.5);
+  });
+
   it("carries surplus flows, reserve target, and per-account allocations through shared presentation data", () => {
     const projection = calculateProjection(projectionFixture);
     const chart = buildAnnualChartData(
