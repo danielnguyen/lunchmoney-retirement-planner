@@ -6,6 +6,7 @@ import type {
   ContributionWaterfallInput,
   SurplusAllocationPolicyInput,
 } from "@/src/domain/projection/types";
+import type { LiabilityInterestRateConvention } from "@/src/domain/projection/liability-interest";
 
 export const plannerAccountTypes = [
   "cash",
@@ -103,6 +104,7 @@ export type LiabilityTreatmentConfig =
   | {
       mode: "amortizing";
       annualInterestRate: number;
+      interestRateConvention: LiabilityInterestRateConvention;
       regularPayment: {
         amount: number;
         frequency: LiabilityPaymentFrequency;

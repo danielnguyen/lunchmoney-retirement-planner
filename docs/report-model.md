@@ -74,7 +74,7 @@ starting financial assets
 = retirement funding assets at retirement
 ```
 
-The net-worth bridge adds starting non-financial assets and appreciation, subtracts starting liabilities and liability interest, and ends at total net worth. Principal payment is not consumption: the financial-asset decrease and liability decrease cancel directly. Cash-funded contributions and surplus routing are also internal allocations. Shared cent-stable reconciliation checks each annual balance sheet, each liability schedule and both bridges within one cent.
+The net-worth bridge adds starting non-financial assets and appreciation, subtracts starting liabilities and liability interest, and ends at total net worth. Principal payment is not consumption: the financial-asset decrease and liability decrease cancel directly. Required liability demand is funded before its schedule is committed, so an ordinary-spending shortfall cannot be misreported as an unfunded mortgage payment. Cash-funded contributions and surplus routing are also internal allocations. Shared cent-stable reconciliation checks each annual balance sheet, each funded liability schedule and both bridges within one cent.
 
 JSON is the canonical, complete analysis export and includes the resolved baseline, debt-payment evidence, financial accounts, non-financial assets, liabilities and schedules, provenance, overrides, balance sheets, financial-assets bridge and net-worth bridge. A typed allowlist replaces every account, asset, liability and policy reference with deterministic export-local aliases and removes private labels, institutions, addresses and configuration text.
 

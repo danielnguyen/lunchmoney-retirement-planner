@@ -305,6 +305,7 @@ function balanceSheetContext(
         treatment: {
           mode: "amortizing",
           annualInterestRate: 0.04,
+          interestRateConvention: "canadian_mortgage",
           regularPayment: {
             amount: 1000,
             frequency: "monthly",
@@ -1589,9 +1590,19 @@ describe("calculation explanations", () => {
       ).toContain("not available to retirement withdrawals");
 
       expect(liability.formula).toBe(
-        "Opening principal + interest − regular payment − lump-sum principal = closing principal",
+        "Opening principal + interest − funded regular payment − funded lump-sum principal = closing principal",
       );
       expect(liability.reconciliation?.matched).toBe(true);
+      expect(
+        liability.steps.find((step) =>
+          step.label.endsWith("rate convention"),
+        )?.value,
+      ).toContain("Canadian mortgage rate");
+      expect(
+        liability.steps.find((step) =>
+          step.label.endsWith("payment funding status"),
+        )?.value,
+      ).toContain("fully funded");
       expect(
         section(liability, "Annual liability schedule").rows,
       ).toHaveLength(value.projection.annual.length);
@@ -1610,6 +1621,9 @@ describe("calculation explanations", () => {
       );
       expect(liability.caveats.join(" ")).toContain(
         "Rate renewals",
+      );
+      expect(liability.caveats.join(" ")).toContain(
+        "after projected payoff is rejected",
       );
     }
   });

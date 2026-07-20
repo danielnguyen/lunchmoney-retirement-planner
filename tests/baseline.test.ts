@@ -361,6 +361,7 @@ describe("live baseline derivation", () => {
       liability: {
         mode: "amortizing",
         annualInterestRate: 0.04,
+        interestRateConvention: "canadian_mortgage",
         regularPayment: { amount: 100, frequency: "monthly" },
         scheduleStartDate: "2026-01-01",
         lumpSumPayments: [],
@@ -403,6 +404,10 @@ describe("live baseline derivation", () => {
         openingBalance: 999,
         role: "primary_mortgage",
         historicalPaymentHandling: "category_mapped",
+        treatment: expect.objectContaining({
+          mode: "amortizing",
+          interestRateConvention: "canadian_mortgage",
+        }),
       }),
     ]);
     expect(baseline.projectionInputs.nonFinancialAssets).toEqual([
@@ -435,6 +440,14 @@ describe("live baseline derivation", () => {
     });
     expect(
       baseline.provenance[
+        "liabilities.manual:3.treatment.interestRateConvention"
+      ],
+    ).toMatchObject({
+      value: "canadian_mortgage",
+      sourceType: "local_configuration",
+    });
+    expect(
+      baseline.provenance[
         "nonFinancialAssets.primaryResidence.annualAppreciation"
       ],
     ).toMatchObject({
@@ -458,6 +471,7 @@ describe("live baseline derivation", () => {
         liability: {
           mode: "amortizing",
           annualInterestRate: 0,
+          interestRateConvention: "effective_annual",
           regularPayment: { amount: 100, frequency },
           scheduleStartDate: "2026-01-01",
           lumpSumPayments: [],
@@ -485,6 +499,54 @@ describe("live baseline derivation", () => {
       );
     },
   );
+
+  it("uses the selected convention when validating first-month liability interest", () => {
+    const data = lunchMoneyData();
+    data.manualAccounts.find((account) => account.id === 3)!.to_base =
+      100000;
+    const effective = structuredClone(configFixture);
+    effective.accountMappings["manual:3"] = {
+      include: true,
+      type: "debt",
+      liability: {
+        mode: "amortizing",
+        annualInterestRate: 0.12,
+        interestRateConvention: "effective_annual",
+        regularPayment: { amount: 960, frequency: "monthly" },
+        scheduleStartDate: "2026-01-01",
+        lumpSumPayments: [],
+        historicalPaymentHandling: "already_excluded_or_transfer",
+      },
+    };
+    const effectiveBaseline = deriveCurrentBaseline(
+      effective,
+      data,
+      window,
+      "2026-07-14T12:00:00.000Z",
+    );
+    expect(
+      effectiveBaseline.projectionInputs.liabilities[0]!.treatment,
+    ).toMatchObject({
+      mode: "amortizing",
+      interestRateConvention: "effective_annual",
+    });
+
+    const canadian = structuredClone(effective);
+    const treatment =
+      canadian.accountMappings["manual:3"]!.liability;
+    if (!treatment || treatment.mode !== "amortizing") {
+      throw new Error("Synthetic liability must amortize");
+    }
+    treatment.interestRateConvention = "canadian_mortgage";
+    expect(() =>
+      deriveCurrentBaseline(
+        canadian,
+        data,
+        window,
+        "2026-07-14T12:00:00.000Z",
+      ),
+    ).toThrow("cannot cover the first projected month's interest");
+  });
 
   it("blocks untreated positive debt and missing historical-payment handling, while zero debt remains zero", () => {
     const data = lunchMoneyData();

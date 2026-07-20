@@ -1638,6 +1638,7 @@ describe("automatically anonymized projection exports", () => {
         treatment: {
           mode: "amortizing",
           annualInterestRate: 0.04,
+          interestRateConvention: "canadian_mortgage",
           regularPayment: {
             amount: 1000,
             frequency: "monthly",
@@ -1685,6 +1686,14 @@ describe("automatically anonymized projection exports", () => {
       effectiveDate: "2026-07-14",
     };
     baseline.provenance[
+      `liabilities.${liabilityId}.treatment.interestRateConvention`
+    ] = {
+      value: "canadian_mortgage",
+      sourceType: "local_configuration",
+      sourceDescription: PRIVATE_TEXT.note,
+      effectiveDate: "2026-07-14",
+    };
+    baseline.provenance[
       "nonFinancialAssets.primaryResidence.openingValue"
     ] = {
       value: 500000,
@@ -1723,6 +1732,19 @@ describe("automatically anonymized projection exports", () => {
       id: "liability_1",
       label: "Liability 1",
       openingBalance: 10000,
+      treatment: {
+        mode: "amortizing",
+        annualInterestRate: 0.04,
+        interestRateConvention: "canadian_mortgage",
+      },
+    });
+    expect(
+      snapshot.provenance[
+        "liabilities.liability_1.treatment.interestRateConvention"
+      ],
+    ).toMatchObject({
+      value: "canadian_mortgage",
+      sourceType: "local_configuration",
     });
     expect(
       snapshot.projection.annual[0]!.nominal.liabilitySchedules,

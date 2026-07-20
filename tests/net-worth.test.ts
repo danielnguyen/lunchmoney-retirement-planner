@@ -1,6 +1,10 @@
 import { describe, expect, it } from "vitest";
 import { calculateProjection } from "@/src/domain/projection/calculate";
 import {
+  monthlyLiabilityInterestRate,
+  type LiabilityInterestRateConvention,
+} from "@/src/domain/projection/liability-interest";
+import {
   buildAnnualChartData,
   buildBalanceSheetReconciliation,
 } from "@/src/domain/projection/presentation";
@@ -9,6 +13,7 @@ import {
   type LiabilityInput,
   type ProjectionInputs,
 } from "@/src/domain/projection/types";
+import { projectionFixture } from "./fixtures/projection";
 
 function baseInputs(): ProjectionInputs {
   return {
@@ -109,6 +114,8 @@ function mortgage(
   openingBalance = 100000,
   payment = 1000,
   annualInterestRate = 0,
+  interestRateConvention: LiabilityInterestRateConvention =
+    "effective_annual",
 ): LiabilityInput {
   return {
     id: "synthetic:mortgage",
@@ -120,6 +127,7 @@ function mortgage(
     treatment: {
       mode: "amortizing",
       annualInterestRate,
+      interestRateConvention,
       regularPayment: {
         amount: payment,
         frequency: "monthly",
@@ -137,13 +145,28 @@ function withHomeAndMortgage(
   openingBalance = 100000,
   payment = 1000,
   annualInterestRate = 0,
+  interestRateConvention: LiabilityInterestRateConvention =
+    "effective_annual",
 ): ProjectionInputs {
   const inputs = baseInputs();
   inputs.nonFinancialAssets = [residence()];
   inputs.liabilities = [
-    mortgage(openingBalance, payment, annualInterestRate),
+    mortgage(
+      openingBalance,
+      payment,
+      annualInterestRate,
+      interestRateConvention,
+    ),
   ];
   return inputs;
+}
+
+function configureFirstProjectionMonth(inputs: ProjectionInputs): void {
+  const firstMonthEndAge = inputs.person.currentAge + 1 / 12;
+  inputs.person.retirementAge = firstMonthEndAge;
+  inputs.endAge = inputs.person.currentAge + 2 / 12;
+  inputs.person.employmentIncomePhases[0]!.endAge =
+    firstMonthEndAge;
 }
 
 describe("real net worth and debt amortization", () => {
@@ -282,11 +305,174 @@ describe("real net worth and debt amortization", () => {
 
   it("fails visibly when financial assets cannot fund a required liability payment", () => {
     const inputs = withHomeAndMortgage(1000, 1000, 0);
-    inputs.accounts[0]!.openingBalance = 0;
+    inputs.accounts[0]!.openingBalance = 500;
 
     expect(() => calculateProjection(inputs)).toThrow(
       "Required liability payment could not be funded",
     );
+    expect(inputs.liabilities[0]!.openingBalance).toBe(1000);
+
+    inputs.accounts[0]!.openingBalance = 1000;
+    const funded = calculateProjection(inputs);
+    expect(
+      funded.annual[0]!.nominal.liabilitySchedules[
+        "synthetic:mortgage"
+      ]!.closingBalance,
+    ).toBe(0);
+  });
+
+  it("funds the liability before ordinary spending and attributes only the ordinary shortfall as unmet", () => {
+    const inputs = withHomeAndMortgage(100, 100, 0);
+    inputs.accounts[0]!.openingBalance = 100;
+    inputs.monthlyEssentialSpendingToday = 1000;
+
+    const result = calculateProjection(inputs);
+    const schedule =
+      result.annual[0]!.nominal.liabilitySchedules[
+        "synthetic:mortgage"
+      ]!;
+
+    expect(schedule.regularPayment).toBe(100);
+    expect(schedule.principal).toBe(100);
+    expect(schedule.closingBalance).toBe(0);
+    expect(result.annual[0]!.nominal.outflows.unmetRequiredOutflow).toBe(
+      0,
+    );
+    expect(result.annual[0]!.nominal.outflows.unmetSpending).toBeGreaterThan(
+      0,
+    );
+    for (const mode of ["nominal", "real"] as const) {
+      expect(
+        buildBalanceSheetReconciliation(result, mode).matched,
+      ).toBe(true);
+    }
+  });
+
+  it("preserves no-liability unmet-spending behavior", () => {
+    const inputs = baseInputs();
+    inputs.accounts[0]!.openingBalance = 100;
+    inputs.monthlyEssentialSpendingToday = 1000;
+
+    const result = calculateProjection(inputs);
+    expect(result.annual[0]!.nominal.outflows.unmetRequiredOutflow).toBe(
+      0,
+    );
+    expect(result.annual[0]!.nominal.outflows.unmetSpending).toBeGreaterThan(
+      0,
+    );
+  });
+
+  it("does not let cash-funded savings consume money needed for a liability payment", () => {
+    const inputs = withHomeAndMortgage(100, 100, 0);
+    inputs.accounts[0]!.openingBalance = 100;
+    inputs.person.employmentIncomePhases[0]!.rrspRoomGeneration = {
+      annualEligibleEarnedIncomeToday: 0,
+      annualPensionAdjustmentToday: 0,
+      annualOtherRoomReductionToday: 0,
+      annualGrowth: 0,
+    };
+    inputs.accounts.push(
+      {
+        id: "synthetic:tfsa",
+        label: "Synthetic TFSA",
+        origin: "lunchmoney",
+        type: "tfsa",
+        openingBalance: 0,
+        annualReturn: 0,
+        contributionPhases: [
+          {
+            id: "synthetic-saving",
+            label: "Synthetic saving",
+            startAge: 40,
+            endAge: 41,
+            monthlyAmountToday: 100,
+            funding: "cash",
+            indexingRate: 0,
+          },
+        ],
+        withdrawalPriority: 2,
+        allocation: { cash: 0, fixedIncome: 0, equity: 1 },
+      },
+      {
+        id: "synthetic:rrsp",
+        label: "Synthetic RRSP",
+        origin: "lunchmoney",
+        type: "rrsp_rrif",
+        openingBalance: 0,
+        annualReturn: 0,
+        contributionPhases: [],
+        withdrawalPriority: 3,
+        allocation: { cash: 0, fixedIncome: 0, equity: 1 },
+      },
+      {
+        id: "projection:synthetic-taxable",
+        label: "Synthetic taxable",
+        origin: "projection_configuration",
+        type: "non_registered",
+        openingBalance: 0,
+        annualReturn: 0,
+        contributionPhases: [],
+        withdrawalPriority: 4,
+        allocation: { cash: 0, fixedIncome: 0, equity: 1 },
+      },
+    );
+    inputs.registeredAccountRoom = structuredClone(
+      projectionFixture.registeredAccountRoom,
+    );
+    inputs.registeredAccountRoom!.tfsa.startingAvailableRoom.amount =
+      10000;
+    inputs.registeredAccountRoom!.rrsp.startingAvailableDeductionRoom.amount =
+      10000;
+    inputs.contributionWaterfall = {
+      mode: "simple_policy",
+      routes: [
+        {
+          sourceAccountId: "synthetic:tfsa",
+          destinationAccountIds: [
+            "synthetic:tfsa",
+            "synthetic:rrsp",
+            "projection:synthetic-taxable",
+          ],
+        },
+      ],
+      surplusDestinationAccountIds: [
+        "synthetic:tfsa",
+        "synthetic:rrsp",
+        "projection:synthetic-taxable",
+      ],
+    };
+    inputs.surplusAllocation.excess = {
+      mode: "allocate_through_contribution_waterfall",
+    };
+    inputs.savingsPolicy = {
+      mode: "simple",
+      operatingCashAccountId: "synthetic:cash",
+      reserveAccountIds: ["synthetic:cash"],
+      reserveRefillAccountId: "synthetic:cash",
+      personalTfsaAccountId: "synthetic:tfsa",
+      personalRrspAccountId: "synthetic:rrsp",
+      workplaceRrspAccountId: null,
+      taxableAccountId: "projection:synthetic-taxable",
+      taxableAccountOrigin: "projection_configuration",
+      reserveBuildingPhases: [],
+      unplannedCash: "retain_in_operating_cash",
+      personalOrder: ["personal_tfsa", "personal_rrsp", "taxable"],
+      workplaceRoomPriority: "first",
+      workplaceOverflow: "unallocated",
+      reserveAfterTarget: "personal_investing",
+    };
+
+    const result = calculateProjection(inputs);
+    expect(result.annual[0]!.nominal.contributions.planned).toBe(1200);
+    expect(result.annual[0]!.nominal.contributions.allowed).toBe(0);
+    expect(result.annual[0]!.nominal.contributions.unallocated).toBe(
+      1200,
+    );
+    expect(
+      result.annual[0]!.nominal.liabilitySchedules[
+        "synthetic:mortgage"
+      ]!.closingBalance,
+    ).toBe(0);
   });
 
   it("keeps home equity unavailable to depletion and withdrawal logic", () => {
@@ -304,6 +490,27 @@ describe("real net worth and debt amortization", () => {
         (point) => point.nominal.withdrawals.total > 100,
       ),
     ).toBe(false);
+  });
+
+  it("does not use home equity when financial assets deplete with a mortgage still outstanding", () => {
+    const inputs = withHomeAndMortgage(100000, 100, 0);
+    inputs.accounts[0]!.openingBalance = 100;
+    inputs.monthlyEssentialSpendingToday = 1000;
+    inputs.person.employmentIncomePhases[0]!.annualNetCashToday = 1200;
+    inputs.endAge = 41;
+
+    const result = calculateProjection(inputs);
+    expect(result.summary.financialAssetsDepletionAge).not.toBeNull();
+    expect(result.summary.endingFinancialAssetsToday).toBe(0);
+    expect(
+      result.annual.at(-1)!.nominal.balances.mortgageBalance,
+    ).toBeGreaterThan(0);
+    expect(
+      result.annual.at(-1)!.nominal.balances.homeEquity,
+    ).toBeGreaterThan(0);
+    expect(
+      result.annual.at(-1)!.nominal.outflows.unmetSpending,
+    ).toBeGreaterThan(0);
   });
 
   it("uses identical liability schedule semantics in nominal and real modes", () => {
@@ -396,6 +603,182 @@ describe("real net worth and debt amortization", () => {
     ];
     expect(() => calculateProjection(overpayingLumpSum)).toThrow(
       "exceeds its remaining projected principal",
+    );
+  });
+
+  it("rejects lump sums that would occur after projected payoff and accepts an exact final lump sum", () => {
+    const regularPayoff = withHomeAndMortgage(100, 100, 0);
+    const regularTreatment =
+      regularPayoff.liabilities[0]!.treatment;
+    if (regularTreatment.mode !== "amortizing") {
+      throw new Error("Synthetic mortgage must amortize");
+    }
+    regularTreatment.lumpSumPayments = [
+      { date: "2026-02-15", amount: 10 },
+    ];
+    expect(() => calculateProjection(regularPayoff)).toThrow(
+      "occurs after its projected payoff",
+    );
+
+    const lumpPayoff = withHomeAndMortgage(200, 50, 0);
+    const lumpTreatment = lumpPayoff.liabilities[0]!.treatment;
+    if (lumpTreatment.mode !== "amortizing") {
+      throw new Error("Synthetic mortgage must amortize");
+    }
+    lumpTreatment.lumpSumPayments = [
+      { date: "2026-01-15", amount: 150 },
+      { date: "2026-02-15", amount: 10 },
+    ];
+    expect(() => calculateProjection(lumpPayoff)).toThrow(
+      "occurs after its projected payoff",
+    );
+
+    const exactFinal = withHomeAndMortgage(1000, 400, 0);
+    const exactTreatment = exactFinal.liabilities[0]!.treatment;
+    if (exactTreatment.mode !== "amortizing") {
+      throw new Error("Synthetic mortgage must amortize");
+    }
+    exactTreatment.lumpSumPayments = [
+      { date: "2026-01-15", amount: 600 },
+    ];
+    const exactResult = calculateProjection(exactFinal);
+    const exactSchedule =
+      exactResult.annual[0]!.nominal.liabilitySchedules[
+        "synthetic:mortgage"
+      ]!;
+    expect(exactSchedule.regularPayment).toBe(400);
+    expect(exactSchedule.lumpSumPrincipal).toBe(600);
+    expect(exactSchedule.closingBalance).toBe(0);
+  });
+
+  it("uses the selected Canadian-mortgage or effective-annual rate convention consistently", () => {
+    const annualRate = 0.06;
+    const canadianMonthly = monthlyLiabilityInterestRate(
+      annualRate,
+      "canadian_mortgage",
+    );
+    const effectiveMonthly = monthlyLiabilityInterestRate(
+      annualRate,
+      "effective_annual",
+    );
+    expect(canadianMonthly).toBeCloseTo(
+      Math.pow(1 + annualRate / 2, 1 / 6) - 1,
+      12,
+    );
+    expect(effectiveMonthly).toBeCloseTo(
+      Math.pow(1 + annualRate, 1 / 12) - 1,
+      12,
+    );
+    expect(canadianMonthly).not.toBeCloseTo(effectiveMonthly, 8);
+
+    const canadian = withHomeAndMortgage(
+      100000,
+      2000,
+      annualRate,
+      "canadian_mortgage",
+    );
+    const effective = withHomeAndMortgage(
+      100000,
+      2000,
+      annualRate,
+      "effective_annual",
+    );
+    configureFirstProjectionMonth(canadian);
+    configureFirstProjectionMonth(effective);
+    const canadianInterest =
+      calculateProjection(canadian).retirementSnapshot.nominal
+        .liabilitySchedules["synthetic:mortgage"]!.interest;
+    const effectiveInterest =
+      calculateProjection(effective).retirementSnapshot.nominal
+        .liabilitySchedules["synthetic:mortgage"]!.interest;
+    expect(canadianInterest).toBeCloseTo(
+      100000 * canadianMonthly,
+      2,
+    );
+    expect(effectiveInterest).toBeCloseTo(
+      100000 * effectiveMonthly,
+      2,
+    );
+    expect(canadianInterest).not.toBeCloseTo(effectiveInterest, 2);
+  });
+
+  it("uses the same rate helper for first-interest validation and rejects an invalid convention", () => {
+    const effective = withHomeAndMortgage(
+      100000,
+      960,
+      0.12,
+      "effective_annual",
+    );
+    expect(validateProjectionInputs(effective)).toBe(effective);
+
+    const canadian = withHomeAndMortgage(
+      100000,
+      960,
+      0.12,
+      "canadian_mortgage",
+    );
+    expect(() => validateProjectionInputs(canadian)).toThrow(
+      "must exceed monthly interest",
+    );
+
+    const invalid = withHomeAndMortgage();
+    const treatment = invalid.liabilities[0]!.treatment;
+    if (treatment.mode !== "amortizing") {
+      throw new Error("Synthetic mortgage must amortize");
+    }
+    (
+      treatment as unknown as { interestRateConvention: string }
+    ).interestRateConvention = "synthetic_invalid";
+    expect(() => validateProjectionInputs(invalid)).toThrow(
+      "interestRateConvention",
+    );
+  });
+
+  it("activates an existing schedule in month one and rejects a future schedule start", () => {
+    for (const scheduleStartDate of [
+      "2020-01-01",
+      "2026-01-01",
+    ]) {
+      const inputs = withHomeAndMortgage(100000, 1000, 0.04);
+      const treatment = inputs.liabilities[0]!.treatment;
+      if (treatment.mode !== "amortizing") {
+        throw new Error("Synthetic mortgage must amortize");
+      }
+      treatment.scheduleStartDate = scheduleStartDate;
+      configureFirstProjectionMonth(inputs);
+      const schedule =
+        calculateProjection(inputs).retirementSnapshot.nominal
+          .liabilitySchedules["synthetic:mortgage"]!;
+      expect(schedule.openingBalance).toBe(100000);
+      expect(schedule.interest).toBeGreaterThan(0);
+      expect(schedule.regularPayment).toBe(1000);
+    }
+
+    const future = withHomeAndMortgage(100000, 1000, 0.04);
+    const treatment = future.liabilities[0]!.treatment;
+    if (treatment.mode !== "amortizing") {
+      throw new Error("Synthetic mortgage must amortize");
+    }
+    treatment.scheduleStartDate = "2026-01-02";
+    expect(() => validateProjectionInputs(future)).toThrow(
+      "must be on or before projection startDate",
+    );
+
+    const outsideProjection = withHomeAndMortgage(
+      100000,
+      1000,
+      0.04,
+    );
+    const outsideTreatment =
+      outsideProjection.liabilities[0]!.treatment;
+    if (outsideTreatment.mode !== "amortizing") {
+      throw new Error("Synthetic mortgage must amortize");
+    }
+    outsideTreatment.lumpSumPayments = [
+      { date: "2030-01-15", amount: 100 },
+    ];
+    expect(() => validateProjectionInputs(outsideProjection)).toThrow(
+      "must occur within the projection",
     );
   });
 

@@ -191,6 +191,7 @@ describe("simple savings dashboard controls", () => {
         treatment: {
           mode: "amortizing",
           annualInterestRate: 0.04,
+          interestRateConvention: "canadian_mortgage",
           regularPayment: {
             amount: 1200,
             frequency: "biweekly",

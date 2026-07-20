@@ -160,16 +160,22 @@ accountMappings:
     liability:
       mode: amortizing
       # Enter the current annual mortgage rate from the lender statement.
-      # Renewal and variable-rate changes are not modelled in this version.
+      # Then choose the compounding convention stated in the agreement.
+      # Standard Canadian mortgages normally use canadian_mortgage; use
+      # effective_annual only when the agreement explicitly quotes an
+      # effective annual rate. Renewal and rate changes are not modelled.
       annualInterestRate: 0.04
+      interestRateConvention: canadian_mortgage
       # Enter the amount and frequency shown in the payment agreement. The
       # planner converts it to a monthly equivalent but retains both values.
       regularPayment:
         amount: 1200
         frequency: biweekly
-      # Enter the date this payment schedule began. Optional lump sums need an
-      # explicit date and amount; find both in your lender records and use []
-      # when none are planned.
+      # Enter the effective date of the current rate and payment schedule,
+      # usually shown on the latest mortgage agreement or renewal statement.
+      # It must be on or before the projection start because future borrowing
+      # is not modelled. Optional lump sums need an explicit date and amount;
+      # find both in your lender records and use [] when none are planned.
       scheduleStartDate: "2026-01-15"
       lumpSumPayments: []
 

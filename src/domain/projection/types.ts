@@ -1,3 +1,9 @@
+import {
+  liabilityInterestRateConventions,
+  monthlyLiabilityInterestRate,
+  type LiabilityInterestRateConvention,
+} from "./liability-interest";
+
 export const accountTypes = ["cash", "tfsa", "rrsp_rrif", "non_registered"] as const;
 export const contributionFundingTypes = ["cash", "income_withheld"] as const;
 
@@ -113,6 +119,7 @@ export type LiabilityTreatmentInput =
   | {
       mode: "amortizing";
       annualInterestRate: number;
+      interestRateConvention: LiabilityInterestRateConvention;
       regularPayment: {
         amount: number;
         frequency: LiabilityPaymentFrequency;
@@ -1049,6 +1056,17 @@ export function validateProjectionInputs(value: unknown): ProjectionInputs {
     throw new Error("At most one primary residence may be configured");
   }
 
+  const projectionMonths = Math.round(
+    (input.endAge - input.person.currentAge) * 12,
+  );
+  const projectionStartYear = Number(input.startDate.slice(0, 4));
+  const projectionStartMonth = Number(input.startDate.slice(5, 7));
+  const projectionEndMonthIndex =
+    projectionStartMonth - 1 + projectionMonths - 1;
+  const projectionEndMonthKey =
+    `${projectionStartYear + Math.floor(projectionEndMonthIndex / 12)}-` +
+    String((projectionEndMonthIndex % 12) + 1).padStart(2, "0");
+
   const liabilityIds = new Set<string>();
   let primaryMortgage: LiabilityInput | undefined;
   for (const liability of input.liabilities) {
@@ -1127,6 +1145,15 @@ export function validateProjectionInputs(value: unknown): ProjectionInputs {
       1,
     );
     if (
+      !liabilityInterestRateConventions.includes(
+        treatment.interestRateConvention,
+      )
+    ) {
+      throw new Error(
+        `interestRateConvention for liability ${liability.id} must be canadian_mortgage or effective_annual`,
+      );
+    }
+    if (
       !["monthly", "semimonthly", "biweekly", "weekly"].includes(
         treatment.regularPayment.frequency,
       )
@@ -1163,7 +1190,10 @@ export function validateProjectionInputs(value: unknown): ProjectionInputs {
     }
     const firstMonthInterest =
       liability.openingBalance *
-      (Math.pow(1 + treatment.annualInterestRate, 1 / 12) - 1);
+      monthlyLiabilityInterestRate(
+        treatment.annualInterestRate,
+        treatment.interestRateConvention,
+      );
     if (treatment.regularPayment.monthlyEquivalent <= firstMonthInterest) {
       throw new Error(
         `Regular payment for liability ${liability.id} must exceed monthly interest`,
@@ -1172,6 +1202,11 @@ export function validateProjectionInputs(value: unknown): ProjectionInputs {
     if (!isIsoCalendarDate(treatment.scheduleStartDate)) {
       throw new Error(
         `scheduleStartDate for liability ${liability.id} must be a valid ISO calendar date`,
+      );
+    }
+    if (treatment.scheduleStartDate > input.startDate) {
+      throw new Error(
+        `scheduleStartDate for liability ${liability.id} must be on or before projection startDate; future debt origination is not modelled`,
       );
     }
     if (!Array.isArray(treatment.lumpSumPayments)) {
@@ -1189,6 +1224,11 @@ export function validateProjectionInputs(value: unknown): ProjectionInputs {
       if (lump.date < input.startDate) {
         throw new Error(
           `Lump-sum payment for liability ${liability.id} cannot precede projection start`,
+        );
+      }
+      if (lump.date.slice(0, 7) > projectionEndMonthKey) {
+        throw new Error(
+          `Lump-sum payment for liability ${liability.id} must occur within the projection so it cannot be ignored`,
         );
       }
       if (lumpDates.has(lump.date)) {

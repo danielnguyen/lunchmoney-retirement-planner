@@ -16,6 +16,9 @@ import {
   projectionMonthOffset,
   type FinancialAccountInput,
 } from "@/src/domain/projection/types";
+import {
+  liabilityInterestRateConventionLabel,
+} from "@/src/domain/projection/liability-interest";
 import type {
   ExplanationContext,
   ExplanationDocument,
@@ -3572,13 +3575,18 @@ function liabilityScheduleDocument(
   );
   const displayedClosing =
     finalView?.balances.totalLiabilities ?? 0;
+  const liabilityFundingComplete = context.projection.annual.every(
+    (point) =>
+      point.nominal.outflows.unmetRequiredOutflow <= 0.01 &&
+      point.real.outflows.unmetRequiredOutflow <= 0.01,
+  );
   return {
     id: "liability-schedule",
     title: "Mortgage and debt schedule",
     plainLanguage:
       liabilities.length === 0
         ? "No liability schedule is active in this projection."
-        : "Each scheduled cash payment is split between interest and principal. Principal reduces both cash and the liability; payments stop automatically when the balance reaches zero.",
+        : "Each required liability payment is funded before ordinary spending or cash-funded saving, then split between interest and principal. Principal reduces both cash and the liability; payments stop automatically when the balance reaches zero.",
     displayedResult: {
       label: "Ending liabilities",
       value: currency.format(displayedClosing),
@@ -3586,7 +3594,7 @@ function liabilityScheduleDocument(
       period: period(context),
     },
     formula:
-      "Opening principal + interest − regular payment − lump-sum principal = closing principal",
+      "Opening principal + interest − funded regular payment − funded lump-sum principal = closing principal",
     steps: liabilities.flatMap((liability) => {
       const treatment = liability.treatment;
       const payoffDate =
@@ -3613,6 +3621,13 @@ function liabilityScheduleDocument(
                   : "configuration") as ExplanationSourceType,
               },
               {
+                label: `${liability.label} rate convention`,
+                value: liabilityInterestRateConventionLabel(
+                  treatment.interestRateConvention,
+                ),
+                sourceType: "configuration" as const,
+              },
+              {
                 label: `${liability.label} entered payment`,
                 value: `${exactCurrency.format(treatment.regularPayment.amount)} ${treatment.regularPayment.frequency}`,
                 sourceType: (context.overrides[
@@ -3630,8 +3645,21 @@ function liabilityScheduleDocument(
                 sourceType: "projection" as const,
                 effectiveDate: treatment.scheduleStartDate,
               },
+              {
+                label: `${liability.label} current schedule effective date`,
+                value: treatment.scheduleStartDate,
+                sourceType: "configuration" as const,
+                effectiveDate: treatment.scheduleStartDate,
+              },
             ]
           : []),
+        {
+          label: `${liability.label} payment funding status`,
+          value: liabilityFundingComplete
+            ? "Every projected required payment was fully funded"
+            : "At least one required payment was not fully funded",
+          sourceType: "projection" as const,
+        },
         {
           label: `${liability.label} payoff date`,
           value: payoffDate ?? "Not paid off within the projection",
@@ -3647,9 +3675,9 @@ function liabilityScheduleDocument(
           { key: "liability", label: "Liability" },
           { key: "openingPrincipal", label: "Opening principal" },
           { key: "interest", label: "Interest" },
-          { key: "regularPayment", label: "Regular payment" },
+          { key: "regularPayment", label: "Funded regular payment" },
           { key: "principal", label: "Regular principal" },
-          { key: "lumpSums", label: "Lump sums" },
+          { key: "lumpSums", label: "Funded lump sums" },
           { key: "closingBalance", label: "Closing balance" },
         ],
         rows: annualRows,
@@ -3686,6 +3714,8 @@ function liabilityScheduleDocument(
     caveats: [
       "Historical payment activity does not infer the future interest rate, payment, or amortization terms.",
       "The final regular payment is reduced to the exact principal plus interest; no payment occurs after payoff.",
+      "The schedule effective date must be on or before projection start. The imported opening balance remains authoritative; historical amortization is not replayed.",
+      "A configured lump sum that exceeds the remaining balance or falls after projected payoff is rejected instead of being silently ignored.",
       "Rate renewals, refinancing, variable-rate trigger payments, HELOC draws, and home sale or conversion are not modelled.",
       "Home equity is not used to fund retirement withdrawals.",
     ],

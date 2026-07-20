@@ -12,6 +12,9 @@ import {
   type ContributionWaterfallInput,
   type SurplusAllocationPolicyInput,
 } from "@/src/domain/projection/types";
+import {
+  liabilityInterestRateConventions,
+} from "@/src/domain/projection/liability-interest";
 import { PlannerRuntimeError } from "@/src/runtime/errors";
 import {
   accountRoles,
@@ -431,6 +434,7 @@ function liabilityTreatment(
   if (item.mode === "payoff_at_projection_start") {
     rejectFields(item, field, [
       "annualInterestRate",
+      "interestRateConvention",
       "regularPayment",
       "scheduleStartDate",
       "lumpSumPayments",
@@ -462,6 +466,19 @@ function liabilityTreatment(
       422,
     );
   }
+  if (
+    typeof item.interestRateConvention !== "string" ||
+    !liabilityInterestRateConventions.includes(
+      item.interestRateConvention as
+        (typeof liabilityInterestRateConventions)[number],
+    )
+  ) {
+    throw new PlannerRuntimeError(
+      "invalid_planner_config",
+      `${field}.interestRateConvention must be canadian_mortgage or effective_annual. Existing configurations must choose the convention stated in the lending agreement.`,
+      422,
+    );
+  }
   if (!Array.isArray(item.lumpSumPayments)) {
     throw new PlannerRuntimeError(
       "invalid_planner_config",
@@ -476,6 +493,9 @@ function liabilityTreatment(
       `${field}.annualInterestRate`,
       { min: 0, max: 1 },
     ),
+    interestRateConvention:
+      item.interestRateConvention as
+        (typeof liabilityInterestRateConventions)[number],
     regularPayment: {
       amount: number(payment.amount, `${field}.regularPayment.amount`, {
         min: Number.MIN_VALUE,

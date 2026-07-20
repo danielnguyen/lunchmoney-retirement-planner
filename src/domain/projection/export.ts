@@ -852,6 +852,8 @@ function safeLiabilityInput(
         ? {
             mode: "amortizing",
             annualInterestRate: liability.treatment.annualInterestRate,
+            interestRateConvention:
+              liability.treatment.interestRateConvention,
             regularPayment: { ...liability.treatment.regularPayment },
             scheduleStartDate: liability.treatment.scheduleStartDate,
             lumpSumPayments: liability.treatment.lumpSumPayments.map(
@@ -1842,6 +1844,7 @@ function provenanceField(
           "role",
           "treatment.mode",
           "treatment.annualInterestRate",
+          "treatment.interestRateConvention",
           "treatment.regularPaymentAmount",
           "treatment.regularPaymentFrequency",
           "treatment.monthlyEquivalent",
@@ -2151,6 +2154,12 @@ function safeProvenanceValue(
         "payoff_at_projection_start",
         "zero_balance",
       ].includes(value)
+    ) {
+      return value;
+    }
+    if (
+      field.finalField === "treatment.interestRateConvention" &&
+      ["canadian_mortgage", "effective_annual"].includes(value)
     ) {
       return value;
     }

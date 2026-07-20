@@ -30,7 +30,12 @@ import {
   TFSA_ANNUAL_LIMITS,
   TFSA_WITHDRAWAL_REFERENCE_URL,
 } from "@/src/domain/defaults/canadian-registered-account-room";
-import { validateProjectionInputs, type AccountType, type ProjectionInputs } from "@/src/domain/projection/types";
+import {
+  validateProjectionInputs,
+  type AccountType,
+  type ProjectionInputs,
+} from "@/src/domain/projection/types";
+import { monthlyLiabilityInterestRate } from "@/src/domain/projection/liability-interest";
 import type { LunchMoneyData } from "@/src/integrations/lunchmoney/read-service";
 import { PlannerRuntimeError } from "@/src/runtime/errors";
 import type {
@@ -695,6 +700,8 @@ export function deriveCurrentBaseline(
             ? {
                 mode: "amortizing",
                 annualInterestRate: treatment.annualInterestRate,
+                interestRateConvention:
+                  treatment.interestRateConvention,
                 regularPayment: {
                   amount: treatment.regularPayment.amount,
                   frequency: treatment.regularPayment.frequency,
@@ -711,11 +718,10 @@ export function deriveCurrentBaseline(
         resolvedTreatment.mode === "amortizing" &&
         resolvedTreatment.regularPayment.monthlyEquivalent <=
           balance *
-            (Math.pow(
-              1 + resolvedTreatment.annualInterestRate,
-              1 / 12,
-            ) -
-              1)
+            monthlyLiabilityInterestRate(
+              resolvedTreatment.annualInterestRate,
+              resolvedTreatment.interestRateConvention,
+            )
       ) {
         throw new PlannerRuntimeError(
           "invalid_planner_config",
@@ -810,6 +816,8 @@ export function deriveCurrentBaseline(
       if (resolvedTreatment.mode === "amortizing") {
         for (const [field, value] of Object.entries({
           annualInterestRate: resolvedTreatment.annualInterestRate,
+          interestRateConvention:
+            resolvedTreatment.interestRateConvention,
           regularPaymentAmount:
             resolvedTreatment.regularPayment.amount,
           regularPaymentFrequency:

@@ -270,6 +270,7 @@ describe("private planner configuration", () => {
       liability: {
         mode: "amortizing",
         annualInterestRate: 0.04,
+        interestRateConvention: "canadian_mortgage",
         regularPayment: {
           amount: 1200,
           frequency: "biweekly",
@@ -316,6 +317,7 @@ describe("private planner configuration", () => {
       liability: {
         mode: "amortizing",
         annualInterestRate: 0.04,
+        interestRateConvention: "canadian_mortgage",
         regularPayment: { amount: 1000, frequency: "monthly" },
         scheduleStartDate: "2026-01-15",
         lumpSumPayments: [],
@@ -371,6 +373,42 @@ describe("private planner configuration", () => {
     ).debt = { cash: 0, fixedIncome: 0, equity: 1 };
     expect(() => validatePlannerConfig(debtAllocation)).toThrow(
       "assumptions.allocations.debt must be removed",
+    );
+  });
+
+  it("requires an explicit supported liability interest-rate convention", async () => {
+    const missing = structuredClone(
+      await loadPlannerConfig(EXAMPLE_CONFIG_PATH),
+    ) as unknown as Record<string, unknown>;
+    const missingLiability = (
+      (
+        missing.accountMappings as Record<
+          string,
+          Record<string, unknown>
+        >
+      )["manual:synthetic-primary-mortgage"]!
+        .liability as Record<string, unknown>
+    );
+    delete missingLiability.interestRateConvention;
+    expect(() => validatePlannerConfig(missing)).toThrow(
+      "interestRateConvention must be canadian_mortgage or effective_annual",
+    );
+
+    const invalid = structuredClone(
+      await loadPlannerConfig(EXAMPLE_CONFIG_PATH),
+    ) as unknown as Record<string, unknown>;
+    const invalidLiability = (
+      (
+        invalid.accountMappings as Record<
+          string,
+          Record<string, unknown>
+        >
+      )["manual:synthetic-primary-mortgage"]!
+        .liability as Record<string, unknown>
+    );
+    invalidLiability.interestRateConvention = "synthetic_invalid";
+    expect(() => validatePlannerConfig(invalid)).toThrow(
+      "interestRateConvention must be canadian_mortgage or effective_annual",
     );
   });
 

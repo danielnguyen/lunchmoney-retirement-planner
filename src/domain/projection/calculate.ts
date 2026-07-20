@@ -46,6 +46,7 @@ import {
   centDifference,
   monetaryValue,
 } from "./monetary-reconciliation";
+import { monthlyLiabilityInterestRate } from "./liability-interest";
 
 const MONTHS_PER_YEAR = 12;
 const AGE_TOLERANCE = 1e-6;
@@ -91,6 +92,87 @@ function activeContributionPhase(
 
 function lastDayOfMonth(calendarYear: number, calendarMonth: number): string {
   return new Date(Date.UTC(calendarYear, calendarMonth, 0)).toISOString().slice(0, 10);
+}
+
+type LiabilityPaymentDemand = {
+  liabilityId: string;
+  schedule: LiabilityScheduleBreakdown;
+  cashPayment: number;
+};
+
+function buildLiabilityPaymentDemand(
+  liability: LiabilityInput,
+  openingBalance: number,
+  projectionMonth: number,
+  calendarMonthKey: string,
+): LiabilityPaymentDemand {
+  let interest = 0;
+  let regularPayment = 0;
+  let principal = 0;
+  let lumpSumPrincipal = 0;
+  let closingBalance = openingBalance;
+
+  if (
+    openingBalance > 0 &&
+    liability.treatment.mode === "payoff_at_projection_start" &&
+    projectionMonth === 1
+  ) {
+    regularPayment = openingBalance;
+    principal = openingBalance;
+    closingBalance = 0;
+  } else if (liability.treatment.mode === "amortizing") {
+    const configuredLumpSum = liability.treatment.lumpSumPayments
+      .filter((payment) => payment.date.slice(0, 7) === calendarMonthKey)
+      .reduce((total, payment) => total + payment.amount, 0);
+
+    if (openingBalance <= 0 && configuredLumpSum > 0) {
+      throw new Error(
+        `Lump-sum payment for liability ${liability.id} occurs after its projected payoff`,
+      );
+    }
+    if (openingBalance > 0) {
+      interest =
+        openingBalance *
+        monthlyLiabilityInterestRate(
+          liability.treatment.annualInterestRate,
+          liability.treatment.interestRateConvention,
+        );
+      regularPayment = Math.min(
+        liability.treatment.regularPayment.monthlyEquivalent,
+        openingBalance + interest,
+      );
+      principal = Math.max(0, regularPayment - interest);
+      const afterRegular =
+        openingBalance + interest - regularPayment;
+      if (configuredLumpSum > afterRegular + 0.01) {
+        throw new Error(
+          `Lump-sum payment for liability ${liability.id} exceeds its remaining projected principal`,
+        );
+      }
+      lumpSumPrincipal = Math.min(
+        configuredLumpSum,
+        Math.max(0, afterRegular),
+      );
+      closingBalance = Math.max(
+        0,
+        afterRegular - lumpSumPrincipal,
+      );
+    }
+  }
+
+  if (closingBalance <= 0.005) closingBalance = 0;
+  return {
+    liabilityId: liability.id,
+    schedule: {
+      openingBalance,
+      interest,
+      regularPayment,
+      principal,
+      lumpSumPrincipal,
+      closingBalance,
+    },
+    cashPayment: regularPayment + lumpSumPrincipal,
+  };
 }
 
 export function cppClaimFactor(startAge: number): number {
@@ -1545,6 +1627,34 @@ export function calculateProjection(rawInputs: ProjectionInputs): ProjectionResu
     monthlyFlow.outflows.essential += essential;
     monthlyFlow.outflows.discretionary += discretionary;
 
+    let eventInflows = 0;
+    let unassignedEventInflows = 0;
+    let eventOutflows = 0;
+    const matchingEvents = inputs.events.filter(
+      (event) =>
+        event.calendarYear === calendarYear &&
+        event.month === calendarMonth,
+    );
+    for (const event of matchingEvents) {
+      const amount = event.amountToday * factor;
+      if (event.direction === "inflow") {
+        eventInflows += amount;
+        monthlyFlow.income.other += amount;
+        monthlyFlow.income.total += amount;
+        if (event.targetAccountId) {
+          balances.set(
+            event.targetAccountId,
+            (balances.get(event.targetAccountId) ?? 0) + amount,
+          );
+        } else {
+          unassignedEventInflows += amount;
+        }
+      } else {
+        eventOutflows += amount;
+        monthlyFlow.outflows.oneTime += amount;
+      }
+    }
+
     let liabilityCashPayment = 0;
     let liabilityInterest = 0;
     let liabilityPrincipal = 0;
@@ -1552,97 +1662,20 @@ export function calculateProjection(rawInputs: ProjectionInputs): ProjectionResu
     const calendarMonthKey = `${calendarYear}-${String(
       calendarMonth,
     ).padStart(2, "0")}`;
-    for (const liability of inputs.liabilities) {
-      const openingBalance = liabilityBalances.get(liability.id) ?? 0;
-      let interest = 0;
-      let regularPayment = 0;
-      let principal = 0;
-      let lumpSumPrincipal = 0;
-      let closingBalance = openingBalance;
-      if (
-        openingBalance > 0 &&
-        liability.treatment.mode === "payoff_at_projection_start" &&
-        month === 1
-      ) {
-        regularPayment = openingBalance;
-        principal = openingBalance;
-        closingBalance = 0;
-      } else if (
-        openingBalance > 0 &&
-        liability.treatment.mode === "amortizing" &&
-        calendarMonthKey >=
-          liability.treatment.scheduleStartDate.slice(0, 7)
-      ) {
-        interest =
-          openingBalance *
-          monthlyRate(liability.treatment.annualInterestRate);
-        regularPayment = Math.min(
-          liability.treatment.regularPayment.monthlyEquivalent,
-          openingBalance + interest,
-        );
-        principal = Math.max(0, regularPayment - interest);
-        const afterRegular =
-          openingBalance + interest - regularPayment;
-        const configuredLumpSum = liability.treatment.lumpSumPayments
-          .filter((payment) => payment.date.slice(0, 7) === calendarMonthKey)
-          .reduce((total, payment) => total + payment.amount, 0);
-        if (configuredLumpSum > afterRegular + 0.01) {
-          throw new Error(
-            `Lump-sum payment for liability ${liability.id} exceeds its remaining projected principal`,
-          );
-        }
-        lumpSumPrincipal = Math.min(
-          configuredLumpSum,
-          Math.max(0, afterRegular),
-        );
-        closingBalance = Math.max(
-          0,
-          afterRegular - lumpSumPrincipal,
-        );
-      }
-      if (closingBalance <= 0.005) closingBalance = 0;
-      liabilityBalances.set(liability.id, closingBalance);
-      if (
-        openingBalance > 0 &&
-        closingBalance === 0 &&
-        liabilityPayoffDates[liability.id] === null
-      ) {
-        liabilityPayoffDates[liability.id] = lastDayOfMonth(
-          calendarYear,
-          calendarMonth,
-        );
-      }
-      monthlyFlow.liabilitySchedules[liability.id] = {
-        openingBalance,
-        interest,
-        regularPayment,
-        principal,
-        lumpSumPrincipal,
-        closingBalance,
-      };
-      liabilityInterest += interest;
-      liabilityPrincipal += principal;
-      liabilityLumpSumPrincipal += lumpSumPrincipal;
-      liabilityCashPayment += regularPayment + lumpSumPrincipal;
-
-      if (month <= retirementMonth) {
-        nominalNetWorthBridge.liabilityPrincipalPayments +=
-          principal + lumpSumPrincipal;
-        nominalNetWorthBridge.liabilityPrincipalReduction +=
-          openingBalance - closingBalance;
-        realNetWorthBridge.liabilityPrincipalPayments +=
-          (principal + lumpSumPrincipal) / factor;
-        realNetWorthBridge.liabilityPrincipalReduction +=
-          openingBalance / previousFactor -
-          closingBalance / factor;
-      }
-    }
-    monthlyFlow.outflows.liabilityInterest = liabilityInterest;
-    monthlyFlow.outflows.liabilityPrincipal = liabilityPrincipal;
-    monthlyFlow.outflows.liabilityLumpSumPrincipal =
-      liabilityLumpSumPrincipal;
-    monthlyFlow.outflows.liabilityCashPayment =
-      liabilityCashPayment;
+    const liabilityPaymentDemands = inputs.liabilities.map(
+      (liability) =>
+        buildLiabilityPaymentDemand(
+          liability,
+          liabilityBalances.get(liability.id) ?? 0,
+          month,
+          calendarMonthKey,
+        ),
+    );
+    const requiredLiabilityCashPayment =
+      liabilityPaymentDemands.reduce(
+        (total, demand) => total + demand.cashPayment,
+        0,
+      );
 
     let cashFundedContributions = 0;
     let incomeWithheldContributions = 0;
@@ -1813,48 +1846,134 @@ export function calculateProjection(rawInputs: ProjectionInputs): ProjectionResu
         monthlyFlow.savingsPolicy.workplaceUnallocated =
           workplace.unallocated;
       }
-    } else {
+    }
+
+    const withdrawalAccounts = [...inputs.accounts].sort(
+      (left, right) =>
+        left.withdrawalPriority - right.withdrawalPriority,
+    );
+    let withdrawalTaxTotal = 0;
+    const fundCashNeedFromWithdrawals = (
+      requestedNetCash: number,
+    ): number => {
+      let remaining = requestedNetCash;
+      for (const account of withdrawalAccounts) {
+        if (remaining <= 0) break;
+        const balance = balances.get(account.id) ?? 0;
+        if (balance <= 0) continue;
+        let grossWithdrawal = Math.min(balance, remaining);
+        let netCash = grossWithdrawal;
+        if (account.type === "rrsp_rrif") {
+          const netRate = 1 - inputs.tax.effectiveTaxRate;
+          grossWithdrawal = Math.min(balance, remaining / netRate);
+          const withdrawalTax =
+            grossWithdrawal * inputs.tax.effectiveTaxRate;
+          netCash = grossWithdrawal - withdrawalTax;
+          monthlyFlow.outflows.tax += withdrawalTax;
+          withdrawalTaxTotal += withdrawalTax;
+        }
+        balances.set(account.id, balance - grossWithdrawal);
+        addWithdrawal(
+          monthlyFlow.withdrawals,
+          account.type,
+          grossWithdrawal,
+        );
+        if (account.type === "tfsa") {
+          tfsaWithdrawalsByYear.set(
+            calendarYear,
+            (tfsaWithdrawalsByYear.get(calendarYear) ?? 0) +
+              grossWithdrawal,
+          );
+        }
+        remaining -= netCash;
+      }
+      return Math.max(0, remaining);
+    };
+
+    let availableCurrentMonthCash =
+      income.total + unassignedEventInflows;
+    const liabilityPaymentFromCurrentCash = Math.min(
+      availableCurrentMonthCash,
+      requiredLiabilityCashPayment,
+    );
+    availableCurrentMonthCash -= liabilityPaymentFromCurrentCash;
+    const remainingRequiredLiabilityPayment =
+      fundCashNeedFromWithdrawals(
+        requiredLiabilityCashPayment -
+          liabilityPaymentFromCurrentCash,
+      );
+    if (remainingRequiredLiabilityPayment > 0.005) {
+      monthlyFlow.outflows.unmetRequiredOutflow =
+        remainingRequiredLiabilityPayment;
+      throw new Error(
+        `Required liability payment could not be funded for ${calendarMonthKey}`,
+      );
+    }
+
+    for (const demand of liabilityPaymentDemands) {
+      const schedule = demand.schedule;
+      liabilityBalances.set(
+        demand.liabilityId,
+        schedule.closingBalance,
+      );
+      if (
+        schedule.openingBalance > 0 &&
+        schedule.closingBalance === 0 &&
+        liabilityPayoffDates[demand.liabilityId] === null
+      ) {
+        liabilityPayoffDates[demand.liabilityId] = lastDayOfMonth(
+          calendarYear,
+          calendarMonth,
+        );
+      }
+      monthlyFlow.liabilitySchedules[demand.liabilityId] = schedule;
+      liabilityInterest += schedule.interest;
+      liabilityPrincipal += schedule.principal;
+      liabilityLumpSumPrincipal += schedule.lumpSumPrincipal;
+      liabilityCashPayment += demand.cashPayment;
+
+      if (month <= retirementMonth) {
+        nominalNetWorthBridge.liabilityPrincipalPayments +=
+          schedule.principal + schedule.lumpSumPrincipal;
+        nominalNetWorthBridge.liabilityPrincipalReduction +=
+          schedule.openingBalance - schedule.closingBalance;
+        realNetWorthBridge.liabilityPrincipalPayments +=
+          (schedule.principal + schedule.lumpSumPrincipal) / factor;
+        realNetWorthBridge.liabilityPrincipalReduction +=
+          schedule.openingBalance / previousFactor -
+          schedule.closingBalance / factor;
+      }
+    }
+    monthlyFlow.outflows.liabilityInterest = liabilityInterest;
+    monthlyFlow.outflows.liabilityPrincipal = liabilityPrincipal;
+    monthlyFlow.outflows.liabilityLumpSumPrincipal =
+      liabilityLumpSumPrincipal;
+    monthlyFlow.outflows.liabilityCashPayment =
+      liabilityCashPayment;
+
+    if (!simplePolicy) {
       for (const route of inputs.contributionWaterfall.routes) {
         processContributionRoute(route, Number.POSITIVE_INFINITY);
       }
     }
 
-    let eventInflows = 0;
-    let unassignedEventInflows = 0;
-    let eventOutflows = 0;
-    const matchingEvents = inputs.events.filter(
-      (event) => event.calendarYear === calendarYear && event.month === calendarMonth,
-    );
-    for (const event of matchingEvents) {
-      const amount = event.amountToday * factor;
-      if (event.direction === "inflow") {
-        eventInflows += amount;
-        monthlyFlow.income.other += amount;
-        monthlyFlow.income.total += amount;
-        if (event.targetAccountId) {
-          balances.set(
-            event.targetAccountId,
-            (balances.get(event.targetAccountId) ?? 0) + amount,
-          );
-        } else {
-          unassignedEventInflows += amount;
-        }
-      } else {
-        eventOutflows += amount;
-        monthlyFlow.outflows.oneTime += amount;
-      }
-    }
-
     let cashPosition =
-      income.total +
-      unassignedEventInflows -
+      availableCurrentMonthCash -
       essential -
       discretionary -
       regularTax -
       recoveryTax -
-      liabilityCashPayment -
       cashFundedContributions -
       eventOutflows;
+    if (cashPosition < 0) {
+      const unmetSpending = fundCashNeedFromWithdrawals(
+        -cashPosition,
+      );
+      if (unmetSpending > 0) {
+        monthlyFlow.outflows.unmetSpending += unmetSpending;
+      }
+      cashPosition = 0;
+    }
 
     if (simplePolicy) {
       const positiveCashAvailable = Math.max(0, cashPosition);
@@ -2128,44 +2247,6 @@ export function calculateProjection(rawInputs: ProjectionInputs): ProjectionResu
       cashPosition = 0;
     }
 
-    let gap = Math.max(0, -cashPosition);
-    const withdrawalAccounts = [...inputs.accounts]
-      .sort((left, right) => left.withdrawalPriority - right.withdrawalPriority);
-
-    for (const account of withdrawalAccounts) {
-      if (gap <= 0) break;
-      const balance = balances.get(account.id) ?? 0;
-      if (balance <= 0) continue;
-      let grossWithdrawal = Math.min(balance, gap);
-      let netCash = grossWithdrawal;
-      if (account.type === "rrsp_rrif") {
-        const netRate = 1 - inputs.tax.effectiveTaxRate;
-        grossWithdrawal = Math.min(balance, gap / netRate);
-        const withdrawalTax = grossWithdrawal * inputs.tax.effectiveTaxRate;
-        netCash = grossWithdrawal - withdrawalTax;
-        monthlyFlow.outflows.tax += withdrawalTax;
-      }
-      balances.set(account.id, balance - grossWithdrawal);
-      addWithdrawal(monthlyFlow.withdrawals, account.type, grossWithdrawal);
-      if (account.type === "tfsa") {
-        tfsaWithdrawalsByYear.set(
-          calendarYear,
-          (tfsaWithdrawalsByYear.get(calendarYear) ?? 0) + grossWithdrawal,
-        );
-      }
-      gap -= netCash;
-    }
-
-    if (gap > 0 && liabilityCashPayment > 0) {
-      monthlyFlow.outflows.unmetRequiredOutflow = Math.min(
-        gap,
-        liabilityCashPayment,
-      );
-      throw new Error(
-        `Required liability payment could not be funded for ${calendarMonthKey}`,
-      );
-    }
-    if (gap > 0) monthlyFlow.outflows.unmetSpending += gap;
     monthlyFlow.outflows.total =
       monthlyFlow.outflows.essential +
       monthlyFlow.outflows.discretionary +
@@ -2199,7 +2280,8 @@ export function calculateProjection(rawInputs: ProjectionInputs): ProjectionResu
         monthlyFlow.outflows.essential +
         monthlyFlow.outflows.discretionary +
         monthlyFlow.outflows.oneTime +
-        monthlyFlow.outflows.tax;
+        regularTax +
+        recoveryTax;
       const fundedExternalOutflows = Math.max(
         0,
         requestedExternalOutflows - monthlyFlow.outflows.unmetSpending,
@@ -2218,7 +2300,9 @@ export function calculateProjection(rawInputs: ProjectionInputs): ProjectionResu
         monthlyFlow.outflows.discretionary * fundedRatio;
       nominalBridge.liabilityCashPayments += liabilityCashPayment;
       nominalBridge.oneTimeOutflows += monthlyFlow.outflows.oneTime * fundedRatio;
-      nominalBridge.taxes += monthlyFlow.outflows.tax * fundedRatio;
+      nominalBridge.taxes +=
+        (regularTax + recoveryTax) * fundedRatio +
+        withdrawalTaxTotal;
 
       nominalNetWorthBridge.externalNetCashInflows +=
         income.total + eventInflows;
@@ -2230,7 +2314,8 @@ export function calculateProjection(rawInputs: ProjectionInputs): ProjectionResu
         monthlyFlow.outflows.discretionary * fundedRatio;
       nominalNetWorthBridge.liabilityInterest += liabilityInterest;
       nominalNetWorthBridge.taxes +=
-        monthlyFlow.outflows.tax * fundedRatio;
+        (regularTax + recoveryTax) * fundedRatio +
+        withdrawalTaxTotal;
       nominalNetWorthBridge.oneTimeConsumptionOutflows +=
         monthlyFlow.outflows.oneTime * fundedRatio;
 
@@ -2246,7 +2331,10 @@ export function calculateProjection(rawInputs: ProjectionInputs): ProjectionResu
         liabilityCashPayment / factor;
       realBridge.oneTimeOutflows +=
         (monthlyFlow.outflows.oneTime * fundedRatio) / factor;
-      realBridge.taxes += (monthlyFlow.outflows.tax * fundedRatio) / factor;
+      realBridge.taxes +=
+        ((regularTax + recoveryTax) * fundedRatio +
+          withdrawalTaxTotal) /
+        factor;
 
       realNetWorthBridge.externalNetCashInflows +=
         (income.total + eventInflows) / factor;
@@ -2259,7 +2347,9 @@ export function calculateProjection(rawInputs: ProjectionInputs): ProjectionResu
       realNetWorthBridge.liabilityInterest +=
         liabilityInterest / factor;
       realNetWorthBridge.taxes +=
-        (monthlyFlow.outflows.tax * fundedRatio) / factor;
+        ((regularTax + recoveryTax) * fundedRatio +
+          withdrawalTaxTotal) /
+        factor;
       realNetWorthBridge.oneTimeConsumptionOutflows +=
         (monthlyFlow.outflows.oneTime * fundedRatio) / factor;
     }

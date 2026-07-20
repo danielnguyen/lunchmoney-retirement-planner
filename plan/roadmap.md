@@ -303,10 +303,18 @@ A schedule should support:
 
 - opening principal
 - interest rate
+- explicit interest-rate convention
 - regular payment
 - payment frequency or monthly equivalent
 - start date
 - optional lump-sum payments
+
+The schedule effective date must be on or before projection start for an
+imported opening liability. The imported balance remains authoritative; the
+projection must not replay historical amortization or imply future debt
+origination. Required liability demand must be fully funded before the
+liability closing balance is committed, and a configured lump sum must be
+consumed exactly once or rejected clearly.
 
 The engine must distinguish:
 
