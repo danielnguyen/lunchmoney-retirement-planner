@@ -13,12 +13,12 @@ Public content must remain generic. Do not add private financial values, account
 - Active capability: Net worth, real estate, and debt amortization
 - Status: In progress
 - Branch: `agent/add-net-worth-and-debt-amortization`
-- Latest validated implementation head: Not yet available
-- Synthetic validation: Not yet run
+- Latest validated implementation head: `d8f7dc475152eddbf918c05295349127d0e6d918`
+- Synthetic validation: Passed — 237 tests, typecheck, lint, production build, Docker image build, Docker Compose validation, export privacy/shape checks, and `git diff --check`
 - Repository-owner private migration: Outstanding
 - Private live smoke test: Outstanding
-- Remaining step: implement and validate the public capability in draft PR #11
-- Next action: implement the typed balance sheet and debt schedules, then run synthetic validation
+- Remaining step: review the public implementation, then migrate private residence/liability inputs and run the explicitly authorized private smoke test
+- Next action: final public review of draft PR #11, followed by a separately authorized private migration and live smoke test
 - Last completed capability: Registered-account room and contribution waterfall
 
 ## Terminology boundary
