@@ -3563,8 +3563,11 @@ function liabilityScheduleDocument(
     context.displayMode,
   );
   const liabilities = context.inputs.liabilities;
+  const scheduledLiabilities = liabilities.filter(
+    (liability) => liability.openingBalance > 0,
+  );
   const annualRows = context.projection.annual.flatMap((point) =>
-    liabilities.map((liability) => {
+    scheduledLiabilities.map((liability) => {
       const schedule =
         point[context.displayMode].liabilitySchedules[liability.id];
       return {
@@ -3593,6 +3596,136 @@ function liabilityScheduleDocument(
       point.nominal.outflows.unmetRequiredOutflow <= 0.01 &&
       point.real.outflows.unmetRequiredOutflow <= 0.01,
   );
+  const historicalHandlingLabel = (
+    handling: (typeof liabilities)[number]["historicalPaymentHandling"],
+  ): string => {
+    if (handling === "payee_and_source_account") {
+      return "Matched by configured payee and source account";
+    }
+    if (handling === "category_mapped") {
+      return "Matched through a dedicated debt-payment category";
+    }
+    if (handling === "already_excluded_or_transfer") {
+      return "Already excluded or represented as a transfer";
+    }
+    return "Not applicable";
+  };
+  const liabilitySteps = liabilities.map((liability) => {
+    const treatment = liability.treatment;
+    const payoffDate =
+      context.projection.liabilityPayoffDates[liability.id];
+    if (
+      liability.openingBalance === 0 ||
+      treatment.mode === "zero_balance"
+    ) {
+      return {
+        label: liability.label,
+        value: "Zero balance at projection start",
+        operation: "input" as const,
+        sourceType: "lunchmoney" as const,
+        effectiveDate: liability.balanceAsOf,
+      };
+    }
+    if (treatment.mode === "payoff_at_projection_start") {
+      return {
+        label: liability.label,
+        value: "Paid in the first projected month",
+        operation: "input" as const,
+        sourceType: "lunchmoney" as const,
+        effectiveDate: liability.balanceAsOf,
+        details: [
+          {
+            label: "Opening balance",
+            value: exactCurrency.format(liability.openingBalance),
+            sourceType: "lunchmoney" as const,
+            effectiveDate: liability.balanceAsOf,
+          },
+          {
+            label: "Treatment",
+            value: "Paid in the first projected month",
+            sourceType: "configuration" as const,
+          },
+          {
+            label: "Projected payoff date",
+            value: payoffDate ?? "Not paid off within the projection",
+            sourceType: "projection" as const,
+          },
+        ],
+      };
+    }
+    return {
+      label: liability.label,
+      value: "Amortizing payment schedule",
+      operation: "input" as const,
+      sourceType: "lunchmoney" as const,
+      effectiveDate: liability.balanceAsOf,
+      details: [
+        {
+          label: "Opening principal",
+          value: exactCurrency.format(liability.openingBalance),
+          sourceType: "lunchmoney" as const,
+          effectiveDate: liability.balanceAsOf,
+        },
+        {
+          label: "Annual interest rate",
+          value: percent.format(treatment.annualInterestRate),
+          sourceType: (context.overrides[
+            `liability.${liability.id}.annualInterestRate`
+          ] !== undefined
+            ? "override"
+            : "configuration") as ExplanationSourceType,
+        },
+        {
+          label: "Interest-rate convention",
+          value: liabilityInterestRateConventionLabel(
+            treatment.interestRateConvention,
+          ),
+          sourceType: "configuration" as const,
+        },
+        {
+          label: "Entered regular payment",
+          value: `${exactCurrency.format(treatment.regularPayment.amount)} ${treatment.regularPayment.frequency}`,
+          sourceType: (context.overrides[
+            `liability.${liability.id}.regularPayment.amount`
+          ] !== undefined
+            ? "override"
+            : "configuration") as ExplanationSourceType,
+        },
+        {
+          label: "Monthly equivalent",
+          value: exactCurrency.format(
+            treatment.regularPayment.monthlyEquivalent,
+          ),
+          sourceType: "projection" as const,
+        },
+        {
+          label: "Current schedule effective date",
+          value: treatment.scheduleStartDate,
+          sourceType: "configuration" as const,
+          effectiveDate: treatment.scheduleStartDate,
+        },
+        {
+          label: "Historical payment handling",
+          value: historicalHandlingLabel(
+            liability.historicalPaymentHandling,
+          ),
+          sourceType: "configuration" as const,
+        },
+        {
+          label: "Historical monthly average",
+          value: exactCurrency.format(
+            liability.historicalMonthlyAverage,
+          ),
+          sourceType: "lunchmoney" as const,
+        },
+        {
+          label: "Projected payoff date",
+          value: payoffDate ?? "Not paid off within the projection",
+          sourceType: "projection" as const,
+        },
+      ],
+    };
+  });
   return {
     id: "liability-schedule",
     title: "Mortgage and debt schedule",
@@ -3608,78 +3741,20 @@ function liabilityScheduleDocument(
     },
     formula:
       "Opening principal + interest − funded regular payment − funded lump-sum principal = closing principal",
-    steps: liabilities.flatMap((liability) => {
-      const treatment = liability.treatment;
-      const payoffDate =
-        context.projection.liabilityPayoffDates[liability.id];
-      return [
-        {
-          label: `${liability.label} opening principal`,
-          value: exactCurrency.format(liability.openingBalance),
-          rawValue: liability.openingBalance,
-          operation: "input" as const,
-          sourceType: "lunchmoney" as const,
-          effectiveDate: liability.balanceAsOf,
-        },
-        ...(treatment.mode === "amortizing"
-          ? [
-              {
-                label: `${liability.label} interest rate`,
-                value: percent.format(treatment.annualInterestRate),
-                rawValue: treatment.annualInterestRate,
-                sourceType: (context.overrides[
-                  `liability.${liability.id}.annualInterestRate`
-                ] !== undefined
-                  ? "override"
-                  : "configuration") as ExplanationSourceType,
-              },
-              {
-                label: `${liability.label} rate convention`,
-                value: liabilityInterestRateConventionLabel(
-                  treatment.interestRateConvention,
-                ),
-                sourceType: "configuration" as const,
-              },
-              {
-                label: `${liability.label} entered payment`,
-                value: `${exactCurrency.format(treatment.regularPayment.amount)} ${treatment.regularPayment.frequency}`,
-                sourceType: (context.overrides[
-                  `liability.${liability.id}.regularPayment.amount`
-                ] !== undefined
-                  ? "override"
-                  : "configuration") as ExplanationSourceType,
-              },
-              {
-                label: `${liability.label} monthly equivalent`,
-                value: exactCurrency.format(
-                  treatment.regularPayment.monthlyEquivalent,
-                ),
-                rawValue: treatment.regularPayment.monthlyEquivalent,
-                sourceType: "projection" as const,
-                effectiveDate: treatment.scheduleStartDate,
-              },
-              {
-                label: `${liability.label} current schedule effective date`,
-                value: treatment.scheduleStartDate,
-                sourceType: "configuration" as const,
-                effectiveDate: treatment.scheduleStartDate,
-              },
-            ]
-          : []),
-        {
-          label: `${liability.label} payment funding status`,
-          value: liabilityFundingComplete
-            ? "Every projected required payment was fully funded"
-            : "At least one required payment was not fully funded",
-          sourceType: "projection" as const,
-        },
-        {
-          label: `${liability.label} payoff date`,
-          value: payoffDate ?? "Not paid off within the projection",
-          sourceType: "projection" as const,
-        },
-      ];
-    }),
+    steps: [
+      ...(scheduledLiabilities.length > 0
+        ? [
+            {
+              label: "Required liability payment funding",
+              value: liabilityFundingComplete
+                ? "All required liability payments in the projection were fully funded"
+                : "At least one required liability payment in the projection was not fully funded",
+              sourceType: "projection" as const,
+            },
+          ]
+        : []),
+      ...liabilitySteps,
+    ],
     dataSections: [
       {
         title: "Annual liability schedule",
@@ -3699,7 +3774,7 @@ function liabilityScheduleDocument(
       {
         title: "Historical payment replacement evidence",
         description:
-          "Historical debt-payment categories are audit evidence only; the configured schedule replaces them in the projection.",
+          "Matched historical debt payments are aggregate audit evidence only; the configured schedule replaces them in the projection.",
         columns: [
           { key: "metric", label: "Metric" },
           { key: "value", label: "Value" },

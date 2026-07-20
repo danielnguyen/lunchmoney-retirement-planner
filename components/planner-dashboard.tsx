@@ -1,6 +1,13 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import {
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  type ReactNode,
+} from "react";
 import {
   Area,
   Bar,
@@ -644,6 +651,136 @@ function sourceLabel(baseline: CurrentBaseline, key: string): string {
   return baseline.provenance[key]?.sourceType.replaceAll("_", " ") ?? "live baseline";
 }
 
+function ScenarioControlsPanel({
+  baseline,
+  inputs,
+  controls,
+  overrides,
+  setOverrides,
+  idPrefix,
+}: {
+  baseline: CurrentBaseline;
+  inputs: ProjectionInputs;
+  controls: ControlDefinition[];
+  overrides: Overrides;
+  setOverrides: React.Dispatch<React.SetStateAction<Overrides>>;
+  idPrefix: "desktop" | "drawer";
+}) {
+  return (
+    <>
+      <div className="section-heading">
+        <div><span className="section-kicker">Scenario</span><h2>Calculator controls</h2></div>
+        <button className="text-button" onClick={() => setOverrides({})}>Reset all</button>
+      </div>
+      <p className="panel-copy">Reset restores this refreshed live baseline. Refresh clears every temporary override.</p>
+      <div className="control-list">
+        {controls.map((control) => {
+          const baselineValue = control.get(baseline.projectionInputs);
+          const currentValue = control.get(inputs);
+          const overridden = overrides[control.key] !== undefined;
+          const inputId = `${idPrefix}-${control.key}`;
+          return (
+            <div className={`control ${overridden ? "is-overridden" : ""}`} key={control.key}>
+              <div className="control-head"><label htmlFor={inputId}>{control.label}</label><output>{control.format(currentValue)}</output></div>
+              <input id={inputId} type={control.inputType ?? "range"} min={control.min(inputs)} max={control.max(inputs)} step={control.step} value={currentValue} onChange={(event) => setOverrides((current) => ({ ...current, [control.key]: Number(event.target.value) }))} />
+              <div className="control-meta">
+                <span>{sourceLabel(baseline, control.sourceKey)}</span>
+                <button className="text-button" disabled={!overridden} onClick={() => setOverrides((current) => { const next = { ...current }; delete next[control.key]; return next; })}>Reset to {control.format(baselineValue)}</button>
+              </div>
+            </div>
+          );
+        })}
+      </div>
+    </>
+  );
+}
+
+function focusableScenarioElements(container: HTMLElement): HTMLElement[] {
+  return [...container.querySelectorAll<HTMLElement>(
+    'button:not([disabled]), [href], input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])',
+  )].filter((element) => !element.hasAttribute("hidden"));
+}
+
+export function ScenarioControlsDrawer({
+  opener,
+  onClose,
+  children,
+}: {
+  opener: HTMLButtonElement | null;
+  onClose: () => void;
+  children: ReactNode;
+}) {
+  const dialogRef = useRef<HTMLElement>(null);
+
+  useEffect(() => {
+    const dialog = dialogRef.current;
+    if (!dialog) return;
+    const previousOverflow = window.document.body.style.overflow;
+    window.document.body.style.overflow = "hidden";
+    focusableScenarioElements(dialog)[0]?.focus();
+
+    function onKeyDown(event: KeyboardEvent) {
+      if (event.key === "Escape") {
+        event.preventDefault();
+        onClose();
+        return;
+      }
+      if (event.key !== "Tab") return;
+      const elements = focusableScenarioElements(dialog!);
+      if (elements.length === 0) {
+        event.preventDefault();
+        return;
+      }
+      const first = elements[0]!;
+      const last = elements.at(-1)!;
+      if (event.shiftKey && window.document.activeElement === first) {
+        event.preventDefault();
+        last.focus();
+      } else if (!event.shiftKey && window.document.activeElement === last) {
+        event.preventDefault();
+        first.focus();
+      }
+    }
+
+    window.document.addEventListener("keydown", onKeyDown);
+    return () => {
+      window.document.removeEventListener("keydown", onKeyDown);
+      window.document.body.style.overflow = previousOverflow;
+      opener?.focus();
+    };
+  }, [onClose, opener]);
+
+  return (
+    <div
+      className="scenario-controls-overlay no-print"
+      data-testid="scenario-controls-overlay"
+      onClick={(event) => {
+        if (event.target === event.currentTarget) onClose();
+      }}
+    >
+      <aside
+        className="scenario-controls-drawer"
+        id="scenario-controls-drawer"
+        ref={dialogRef}
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="scenario-controls-title"
+      >
+        <header className="scenario-controls-drawer-header">
+          <div>
+            <span className="section-kicker">Scenario</span>
+            <h2 id="scenario-controls-title">Scenario controls</h2>
+          </div>
+          <button type="button" className="drawer-close" aria-label="Close scenario controls" onClick={onClose}>
+            ×
+          </button>
+        </header>
+        <div className="scenario-controls-drawer-content">{children}</div>
+      </aside>
+    </div>
+  );
+}
+
 function benefitSourceLabel(
   baseline: CurrentBaseline,
   key: "person.cpp.amountSourceMode" | "person.oas.fullAmountSourceMode",
@@ -730,20 +867,36 @@ export function PlannerDashboard() {
     target: ExplanationTarget;
     opener: HTMLButtonElement;
   } | null>(null);
+  const [scenarioControls, setScenarioControls] = useState<{
+    opener: HTMLButtonElement;
+  } | null>(null);
 
   const openExplanation = useCallback(
     (target: ExplanationTarget, opener: HTMLButtonElement) => {
+      setScenarioControls(null);
       setActiveExplanation({ target, opener });
     },
     [],
   );
   const closeExplanation = useCallback(() => setActiveExplanation(null), []);
+  const closeScenarioControls = useCallback(() => setScenarioControls(null), []);
+
+  useEffect(() => {
+    const wideDesktop = window.matchMedia("(min-width: 1480px)");
+    const closeAtWideDesktop = () => {
+      if (wideDesktop.matches) setScenarioControls(null);
+    };
+    closeAtWideDesktop();
+    wideDesktop.addEventListener("change", closeAtWideDesktop);
+    return () => wideDesktop.removeEventListener("change", closeAtWideDesktop);
+  }, []);
 
   const refresh = useCallback(() => {
     setRefreshGeneration((current) => current + 1);
     setOverrides({});
     setExportStatus("");
     setActiveExplanation(null);
+    setScenarioControls(null);
   }, []);
 
   useEffect(() => {
@@ -973,6 +1126,18 @@ export function PlannerDashboard() {
             Future dollars
           </button>
         </div>
+        <button
+          type="button"
+          className="button secondary scenario-controls-trigger"
+          aria-expanded={scenarioControls !== null}
+          aria-controls="scenario-controls-drawer"
+          onClick={(event) => {
+            setActiveExplanation(null);
+            setScenarioControls({ opener: event.currentTarget });
+          }}
+        >
+          Scenario controls
+        </button>
         <span className="status">
           {projectionError || exportStatus || (projecting ? "Recalculating…" : "Live baseline active")}
         </span>
@@ -1412,29 +1577,15 @@ export function PlannerDashboard() {
               </article>
             </div>
 
-            <aside className="controls-panel no-print">
-              <div className="section-heading">
-                <div><span className="section-kicker">Scenario</span><h2>Calculator controls</h2></div>
-                <button className="text-button" onClick={() => setOverrides({})}>Reset all</button>
-              </div>
-              <p className="panel-copy">Reset restores this refreshed live baseline. Refresh clears every temporary override.</p>
-              <div className="control-list">
-                {controls.map((control) => {
-                  const baselineValue = control.get(baseline.projectionInputs);
-                  const currentValue = control.get(inputs);
-                  const overridden = overrides[control.key] !== undefined;
-                  return (
-                    <div className={`control ${overridden ? "is-overridden" : ""}`} key={control.key}>
-                      <div className="control-head"><label htmlFor={control.key}>{control.label}</label><output>{control.format(currentValue)}</output></div>
-                      <input id={control.key} type={control.inputType ?? "range"} min={control.min(inputs)} max={control.max(inputs)} step={control.step} value={currentValue} onChange={(event) => setOverrides((current) => ({ ...current, [control.key]: Number(event.target.value) }))} />
-                      <div className="control-meta">
-                        <span>{sourceLabel(baseline, control.sourceKey)}</span>
-                        <button className="text-button" disabled={!overridden} onClick={() => setOverrides((current) => { const next = { ...current }; delete next[control.key]; return next; })}>Reset to {control.format(baselineValue)}</button>
-                      </div>
-                    </div>
-                  );
-                })}
-              </div>
+            <aside className="controls-panel controls-panel-desktop no-print">
+              <ScenarioControlsPanel
+                baseline={baseline}
+                inputs={inputs}
+                controls={controls}
+                overrides={overrides}
+                setOverrides={setOverrides}
+                idPrefix="desktop"
+              />
             </aside>
           </section>
 
@@ -1717,6 +1868,21 @@ export function PlannerDashboard() {
           opener={activeExplanation.opener}
           onClose={closeExplanation}
         />
+      ) : null}
+      {scenarioControls ? (
+        <ScenarioControlsDrawer
+          opener={scenarioControls.opener}
+          onClose={closeScenarioControls}
+        >
+          <ScenarioControlsPanel
+            baseline={baseline}
+            inputs={inputs}
+            controls={controls}
+            overrides={overrides}
+            setOverrides={setOverrides}
+            idPrefix="drawer"
+          />
+        </ScenarioControlsDrawer>
       ) : null}
     </main>
   );

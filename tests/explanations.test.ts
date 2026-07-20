@@ -1593,16 +1593,21 @@ describe("calculation explanations", () => {
         "Opening principal + interest − funded regular payment − funded lump-sum principal = closing principal",
       );
       expect(liability.reconciliation?.matched).toBe(true);
+      const mortgageSummary = liability.steps.find(
+        (step) => step.label === "Synthetic mortgage",
+      );
       expect(
-        liability.steps.find((step) =>
-          step.label.endsWith("rate convention"),
+        mortgageSummary?.details?.find(
+          (detail) => detail.label === "Interest-rate convention",
         )?.value,
       ).toContain("Canadian mortgage rate");
       expect(
-        liability.steps.find((step) =>
-          step.label.endsWith("payment funding status"),
-        )?.value,
-      ).toContain("fully funded");
+        liability.steps.filter(
+          (step) => step.label === "Required liability payment funding",
+        ),
+      ).toEqual([
+        expect.objectContaining({ value: expect.stringContaining("fully funded") }),
+      ]);
       expect(
         section(liability, "Annual liability schedule").rows,
       ).toHaveLength(value.projection.annual.length);
@@ -1626,6 +1631,94 @@ describe("calculation explanations", () => {
         "after projected payoff is rejected",
       );
     }
+  });
+
+  it("groups zero-balance, payoff-at-start, and amortizing liability summaries", () => {
+    const value = balanceSheetContext("nominal");
+    const amortizing = value.inputs.liabilities[0]!;
+    amortizing.historicalPaymentHandling = "payee_and_source_account";
+    value.inputs.liabilities = [
+      {
+        ...structuredClone(amortizing),
+        id: "synthetic:zero-liability",
+        label: "Synthetic zero liability",
+        openingBalance: 0,
+        role: null,
+        treatment: { mode: "zero_balance" },
+        historicalPaymentHandling: "not_applicable",
+        historicalMonthlyAverage: 0,
+      },
+      {
+        ...structuredClone(amortizing),
+        id: "synthetic:payoff-liability",
+        label: "Synthetic payoff liability",
+        openingBalance: 500,
+        role: null,
+        treatment: { mode: "payoff_at_projection_start" },
+        historicalPaymentHandling: "already_excluded_or_transfer",
+        historicalMonthlyAverage: 0,
+      },
+      amortizing,
+    ];
+    value.baseline.projectionInputs = structuredClone(value.inputs);
+    value.projection = calculateProjection(value.inputs);
+
+    const document = buildExplanation("liability-schedule", value);
+    const zero = document.steps.filter(
+      (step) => step.label === "Synthetic zero liability",
+    );
+    expect(zero).toEqual([
+      expect.objectContaining({
+        value: "Zero balance at projection start",
+      }),
+    ]);
+    expect(zero[0]?.details).toBeUndefined();
+    expect(JSON.stringify(zero)).not.toContain("funding");
+    expect(JSON.stringify(zero)).not.toContain("payoff");
+
+    const payoff = document.steps.find(
+      (step) => step.label === "Synthetic payoff liability",
+    );
+    expect(payoff?.value).toBe("Paid in the first projected month");
+    expect(payoff?.details?.map((detail) => detail.label)).toEqual([
+      "Opening balance",
+      "Treatment",
+      "Projected payoff date",
+    ]);
+
+    const mortgage = document.steps.find(
+      (step) => step.label === "Synthetic mortgage",
+    );
+    expect(mortgage?.value).toBe("Amortizing payment schedule");
+    expect(mortgage?.details?.map((detail) => detail.label)).toEqual([
+      "Opening principal",
+      "Annual interest rate",
+      "Interest-rate convention",
+      "Entered regular payment",
+      "Monthly equivalent",
+      "Current schedule effective date",
+      "Historical payment handling",
+      "Historical monthly average",
+      "Projected payoff date",
+    ]);
+    expect(
+      mortgage?.details?.find(
+        (detail) => detail.label === "Historical payment handling",
+      )?.value,
+    ).toBe("Matched by configured payee and source account");
+    expect(
+      document.steps.filter(
+        (step) => step.label === "Required liability payment funding",
+      ),
+    ).toHaveLength(1);
+    expect(
+      section(document, "Annual liability schedule").rows,
+    ).toHaveLength(value.projection.annual.length * 2);
+    expect(document.reconciliation?.matched).toBe(true);
+    expect(JSON.stringify(document)).not.toContain("plaid:synthetic-source");
+    expect(JSON.stringify(document)).not.toContain(
+      "Synthetic exact mortgage payee",
+    );
   });
 
   it("identifies an imported residence separately from the configured fallback", () => {

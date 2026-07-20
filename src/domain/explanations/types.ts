@@ -45,6 +45,13 @@ export type ExplanationStep = {
   sourceType?: ExplanationSourceType;
   sourceDescription?: string;
   effectiveDate?: string;
+  details?: Array<{
+    label: string;
+    value: string;
+    sourceType?: ExplanationSourceType;
+    sourceDescription?: string;
+    effectiveDate?: string;
+  }>;
 };
 
 export type ExplanationDataSection = {

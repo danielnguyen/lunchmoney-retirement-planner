@@ -125,7 +125,7 @@ export function CalculationSteps({ document }: { document: ExplanationDocument }
       {document.steps.length > 0 ? (
         <ol className="calculation-steps">
           {document.steps.map((step, index) => (
-            <li className={`calculation-step ${step.operation ?? "input"}`} key={`${step.label}-${index}`}>
+            <li className={`calculation-step ${step.operation ?? "input"} ${step.details?.length ? "has-details" : ""}`} key={`${step.label}-${index}`}>
               <span className="operation" aria-hidden="true">
                 {step.operation === "add"
                   ? "+"
@@ -144,6 +144,21 @@ export function CalculationSteps({ document }: { document: ExplanationDocument }
               </span>
               <span className="calculation-value">{step.value}</span>
               {step.sourceType ? <SourceBadge source={step.sourceType} /> : null}
+              {step.details?.length ? (
+                <dl className="calculation-step-details">
+                  {step.details.map((detail) => (
+                    <div key={detail.label}>
+                      <dt>
+                        <strong>{detail.label}</strong>
+                        {detail.sourceDescription ? <small>{detail.sourceDescription}</small> : null}
+                        {detail.effectiveDate ? <small>Effective {detail.effectiveDate}</small> : null}
+                      </dt>
+                      <dd>{detail.value}</dd>
+                      {detail.sourceType ? <SourceBadge source={detail.sourceType} /> : null}
+                    </div>
+                  ))}
+                </dl>
+              ) : null}
             </li>
           ))}
         </ol>
