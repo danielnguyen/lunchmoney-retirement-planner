@@ -1,0 +1,168 @@
+import { readFile } from "node:fs/promises";
+import { describe, expect, it } from "vitest";
+import {
+  buildControls,
+  materializeInputs,
+} from "@/components/planner-dashboard";
+import { projectionFixture } from "./fixtures/projection";
+
+function simpleControlFixture() {
+  const inputs = structuredClone(projectionFixture);
+  inputs.accounts[1] = {
+    ...inputs.accounts[1]!,
+    id: "plaid:personal-tfsa",
+    label: "Personal TFSA",
+    type: "tfsa",
+    contributionPhases: [
+      {
+        id: "personal-plan",
+        label: "Personal plan",
+        startAge: 40,
+        endAge: 65,
+        monthlyAmountToday: 1000,
+        funding: "cash",
+        indexingRate: 0,
+      },
+    ],
+  };
+  inputs.accounts.push({
+    ...structuredClone(inputs.accounts[1]!),
+    id: "plaid:personal-rrsp",
+    label: "Personal RRSP",
+    type: "rrsp_rrif",
+    contributionPhases: [],
+    withdrawalPriority: 3,
+  });
+  inputs.accounts.push({
+    ...structuredClone(inputs.accounts[1]!),
+    id: "plaid:workplace-rrsp",
+    label: "Workplace RRSP",
+    type: "rrsp_rrif",
+    contributionPhases: [
+      {
+        id: "workplace-plan",
+        label: "Workplace plan",
+        startAge: 40,
+        endAge: 65,
+        monthlyAmountToday: 1800,
+        funding: "income_withheld",
+        indexingRate: 0,
+      },
+    ],
+    withdrawalPriority: 4,
+  });
+  inputs.accounts.push({
+    ...structuredClone(inputs.accounts[1]!),
+    id: "projection:future-taxable",
+    label: "Future taxable",
+    origin: "projection_configuration",
+    type: "non_registered",
+    contributionPhases: [],
+    withdrawalPriority: 5,
+  });
+  inputs.savingsPolicy = {
+    mode: "simple",
+    operatingCashAccountId: "manual:1",
+    reserveAccountIds: ["manual:1"],
+    reserveRefillAccountId: "manual:1",
+    personalTfsaAccountId: "plaid:personal-tfsa",
+    personalRrspAccountId: "plaid:personal-rrsp",
+    workplaceRrspAccountId: "plaid:workplace-rrsp",
+    taxableAccountId: "projection:future-taxable",
+    taxableAccountOrigin: "projection_configuration",
+    reserveBuildingPhases: [
+      {
+        id: "reserve-plan",
+        label: "Reserve plan",
+        startAge: 40,
+        endAge: 50,
+        monthlyAmountToday: 1500,
+        indexingRate: 0.02,
+      },
+    ],
+    unplannedCash: "retain_in_operating_cash",
+    personalOrder: ["personal_tfsa", "personal_rrsp", "taxable"],
+    workplaceRoomPriority: "first",
+    workplaceOverflow: "unallocated",
+    reserveAfterTarget: "personal_investing",
+  };
+  return inputs;
+}
+
+describe("simple savings dashboard controls", () => {
+  it("uses owner-facing labels and simple override keys", () => {
+    const inputs = simpleControlFixture();
+    const controls = buildControls(inputs);
+
+    expect(controls).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          key: "registeredRoom.tfsa.availableAtStart",
+          label: "Starting TFSA room",
+        }),
+        expect.objectContaining({
+          key: "registeredRoom.rrsp.availableAtStart",
+          label: "Starting RRSP deduction room",
+        }),
+        expect.objectContaining({
+          key: "savingsPolicy.reserveBuilding.targetToday",
+          label: "Target cash reserve today",
+        }),
+        expect.objectContaining({
+          key: "savingsPolicy.reserveBuilding.indexingRate",
+          label: "Reserve indexing rate",
+        }),
+        expect.objectContaining({
+          key: "contributionPhase.plaid:personal-tfsa.personal-plan.monthlyAmountToday",
+          label: "Personal saving · Personal plan monthly amount",
+        }),
+        expect.objectContaining({
+          key: "contributionPhase.plaid:workplace-rrsp.workplace-plan.monthlyAmountToday",
+          label: "Workplace RRSP saving · Workplace plan monthly amount",
+        }),
+        expect.objectContaining({
+          key: "reserveBuildingPhase.reserve-plan.monthlyAmountToday",
+          label: "Reserve building · Reserve plan monthly amount",
+        }),
+      ]),
+    );
+  });
+
+  it("materializes overrides without mutating the refreshed baseline and reset restores it", () => {
+    const baseline = simpleControlFixture();
+    const controls = buildControls(baseline);
+    const active = materializeInputs(baseline, controls, {
+      "registeredRoom.tfsa.availableAtStart": 12345,
+      "savingsPolicy.reserveBuilding.targetToday": 55000,
+      "reserveBuildingPhase.reserve-plan.monthlyAmountToday": 900,
+    });
+
+    expect(
+      active.registeredAccountRoom!.tfsa.startingAvailableRoom.amount,
+    ).toBe(12345);
+    expect(active.surplusAllocation.targetCashReserveToday).toBe(55000);
+    expect(
+      active.savingsPolicy.mode === "simple" &&
+        active.savingsPolicy.reserveBuildingPhases[0]!.monthlyAmountToday,
+    ).toBe(900);
+    expect(
+      baseline.registeredAccountRoom!.tfsa.startingAvailableRoom.amount,
+    ).not.toBe(12345);
+    expect(baseline.surplusAllocation.targetCashReserveToday).not.toBe(
+      55000,
+    );
+    expect(materializeInputs(baseline, controls, {})).toEqual(baseline);
+  });
+
+  it("clears every override when the live baseline refreshes", async () => {
+    const dashboard = await readFile(
+      "components/planner-dashboard.tsx",
+      "utf8",
+    );
+    const refreshBody = dashboard.slice(
+      dashboard.indexOf("const refresh = useCallback"),
+      dashboard.indexOf("useEffect(() =>", dashboard.indexOf("const refresh = useCallback")),
+    );
+    expect(refreshBody).toContain("setOverrides({})");
+  });
+});

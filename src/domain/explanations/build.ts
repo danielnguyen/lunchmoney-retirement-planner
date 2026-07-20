@@ -3,6 +3,9 @@ import { resolveActiveScenarioWarnings } from "@/src/domain/baseline/scenario-wa
 import {
   buildAnnualChartData,
   buildAnnualLedgerData,
+  buildContributionReconciliation,
+  buildSavingsPolicyPreview,
+  annualPeriodLabel,
   closestAnnualPoint,
   monthlyEmploymentNetCash,
   monthlyInvestmentContributions,
@@ -1732,6 +1735,7 @@ function allocationDocument(context: ExplanationContext): ExplanationDocument {
 }
 
 function ledgerDocument(context: ExplanationContext): ExplanationDocument {
+  const simple = context.inputs.savingsPolicy.mode === "simple";
   const rows = buildAnnualLedgerData(
     context.inputs,
     context.projection,
@@ -1763,11 +1767,29 @@ function ledgerDocument(context: ExplanationContext): ExplanationDocument {
           { column: "Withdrawals", meaning: "Gross amounts withdrawn from financial accounts during the period." },
           { column: "Tax", meaning: "Simplified retirement and RRSP/RRIF withdrawal tax during the period." },
           { column: "Spending", meaning: "Essential, discretionary, and one-time spending during the period." },
+          {
+            column: "Actual contributions",
+            meaning: simple
+              ? "All investment deposits from personal, workplace, and reserve-building plans."
+              : "All investment deposits, including planned-route and surplus-funded deposits.",
+          },
+          {
+            column: simple ? "Reserve-plan investing" : "Surplus funded",
+            meaning: simple
+              ? "The funded reserve-building amount redirected to investments after the reserve target."
+              : "Cash-funded investment deposits originating from the surplus waterfall.",
+          },
           { column: "Surplus generated", meaning: "Positive unassigned monthly cash generated during the period after targeted inflows are isolated." },
           { column: "Reserve refill", meaning: "Policy-generated surplus used to close the indexed reserve shortfall." },
           { column: "Retained as cash", meaning: "Policy-generated surplus deposited into the reserve refill account." },
           { column: "Redirected", meaning: "Policy-generated surplus deposited into the configured non-registered destination." },
           { column: "Reserve target", meaning: "Active indexed reserve target at the period boundary." },
+          { column: "Positive cash available", meaning: "Positive cash available to explicit cash-funded plans in simple mode." },
+          { column: "Personal plan", meaning: "Explicit personal planned, invested, and unallocated amounts." },
+          { column: "Reserve-building plan", meaning: "Explicit reserve planned, funded, retained, redirected, and unfunded amounts." },
+          { column: "Workplace plan", meaning: "Explicit income-withheld workplace planned, invested, and unallocated amounts." },
+          { column: "Unplanned cash retained", meaning: "Remaining positive cash retained in operating cash rather than invested." },
+          { column: "Total investment deposits", meaning: "All actual personal, workplace, and reserve-plan investment deposits." },
           { column: "Financial assets", meaning: "End-of-period cash and investment balance snapshot; debt excluded." },
           { column: "Milestones", meaning: "Events crossed during the period: retirement, CPP, OAS, or RRIF conversion." },
         ],
@@ -1782,11 +1804,30 @@ function ledgerDocument(context: ExplanationContext): ExplanationDocument {
           { key: "withdrawals", label: "Withdrawals" },
           { key: "tax", label: "Tax" },
           { key: "spending", label: "Spending" },
+          { key: "actualContributions", label: "Actual contributions" },
+          {
+            key: "surplusFundedContributions",
+            label: simple ? "Reserve-plan investing" : "Surplus funded",
+          },
           { key: "surplusGenerated", label: "Surplus generated" },
           { key: "surplusReserveRefill", label: "Reserve refill" },
           { key: "surplusRetainedAsCash", label: "Retained as cash" },
           { key: "surplusRedirected", label: "Redirected" },
           { key: "surplusReserveTarget", label: "Reserve target" },
+          { key: "positiveCashAvailable", label: "Positive cash available" },
+          { key: "personalPlanAmount", label: "Personal planned" },
+          { key: "personalPlanAllowed", label: "Personal invested" },
+          { key: "personalPlanUnallocated", label: "Personal unallocated" },
+          { key: "reserveBuildingPlanAmount", label: "Reserve planned" },
+          { key: "reserveBuildingFunded", label: "Reserve funded" },
+          { key: "reserveCashRetained", label: "Reserve cash retained" },
+          { key: "reservePlanRedirected", label: "Reserve invested" },
+          { key: "reservePlanUnfunded", label: "Reserve unfunded" },
+          { key: "workplacePlanned", label: "Workplace planned" },
+          { key: "workplaceAllowed", label: "Workplace invested" },
+          { key: "workplaceUnallocated", label: "Workplace unallocated" },
+          { key: "unplannedCashRetained", label: "Unplanned cash retained" },
+          { key: "totalInvestmentDeposits", label: "Investment deposits" },
           { key: "financialAssets", label: "Financial assets" },
           { key: "milestones", label: "Milestones" },
         ],
@@ -1917,6 +1958,8 @@ function accountOriginLabel(account: FinancialAccountInput): string {
 function surplusAllocationDocument(
   context: ExplanationContext,
 ): ExplanationDocument {
+  const simple = context.inputs.savingsPolicy.mode === "simple";
+  const preview = buildSavingsPolicyPreview(context.inputs);
   const result = context.projection.surplusAllocation;
   const totals = result.throughRetirement[context.displayMode];
   const reserveAccounts = result.policy.reserveAccountIds.map(
@@ -1929,9 +1972,14 @@ function surplusAllocationDocument(
   const reserveAccountLabels = reserveAccounts
     .map((account) => account.label)
     .join(", ");
-  const destination = result.policy.destinationAccountId
+  const destinationAccountId =
+    result.policy.destinationAccountId ??
+    (context.inputs.savingsPolicy.mode === "simple"
+      ? context.inputs.savingsPolicy.taxableAccountId
+      : null);
+  const destination = destinationAccountId
     ? context.inputs.accounts.find(
-        (account) => account.id === result.policy.destinationAccountId,
+        (account) => account.id === destinationAccountId,
       )!
     : null;
   const retirementView =
@@ -1944,7 +1992,9 @@ function surplusAllocationDocument(
   const accountAllocationDifference =
     accountAllocationTotal - totals.generated;
   const policySource =
-    context.baseline.provenance["surplusAllocation.excess.mode"];
+    context.baseline.provenance[
+      simple ? "savingsPolicy.unplannedCash" : "surplusAllocation.excess.mode"
+    ];
   const annualRows = buildAnnualChartData(
     context.inputs,
     context.projection,
@@ -1956,17 +2006,43 @@ function surplusAllocationDocument(
     retainedAsCash: row.surplusRetainedAsCash,
     redirected: row.surplusRedirected,
     reserveTarget: row.surplusReserveTarget,
+    positiveCashAvailable: row.positiveCashAvailable,
+    personalPlanned: row.personalPlanAmount,
+    personalAllowed: row.personalPlanAllowed,
+    personalUnallocated: row.personalPlanUnallocated,
+    reservePlanned: row.reserveBuildingPlanAmount,
+    reserveFunded: row.reserveBuildingFunded,
+    reserveRetainedAsCash: row.reserveCashRetained,
+    reserveRedirected: row.reservePlanRedirected,
+    reserveUnfunded: row.reservePlanUnfunded,
+    workplacePlanned: row.workplacePlanned,
+    workplaceAllowed: row.workplaceAllowed,
+    workplaceUnallocated: row.workplaceUnallocated,
+    unplannedCashRetained: row.unplannedCashRetained,
+    totalInvestmentDeposits: row.totalInvestmentDeposits,
   }));
   return {
     id: "surplus-allocation",
-    title: "Surplus allocation",
+    title: simple ? "Explicit savings and retained cash" : "Surplus allocation",
     plainLanguage:
-      result.policy.excessMode === "retain_as_cash"
+      simple
+        ? `Only configured savings plans are invested. ${preview.workplacePriority}; ${preview.workplaceOverflow}. ${preview.personalOrder}. ${preview.reserveTransition}. ${preview.unplannedCash}.`
+        : result.policy.excessMode === "retain_as_cash"
         ? `Positive unassigned monthly cash first compares the combined balance of ${reserveAccountLabels} with the indexed target. Any shortfall and all remaining excess go to ${reserveRefillAccount.label}.`
-        : `Positive unassigned monthly cash first compares the combined balance of ${reserveAccountLabels} with the indexed target. Any shortfall goes to ${reserveRefillAccount.label}, then remaining excess goes to ${destination!.label}.`,
+        : result.policy.excessMode === "allocate_to_account"
+          ? `Positive unassigned monthly cash first compares the combined balance of ${reserveAccountLabels} with the indexed target. Any shortfall goes to ${reserveRefillAccount.label}, then remaining excess goes to ${destination!.label}.`
+          : `Positive unassigned monthly cash first compares the combined reserve balance with the indexed target, then follows the configured advanced contribution waterfall.`,
     displayedResult: {
-      label: "Surplus generated through retirement",
-      value: exactCurrency.format(totals.generated),
+      label: simple
+        ? "Unplanned cash retained through retirement"
+        : "Surplus generated through retirement",
+      value: exactCurrency.format(
+        simple
+          ? context.projection.savingsPolicy.throughRetirement[
+              context.displayMode
+            ].unplannedCashRetained
+          : totals.generated,
+      ),
       dollarMode: context.displayMode,
       period: `Through ${context.projection.retirementSnapshot.calendarDate}`,
     },
@@ -2031,8 +2107,59 @@ function surplusAllocationDocument(
       },
     ],
     dataSections: [
+      ...(simple
+        ? [
+            {
+              title: "Resolved simple policy preview",
+              description:
+                "Shared resolved policy wording used by the dashboard and this explanation.",
+              columns: [
+                { key: "concept", label: "Owner intent" },
+                { key: "resolved", label: "Resolved behavior" },
+              ],
+              rows: [
+                { concept: "Configuration mode", resolved: preview.mode },
+                {
+                  concept: "Reserve members",
+                  resolved: preview.reserveAccounts.join(", "),
+                },
+                {
+                  concept: "Reserve refill",
+                  resolved: preview.reserveRefillAccount,
+                },
+                {
+                  concept: "Operating cash",
+                  resolved: preview.operatingCashAccount ?? "Not applicable",
+                },
+                {
+                  concept: "Workplace priority",
+                  resolved: preview.workplacePriority,
+                },
+                {
+                  concept: "Workplace overflow",
+                  resolved: preview.workplaceOverflow,
+                },
+                { concept: "Personal order", resolved: preview.personalOrder },
+                {
+                  concept: "Taxable destination",
+                  resolved: preview.taxableDestination
+                    ? `${preview.taxableDestination} (${preview.taxableDestinationKind})`
+                    : "Not applicable",
+                },
+                {
+                  concept: "Reserve transition",
+                  resolved: preview.reserveTransition,
+                },
+                { concept: "Unplanned cash", resolved: preview.unplannedCash },
+              ],
+              initiallyExpanded: true,
+            },
+          ]
+        : []),
       {
-        title: "Annual surplus allocation",
+        title: simple
+          ? "Annual explicit savings and retained cash"
+          : "Annual surplus allocation",
         description:
           "Exact shared annual presentation rows used by the dashboard chart.",
         columns: [
@@ -2042,6 +2169,24 @@ function surplusAllocationDocument(
           { key: "retainedAsCash", label: "Retained as cash" },
           { key: "redirected", label: "Redirected" },
           { key: "reserveTarget", label: "Reserve target" },
+          ...(simple
+            ? [
+                { key: "positiveCashAvailable", label: "Positive cash available" },
+                { key: "personalPlanned", label: "Personal planned" },
+                { key: "personalAllowed", label: "Personal invested" },
+                { key: "personalUnallocated", label: "Personal unallocated" },
+                { key: "reservePlanned", label: "Reserve planned" },
+                { key: "reserveFunded", label: "Reserve funded" },
+                { key: "reserveRetainedAsCash", label: "Reserve cash retained" },
+                { key: "reserveRedirected", label: "Reserve invested" },
+                { key: "reserveUnfunded", label: "Reserve unfunded" },
+                { key: "workplacePlanned", label: "Workplace planned" },
+                { key: "workplaceAllowed", label: "Workplace invested" },
+                { key: "workplaceUnallocated", label: "Workplace unallocated" },
+                { key: "unplannedCashRetained", label: "Unplanned cash retained" },
+                { key: "totalInvestmentDeposits", label: "Total investment deposits" },
+              ]
+            : []),
         ],
         rows: annualRows,
         initiallyExpanded: true,
@@ -2082,15 +2227,16 @@ function surplusAllocationDocument(
                 context.displayMode
               ],
           },
-          ...(destination &&
-          result.destinationAccountBalanceAtRetirement
+          ...(destination
             ? [
                 {
                   item: `${destination.label} balance`,
                   value:
-                    result.destinationAccountBalanceAtRetirement[
+                    result.destinationAccountBalanceAtRetirement?.[
                       context.displayMode
-                    ],
+                    ] ??
+                    retirementView.accountBalances[destination.id] ??
+                    0,
                 },
               ]
             : []),
@@ -2147,7 +2293,9 @@ function surplusAllocationDocument(
         context.inputs.surplusAllocation.targetCashReserveToday,
         context.baseline.projectionInputs.surplusAllocation
           .targetCashReserveToday,
-        "surplusAllocation.targetCashReserveToday",
+        simple
+          ? "savingsPolicy.reserveBuilding.targetToday"
+          : "surplusAllocation.targetCashReserveToday",
         exactCurrency.format,
       ),
       inputAssumption(
@@ -2156,7 +2304,9 @@ function surplusAllocationDocument(
         context.inputs.surplusAllocation.reserveIndexingRate,
         context.baseline.projectionInputs.surplusAllocation
           .reserveIndexingRate,
-        "surplusAllocation.reserveIndexingRate",
+        simple
+          ? "savingsPolicy.reserveBuilding.indexingRate"
+          : "surplusAllocation.reserveIndexingRate",
         percent.format,
       ),
       {
@@ -2169,9 +2319,13 @@ function surplusAllocationDocument(
       {
         label: "Excess strategy",
         value:
-          result.policy.excessMode === "retain_as_cash"
+          simple
+            ? "Explicit reserve-building savings redirect through personal investing after the target; unplanned cash stays in operating cash"
+            : result.policy.excessMode === "retain_as_cash"
             ? "Retain as cash"
-            : "Allocate to non-registered account",
+            : result.policy.excessMode === "allocate_to_account"
+              ? "Allocate to non-registered account"
+              : "Allocate through advanced contribution waterfall",
         sourceType: sourceType(policySource),
         sourceDescription: policySource?.sourceDescription,
         effectiveDate: policySource?.effectiveDate,
@@ -2184,18 +2338,30 @@ function surplusAllocationDocument(
               sourceType: "configuration" as const,
               sourceDescription:
                 context.baseline.provenance[
-                  "surplusAllocation.excess.destinationAccountId"
+                  simple
+                    ? "savingsPolicy.taxableAccountId"
+                    : "surplusAllocation.excess.destinationAccountId"
                 ]?.sourceDescription,
               effectiveDate:
                 context.baseline.provenance[
-                  "surplusAllocation.excess.destinationAccountId"
+                  simple
+                    ? "savingsPolicy.taxableAccountId"
+                    : "surplusAllocation.excess.destinationAccountId"
                 ]?.effectiveDate,
             },
           ]
         : []),
     ],
     caveats: [
-      "Automatic routing to TFSA and RRSP/RRIF accounts is intentionally unavailable until registered-account room is modelled.",
+      ...(simple
+        ? [
+            "Only explicit personal, reserve-building, and workplace plans are invested; unplanned positive cash is retained in operating cash and is not swept into investments.",
+            "Workplace RRSP has first claim on the global RRSP room pool, overflow is unallocated, and personal cash never uses the workplace RRSP.",
+            "Personal investing follows TFSA → personal RRSP → taxable. The taxable destination may be an imported account or a zero-balance projection-only account.",
+          ]
+        : [
+            "Advanced mode preserves its explicitly configured surplus-routing behavior, with registered-account room constraining TFSA and RRSP/RRIF destinations.",
+          ]),
       "Targeted event inflows go only to their explicit target and are excluded from policy-generated surplus.",
       "Surplus routing is an internal allocation of external net cash already represented by income and outflow bridge terms; it does not change total financial assets at the allocation moment.",
       "Different account returns can change future total assets after the allocation moment.",
@@ -2543,6 +2709,675 @@ function oasBenefitDocument(context: ExplanationContext): ExplanationDocument {
   };
 }
 
+function registeredAccountRoomDocument(
+  context: ExplanationContext,
+): ExplanationDocument {
+  const simple = context.inputs.savingsPolicy.mode === "simple";
+  const preview = buildSavingsPolicyPreview(context.inputs);
+  const room = context.inputs.registeredAccountRoom;
+  if (!room) {
+    return {
+      id: "registered-account-room",
+      title: "Registered-account room and contribution routing",
+      plainLanguage:
+        "Registered-account room is not applicable to this resolved scenario.",
+      steps: [],
+      dataSections: [],
+      assumptions: [],
+      caveats: [
+        "No positive registered contribution or registered surplus destination is active.",
+      ],
+    };
+  }
+  const rows = buildAnnualChartData(
+    context.inputs,
+    context.projection,
+    context.displayMode,
+  );
+  const displayedViews = context.projection.annual.map(
+    (point) => point[context.displayMode],
+  );
+  const contributionReconciliation =
+    buildContributionReconciliation(
+      context.projection,
+      context.displayMode,
+    );
+  const {
+    planned,
+    allowed,
+    surplusFunded,
+    actual,
+    unallocated,
+    cashFunded,
+    incomeWithheld,
+    accountDeposits,
+  } = contributionReconciliation.totals;
+  const plannedDifference =
+    contributionReconciliation.equations.planned.aggregateDifference;
+  const totalDifference =
+    contributionReconciliation.equations.totalActual
+      .aggregateDifference;
+  const fundingDifference =
+    contributionReconciliation.equations.fundingSplit
+      .aggregateDifference;
+  const accountDepositDifference =
+    contributionReconciliation.equations.accountDeposits
+      .aggregateDifference;
+  const maximumDifference =
+    contributionReconciliation.maximumDifference;
+  const first = context.projection.annual[0]?.[context.displayMode];
+  const last = context.projection.annual.at(-1)?.[context.displayMode];
+  return {
+    id: "registered-account-room",
+    title: "Registered-account room and contribution routing",
+    plainLanguage:
+      simple
+        ? `Every TFSA shares one TFSA room pool and every RRSP/RRIF shares one RRSP deduction-room pool. ${preview.workplacePriority}; ${preview.workplaceOverflow}. ${preview.personalOrder}; personal cash never uses the workplace RRSP. Only explicit plans are invested, and unplanned positive cash remains cash.`
+        : "Every TFSA account shares one TFSA room pool and every RRSP/RRIF account shares one RRSP deduction-room pool. Planned routes run in configured order before additional surplus savings.",
+    displayedResult: {
+      label: "Closing registered room at projection end",
+      value: `${exactCurrency.format(last?.registeredAccountRoom.tfsa.closingRoom ?? 0)} TFSA · ${exactCurrency.format(last?.registeredAccountRoom.rrsp.closingRoom ?? 0)} RRSP`,
+      period: "Nominal regulatory dollars",
+    },
+    formula:
+      simple
+        ? "Personal planned = allowed + unallocated; workplace planned = allowed + unallocated; funded reserve plan = cash retained + investment deposits; total actual investments = personal allowed + workplace allowed + reserve-plan investment deposits = cash funded + income withheld = sum of account deposits; positive cash = personal allowed + reserve funded + unplanned retained cash; closing room = opening + new + restored withdrawals − room-consuming contributions"
+        : "Planned = allowed + unallocated; total actual = allowed + surplus funded = cash funded + income withheld = sum of account deposits; each source and destination route reconciles; closing room = opening + new + restored withdrawals − room-consuming contributions",
+    steps: [
+      {
+        label: "Starting TFSA room",
+        value: exactCurrency.format(room.tfsa.startingAvailableRoom.amount),
+        rawValue: room.tfsa.startingAvailableRoom.amount,
+        operation: "input",
+        sourceType:
+          context.overrides[
+            simple
+              ? "registeredRoom.tfsa.availableAtStart"
+              : "registeredAccountRoom.tfsa.startingAvailableRoom.amount"
+          ] !== undefined
+            ? "override"
+            : "configuration",
+        sourceDescription: room.tfsa.startingAvailableRoom.sourceDescription,
+        effectiveDate: room.tfsa.startingAvailableRoom.effectiveDate,
+      },
+      {
+        label: "Starting RRSP deduction room",
+        value: exactCurrency.format(
+          room.rrsp.startingAvailableDeductionRoom.amount,
+        ),
+        rawValue: room.rrsp.startingAvailableDeductionRoom.amount,
+        operation: "input",
+        sourceType:
+          context.overrides[
+            simple
+              ? "registeredRoom.rrsp.availableAtStart"
+              : "registeredAccountRoom.rrsp.startingAvailableDeductionRoom.amount"
+          ] !== undefined
+            ? "override"
+            : "configuration",
+        sourceDescription:
+          room.rrsp.startingAvailableDeductionRoom.sourceDescription,
+        effectiveDate:
+          room.rrsp.startingAvailableDeductionRoom.effectiveDate,
+      },
+      {
+        label: "Statutory RRSP earned-income rate",
+        value: percent.format(
+          first?.registeredAccountRoom.rrsp.earnedIncomeRate ?? 0.18,
+        ),
+        rawValue:
+          first?.registeredAccountRoom.rrsp.earnedIncomeRate ?? 0.18,
+        operation: "multiply",
+        sourceType: "canadian_reference",
+      },
+      {
+        label: "Pre-projection eligible earned income",
+        value: exactCurrency.format(
+          room.rrsp.newRoom.startYearBeforeProjectionMonth
+            .eligibleEarnedIncome,
+        ),
+        rawValue:
+          room.rrsp.newRoom.startYearBeforeProjectionMonth
+            .eligibleEarnedIncome,
+        operation: "input",
+        sourceType: "configuration",
+      },
+      {
+        label: "Pre-projection pension adjustment",
+        value: exactCurrency.format(
+          room.rrsp.newRoom.startYearBeforeProjectionMonth
+            .pensionAdjustment,
+        ),
+        rawValue:
+          room.rrsp.newRoom.startYearBeforeProjectionMonth
+            .pensionAdjustment,
+        operation: "subtract",
+        sourceType: "configuration",
+      },
+      {
+        label: "Pre-projection other room reduction",
+        value: exactCurrency.format(
+          room.rrsp.newRoom.startYearBeforeProjectionMonth
+            .otherRoomReduction,
+        ),
+        rawValue:
+          room.rrsp.newRoom.startYearBeforeProjectionMonth
+            .otherRoomReduction,
+        operation: "subtract",
+        sourceType: "configuration",
+      },
+      {
+        label: "Planned contributions",
+        value: exactCurrency.format(planned),
+        rawValue: planned,
+        operation: "input",
+        sourceType: "projection",
+      },
+      {
+        label: "Allowed from planned routes",
+        value: exactCurrency.format(allowed),
+        rawValue: allowed,
+        operation: "subtract",
+        sourceType: "projection",
+      },
+      {
+        label: simple
+          ? "Reserve-plan investment deposits"
+          : "Surplus-funded deposits",
+        value: exactCurrency.format(surplusFunded),
+        rawValue: surplusFunded,
+        operation: "add",
+        sourceType: "projection",
+      },
+      {
+        label: "Total actual deposited contributions",
+        value: exactCurrency.format(actual),
+        rawValue: actual,
+        operation: "result",
+        sourceType: "projection",
+      },
+      {
+        label: "Unallocated contributions",
+        value: exactCurrency.format(unallocated),
+        rawValue: unallocated,
+        operation: "result",
+        sourceType: "projection",
+      },
+      {
+        label: "Cash-funded actual deposits",
+        value: exactCurrency.format(cashFunded),
+        rawValue: cashFunded,
+        operation: "input",
+        sourceType: "projection",
+      },
+      {
+        label: "Income-withheld actual deposits",
+        value: exactCurrency.format(incomeWithheld),
+        rawValue: incomeWithheld,
+        operation: "add",
+        sourceType: "projection",
+      },
+      {
+        label: "Sum of account deposits",
+        value: exactCurrency.format(accountDeposits),
+        rawValue: accountDeposits,
+        operation: "result",
+        sourceType: "projection",
+      },
+      {
+        label: "Planned-routing difference",
+        value: exactCurrency.format(plannedDifference),
+        rawValue: plannedDifference,
+        operation: "subtract",
+        sourceType: "projection",
+      },
+      {
+        label: "Planned-routing maximum annual difference",
+        value: exactCurrency.format(
+          contributionReconciliation.equations.planned
+            .maximumPeriodDifference,
+        ),
+        rawValue:
+          contributionReconciliation.equations.planned
+            .maximumPeriodDifference,
+        operation: "result",
+        sourceType: "projection",
+      },
+      {
+        label: "Total-actual difference",
+        value: exactCurrency.format(totalDifference),
+        rawValue: totalDifference,
+        operation: "subtract",
+        sourceType: "projection",
+      },
+      {
+        label: "Total-actual maximum annual difference",
+        value: exactCurrency.format(
+          contributionReconciliation.equations.totalActual
+            .maximumPeriodDifference,
+        ),
+        rawValue:
+          contributionReconciliation.equations.totalActual
+            .maximumPeriodDifference,
+        operation: "result",
+        sourceType: "projection",
+      },
+      {
+        label: "Total-actual annual rounding carry",
+        value: exactCurrency.format(
+          contributionReconciliation.equations.totalActual
+            .rawAggregateDifference,
+        ),
+        rawValue:
+          contributionReconciliation.equations.totalActual
+            .rawAggregateDifference,
+        operation: "result",
+        sourceType: "projection",
+      },
+      {
+        label: "Funding-split difference",
+        value: exactCurrency.format(fundingDifference),
+        rawValue: fundingDifference,
+        operation: "subtract",
+        sourceType: "projection",
+      },
+      {
+        label: "Funding-split maximum annual difference",
+        value: exactCurrency.format(
+          contributionReconciliation.equations.fundingSplit
+            .maximumPeriodDifference,
+        ),
+        rawValue:
+          contributionReconciliation.equations.fundingSplit
+            .maximumPeriodDifference,
+        operation: "result",
+        sourceType: "projection",
+      },
+      {
+        label: "Account-deposit difference",
+        value: exactCurrency.format(accountDepositDifference),
+        rawValue: accountDepositDifference,
+        operation: "subtract",
+        sourceType: "projection",
+      },
+      {
+        label: "Account-deposit maximum annual difference",
+        value: exactCurrency.format(
+          contributionReconciliation.equations.accountDeposits
+            .maximumPeriodDifference,
+        ),
+        rawValue:
+          contributionReconciliation.equations.accountDeposits
+            .maximumPeriodDifference,
+        operation: "result",
+        sourceType: "projection",
+      },
+      {
+        label: "Account-level maximum difference",
+        value: exactCurrency.format(
+          contributionReconciliation.maximumAccountDifference,
+        ),
+        rawValue:
+          contributionReconciliation.maximumAccountDifference,
+        operation: "result",
+        sourceType: "projection",
+      },
+      {
+        label: "Room-ledger maximum difference",
+        value: exactCurrency.format(
+          contributionReconciliation.maximumRoomDifference,
+        ),
+        rawValue: contributionReconciliation.maximumRoomDifference,
+        operation: "result",
+        sourceType: "projection",
+      },
+      {
+        label: "Savings-policy maximum difference",
+        value: exactCurrency.format(
+          contributionReconciliation.maximumSavingsPolicyDifference,
+        ),
+        rawValue:
+          contributionReconciliation.maximumSavingsPolicyDifference,
+        operation: "result",
+        sourceType: "projection",
+      },
+      {
+        label: "Largest reconciliation difference",
+        value: exactCurrency.format(maximumDifference),
+        rawValue: maximumDifference,
+        operation: "result",
+        sourceType: "projection",
+      },
+    ],
+    dataSections: [
+      {
+        title: "Annual registered room and routing",
+        description:
+          "Shared nominal-regulatory room rows and display-mode contribution flows used by the dashboard and exports.",
+        columns: [
+          { key: "period", label: "Period" },
+          { key: "planned", label: "Planned" },
+          { key: "allowed", label: "Allowed from planned routes" },
+          {
+            key: "surplusFunded",
+            label: simple ? "Reserve-plan investing" : "Surplus funded",
+          },
+          { key: "actual", label: "Total actual" },
+          { key: "cashFunded", label: "Cash funded" },
+          { key: "incomeWithheld", label: "Income withheld" },
+          { key: "accountDeposits", label: "Account deposits" },
+          { key: "redirected", label: "Redirected" },
+          { key: "unallocated", label: "Unallocated" },
+          { key: "tfsaOpening", label: "TFSA opening" },
+          { key: "tfsaNew", label: "TFSA new" },
+          { key: "tfsaRestored", label: "TFSA withdrawal restored" },
+          { key: "tfsaClosing", label: "TFSA closing" },
+          { key: "tfsaAllowed", label: "TFSA allowed" },
+          { key: "rrspOpening", label: "RRSP opening" },
+          { key: "rrspPriorIncome", label: "RRSP prior eligible income" },
+          { key: "rrspRate", label: "RRSP earned-income rate" },
+          { key: "rrspCap", label: "RRSP annual cap" },
+          { key: "rrspPensionAdjustment", label: "Pension adjustment" },
+          { key: "rrspOtherReduction", label: "Other reduction" },
+          { key: "rrspGross", label: "Gross generated" },
+          { key: "rrspNew", label: "RRSP new" },
+          { key: "rrspAllowed", label: "RRSP allowed" },
+          { key: "rrspClosing", label: "RRSP closing" },
+          { key: "tfsaRoomDifference", label: "TFSA room difference" },
+          { key: "rrspRoomDifference", label: "RRSP room difference" },
+          ...(simple
+            ? [
+                { key: "positiveCashAvailable", label: "Positive cash available" },
+                { key: "personalPlanned", label: "Personal planned" },
+                { key: "personalAllowed", label: "Personal invested" },
+                { key: "personalUnallocated", label: "Personal unallocated" },
+                { key: "reservePlanned", label: "Reserve planned" },
+                { key: "reserveFunded", label: "Reserve funded" },
+                { key: "reserveRetained", label: "Reserve cash retained" },
+                { key: "reserveRedirected", label: "Reserve invested" },
+                { key: "reserveUnfunded", label: "Reserve unfunded" },
+                { key: "workplacePlanned", label: "Workplace planned" },
+                { key: "workplaceAllowed", label: "Workplace invested" },
+                { key: "workplaceUnallocated", label: "Workplace unallocated" },
+                { key: "unplannedCashRetained", label: "Unplanned cash retained" },
+                { key: "totalInvestmentDeposits", label: "Investment deposits" },
+              ]
+            : []),
+        ],
+        rows: rows.map((row, index) => {
+          const view = displayedViews[index]!;
+          const tfsa = view.registeredAccountRoom.tfsa;
+          const rrsp = view.registeredAccountRoom.rrsp;
+          return {
+            period: row.periodLabel,
+            planned: row.plannedContributions,
+            allowed: row.allowedContributions,
+            surplusFunded: row.surplusFundedContributions,
+            actual: row.actualContributions,
+            cashFunded: row.cashFundedContributions,
+            incomeWithheld: row.incomeWithheldContributions,
+            accountDeposits: Object.values(
+              view.accountContributionDetails,
+            ).reduce(
+              (total, detail) => total + detail.depositedIntoAccount,
+              0,
+            ),
+            redirected: row.redirectedContributions,
+            unallocated: row.unallocatedContributions,
+            tfsaOpening: row.tfsaRoomOpening,
+            tfsaNew: row.tfsaRoomNew,
+            tfsaRestored: row.tfsaRoomWithdrawalRestored,
+            tfsaClosing: row.tfsaRoomClosing,
+            tfsaAllowed: row.tfsaAllowedContributions,
+            rrspOpening: row.rrspRoomOpening,
+            rrspPriorIncome: row.rrspPreviousYearEligibleEarnedIncome,
+            rrspRate: row.rrspEarnedIncomeRate,
+            rrspCap: row.rrspAnnualCap,
+            rrspPensionAdjustment: row.rrspPensionAdjustment,
+            rrspOtherReduction: row.rrspOtherRoomReduction,
+            rrspGross: row.rrspGrossGeneratedRoom,
+            rrspNew: row.rrspRoomNew,
+            rrspAllowed: row.rrspAllowedContributions,
+            rrspClosing: row.rrspRoomClosing,
+            tfsaRoomDifference:
+              tfsa.openingRoom +
+              tfsa.annualNewRoom +
+              tfsa.withdrawalRoomRestored -
+              tfsa.allowedContributions -
+              tfsa.closingRoom,
+            rrspRoomDifference:
+              rrsp.openingRoom +
+              rrsp.annualNewRoom -
+              rrsp.allowedContributions -
+              rrsp.closingRoom,
+            ...(simple
+              ? {
+                  positiveCashAvailable: row.positiveCashAvailable,
+                  personalPlanned: row.personalPlanAmount,
+                  personalAllowed: row.personalPlanAllowed,
+                  personalUnallocated: row.personalPlanUnallocated,
+                  reservePlanned: row.reserveBuildingPlanAmount,
+                  reserveFunded: row.reserveBuildingFunded,
+                  reserveRetained: row.reserveCashRetained,
+                  reserveRedirected: row.reservePlanRedirected,
+                  reserveUnfunded: row.reservePlanUnfunded,
+                  workplacePlanned: row.workplacePlanned,
+                  workplaceAllowed: row.workplaceAllowed,
+                  workplaceUnallocated: row.workplaceUnallocated,
+                  unplannedCashRetained: row.unplannedCashRetained,
+                  totalInvestmentDeposits: row.totalInvestmentDeposits,
+                }
+              : {}),
+          };
+        }),
+      },
+      {
+        title: simple ? "Resolved policy order" : "Configured route order",
+        description: simple
+          ? "Account references were compiled from owner-facing roles; raw route IDs are not required in simple configuration."
+          : undefined,
+        columns: [
+          { key: "priority", label: "Priority" },
+          { key: "source", label: "Source" },
+          { key: "destinations", label: "Ordered destinations" },
+        ],
+        rows: context.inputs.contributionWaterfall.routes.map(
+          (route, index) => ({
+            priority: index + 1,
+            source:
+              context.inputs.accounts.find(
+                (account) => account.id === route.sourceAccountId,
+              )?.label ?? route.sourceAccountId,
+            destinations: route.destinationAccountIds
+              .map(
+                (id) =>
+                  context.inputs.accounts.find(
+                    (account) => account.id === id,
+                  )?.label ?? id,
+              )
+              .join(" → "),
+          }),
+        ),
+      },
+      {
+        title: "Canadian reference basis",
+        columns: [
+          { key: "program", label: "Program" },
+          { key: "year", label: "Year" },
+          { key: "amount", label: "Published amount" },
+          { key: "sourceKind", label: "Source kind" },
+          { key: "referenceUrl", label: "Public reference" },
+        ],
+        rows: [
+          {
+            program: "TFSA",
+            year:
+              context.projection.registeredAccountRoom.references
+                .tfsaAnnualLimit.calendarYear,
+            amount:
+              context.projection.registeredAccountRoom.references
+                .tfsaAnnualLimit.amount,
+            sourceKind: "Published reference; later years use configured indexing and rounding forecasts",
+            referenceUrl:
+              context.projection.registeredAccountRoom.references
+                .tfsaAnnualLimit.referenceUrl,
+          },
+          ...context.projection.registeredAccountRoom.references.rrspAnnualCaps.map(
+            (reference) => ({
+              program: "RRSP",
+              year: reference.calendarYear,
+              amount: reference.amount,
+              sourceKind:
+                "Published reference; later years use configured growth and rounding forecasts",
+              referenceUrl: reference.referenceUrl,
+            }),
+          ),
+        ],
+      },
+      {
+        title: "Annual account contribution routing",
+        columns: [
+          { key: "period", label: "Period" },
+          { key: "account", label: "Account" },
+          { key: "planned", label: "Planned from source" },
+          { key: "deposited", label: "Deposited" },
+          { key: "redirectedIn", label: "Redirected in" },
+          { key: "redirectedOut", label: "Redirected out" },
+          {
+            key: "surplus",
+            label: simple ? "Reserve-plan investing" : "Surplus funded",
+          },
+          { key: "cashFunded", label: "Cash funded" },
+          { key: "incomeWithheld", label: "Income withheld" },
+          { key: "unallocated", label: "Unallocated" },
+          { key: "sourceDifference", label: "Source difference" },
+          { key: "destinationDifference", label: "Destination difference" },
+        ],
+        rows: context.projection.annual.flatMap((point) =>
+          Object.entries(
+            point[context.displayMode].accountContributionDetails,
+          ).map(([accountId, detail]) => ({
+            period: annualPeriodLabel(context.inputs, point.calendarYear),
+            account:
+              context.inputs.accounts.find(
+                (account) => account.id === accountId,
+              )?.label ?? accountId,
+            planned: detail.plannedFromAccount,
+            deposited: detail.depositedIntoAccount,
+            redirectedIn: detail.redirectedIn,
+            redirectedOut: detail.redirectedOut,
+            surplus: detail.surplusFundedDeposit,
+            cashFunded: detail.cashFunded,
+            incomeWithheld: detail.incomeWithheld,
+            unallocated: detail.unallocatedFromAccount,
+            sourceDifference:
+              detail.plannedFromAccount -
+              detail.sourceAccountDeposit -
+              detail.redirectedOut -
+              detail.unallocatedFromAccount,
+            destinationDifference:
+              detail.depositedIntoAccount -
+              detail.sourceAccountDeposit -
+              detail.redirectedIn -
+              detail.surplusFundedDeposit,
+          })),
+        ),
+      },
+    ],
+    assumptions: [
+      {
+        label: "TFSA carry-forward",
+        value: room.tfsa.carryForwardUnusedRoom ? "Enabled" : "Disabled scenario",
+        sourceType: "configuration",
+      },
+      {
+        label: "TFSA withdrawal restoration",
+        value: "Next calendar year",
+        sourceType: "canadian_reference",
+      },
+      {
+        label: "RRSP carry-forward",
+        value: room.rrsp.carryForwardUnusedRoom ? "Enabled" : "Disabled scenario",
+        sourceType: "configuration",
+      },
+      {
+        label: "Partial start year",
+        value: "Starting room already includes the current-year position",
+        sourceType: "configuration",
+      },
+      ...context.inputs.person.employmentIncomePhases.flatMap((phase) =>
+        phase.rrspRoomGeneration
+          ? [
+              {
+                label: `${phase.label} RRSP-eligible earned income`,
+                value: exactCurrency.format(
+                  phase.rrspRoomGeneration
+                    .annualEligibleEarnedIncomeToday,
+                ),
+                sourceType: (context.overrides[
+                  `employmentPhase.${phase.id}.rrspRoomGeneration.annualEligibleEarnedIncomeToday`
+                ] !== undefined
+                  ? "override"
+                  : "configuration") as ExplanationSourceType,
+              },
+              {
+                label: `${phase.label} pension adjustment`,
+                value: exactCurrency.format(
+                  phase.rrspRoomGeneration
+                    .annualPensionAdjustmentToday,
+                ),
+                sourceType: (context.overrides[
+                  `employmentPhase.${phase.id}.rrspRoomGeneration.annualPensionAdjustmentToday`
+                ] !== undefined
+                  ? "override"
+                  : "configuration") as ExplanationSourceType,
+              },
+              {
+                label: `${phase.label} other room reduction`,
+                value: exactCurrency.format(
+                  phase.rrspRoomGeneration
+                    .annualOtherRoomReductionToday,
+                ),
+                sourceType: (context.overrides[
+                  `employmentPhase.${phase.id}.rrspRoomGeneration.annualOtherRoomReductionToday`
+                ] !== undefined
+                  ? "override"
+                  : "configuration") as ExplanationSourceType,
+              },
+            ]
+          : [],
+      ),
+    ],
+    caveats: [
+      ...(simple
+        ? [
+            "Simple policy mode invests only explicit savings plans; unplanned positive cash remains in the operating-cash account.",
+            "Workplace RRSP contributions consume the global RRSP room pool first. Workplace overflow is visibly unallocated and is not redirected or deposited as cash.",
+            "Personal investing follows TFSA → personal RRSP → taxable and never uses the workplace RRSP account.",
+            "Reserve-building savings stay in reserve until the combined indexed target is reached; any crossing amount follows the personal order in the same month.",
+            `The taxable destination is ${preview.taxableDestination}.`,
+          ]
+        : [
+            "Advanced compatibility mode preserves owner-authored route order and surplus behavior.",
+          ]),
+      "Registered-room ledgers, annual limits, caps, adjustments, reductions, and room-consuming contributions are nominal regulatory dollars. They are not deflated by the Today’s/Future dollar toggle.",
+      "Net deposited employment cash is never treated as RRSP-eligible earned income; room generation uses the explicit nested employment-phase inputs.",
+      "TFSA withdrawals restore room only at the next January boundary. RRSP withdrawals do not restore room.",
+      "Cash-funded unallocated contributions remain in monthly cash; income-withheld unallocated amounts enter neither cash nor financial assets.",
+      "Contribution reconciliation uses integer cents at each annual boundary. A one-cent annual presentation residual is normalized before aggregation, while every annual, account, room, and savings-policy equation must independently remain within one cent so opposite-sign errors cannot cancel.",
+      "Published limits are distinguished from deterministic configured forecasts.",
+      "RRSP first-60-days elections, unused undeducted contributions, spousal rules, HBP/LLP repayments, detailed pension adjustments, CRA reassessments, tax refunds, and RRIF minimum withdrawals are not modelled.",
+    ],
+    reconciliation: {
+      matched: contributionReconciliation.matched,
+      calculatedValue:
+        contributionReconciliation.calculatedTotalActual,
+      displayedValue:
+        contributionReconciliation.displayedAccountDeposits,
+    },
+  };
+}
+
 export function buildExplanation(
   target: ExplanationTarget,
   context: ExplanationContext,
@@ -2562,6 +3397,9 @@ export function buildExplanation(
   if (target === "oas-benefit") return oasBenefitDocument(context);
   if (target === "surplus-allocation") {
     return surplusAllocationDocument(context);
+  }
+  if (target === "registered-account-room") {
+    return registeredAccountRoomDocument(context);
   }
   if (
     target === "baseline-income" ||

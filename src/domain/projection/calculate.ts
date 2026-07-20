@@ -4,6 +4,7 @@ import type {
   AssetAllocation,
   BalanceBreakdown,
   ContributionBreakdown,
+  AccountContributionDetail,
   ContributionPhase,
   EmploymentIncomePhase,
   FinancialAccountInput,
@@ -15,7 +16,10 @@ import type {
   ProjectionObservation,
   ProjectionResult,
   ProjectionView,
+  RegisteredProgramAnnualBreakdown,
   RetirementSnapshot,
+  SavingsPolicyBreakdown,
+  SavingsPolicyTotals,
   SurplusAllocationBreakdown,
   SurplusAllocationTotals,
   WithdrawalBreakdown,
@@ -25,6 +29,15 @@ import {
   cppClaimRules,
   oasClaimRules,
 } from "@/src/domain/defaults/canadian-public-benefits";
+import {
+  RRSP_EARNED_INCOME_RATE,
+  RRSP_ANNUAL_LIMITS,
+  RRSP_FORMULA_REFERENCE_URL,
+  TFSA_ANNUAL_LIMITS,
+  TFSA_WITHDRAWAL_REFERENCE_URL,
+  rrspAnnualCap,
+  tfsaAnnualLimit,
+} from "@/src/domain/defaults/canadian-registered-account-room";
 
 const MONTHS_PER_YEAR = 12;
 const AGE_TOLERANCE = 1e-6;
@@ -158,7 +171,56 @@ function emptyOutflows(): OutflowBreakdown {
 }
 
 function emptyContributions(): ContributionBreakdown {
-  return { cashFunded: 0, incomeWithheld: 0, total: 0 };
+  return {
+    planned: 0,
+    allowed: 0,
+    surplusFunded: 0,
+    sourceAccount: 0,
+    redirected: 0,
+    cashFunded: 0,
+    incomeWithheld: 0,
+    unallocatedCashFunded: 0,
+    unallocatedIncomeWithheld: 0,
+    unallocated: 0,
+    total: 0,
+  };
+}
+
+function emptyAccountContributionDetail(): AccountContributionDetail {
+  return {
+    plannedFromAccount: 0,
+    depositedIntoAccount: 0,
+    sourceAccountDeposit: 0,
+    redirectedOut: 0,
+    redirectedIn: 0,
+    surplusFundedDeposit: 0,
+    cashFunded: 0,
+    incomeWithheld: 0,
+    unallocatedFromAccount: 0,
+  };
+}
+
+function emptyRegisteredProgram(): RegisteredProgramAnnualBreakdown {
+  return {
+    openingRoom: 0,
+    annualNewRoom: 0,
+    withdrawalRoomRestored: 0,
+    previousYearEligibleEarnedIncome: 0,
+    earnedIncomeRate: 0,
+    annualCap: 0,
+    pensionAdjustment: 0,
+    otherRoomReduction: 0,
+    grossGeneratedRoom: 0,
+    plannedContributions: 0,
+    allowedContributions: 0,
+    redirectedIn: 0,
+    redirectedOut: 0,
+    surplusFundedContributions: 0,
+    unallocatedContributions: 0,
+    closingRoom: 0,
+    carryForwardUnusedRoom: true,
+    sourceKind: "starting_room",
+  };
 }
 
 function emptyBalances(): BalanceBreakdown {
@@ -193,6 +255,29 @@ function emptySurplusTotals(): SurplusAllocationTotals {
   };
 }
 
+function emptySavingsPolicy(): SavingsPolicyBreakdown {
+  return {
+    positiveCashAvailable: 0,
+    personalPlanned: 0,
+    personalAllowed: 0,
+    personalUnallocated: 0,
+    reservePlanned: 0,
+    reserveFunded: 0,
+    reserveRetainedAsCash: 0,
+    reserveRedirected: 0,
+    reserveUnfunded: 0,
+    workplacePlanned: 0,
+    workplaceAllowed: 0,
+    workplaceUnallocated: 0,
+    unplannedCashRetained: 0,
+    totalInvestmentDeposits: 0,
+  };
+}
+
+function emptySavingsTotals(): SavingsPolicyTotals {
+  return emptySavingsPolicy();
+}
+
 function emptyView(): ProjectionView {
   return {
     income: emptyIncome(),
@@ -202,7 +287,13 @@ function emptyView(): ProjectionView {
     balances: emptyBalances(),
     accountBalances: {},
     accountContributions: {},
+    accountContributionDetails: {},
+    registeredAccountRoom: {
+      tfsa: emptyRegisteredProgram(),
+      rrsp: emptyRegisteredProgram(),
+    },
     surplusAllocation: emptySurplusAllocation(),
+    savingsPolicy: emptySavingsPolicy(),
     accountSurplusAllocations: {},
     allocation: { ...ZERO_ALLOCATION },
   };
@@ -324,8 +415,18 @@ function snapshotView(
       total: round(flow.outflows.total),
     },
     contributions: {
+      planned: round(flow.contributions.planned),
+      allowed: round(flow.contributions.allowed),
+      surplusFunded: round(flow.contributions.surplusFunded),
+      sourceAccount: round(flow.contributions.sourceAccount),
+      redirected: round(flow.contributions.redirected),
       cashFunded: round(flow.contributions.cashFunded),
       incomeWithheld: round(flow.contributions.incomeWithheld),
+      unallocatedCashFunded: round(flow.contributions.unallocatedCashFunded),
+      unallocatedIncomeWithheld: round(
+        flow.contributions.unallocatedIncomeWithheld,
+      ),
+      unallocated: round(flow.contributions.unallocated),
       total: round(flow.contributions.total),
     },
     balances: {
@@ -343,6 +444,18 @@ function snapshotView(
     accountContributions: Object.fromEntries(
       Object.entries(flow.accountContributions).map(([id, amount]) => [id, round(amount)]),
     ),
+    accountContributionDetails: Object.fromEntries(
+      Object.entries(flow.accountContributionDetails).map(([id, detail]) => [
+        id,
+        Object.fromEntries(
+          Object.entries(detail).map(([key, amount]) => [key, round(amount)]),
+        ) as AccountContributionDetail,
+      ]),
+    ),
+    registeredAccountRoom: {
+      tfsa: { ...flow.registeredAccountRoom.tfsa },
+      rrsp: { ...flow.registeredAccountRoom.rrsp },
+    },
     surplusAllocation: {
       generated: round(flow.surplusAllocation.generated),
       reserveRefill: round(flow.surplusAllocation.reserveRefill),
@@ -350,6 +463,12 @@ function snapshotView(
       redirected: round(flow.surplusAllocation.redirected),
       reserveTarget: round(flow.surplusAllocation.reserveTarget),
     },
+    savingsPolicy: Object.fromEntries(
+      Object.entries(flow.savingsPolicy).map(([key, value]) => [
+        key,
+        round(value),
+      ]),
+    ) as SavingsPolicyBreakdown,
     accountSurplusAllocations: Object.fromEntries(
       Object.entries(flow.accountSurplusAllocations).map(([id, amount]) => [
         id,
@@ -377,9 +496,65 @@ function addMonthlyFlow(target: ProjectionView, monthly: ProjectionView, factor:
   for (const key of Object.keys(monthly.contributions) as Array<keyof ContributionBreakdown>) {
     target.contributions[key] += monthly.contributions[key] / factor;
   }
+  for (const key of Object.keys(monthly.savingsPolicy) as Array<
+    keyof SavingsPolicyBreakdown
+  >) {
+    target.savingsPolicy[key] += monthly.savingsPolicy[key] / factor;
+  }
   for (const [accountId, amount] of Object.entries(monthly.accountContributions)) {
     target.accountContributions[accountId] =
       (target.accountContributions[accountId] ?? 0) + amount / factor;
+  }
+  for (const [accountId, detail] of Object.entries(
+    monthly.accountContributionDetails,
+  )) {
+    const targetDetail =
+      target.accountContributionDetails[accountId] ??
+      (target.accountContributionDetails[accountId] =
+        emptyAccountContributionDetail());
+    for (const key of Object.keys(detail) as Array<
+      keyof AccountContributionDetail
+    >) {
+      targetDetail[key] += detail[key] / factor;
+    }
+  }
+  for (const program of ["tfsa", "rrsp"] as const) {
+    const source = monthly.registeredAccountRoom[program];
+    const destination = target.registeredAccountRoom[program];
+    const flowFields: Array<keyof RegisteredProgramAnnualBreakdown> = [
+      "annualNewRoom",
+      "withdrawalRoomRestored",
+      "plannedContributions",
+      "allowedContributions",
+      "redirectedIn",
+      "redirectedOut",
+      "surplusFundedContributions",
+      "unallocatedContributions",
+    ];
+    for (const key of flowFields) {
+      const value = source[key];
+      if (typeof value === "number") {
+        (destination[key] as number) += value;
+      }
+    }
+    const pointFields: Array<keyof RegisteredProgramAnnualBreakdown> = [
+      "openingRoom",
+      "previousYearEligibleEarnedIncome",
+      "annualCap",
+      "pensionAdjustment",
+      "otherRoomReduction",
+      "grossGeneratedRoom",
+    ];
+    for (const key of pointFields) {
+      const value = source[key];
+      if (typeof value === "number" && value !== 0) {
+        (destination[key] as number) = value;
+      }
+    }
+    destination.earnedIncomeRate = source.earnedIncomeRate;
+    destination.closingRoom = source.closingRoom;
+    destination.carryForwardUnusedRoom = source.carryForwardUnusedRoom;
+    destination.sourceKind = source.sourceKind;
   }
   target.surplusAllocation.generated +=
     monthly.surplusAllocation.generated / factor;
@@ -396,6 +571,18 @@ function addMonthlyFlow(target: ProjectionView, monthly: ProjectionView, factor:
   )) {
     target.accountSurplusAllocations[accountId] =
       (target.accountSurplusAllocations[accountId] ?? 0) + amount / factor;
+  }
+}
+
+function addSavingsTotals(
+  target: SavingsPolicyTotals,
+  monthly: ProjectionView,
+  factor: number,
+): void {
+  for (const key of Object.keys(monthly.savingsPolicy) as Array<
+    keyof SavingsPolicyBreakdown
+  >) {
+    target[key] += monthly.savingsPolicy[key] / factor;
   }
 }
 
@@ -460,6 +647,137 @@ function assertSurplusTotalsReconciled(
   }
 }
 
+function assertRegisteredRoomReconciled(
+  view: ProjectionView,
+  period: string,
+): void {
+  const tfsa = view.registeredAccountRoom.tfsa;
+  const rrsp = view.registeredAccountRoom.rrsp;
+  const tfsaDifference =
+    tfsa.openingRoom +
+    tfsa.annualNewRoom +
+    tfsa.withdrawalRoomRestored -
+    tfsa.allowedContributions -
+    tfsa.closingRoom;
+  const rrspDifference =
+    rrsp.openingRoom +
+    rrsp.annualNewRoom -
+    rrsp.allowedContributions -
+    rrsp.closingRoom;
+  if (
+    Math.abs(tfsaDifference) > 0.01 ||
+    Math.abs(rrspDifference) > 0.01
+  ) {
+    throw new Error(
+      `Registered account room failed to reconcile for ${period}`,
+    );
+  }
+}
+
+function assertContributionsReconciled(
+  view: ProjectionView,
+  period: string,
+): void {
+  const plannedDifference =
+    view.contributions.planned -
+    view.contributions.allowed -
+    view.contributions.unallocated;
+  const totalDifference =
+    view.contributions.total -
+    view.contributions.allowed -
+    view.contributions.surplusFunded;
+  const fundingDifference =
+    view.contributions.cashFunded +
+    view.contributions.incomeWithheld -
+    view.contributions.total;
+  const outflowDifference =
+    view.outflows.contributions - view.contributions.cashFunded;
+  const accountDepositDifference =
+    Object.values(view.accountContributionDetails).reduce(
+      (total, detail) => total + detail.depositedIntoAccount,
+      0,
+    ) - view.contributions.total;
+  let accountDifference = 0;
+  for (const detail of Object.values(view.accountContributionDetails)) {
+    accountDifference = Math.max(
+      accountDifference,
+      Math.abs(
+        detail.depositedIntoAccount -
+          detail.sourceAccountDeposit -
+          detail.redirectedIn -
+          detail.surplusFundedDeposit,
+      ),
+      detail.plannedFromAccount > 0
+        ? Math.abs(
+            detail.plannedFromAccount -
+              detail.sourceAccountDeposit -
+              detail.redirectedOut -
+              detail.unallocatedFromAccount,
+          )
+        : 0,
+    );
+  }
+  if (
+    round(Math.abs(plannedDifference)) > 0.01 ||
+    round(Math.abs(totalDifference)) > 0.01 ||
+    round(Math.abs(fundingDifference)) > 0.01 ||
+    round(Math.abs(outflowDifference)) > 0.01 ||
+    round(Math.abs(accountDepositDifference)) > 0.01 ||
+    round(accountDifference) > 0.01
+  ) {
+    throw new Error(`Contribution routing failed to reconcile for ${period}`);
+  }
+}
+
+function assertSavingsPolicyReconciled(
+  view: ProjectionView,
+  period: string,
+  mode: ProjectionInputs["savingsPolicy"]["mode"],
+): void {
+  if (mode !== "simple") return;
+  const savings = view.savingsPolicy;
+  const differences = [
+    savings.reserveFunded -
+      savings.reserveRetainedAsCash -
+      savings.reserveRedirected,
+    savings.personalPlanned -
+      savings.personalAllowed -
+      savings.personalUnallocated,
+    savings.workplacePlanned -
+      savings.workplaceAllowed -
+      savings.workplaceUnallocated,
+    savings.totalInvestmentDeposits -
+      savings.personalAllowed -
+      savings.workplaceAllowed -
+      savings.reserveRedirected,
+    savings.positiveCashAvailable -
+      savings.personalAllowed -
+      savings.reserveFunded -
+      savings.unplannedCashRetained,
+    view.contributions.planned -
+      savings.personalPlanned -
+      savings.workplacePlanned,
+    view.contributions.allowed -
+      savings.personalAllowed -
+      savings.workplaceAllowed,
+    view.contributions.unallocated -
+      savings.personalUnallocated -
+      savings.workplaceUnallocated,
+    view.contributions.surplusFunded -
+      savings.reserveRedirected,
+    view.contributions.total - savings.totalInvestmentDeposits,
+  ];
+  if (
+    differences.some(
+      (difference) => round(Math.abs(difference)) > 0.01,
+    )
+  ) {
+    throw new Error(
+      `Simple savings policy failed to reconcile for ${period}`,
+    );
+  }
+}
+
 function milestoneLabels(inputs: ProjectionInputs, previousMonth: number, month: number): string[] {
   const previousAge = inputs.person.currentAge + previousMonth / MONTHS_PER_YEAR;
   const age = inputs.person.currentAge + month / MONTHS_PER_YEAR;
@@ -514,12 +832,65 @@ export function calculateProjection(rawInputs: ProjectionInputs): ProjectionResu
   let retirementSnapshot: RetirementSnapshot | undefined;
   const nominalSurplusThroughRetirement = emptySurplusTotals();
   const realSurplusThroughRetirement = emptySurplusTotals();
+  const nominalSavingsThroughRetirement = emptySavingsTotals();
+  const realSavingsThroughRetirement = emptySavingsTotals();
   let reserveTargetAtRetirementNominal = 0;
   let reserveTargetAtRetirementReal = 0;
   let reserveBalanceAtRetirementNominal = 0;
   let reserveBalanceAtRetirementReal = 0;
   let destinationBalanceAtRetirementNominal = 0;
   let destinationBalanceAtRetirementReal = 0;
+  let tfsaRoom =
+    inputs.registeredAccountRoom?.tfsa.startingAvailableRoom.amount ?? 0;
+  let rrspRoom =
+    inputs.registeredAccountRoom?.rrsp.startingAvailableDeductionRoom.amount ??
+    0;
+  const tfsaWithdrawalsByYear = new Map<number, number>();
+  const rrspGenerationByYear = new Map<
+    number,
+    { eligible: number; pensionAdjustment: number; otherReduction: number }
+  >();
+  if (inputs.registeredAccountRoom) {
+    const preStart =
+      inputs.registeredAccountRoom.rrsp.newRoom
+        .startYearBeforeProjectionMonth;
+    rrspGenerationByYear.set(preStart.calendarYear, {
+      eligible: preStart.eligibleEarnedIncome,
+      pensionAdjustment: preStart.pensionAdjustment,
+      otherReduction: preStart.otherRoomReduction,
+    });
+  }
+
+  function contributionDetail(
+    view: ProjectionView,
+    accountId: string,
+  ): AccountContributionDetail {
+    return (
+      view.accountContributionDetails[accountId] ??
+      (view.accountContributionDetails[accountId] =
+        emptyAccountContributionDetail())
+    );
+  }
+
+  function availableForAccount(
+    account: FinancialAccountInput,
+    workingAge: number,
+  ): number {
+    if (account.type === "tfsa") return tfsaRoom;
+    if (account.type === "rrsp_rrif") {
+      return workingAge >= inputs.person.rrifConversionAge - AGE_TOLERANCE
+        ? 0
+        : rrspRoom;
+    }
+    return Number.POSITIVE_INFINITY;
+  }
+
+  function consumeRoom(account: FinancialAccountInput, amount: number): void {
+    if (account.type === "tfsa") tfsaRoom = Math.max(0, tfsaRoom - amount);
+    if (account.type === "rrsp_rrif") {
+      rrspRoom = Math.max(0, rrspRoom - amount);
+    }
+  }
 
   function snapshot(month: number, previousMonth: number, calendarYear: number): void {
     const factor = indexedFactor(inputs.annualInflation, month);
@@ -528,6 +899,22 @@ export function calculateProjection(rawInputs: ProjectionInputs): ProjectionResu
     const real = snapshotView(annualRealFlow, inputs.accounts, balances, factor);
     assertSurplusReconciled(nominal, `${calendarYear} nominal`);
     assertSurplusReconciled(real, `${calendarYear} real`);
+    assertContributionsReconciled(nominal, `${calendarYear} nominal`);
+    assertContributionsReconciled(real, `${calendarYear} real`);
+    assertSavingsPolicyReconciled(
+      nominal,
+      `${calendarYear} nominal`,
+      inputs.savingsPolicy.mode,
+    );
+    assertSavingsPolicyReconciled(
+      real,
+      `${calendarYear} real`,
+      inputs.savingsPolicy.mode,
+    );
+    if (inputs.registeredAccountRoom) {
+      assertRegisteredRoomReconciled(nominal, `${calendarYear} nominal`);
+      assertRegisteredRoomReconciled(real, `${calendarYear} real`);
+    }
     annual.push({
       calendarYear,
       age: round(age),
@@ -559,6 +946,80 @@ export function calculateProjection(rawInputs: ProjectionInputs): ProjectionResu
     const calendarYear = startYear + Math.floor(calendarMonthIndex / MONTHS_PER_YEAR);
     const calendarMonth = (calendarMonthIndex % MONTHS_PER_YEAR) + 1;
     const monthlyFlow = emptyView();
+    if (inputs.registeredAccountRoom) {
+      const tfsaLedger = monthlyFlow.registeredAccountRoom.tfsa;
+      const rrspLedger = monthlyFlow.registeredAccountRoom.rrsp;
+      tfsaLedger.carryForwardUnusedRoom =
+        inputs.registeredAccountRoom.tfsa.carryForwardUnusedRoom;
+      rrspLedger.carryForwardUnusedRoom =
+        inputs.registeredAccountRoom.rrsp.carryForwardUnusedRoom;
+      rrspLedger.earnedIncomeRate = RRSP_EARNED_INCOME_RATE;
+      if (month === 1) {
+        tfsaLedger.openingRoom = tfsaRoom;
+        rrspLedger.openingRoom = rrspRoom;
+      } else if (calendarMonth === 1) {
+        const tfsaReference = tfsaAnnualLimit(
+          calendarYear,
+          inputs.registeredAccountRoom.tfsa.annualNewRoom
+            .futureIndexingRate,
+          inputs.registeredAccountRoom.tfsa.annualNewRoom.roundingIncrement,
+        );
+        const restored =
+          tfsaWithdrawalsByYear.get(calendarYear - 1) ?? 0;
+        const tfsaCarry =
+          inputs.registeredAccountRoom.tfsa.carryForwardUnusedRoom
+            ? tfsaRoom
+            : 0;
+        tfsaRoom =
+          tfsaCarry +
+          tfsaReference.amount +
+          restored;
+        tfsaLedger.openingRoom = tfsaCarry;
+        tfsaLedger.annualNewRoom = tfsaReference.amount;
+        tfsaLedger.withdrawalRoomRestored = restored;
+        tfsaLedger.sourceKind = tfsaReference.sourceKind;
+
+        const previousGeneration =
+          rrspGenerationByYear.get(calendarYear - 1) ?? {
+            eligible: 0,
+            pensionAdjustment: 0,
+            otherReduction: 0,
+          };
+        const rrspReference = rrspAnnualCap(
+          calendarYear,
+          inputs.registeredAccountRoom.rrsp.newRoom.annualCap
+            .futureGrowthRate,
+          inputs.registeredAccountRoom.rrsp.newRoom.annualCap
+            .futureRoundingIncrement,
+        );
+        const grossGenerated = Math.min(
+          previousGeneration.eligible * RRSP_EARNED_INCOME_RATE,
+          rrspReference.amount,
+        );
+        const newRoom = Math.max(
+          0,
+          grossGenerated -
+            previousGeneration.pensionAdjustment -
+            previousGeneration.otherReduction,
+        );
+        const rrspCarry =
+          inputs.registeredAccountRoom.rrsp.carryForwardUnusedRoom
+            ? rrspRoom
+            : 0;
+        rrspRoom = rrspCarry + newRoom;
+        rrspLedger.openingRoom = rrspCarry;
+        rrspLedger.annualNewRoom = newRoom;
+        rrspLedger.previousYearEligibleEarnedIncome =
+          previousGeneration.eligible;
+        rrspLedger.annualCap = rrspReference.amount;
+        rrspLedger.pensionAdjustment =
+          previousGeneration.pensionAdjustment;
+        rrspLedger.otherRoomReduction =
+          previousGeneration.otherReduction;
+        rrspLedger.grossGeneratedRoom = grossGenerated;
+        rrspLedger.sourceKind = rrspReference.sourceKind;
+      }
+    }
     monthlyFlow.surplusAllocation.reserveTarget =
       inputs.surplusAllocation.targetCashReserveToday *
       indexedFactor(inputs.surplusAllocation.reserveIndexingRate, month);
@@ -589,6 +1050,34 @@ export function calculateProjection(rawInputs: ProjectionInputs): ProjectionResu
           )) /
         MONTHS_PER_YEAR;
       annualEmploymentPhaseLabels.add(employmentPhase.label);
+      if (employmentPhase.rrspRoomGeneration) {
+        const generation =
+          rrspGenerationByYear.get(calendarYear) ?? {
+            eligible: 0,
+            pensionAdjustment: 0,
+            otherReduction: 0,
+          };
+        const generationFactor = indexedFactor(
+          employmentPhase.rrspRoomGeneration.annualGrowth,
+          phaseMonth(age, employmentPhase.startAge),
+        );
+        generation.eligible +=
+          (employmentPhase.rrspRoomGeneration
+            .annualEligibleEarnedIncomeToday *
+            generationFactor) /
+          MONTHS_PER_YEAR;
+        generation.pensionAdjustment +=
+          (employmentPhase.rrspRoomGeneration
+            .annualPensionAdjustmentToday *
+            generationFactor) /
+          MONTHS_PER_YEAR;
+        generation.otherReduction +=
+          (employmentPhase.rrspRoomGeneration
+            .annualOtherRoomReductionToday *
+            generationFactor) /
+          MONTHS_PER_YEAR;
+        rrspGenerationByYear.set(calendarYear, generation);
+      }
     }
     if (age >= inputs.person.cpp.startAge) {
       income.cpp =
@@ -633,19 +1122,39 @@ export function calculateProjection(rawInputs: ProjectionInputs): ProjectionResu
 
     let cashFundedContributions = 0;
     let incomeWithheldContributions = 0;
-    for (const account of inputs.accounts) {
-      if (
-        workingAge >= inputs.person.retirementAge - AGE_TOLERANCE ||
-        account.type === "debt"
-      ) {
-        continue;
+    const processContributionRoute = (
+      route: ProjectionInputs["contributionWaterfall"]["routes"][number],
+      availableCash: number,
+    ): {
+      planned: number;
+      deposited: number;
+      unallocated: number;
+      funding: "cash" | "income_withheld" | null;
+    } => {
+      if (workingAge >= inputs.person.retirementAge - AGE_TOLERANCE) {
+        return {
+          planned: 0,
+          deposited: 0,
+          unallocated: 0,
+          funding: null,
+        };
       }
+      const account = inputs.accounts.find(
+        (candidate) => candidate.id === route.sourceAccountId,
+      )!;
       const contributionPhase = activeContributionPhase(
         account.contributionPhases,
         workingAge,
       );
-      if (!contributionPhase) continue;
-      const contribution =
+      if (!contributionPhase) {
+        return {
+          planned: 0,
+          deposited: 0,
+          unallocated: 0,
+          funding: null,
+        };
+      }
+      const planned =
         contributionPhase.monthlyAmountToday *
         indexedFactor(
           contributionPhase.indexingRate,
@@ -657,19 +1166,133 @@ export function calculateProjection(rawInputs: ProjectionInputs): ProjectionResu
           contributionPhase.label,
         ),
       );
-      if (contribution <= 0) continue;
-      balances.set(account.id, (balances.get(account.id) ?? 0) + contribution);
-      monthlyFlow.accountContributions[account.id] =
-        (monthlyFlow.accountContributions[account.id] ?? 0) + contribution;
-      if (contributionPhase.funding === "cash") {
-        monthlyFlow.outflows.contributions += contribution;
-        monthlyFlow.contributions.cashFunded += contribution;
-        cashFundedContributions += contribution;
-      } else {
-        monthlyFlow.contributions.incomeWithheld += contribution;
-        incomeWithheldContributions += contribution;
+      if (planned <= 0) {
+        return {
+          planned: 0,
+          deposited: 0,
+          unallocated: 0,
+          funding: contributionPhase.funding,
+        };
       }
-      monthlyFlow.contributions.total += contribution;
+      monthlyFlow.contributions.planned += planned;
+      const sourceDetail = contributionDetail(monthlyFlow, account.id);
+      sourceDetail.plannedFromAccount += planned;
+      const sourceProgram =
+        account.type === "tfsa"
+          ? monthlyFlow.registeredAccountRoom.tfsa
+          : account.type === "rrsp_rrif"
+            ? monthlyFlow.registeredAccountRoom.rrsp
+            : null;
+      if (sourceProgram) sourceProgram.plannedContributions += planned;
+
+      let remaining =
+        contributionPhase.funding === "cash"
+          ? Math.min(planned, Math.max(0, availableCash))
+          : planned;
+      let deposited = 0;
+      for (const destinationId of route.destinationAccountIds) {
+        if (remaining <= 0) break;
+        const destination = inputs.accounts.find(
+          (candidate) => candidate.id === destinationId,
+        )!;
+        const amount = Math.min(
+          remaining,
+          availableForAccount(destination, workingAge),
+        );
+        if (amount <= 0) continue;
+        consumeRoom(destination, amount);
+        balances.set(
+          destination.id,
+          (balances.get(destination.id) ?? 0) + amount,
+        );
+        monthlyFlow.accountContributions[destination.id] =
+          (monthlyFlow.accountContributions[destination.id] ?? 0) + amount;
+        const destinationDetail = contributionDetail(
+          monthlyFlow,
+          destination.id,
+        );
+        destinationDetail.depositedIntoAccount += amount;
+        if (destination.id === account.id) {
+          destinationDetail.sourceAccountDeposit += amount;
+          monthlyFlow.contributions.sourceAccount += amount;
+        } else {
+          sourceDetail.redirectedOut += amount;
+          destinationDetail.redirectedIn += amount;
+          monthlyFlow.contributions.redirected += amount;
+          const destinationProgram =
+            destination.type === "tfsa"
+              ? monthlyFlow.registeredAccountRoom.tfsa
+              : destination.type === "rrsp_rrif"
+                ? monthlyFlow.registeredAccountRoom.rrsp
+                : null;
+          if (destinationProgram) destinationProgram.redirectedIn += amount;
+          if (sourceProgram) sourceProgram.redirectedOut += amount;
+        }
+        const destinationProgram =
+          destination.type === "tfsa"
+            ? monthlyFlow.registeredAccountRoom.tfsa
+            : destination.type === "rrsp_rrif"
+              ? monthlyFlow.registeredAccountRoom.rrsp
+              : null;
+        if (destinationProgram) {
+          destinationProgram.allowedContributions += amount;
+        }
+        if (contributionPhase.funding === "cash") {
+          destinationDetail.cashFunded += amount;
+        } else {
+          destinationDetail.incomeWithheld += amount;
+        }
+        deposited += amount;
+        remaining -= amount;
+      }
+      const unallocated = planned - deposited;
+      monthlyFlow.contributions.allowed += deposited;
+      monthlyFlow.contributions.total += deposited;
+      if (contributionPhase.funding === "cash") {
+        monthlyFlow.outflows.contributions += deposited;
+        monthlyFlow.contributions.cashFunded += deposited;
+        monthlyFlow.contributions.unallocatedCashFunded += unallocated;
+        cashFundedContributions += deposited;
+      } else {
+        monthlyFlow.contributions.incomeWithheld += deposited;
+        monthlyFlow.contributions.unallocatedIncomeWithheld += unallocated;
+        incomeWithheldContributions += deposited;
+      }
+      monthlyFlow.contributions.unallocated += unallocated;
+      sourceDetail.unallocatedFromAccount += unallocated;
+      if (sourceProgram) sourceProgram.unallocatedContributions += unallocated;
+      return {
+        planned,
+        deposited,
+        unallocated,
+        funding: contributionPhase.funding,
+      };
+    };
+
+    const simplePolicy =
+      inputs.savingsPolicy.mode === "simple" ? inputs.savingsPolicy : null;
+    const workplaceRoute = simplePolicy?.workplaceRrspAccountId
+      ? inputs.contributionWaterfall.routes.find(
+          (route) =>
+            route.sourceAccountId ===
+            simplePolicy.workplaceRrspAccountId,
+        )
+      : undefined;
+    if (simplePolicy) {
+      if (workplaceRoute) {
+        const workplace = processContributionRoute(
+          workplaceRoute,
+          Number.POSITIVE_INFINITY,
+        );
+        monthlyFlow.savingsPolicy.workplacePlanned = workplace.planned;
+        monthlyFlow.savingsPolicy.workplaceAllowed = workplace.deposited;
+        monthlyFlow.savingsPolicy.workplaceUnallocated =
+          workplace.unallocated;
+      }
+    } else {
+      for (const route of inputs.contributionWaterfall.routes) {
+        processContributionRoute(route, Number.POSITIVE_INFINITY);
+      }
     }
 
     let eventInflows = 0;
@@ -708,7 +1331,162 @@ export function calculateProjection(rawInputs: ProjectionInputs): ProjectionResu
       cashFundedContributions -
       eventOutflows;
 
-    if (cashPosition > 0) {
+    if (simplePolicy) {
+      const positiveCashAvailable = Math.max(0, cashPosition);
+      monthlyFlow.savingsPolicy.positiveCashAvailable =
+        positiveCashAvailable;
+      const personalRoute = inputs.contributionWaterfall.routes.find(
+        (route) =>
+          route.sourceAccountId ===
+          simplePolicy.personalTfsaAccountId,
+      );
+      if (personalRoute) {
+        const personal = processContributionRoute(
+          personalRoute,
+          positiveCashAvailable,
+        );
+        monthlyFlow.savingsPolicy.personalPlanned = personal.planned;
+        monthlyFlow.savingsPolicy.personalAllowed = personal.deposited;
+        monthlyFlow.savingsPolicy.personalUnallocated =
+          personal.unallocated;
+        cashPosition -= personal.deposited;
+      }
+
+      const reservePhase =
+        workingAge < inputs.person.retirementAge - AGE_TOLERANCE
+          ? simplePolicy.reserveBuildingPhases.find(
+              (phase) =>
+                workingAge >= phase.startAge - AGE_TOLERANCE &&
+                workingAge < phase.endAge - AGE_TOLERANCE,
+            )
+          : undefined;
+      const reservePlanned = reservePhase
+        ? reservePhase.monthlyAmountToday *
+          indexedFactor(
+            reservePhase.indexingRate,
+            phaseMonth(age, reservePhase.startAge),
+          )
+        : 0;
+      const reserveFunded = Math.min(
+        reservePlanned,
+        Math.max(0, cashPosition),
+      );
+      const reserveBalance = reserveAccounts.reduce(
+        (total, account) => total + (balances.get(account.id) ?? 0),
+        0,
+      );
+      const reserveShortfall = Math.max(
+        0,
+        monthlyFlow.surplusAllocation.reserveTarget - reserveBalance,
+      );
+      const reserveRetained = Math.min(
+        reserveFunded,
+        reserveShortfall,
+      );
+      if (reserveRetained > 0) {
+        balances.set(
+          reserveRefillAccount.id,
+          (balances.get(reserveRefillAccount.id) ?? 0) +
+            reserveRetained,
+        );
+        monthlyFlow.accountSurplusAllocations[
+          reserveRefillAccount.id
+        ] = reserveRetained;
+      }
+      let reserveRedirected = 0;
+      let remainingReserveInvestment =
+        reserveFunded - reserveRetained;
+      for (const destinationId of
+        inputs.contributionWaterfall.surplusDestinationAccountIds) {
+        if (remainingReserveInvestment <= 0) break;
+        const destination = inputs.accounts.find(
+          (account) => account.id === destinationId,
+        )!;
+        const amount = Math.min(
+          remainingReserveInvestment,
+          availableForAccount(destination, workingAge),
+        );
+        if (amount <= 0) continue;
+        consumeRoom(destination, amount);
+        balances.set(
+          destination.id,
+          (balances.get(destination.id) ?? 0) + amount,
+        );
+        monthlyFlow.accountSurplusAllocations[destination.id] =
+          (monthlyFlow.accountSurplusAllocations[destination.id] ??
+            0) + amount;
+        monthlyFlow.accountContributions[destination.id] =
+          (monthlyFlow.accountContributions[destination.id] ?? 0) +
+          amount;
+        const detail = contributionDetail(
+          monthlyFlow,
+          destination.id,
+        );
+        detail.depositedIntoAccount += amount;
+        detail.surplusFundedDeposit += amount;
+        detail.cashFunded += amount;
+        monthlyFlow.contributions.surplusFunded += amount;
+        monthlyFlow.contributions.cashFunded += amount;
+        monthlyFlow.contributions.total += amount;
+        monthlyFlow.outflows.contributions += amount;
+        if (destination.type === "tfsa") {
+          monthlyFlow.registeredAccountRoom.tfsa
+            .surplusFundedContributions += amount;
+          monthlyFlow.registeredAccountRoom.tfsa
+            .allowedContributions += amount;
+        }
+        if (destination.type === "rrsp_rrif") {
+          monthlyFlow.registeredAccountRoom.rrsp
+            .surplusFundedContributions += amount;
+          monthlyFlow.registeredAccountRoom.rrsp
+            .allowedContributions += amount;
+        }
+        reserveRedirected += amount;
+        remainingReserveInvestment -= amount;
+      }
+      if (remainingReserveInvestment > 0.01) {
+        throw new Error(
+          "Simple reserve-building investment route left an amount unallocated",
+        );
+      }
+      cashPosition -= reserveFunded;
+      const unplannedCashRetained = Math.max(0, cashPosition);
+      if (unplannedCashRetained > 0) {
+        balances.set(
+          simplePolicy.operatingCashAccountId,
+          (balances.get(simplePolicy.operatingCashAccountId) ?? 0) +
+            unplannedCashRetained,
+        );
+        monthlyFlow.accountSurplusAllocations[
+          simplePolicy.operatingCashAccountId
+        ] =
+          (monthlyFlow.accountSurplusAllocations[
+            simplePolicy.operatingCashAccountId
+          ] ?? 0) + unplannedCashRetained;
+      }
+      const policyGenerated =
+        reserveFunded + unplannedCashRetained;
+      monthlyFlow.surplusAllocation.generated = policyGenerated;
+      monthlyFlow.surplusAllocation.reserveRefill =
+        reserveRetained;
+      monthlyFlow.surplusAllocation.retainedAsCash =
+        reserveRetained + unplannedCashRetained;
+      monthlyFlow.surplusAllocation.redirected =
+        reserveRedirected;
+      monthlyFlow.savingsPolicy.reservePlanned = reservePlanned;
+      monthlyFlow.savingsPolicy.reserveFunded = reserveFunded;
+      monthlyFlow.savingsPolicy.reserveRetainedAsCash =
+        reserveRetained;
+      monthlyFlow.savingsPolicy.reserveRedirected =
+        reserveRedirected;
+      monthlyFlow.savingsPolicy.reserveUnfunded =
+        reservePlanned - reserveFunded;
+      monthlyFlow.savingsPolicy.unplannedCashRetained =
+        unplannedCashRetained;
+      monthlyFlow.savingsPolicy.totalInvestmentDeposits =
+        monthlyFlow.contributions.total;
+      if (cashPosition > 0) cashPosition = 0;
+    } else if (cashPosition > 0) {
       const generated = cashPosition;
       const reserveBalance = reserveAccounts.reduce(
         (total, account) => total + (balances.get(account.id) ?? 0),
@@ -743,7 +1521,9 @@ export function calculateProjection(rawInputs: ProjectionInputs): ProjectionResu
             excess;
         }
         retainedAsCash += excess;
-      } else {
+      } else if (
+        inputs.surplusAllocation.excess.mode === "allocate_to_account"
+      ) {
         if (excess > 0) {
           balances.set(
             destinationAccount!.id,
@@ -753,6 +1533,68 @@ export function calculateProjection(rawInputs: ProjectionInputs): ProjectionResu
             excess;
         }
         redirected = excess;
+      } else {
+        let remainingExcess = excess;
+        for (const destinationId of
+          inputs.contributionWaterfall.surplusDestinationAccountIds) {
+          if (remainingExcess <= 0) break;
+          const waterfallDestination = inputs.accounts.find(
+            (account) => account.id === destinationId,
+          )!;
+          const amount = Math.min(
+            remainingExcess,
+            availableForAccount(waterfallDestination, workingAge),
+          );
+          if (amount <= 0) continue;
+          consumeRoom(waterfallDestination, amount);
+          balances.set(
+            waterfallDestination.id,
+            (balances.get(waterfallDestination.id) ?? 0) + amount,
+          );
+          monthlyFlow.accountSurplusAllocations[waterfallDestination.id] =
+            (monthlyFlow.accountSurplusAllocations[
+              waterfallDestination.id
+            ] ?? 0) + amount;
+          monthlyFlow.accountContributions[waterfallDestination.id] =
+            (monthlyFlow.accountContributions[waterfallDestination.id] ?? 0) +
+            amount;
+          const detail = contributionDetail(
+            monthlyFlow,
+            waterfallDestination.id,
+          );
+          detail.depositedIntoAccount += amount;
+          detail.surplusFundedDeposit += amount;
+          detail.cashFunded += amount;
+          monthlyFlow.contributions.surplusFunded += amount;
+          monthlyFlow.contributions.cashFunded += amount;
+          monthlyFlow.contributions.total += amount;
+          monthlyFlow.outflows.contributions += amount;
+          if (waterfallDestination.type === "tfsa") {
+            monthlyFlow.registeredAccountRoom.tfsa
+              .surplusFundedContributions += amount;
+            monthlyFlow.registeredAccountRoom.tfsa.allowedContributions +=
+              amount;
+          }
+          if (waterfallDestination.type === "rrsp_rrif") {
+            monthlyFlow.registeredAccountRoom.rrsp
+              .surplusFundedContributions += amount;
+            monthlyFlow.registeredAccountRoom.rrsp.allowedContributions +=
+              amount;
+          }
+          redirected += amount;
+          remainingExcess -= amount;
+        }
+        if (remainingExcess > 0) {
+          balances.set(
+            reserveRefillAccount.id,
+            (balances.get(reserveRefillAccount.id) ?? 0) + remainingExcess,
+          );
+          monthlyFlow.accountSurplusAllocations[reserveRefillAccount.id] =
+            (monthlyFlow.accountSurplusAllocations[
+              reserveRefillAccount.id
+            ] ?? 0) + remainingExcess;
+          retainedAsCash += remainingExcess;
+        }
       }
       monthlyFlow.surplusAllocation.generated = generated;
       monthlyFlow.surplusAllocation.reserveRefill = reserveRefill;
@@ -781,6 +1623,12 @@ export function calculateProjection(rawInputs: ProjectionInputs): ProjectionResu
       }
       balances.set(account.id, balance - grossWithdrawal);
       addWithdrawal(monthlyFlow.withdrawals, account.type, grossWithdrawal);
+      if (account.type === "tfsa") {
+        tfsaWithdrawalsByYear.set(
+          calendarYear,
+          (tfsaWithdrawalsByYear.get(calendarYear) ?? 0) + grossWithdrawal,
+        );
+      }
       gap -= netCash;
     }
 
@@ -792,12 +1640,26 @@ export function calculateProjection(rawInputs: ProjectionInputs): ProjectionResu
       monthlyFlow.outflows.tax +
       monthlyFlow.outflows.contributions +
       monthlyFlow.outflows.unmetSpending;
+    monthlyFlow.registeredAccountRoom.tfsa.closingRoom = tfsaRoom;
+    monthlyFlow.registeredAccountRoom.rrsp.closingRoom = rrspRoom;
+
+    assertContributionsReconciled(
+      monthlyFlow,
+      `${calendarYear}-${String(calendarMonth).padStart(2, "0")}`,
+    );
+    assertSavingsPolicyReconciled(
+      monthlyFlow,
+      `${calendarYear}-${String(calendarMonth).padStart(2, "0")}`,
+      inputs.savingsPolicy.mode,
+    );
 
     addMonthlyFlow(annualNominalFlow, monthlyFlow, 1);
     addMonthlyFlow(annualRealFlow, monthlyFlow, factor);
     if (month <= retirementMonth) {
       addSurplusTotals(nominalSurplusThroughRetirement, monthlyFlow, 1);
       addSurplusTotals(realSurplusThroughRetirement, monthlyFlow, factor);
+      addSavingsTotals(nominalSavingsThroughRetirement, monthlyFlow, 1);
+      addSavingsTotals(realSavingsThroughRetirement, monthlyFlow, factor);
       const requestedExternalOutflows =
         monthlyFlow.outflows.essential +
         monthlyFlow.outflows.discretionary +
@@ -859,6 +1721,16 @@ export function calculateProjection(rawInputs: ProjectionInputs): ProjectionResu
       assertSurplusReconciled(
         retirementSnapshot.real,
         "retirement snapshot real",
+      );
+      assertSavingsPolicyReconciled(
+        retirementSnapshot.nominal,
+        "retirement snapshot nominal",
+        inputs.savingsPolicy.mode,
+      );
+      assertSavingsPolicyReconciled(
+        retirementSnapshot.real,
+        "retirement snapshot real",
+        inputs.savingsPolicy.mode,
       );
       reserveTargetAtRetirementNominal =
         monthlyFlow.surplusAllocation.reserveTarget;
@@ -939,7 +1811,7 @@ export function calculateProjection(rawInputs: ProjectionInputs): ProjectionResu
   });
 
   return {
-    schemaVersion: "6.0",
+    schemaVersion: "7.0",
     inputs,
     summary: {
       retirementYear,
@@ -985,6 +1857,84 @@ export function calculateProjection(rawInputs: ProjectionInputs): ProjectionResu
             real: destinationBalanceAtRetirementReal,
           }
         : null,
+    },
+    registeredAccountRoom: {
+      modelled: Boolean(inputs.registeredAccountRoom),
+      denomination: "nominal_regulatory_dollars",
+      policy: {
+        tfsaStartingRoomSource:
+          inputs.registeredAccountRoom?.tfsa.startingAvailableRoom ?? null,
+        rrspStartingRoomSource:
+          inputs.registeredAccountRoom?.rrsp
+            .startingAvailableDeductionRoom ?? null,
+        tfsaCarryForwardUnusedRoom:
+          inputs.registeredAccountRoom?.tfsa.carryForwardUnusedRoom ?? null,
+        rrspCarryForwardUnusedRoom:
+          inputs.registeredAccountRoom?.rrsp.carryForwardUnusedRoom ?? null,
+        waterfallMode: inputs.contributionWaterfall.mode,
+        routes: inputs.contributionWaterfall.routes,
+        surplusDestinationAccountIds:
+          inputs.contributionWaterfall.surplusDestinationAccountIds,
+      },
+      references: {
+        tfsaAnnualLimit: {
+          calendarYear: 2026,
+          amount: 7000,
+          effectiveDate: "2026-01-01",
+          sourceKind: "published_reference",
+          referenceUrl: TFSA_ANNUAL_LIMITS[0]!.referenceUrl,
+        },
+        rrspAnnualCaps: RRSP_ANNUAL_LIMITS.map((reference) => ({
+          calendarYear: reference.calendarYear,
+          amount: reference.amount,
+          effectiveDate: reference.effectiveDate,
+          sourceKind: "published_reference" as const,
+          referenceUrl: reference.referenceUrl,
+        })),
+        rrspEarnedIncomeRate: RRSP_EARNED_INCOME_RATE,
+        rrspFormulaReferenceUrl: RRSP_FORMULA_REFERENCE_URL,
+        tfsaWithdrawalReferenceUrl: TFSA_WITHDRAWAL_REFERENCE_URL,
+      },
+      annual: annual.map((point) => ({
+        calendarYear: point.calendarYear,
+        nominal: point.nominal.registeredAccountRoom,
+        real: point.real.registeredAccountRoom,
+      })),
+    },
+    savingsPolicy: {
+      mode: inputs.savingsPolicy.mode,
+      policy:
+        inputs.savingsPolicy.mode === "advanced"
+          ? { mode: "advanced" }
+          : {
+              mode: "simple",
+              reserveAccountIds: inputs.savingsPolicy.reserveAccountIds,
+              reserveRefillAccountId:
+                inputs.savingsPolicy.reserveRefillAccountId,
+              operatingCashAccountId:
+                inputs.savingsPolicy.operatingCashAccountId,
+              personalTfsaAccountId:
+                inputs.savingsPolicy.personalTfsaAccountId,
+              personalRrspAccountId:
+                inputs.savingsPolicy.personalRrspAccountId,
+              workplaceRrspAccountId:
+                inputs.savingsPolicy.workplaceRrspAccountId,
+              taxableAccountId: inputs.savingsPolicy.taxableAccountId,
+              taxableAccountOrigin:
+                inputs.savingsPolicy.taxableAccountOrigin,
+              personalOrder: inputs.savingsPolicy.personalOrder,
+              workplaceRoomPriority:
+                inputs.savingsPolicy.workplaceRoomPriority,
+              workplaceOverflow:
+                inputs.savingsPolicy.workplaceOverflow,
+              reserveAfterTarget:
+                inputs.savingsPolicy.reserveAfterTarget,
+              unplannedCash: inputs.savingsPolicy.unplannedCash,
+            },
+      throughRetirement: {
+        nominal: nominalSavingsThroughRetirement,
+        real: realSavingsThroughRetirement,
+      },
     },
     annual,
     observations,

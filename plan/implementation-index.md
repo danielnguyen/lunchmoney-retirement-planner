@@ -8,18 +8,18 @@ Public content must remain generic. Do not add private financial values, account
 
 ## Current position
 
-- Open implementation pull request: [#9 Add explicit surplus allocation policy](https://github.com/danielnguyen/lunchmoney-retirement-planner/pull/9)
+- Open implementation pull request: [#10 Add registered-account room and contribution waterfall](https://github.com/danielnguyen/lunchmoney-retirement-planner/pull/10)
 - Pull request state: Open draft
-- Active capability: Surplus allocation policy
+- Active capability: Registered-account room and contribution waterfall
 - Status: In progress
-- Branch: `agent/add-surplus-allocation-policy`
-- Latest validated implementation head: `88e8f0390c4d1268404590ab621235b3428271e2`
-- Synthetic validation: Passed — 10 test files and 138 tests, including scalar CSV reserve-membership columns, dual-equality explanation reconciliation, three-account reserve aggregation, reserve-return timing, typecheck, lint, production build, Docker build, Compose configuration, export privacy, and diff checks
-- Repository-owner private migration: Completed locally in ignored configuration; no private values or configuration were committed
-- Private live smoke test: Passed — configuration, live baseline and projection, dashboard and API routes, explanations, overrides and reset, nominal and real bridges, automatic JSON and CSV anonymization, and private denylist checks
-- Remaining step: review the open draft pull request
-- Next action: review draft PR #9; pull-request readiness remains a repository-owner decision
-- Last completed capability: Government benefits
+- Branch: `agent/add-registered-account-room`
+- Latest validated implementation head: `63bc545c0890ccff93b1711e8524516be4f938ba`
+- Synthetic validation: Passed — 12 test files and 208 tests, typecheck, lint, production build, Docker image build, Compose configuration validation, diff check, focused simple parsing/compiler, plain-language example guidance, the `currentYearBeforePlanStart` simple-field migration, January and partial-year room handling, explicit-savings, reserve-transition, workplace-priority, taxable-destination, controls, long-horizon cent-stable nominal/real explanation reconciliation, one-cent-plus and cancellation-resistant negative checks, bridge checks, advanced-compatibility and mixed-mode checks, and adversarial JSON/real-CSV/nominal-CSV privacy review
+- Repository-owner private migration: Passed in the ignored local file
+- Private live smoke test: Passed — schema, live baseline and projection, dashboard/API, controls and override/reset/refresh, nominal and real explanations, contribution and room reconciliation, nominal and real bridges, and anonymized JSON/real-CSV/nominal-CSV checks
+- Remaining step: final review before marking draft PR #10 ready
+- Next action: complete final review before marking draft PR #10 ready
+- Last completed capability: Surplus allocation policy
 
 ## Terminology boundary
 
@@ -38,8 +38,8 @@ Branches, pull-request titles, commits, tests, documentation headings, types, fu
 | Sequence | Capability | Primary dependency | Status | Pull request |
 |---|---|---|---|---|
 | 1 | Government benefits | Phased income model | Completed | [#8](https://github.com/danielnguyen/lunchmoney-retirement-planner/pull/8) |
-| 2 | Surplus allocation policy | Government benefits | In progress | [#9](https://github.com/danielnguyen/lunchmoney-retirement-planner/pull/9) |
-| 3 | Registered-account room and contribution waterfall | Surplus allocation policy | Planned | — |
+| 2 | Surplus allocation policy | Government benefits | Completed | [#9](https://github.com/danielnguyen/lunchmoney-retirement-planner/pull/9) |
+| 3 | Registered-account room and contribution waterfall | Surplus allocation policy | In progress | [#10](https://github.com/danielnguyen/lunchmoney-retirement-planner/pull/10) |
 | 4 | Debt amortization and spending phases | Phased contribution model | Planned | — |
 | 5 | RRIF minimum withdrawals and Canadian taxes | Surplus allocation policy and debt/spending model | Planned | — |
 

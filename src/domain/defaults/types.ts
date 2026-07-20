@@ -7,6 +7,7 @@ export type CanadianReferenceKind =
   | "population_median"
   | "population_average"
   | "statutory_program_default"
+  | "statutory_annual_limit"
   | "published_planning_assumption";
 
 export type BaselineValue<T> = {

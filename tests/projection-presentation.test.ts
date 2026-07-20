@@ -3,6 +3,7 @@ import {
   annualPeriodLabel,
   buildAnnualChartData,
   buildAnnualLedgerData,
+  buildSavingsPolicyPreview,
   startingFinancialAssets,
 } from "@/src/domain/projection/presentation";
 import { calculateProjection } from "@/src/domain/projection/calculate";
@@ -80,6 +81,12 @@ describe("projection presentation metadata", () => {
     );
 
     expect(chart[0]).toMatchObject({
+      allowedContributions:
+        projection.annual[0]!.real.contributions.allowed,
+      surplusFundedContributions:
+        projection.annual[0]!.real.contributions.surplusFunded,
+      actualContributions:
+        projection.annual[0]!.real.contributions.total,
       surplusGenerated: projection.annual[0]!.real.surplusAllocation
         .generated,
       surplusReserveRefill: projection.annual[0]!.real.surplusAllocation
@@ -93,11 +100,84 @@ describe("projection presentation metadata", () => {
     });
     expect(chart[0]).toHaveProperty("surplusAllocation:manual:1");
     expect(ledger[0]).toMatchObject({
+      actualContributions: chart[0]!.actualContributions,
+      surplusFundedContributions:
+        chart[0]!.surplusFundedContributions,
       surplusGenerated: chart[0]!.surplusGenerated,
       surplusReserveRefill: chart[0]!.surplusReserveRefill,
       surplusRetainedAsCash: chart[0]!.surplusRetainedAsCash,
       surplusRedirected: chart[0]!.surplusRedirected,
       surplusReserveTarget: chart[0]!.surplusReserveTarget,
+    });
+  });
+
+  it("builds the owner-facing simple policy preview from resolved account references", () => {
+    const inputs = structuredClone(projectionFixture);
+    inputs.accounts = [
+      { ...inputs.accounts[0]!, id: "cash:operating", label: "Operating" },
+      { ...inputs.accounts[0]!, id: "cash:reserve", label: "Reserve refill" },
+      {
+        ...inputs.accounts[1]!,
+        id: "tfsa:personal",
+        label: "Personal TFSA",
+        type: "tfsa",
+      },
+      {
+        ...inputs.accounts[1]!,
+        id: "rrsp:personal",
+        label: "Personal RRSP",
+      },
+      {
+        ...inputs.accounts[1]!,
+        id: "rrsp:workplace",
+        label: "Workplace RRSP",
+      },
+      {
+        ...inputs.accounts[1]!,
+        id: "projection:taxable",
+        label: "Future taxable",
+        origin: "projection_configuration",
+        type: "non_registered",
+      },
+    ];
+    inputs.surplusAllocation.reserveAccountIds = [
+      "cash:operating",
+      "cash:reserve",
+    ];
+    inputs.surplusAllocation.reserveRefillAccountId = "cash:reserve";
+    inputs.savingsPolicy = {
+      mode: "simple",
+      operatingCashAccountId: "cash:operating",
+      reserveAccountIds: ["cash:operating", "cash:reserve"],
+      reserveRefillAccountId: "cash:reserve",
+      personalTfsaAccountId: "tfsa:personal",
+      personalRrspAccountId: "rrsp:personal",
+      workplaceRrspAccountId: "rrsp:workplace",
+      taxableAccountId: "projection:taxable",
+      taxableAccountOrigin: "projection_configuration",
+      reserveBuildingPhases: [],
+      unplannedCash: "retain_in_operating_cash",
+      personalOrder: ["personal_tfsa", "personal_rrsp", "taxable"],
+      workplaceRoomPriority: "first",
+      workplaceOverflow: "unallocated",
+      reserveAfterTarget: "personal_investing",
+    };
+
+    expect(buildSavingsPolicyPreview(inputs)).toEqual({
+      mode: "simple",
+      reserveAccounts: ["Operating", "Reserve refill"],
+      reserveRefillAccount: "Reserve refill",
+      operatingCashAccount: "Operating",
+      workplacePriority:
+        "Workplace RRSP gets first claim on global RRSP room",
+      workplaceOverflow: "Workplace RRSP overflow is unallocated",
+      personalOrder: "Personal TFSA → personal RRSP → taxable",
+      taxableDestination: "Future taxable",
+      taxableDestinationKind: "projection-only",
+      reserveTransition:
+        "Reserve-building savings redirect through the personal order after the indexed target",
+      unplannedCash:
+        "Unplanned positive cash is retained in operating cash and is not swept into investments",
     });
   });
 });

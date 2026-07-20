@@ -26,6 +26,7 @@ export const baselineWarningCodes = [
   "oas_canadian_reference_in_use",
   "legacy_zero_cpp_amount",
   "legacy_zero_oas_amount",
+  "contribution_waterfall_compatibility",
 ] as const;
 
 export type BaselineWarningCode = (typeof baselineWarningCodes)[number];
@@ -144,7 +145,7 @@ export type DerivedBaseline = {
 };
 
 export type CurrentBaseline = {
-  schemaVersion: "1.4";
+  schemaVersion: "1.5";
   connection: ConnectionStatus;
   projectionInputs: ProjectionInputs;
   provenance: Record<string, BaselineValue<unknown>>;

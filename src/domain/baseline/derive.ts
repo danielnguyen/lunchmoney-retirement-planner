@@ -6,7 +6,12 @@ import type {
   RecurringItem,
   Transaction,
 } from "@lunch-money/lunch-money-js-v2";
-import type { AccountMapping, CategoryMapping, PlannerConfig } from "@/src/config/types";
+import type {
+  AccountMapping,
+  CategoryMapping,
+  PlannerConfig,
+  ProjectionAccountConfig,
+} from "@/src/config/types";
 import type { BaselineValue } from "@/src/domain/defaults/types";
 import {
   canadianCppReference,
@@ -14,6 +19,17 @@ import {
   cppClaimRules,
   oasClaimRules,
 } from "@/src/domain/defaults/canadian-public-benefits";
+import {
+  RRSP_ANNUAL_LIMITS,
+  RRSP_EARNED_INCOME_RATE,
+  RRSP_FORMULA_REFERENCE_URL,
+  SIMPLE_POLICY_RRSP_FUTURE_GROWTH_RATE,
+  SIMPLE_POLICY_RRSP_ROUNDING_INCREMENT,
+  SIMPLE_POLICY_TFSA_FUTURE_INDEXING_RATE,
+  SIMPLE_POLICY_TFSA_ROUNDING_INCREMENT,
+  TFSA_ANNUAL_LIMITS,
+  TFSA_WITHDRAWAL_REFERENCE_URL,
+} from "@/src/domain/defaults/canadian-registered-account-room";
 import { validateProjectionInputs, type AccountType, type ProjectionInputs } from "@/src/domain/projection/types";
 import type { LunchMoneyData } from "@/src/integrations/lunchmoney/read-service";
 import { PlannerRuntimeError } from "@/src/runtime/errors";
@@ -560,8 +576,24 @@ export function deriveCurrentBaseline(
     const contributionFunding = isInvestmentAccount
       ? mapping.contributionFunding ?? (contributionFromConfig === undefined ? "cash" : undefined)
       : undefined;
+    const simpleConfiguredPhases =
+      config.configurationMode === "simple" &&
+      mapping.roles?.includes("personal_tfsa")
+        ? config.savingsPolicy!.personalInvesting.phases.map((phase) => ({
+            ...phase,
+            funding: "cash" as const,
+          }))
+        : config.configurationMode === "simple" &&
+            mapping.roles?.includes("workplace_rrsp")
+          ? config.savingsPolicy!.workplaceRrsp!.phases.map((phase) => ({
+              ...phase,
+              funding: "income_withheld" as const,
+            }))
+          : undefined;
+    const configuredContributionPhases =
+      simpleConfiguredPhases ?? mapping.contributionPhases;
     const contributionPhases: ProjectionInputs["accounts"][number]["contributionPhases"] =
-      mapping.contributionPhases?.map((phase) => ({
+      configuredContributionPhases?.map((phase) => ({
         id: phase.id,
         label: phase.label,
         startAge: phase.startAge,
@@ -630,7 +662,9 @@ export function deriveCurrentBaseline(
     );
     for (const phase of contributionPhases) {
       const prefix = `accounts.${account.canonicalId}.contributionPhases.${phase.id}`;
-      const configuredPhase = mapping.contributionPhases?.find((item) => item.id === phase.id);
+      const configuredPhase = configuredContributionPhases?.find(
+        (item) => item.id === phase.id,
+      );
       const fallbackDescription =
         "Legacy account-level contribution was normalized into a resolved contribution phase";
       provenance[`${prefix}.label`] = localValue(
@@ -708,8 +742,58 @@ export function deriveCurrentBaseline(
     );
   }
 
+  const importedAccountForRole = (role: NonNullable<AccountMapping["roles"]>[number]) => {
+    const matches = projectionAccounts.filter(
+      (account) =>
+        account.origin === "lunchmoney" &&
+        resolvedMapping.get(account.id)?.roles?.includes(role),
+    );
+    if (matches.length !== 1) {
+      throw new PlannerRuntimeError(
+        "configuration_required",
+        `The ${role} role must resolve to exactly one included imported account; found ${matches.length}.`,
+        422,
+      );
+    }
+    return matches[0]!;
+  };
+
+  const resolvedProjectionAccountConfigs: Record<
+    string,
+    ProjectionAccountConfig
+  > = { ...(config.projectionAccounts ?? {}) };
+  const automaticallyCreatedProjectionAccountIds = new Set<string>();
+  if (config.configurationMode === "simple") {
+    const importedTaxable = projectionAccounts.find(
+      (account) =>
+        account.origin === "lunchmoney" &&
+        resolvedMapping
+          .get(account.id)
+          ?.roles?.includes("personal_taxable"),
+    );
+    if (!importedTaxable) {
+      const accountId = "projection:future-taxable";
+      const nextWithdrawalPriority =
+        Math.max(
+          0,
+          ...projectionAccounts
+            .filter((account) => account.type !== "debt")
+            .map((account) => account.withdrawalPriority),
+        ) + 1;
+      resolvedProjectionAccountConfigs[accountId] = {
+        label: "Future taxable investment account",
+        type: "non_registered",
+        annualReturn: config.assumptions.nonRegisteredReturn,
+        withdrawalPriority: nextWithdrawalPriority,
+        allocation: config.assumptions.allocations.non_registered,
+        contributionPhases: [],
+      };
+      automaticallyCreatedProjectionAccountIds.add(accountId);
+    }
+  }
+
   for (const [accountId, configured] of Object.entries(
-    config.projectionAccounts ?? {},
+    resolvedProjectionAccountConfigs,
   ).sort(([left], [right]) => left.localeCompare(right))) {
     if (projectionAccounts.some((account) => account.id === accountId)) {
       throw new PlannerRuntimeError(
@@ -742,17 +826,23 @@ export function deriveCurrentBaseline(
     const prefix = `accounts.${accountId}`;
     provenance[`${prefix}.label`] = localValue(
       account.label,
-      "Projection-only account label from private planner configuration",
+      automaticallyCreatedProjectionAccountIds.has(accountId)
+        ? "Automatic future taxable account label compiled from the simple savings policy"
+        : "Projection-only account label from private planner configuration",
       window.endDate,
     );
     provenance[`${prefix}.origin`] = localValue(
       account.origin,
-      "Projection-only account created through planner configuration; it is not an imported Lunch Money balance",
+      automaticallyCreatedProjectionAccountIds.has(accountId)
+        ? "Projection-only account created automatically because no imported personal taxable role was selected; it is not an imported Lunch Money balance"
+        : "Projection-only account created through planner configuration; it is not an imported Lunch Money balance",
       window.endDate,
     );
     provenance[`${prefix}.openingBalance`] = localValue(
       0,
-      "Projection-only opening balance is fixed at zero through projection configuration and is not an imported balance",
+      automaticallyCreatedProjectionAccountIds.has(accountId)
+        ? "Automatically created future taxable account opening balance is fixed at zero and is not an imported balance"
+        : "Projection-only opening balance is fixed at zero through projection configuration and is not an imported balance",
       window.endDate,
     );
     provenance[`${prefix}.type`] = localValue(
@@ -810,7 +900,242 @@ export function deriveCurrentBaseline(
     }
   }
 
-  const reserveAccounts = config.surplusAllocation.reserveAccountIds.map(
+  const simpleRoleAccount = (
+    role: NonNullable<AccountMapping["roles"]>[number],
+  ) => importedAccountForRole(role);
+  const simpleReserveAccounts =
+    config.configurationMode === "simple"
+      ? projectionAccounts.filter(
+          (account) =>
+            account.origin === "lunchmoney" &&
+            resolvedMapping
+              .get(account.id)
+              ?.roles?.includes("reserve_member"),
+        )
+      : [];
+  const simpleOperatingAccount =
+    config.configurationMode === "simple"
+      ? simpleRoleAccount("operating_cash")
+      : null;
+  const simpleReserveRefillAccount =
+    config.configurationMode === "simple"
+      ? simpleRoleAccount("reserve_refill")
+      : null;
+  const simplePersonalTfsaAccount =
+    config.configurationMode === "simple"
+      ? simpleRoleAccount("personal_tfsa")
+      : null;
+  const simplePersonalRrspAccount =
+    config.configurationMode === "simple"
+      ? simpleRoleAccount("personal_rrsp")
+      : null;
+  const simpleWorkplaceRrspAccount =
+    config.configurationMode === "simple" &&
+    config.savingsPolicy!.workplaceRrsp
+      ? simpleRoleAccount("workplace_rrsp")
+      : null;
+  const simpleImportedTaxableAccount =
+    config.configurationMode === "simple"
+      ? projectionAccounts.find(
+          (account) =>
+            account.origin === "lunchmoney" &&
+            resolvedMapping
+              .get(account.id)
+              ?.roles?.includes("personal_taxable"),
+        ) ?? null
+      : null;
+  const simpleTaxableAccount =
+    config.configurationMode === "simple"
+      ? simpleImportedTaxableAccount ??
+        projectionAccounts.find(
+          (account) => account.id === "projection:future-taxable",
+        )!
+      : null;
+
+  if (
+    config.configurationMode === "simple" &&
+    simpleReserveAccounts.length === 0
+  ) {
+    throw new PlannerRuntimeError(
+      "configuration_required",
+      "No reserve_member role resolved to an included imported cash account.",
+      422,
+    );
+  }
+
+  const projectionStartYear = Number(dataThrough.slice(0, 4));
+  const projectionStartMonth = Number(dataThrough.slice(5, 7));
+  const currentYearBeforePlanStart =
+    config.configurationMode === "simple"
+      ? config.registeredRoom!.rrsp.currentYearBeforePlanStart
+      : undefined;
+  if (
+    config.configurationMode === "simple" &&
+    projectionStartMonth !== 1 &&
+    !currentYearBeforePlanStart
+  ) {
+    throw new PlannerRuntimeError(
+      "configuration_required",
+      "registeredRoom.rrsp.currentYearBeforePlanStart is required when the live projection starts from February through December.",
+      422,
+    );
+  }
+
+  const registeredAccountRoom: ProjectionInputs["registeredAccountRoom"] =
+    config.configurationMode === "simple"
+      ? {
+          tfsa: {
+            startingAvailableRoom: {
+              source: "configured_amount",
+              amount: config.registeredRoom!.tfsa.availableAtStart,
+              sourceDescription:
+                "Owner-supplied TFSA room available at projection start",
+              effectiveDate: config.registeredRoom!.tfsa.asOf,
+            },
+            annualNewRoom: {
+              source: "canadian_reference",
+              futureIndexingRate:
+                SIMPLE_POLICY_TFSA_FUTURE_INDEXING_RATE,
+              roundingIncrement:
+                SIMPLE_POLICY_TFSA_ROUNDING_INCREMENT,
+            },
+            carryForwardUnusedRoom: true,
+            withdrawalRoomRecredit: "next_calendar_year",
+          },
+          rrsp: {
+            startingAvailableDeductionRoom: {
+              source: "configured_amount",
+              amount: config.registeredRoom!.rrsp.availableAtStart,
+              sourceDescription:
+                "Owner-supplied RRSP deduction room available at projection start",
+              effectiveDate: config.registeredRoom!.rrsp.asOf,
+            },
+            carryForwardUnusedRoom: true,
+            newRoom: {
+              source: "earned_income",
+              annualCap: {
+                source: "canadian_reference",
+                futureGrowthRate:
+                  SIMPLE_POLICY_RRSP_FUTURE_GROWTH_RATE,
+                futureRoundingIncrement:
+                  SIMPLE_POLICY_RRSP_ROUNDING_INCREMENT,
+              },
+              startYearBeforeProjectionMonth: {
+                calendarYear: projectionStartYear,
+                eligibleEarnedIncome:
+                  currentYearBeforePlanStart?.eligibleEarnedIncome ?? 0,
+                pensionAdjustment:
+                  currentYearBeforePlanStart?.pensionAdjustment ?? 0,
+                otherRoomReduction:
+                  currentYearBeforePlanStart?.otherReduction ?? 0,
+              },
+            },
+          },
+        }
+      : config.registeredAccountRoom;
+
+  const contributionWaterfall: ProjectionInputs["contributionWaterfall"] =
+    config.configurationMode === "simple"
+      ? {
+          mode: "simple_policy",
+          routes: [
+            ...(simpleWorkplaceRrspAccount &&
+            simpleWorkplaceRrspAccount.contributionPhases.length > 0
+              ? [
+                  {
+                    sourceAccountId: simpleWorkplaceRrspAccount.id,
+                    destinationAccountIds: [
+                      simpleWorkplaceRrspAccount.id,
+                    ],
+                  },
+                ]
+              : []),
+            ...(simplePersonalTfsaAccount!.contributionPhases.length > 0
+              ? [
+                  {
+                    sourceAccountId: simplePersonalTfsaAccount!.id,
+                    destinationAccountIds: [
+                      simplePersonalTfsaAccount!.id,
+                      simplePersonalRrspAccount!.id,
+                      simpleTaxableAccount!.id,
+                    ],
+                  },
+                ]
+              : []),
+          ],
+          surplusDestinationAccountIds: [
+            simplePersonalTfsaAccount!.id,
+            simplePersonalRrspAccount!.id,
+            simpleTaxableAccount!.id,
+          ],
+        }
+      : config.contributionWaterfall
+        ? {
+            mode: "canonical",
+            routes: config.contributionWaterfall.routes,
+            surplusDestinationAccountIds:
+              config.contributionWaterfall.surplusDestinationAccountIds,
+          }
+        : {
+            mode: "fixed_source_compatibility",
+            routes: projectionAccounts
+              .filter((account) => account.contributionPhases.length > 0)
+              .map((account) => ({
+                sourceAccountId: account.id,
+                destinationAccountIds: [account.id],
+              })),
+            surplusDestinationAccountIds: [],
+          };
+
+  const surplusAllocation: ProjectionInputs["surplusAllocation"] =
+    config.configurationMode === "simple"
+      ? {
+          reserveAccountIds: simpleReserveAccounts.map(
+            (account) => account.id,
+          ),
+          reserveRefillAccountId: simpleReserveRefillAccount!.id,
+          targetCashReserveToday:
+            config.savingsPolicy!.reserveBuilding.targetToday,
+          reserveIndexingRate:
+            config.savingsPolicy!.reserveBuilding.indexingRate,
+          excess: {
+            mode: "allocate_through_contribution_waterfall",
+          },
+        }
+      : config.surplusAllocation!;
+
+  const savingsPolicy: ProjectionInputs["savingsPolicy"] =
+    config.configurationMode === "simple"
+      ? {
+          mode: "simple",
+          operatingCashAccountId: simpleOperatingAccount!.id,
+          reserveAccountIds: simpleReserveAccounts.map(
+            (account) => account.id,
+          ),
+          reserveRefillAccountId: simpleReserveRefillAccount!.id,
+          personalTfsaAccountId: simplePersonalTfsaAccount!.id,
+          personalRrspAccountId: simplePersonalRrspAccount!.id,
+          workplaceRrspAccountId:
+            simpleWorkplaceRrspAccount?.id ?? null,
+          taxableAccountId: simpleTaxableAccount!.id,
+          taxableAccountOrigin: simpleTaxableAccount!.origin,
+          reserveBuildingPhases:
+            config.savingsPolicy!.reserveBuilding.phases.map((phase) => ({
+              ...phase,
+            })),
+          unplannedCash: "retain_in_operating_cash",
+          personalOrder: [
+            "personal_tfsa",
+            "personal_rrsp",
+            "taxable",
+          ],
+          workplaceRoomPriority: "first",
+          workplaceOverflow: "unallocated",
+          reserveAfterTarget: "personal_investing",
+        }
+      : { mode: "advanced" };
+
+  const reserveAccounts = surplusAllocation.reserveAccountIds.map(
     (reserveAccountId) => {
       const reserveAccount = projectionAccounts.find(
         (account) => account.id === reserveAccountId,
@@ -834,7 +1159,7 @@ export function deriveCurrentBaseline(
   );
   const reserveRefillAccount = reserveAccounts.find(
     (account) =>
-      account.id === config.surplusAllocation.reserveRefillAccountId,
+      account.id === surplusAllocation.reserveRefillAccountId,
   );
   if (!reserveRefillAccount) {
     throw new PlannerRuntimeError(
@@ -843,9 +1168,9 @@ export function deriveCurrentBaseline(
       422,
     );
   }
-  if (config.surplusAllocation.excess.mode === "allocate_to_account") {
+  if (surplusAllocation.excess.mode === "allocate_to_account") {
     const destinationAccountId =
-      config.surplusAllocation.excess.destinationAccountId;
+      surplusAllocation.excess.destinationAccountId;
     const destinationAccount = projectionAccounts.find(
       (account) => account.id === destinationAccountId,
     );
@@ -857,7 +1182,7 @@ export function deriveCurrentBaseline(
       );
     }
     if (
-      config.surplusAllocation.reserveAccountIds.includes(
+      surplusAllocation.reserveAccountIds.includes(
         destinationAccount.id,
       )
     ) {
@@ -887,6 +1212,21 @@ export function deriveCurrentBaseline(
           ? annualEmploymentNetCashToday
           : phase.annualNetCashToday,
       annualGrowth: phase.annualGrowth,
+      ...(phase.rrspRoomGeneration
+        ? { rrspRoomGeneration: { ...phase.rrspRoomGeneration } }
+        : phase.rrspRoom
+          ? {
+              rrspRoomGeneration: {
+                annualEligibleEarnedIncomeToday:
+                  phase.rrspRoom.eligibleEarnedIncomeToday,
+                annualPensionAdjustmentToday:
+                  phase.rrspRoom.pensionAdjustmentToday,
+                annualOtherRoomReductionToday:
+                  phase.rrspRoom.otherReductionToday,
+                annualGrowth: phase.rrspRoom.annualGrowth,
+              },
+            }
+        : {}),
     })) ?? [
       {
         id: "legacy-current-income",
@@ -938,6 +1278,41 @@ export function deriveCurrentBaseline(
         : `${fallbackDescription}; growth preserves assumptions.incomeGrowth`,
       window.endDate,
     );
+    if (phase.rrspRoomGeneration) {
+      for (const [field, value] of Object.entries(
+        phase.rrspRoomGeneration,
+      )) {
+        provenance[`${prefix}.rrspRoomGeneration.${field}`] = localValue(
+          value,
+          "Explicit RRSP room-generation assumption for this employment phase",
+          window.endDate,
+        );
+      }
+      if (configuredPhase?.rrspRoom) {
+        const simpleRoomFields: Array<[string, unknown]> = [
+          [
+            "eligibleEarnedIncomeToday",
+            configuredPhase.rrspRoom.eligibleEarnedIncomeToday,
+          ],
+          [
+            "pensionAdjustmentToday",
+            configuredPhase.rrspRoom.pensionAdjustmentToday,
+          ],
+          [
+            "otherReductionToday",
+            configuredPhase.rrspRoom.otherReductionToday,
+          ],
+          ["annualGrowth", configuredPhase.rrspRoom.annualGrowth],
+        ];
+        for (const [field, value] of simpleRoomFields) {
+          provenance[`${prefix}.rrspRoom.${field}`] = localValue(
+            value,
+            "Explicit simple-policy RRSP room-generation assumption for this employment phase",
+            window.endDate,
+          );
+        }
+      }
+    }
   }
   const longLiveBaselinePhase = employmentIncomePhases.find((phase) => {
     const configured = config.employmentIncomePhases?.find((item) => item.id === phase.id);
@@ -1295,36 +1670,268 @@ export function deriveCurrentBaseline(
     window.endDate,
   );
   provenance["surplusAllocation.reserveAccountIds"] = localValue(
-    config.surplusAllocation.reserveAccountIds,
-    "Explicit cash accounts counted toward the surplus reserve from private planner configuration",
+    surplusAllocation.reserveAccountIds,
+    config.configurationMode === "simple"
+      ? "Reserve-member roles compiled into the resolved surplus reserve account set"
+      : "Explicit cash accounts counted toward the surplus reserve from private planner configuration",
     window.endDate,
   );
   provenance["surplusAllocation.reserveRefillAccountId"] = localValue(
-    config.surplusAllocation.reserveRefillAccountId,
-    "Explicit cash account receiving reserve refills and retained excess from private planner configuration",
+    surplusAllocation.reserveRefillAccountId,
+    config.configurationMode === "simple"
+      ? "Reserve-refill role compiled into the resolved reserve refill account"
+      : "Explicit cash account receiving reserve refills and retained excess from private planner configuration",
     window.endDate,
   );
   provenance["surplusAllocation.targetCashReserveToday"] = localValue(
-    config.surplusAllocation.targetCashReserveToday,
-    "Target cash reserve in today's dollars from private planner configuration",
+    surplusAllocation.targetCashReserveToday,
+    config.configurationMode === "simple"
+      ? "Reserve-building target compiled from the simple savings policy"
+      : "Target cash reserve in today's dollars from private planner configuration",
     window.endDate,
   );
   provenance["surplusAllocation.reserveIndexingRate"] = localValue(
-    config.surplusAllocation.reserveIndexingRate,
-    "Surplus reserve indexing rate from private planner configuration",
+    surplusAllocation.reserveIndexingRate,
+    config.configurationMode === "simple"
+      ? "Reserve-building indexing compiled from the simple savings policy"
+      : "Surplus reserve indexing rate from private planner configuration",
     window.endDate,
   );
   provenance["surplusAllocation.excess.mode"] = localValue(
-    config.surplusAllocation.excess.mode,
-    "Surplus excess strategy from private planner configuration",
+    surplusAllocation.excess.mode,
+    config.configurationMode === "simple"
+      ? "Internal route used only for reserve-building savings above the reserve target"
+      : "Surplus excess strategy from private planner configuration",
     window.endDate,
   );
-  if (config.surplusAllocation.excess.mode === "allocate_to_account") {
+  if (surplusAllocation.excess.mode === "allocate_to_account") {
     provenance["surplusAllocation.excess.destinationAccountId"] = localValue(
-      config.surplusAllocation.excess.destinationAccountId,
+      surplusAllocation.excess.destinationAccountId,
       "Explicit non-registered surplus destination from private planner configuration",
       window.endDate,
     );
+  }
+  if (registeredAccountRoom) {
+    const room = registeredAccountRoom;
+    const roomProvenance: Array<[string, unknown, string, string]> = [
+      ["registeredAccountRoom.tfsa.startingAvailableRoom.source", room.tfsa.startingAvailableRoom.source, "Configured personal TFSA starting-room source", room.tfsa.startingAvailableRoom.effectiveDate],
+      ["registeredAccountRoom.tfsa.startingAvailableRoom.amount", room.tfsa.startingAvailableRoom.amount, "Configured personal TFSA room available at projection start", room.tfsa.startingAvailableRoom.effectiveDate],
+      ["registeredAccountRoom.tfsa.startingAvailableRoom.effectiveDate", room.tfsa.startingAvailableRoom.effectiveDate, "Effective date of configured personal TFSA room", room.tfsa.startingAvailableRoom.effectiveDate],
+      ["registeredAccountRoom.tfsa.annualNewRoom.futureIndexingRate", room.tfsa.annualNewRoom.futureIndexingRate, "Configured TFSA future-limit indexing", window.endDate],
+      ["registeredAccountRoom.tfsa.annualNewRoom.roundingIncrement", room.tfsa.annualNewRoom.roundingIncrement, "Configured TFSA future-limit rounding increment", window.endDate],
+      ["registeredAccountRoom.tfsa.carryForwardUnusedRoom", room.tfsa.carryForwardUnusedRoom, "Configured TFSA unused-room carry-forward assumption", window.endDate],
+      ["registeredAccountRoom.rrsp.startingAvailableDeductionRoom.source", room.rrsp.startingAvailableDeductionRoom.source, "Configured personal RRSP starting-room source", room.rrsp.startingAvailableDeductionRoom.effectiveDate],
+      ["registeredAccountRoom.rrsp.startingAvailableDeductionRoom.amount", room.rrsp.startingAvailableDeductionRoom.amount, "Configured personal RRSP deduction room available at projection start", room.rrsp.startingAvailableDeductionRoom.effectiveDate],
+      ["registeredAccountRoom.rrsp.startingAvailableDeductionRoom.effectiveDate", room.rrsp.startingAvailableDeductionRoom.effectiveDate, "Effective date of configured personal RRSP room", room.rrsp.startingAvailableDeductionRoom.effectiveDate],
+      ["registeredAccountRoom.rrsp.newRoom.annualCap.futureGrowthRate", room.rrsp.newRoom.annualCap.futureGrowthRate, "Configured future RRSP cap growth", window.endDate],
+      ["registeredAccountRoom.rrsp.newRoom.annualCap.futureRoundingIncrement", room.rrsp.newRoom.annualCap.futureRoundingIncrement, "Configured future RRSP cap rounding increment", window.endDate],
+      ["registeredAccountRoom.rrsp.carryForwardUnusedRoom", room.rrsp.carryForwardUnusedRoom, "Configured RRSP unused-room carry-forward assumption", window.endDate],
+      ["registeredAccountRoom.rrsp.newRoom.startYearBeforeProjectionMonth.calendarYear", room.rrsp.newRoom.startYearBeforeProjectionMonth.calendarYear, "Explicit pre-projection RRSP room-generation calendar year", window.endDate],
+      ["registeredAccountRoom.rrsp.newRoom.startYearBeforeProjectionMonth.eligibleEarnedIncome", room.rrsp.newRoom.startYearBeforeProjectionMonth.eligibleEarnedIncome, "Explicit pre-projection eligible earned income", window.endDate],
+      ["registeredAccountRoom.rrsp.newRoom.startYearBeforeProjectionMonth.pensionAdjustment", room.rrsp.newRoom.startYearBeforeProjectionMonth.pensionAdjustment, "Explicit pre-projection pension adjustment", window.endDate],
+      ["registeredAccountRoom.rrsp.newRoom.startYearBeforeProjectionMonth.otherRoomReduction", room.rrsp.newRoom.startYearBeforeProjectionMonth.otherRoomReduction, "Explicit pre-projection other room reduction", window.endDate],
+    ];
+    for (const [field, value, description, date] of roomProvenance) {
+      provenance[field] = localValue(value, description, date);
+    }
+    const tfsaLimit = TFSA_ANNUAL_LIMITS[0]!;
+    provenance[`registeredAccountRoom.tfsa.annualNewRoom.${tfsaLimit.calendarYear}`] =
+      canadianValue(tfsaLimit.amount, "Published TFSA annual dollar limit", tfsaLimit.effectiveDate, "statutory_annual_limit", tfsaLimit.referenceUrl);
+    provenance["registeredAccountRoom.tfsa.withdrawalRoomRecredit"] =
+      canadianValue("next_calendar_year", "TFSA withdrawal room is restored in the next calendar year", "2026-01-01", "statutory_program_default", TFSA_WITHDRAWAL_REFERENCE_URL);
+    provenance["registeredAccountRoom.rrsp.newRoom.earnedIncomeRate"] =
+      canadianValue(RRSP_EARNED_INCOME_RATE, "Statutory RRSP earned-income rate", "2026-01-01", "statutory_program_default", RRSP_FORMULA_REFERENCE_URL);
+    for (const cap of RRSP_ANNUAL_LIMITS) {
+      provenance[`registeredAccountRoom.rrsp.newRoom.annualCap.${cap.calendarYear}`] =
+        canadianValue(cap.amount, "Published RRSP annual dollar limit", cap.effectiveDate, "statutory_annual_limit", cap.referenceUrl);
+    }
+  }
+
+  if (
+    contributionWaterfall.mode === "fixed_source_compatibility" &&
+    contributionWaterfall.routes.length > 0
+  ) {
+    warnings.push({
+      code: "contribution_waterfall_compatibility",
+      severity: "warning",
+      message:
+        "Contribution waterfall configuration is omitted; each planned contribution uses a fixed source-only route and room-constrained overflow remains unallocated.",
+    });
+  }
+  provenance["contributionWaterfall.mode"] = localValue(
+    contributionWaterfall.mode,
+    contributionWaterfall.mode === "simple_policy"
+      ? "Simple savings intent compiled into deterministic workplace-first and personal contribution routes"
+      : contributionWaterfall.mode === "canonical"
+        ? "Explicit contribution waterfall from private planner configuration"
+        : "Contribution sources normalized to fixed source-only compatibility routes",
+    window.endDate,
+  );
+  for (const [index, route] of contributionWaterfall.routes.entries()) {
+    provenance[`contributionWaterfall.routes.${index}.sourceAccountId`] =
+      localValue(route.sourceAccountId, "Contribution waterfall route source", window.endDate);
+    provenance[`contributionWaterfall.routes.${index}.destinationAccountIds`] =
+      localValue(route.destinationAccountIds, "Ordered contribution waterfall destinations", window.endDate);
+  }
+  provenance["contributionWaterfall.surplusDestinationAccountIds"] =
+    localValue(
+      contributionWaterfall.surplusDestinationAccountIds,
+      "Ordered surplus contribution waterfall destinations",
+      window.endDate,
+    );
+  provenance["savingsPolicy.mode"] = localValue(
+    savingsPolicy.mode,
+    savingsPolicy.mode === "simple"
+      ? "Owner-facing savings intent compiled into resolved projection inputs"
+      : "Advanced routing configuration remains authoritative",
+    window.endDate,
+  );
+  if (savingsPolicy.mode === "simple") {
+    for (const account of projectionAccounts.filter(
+      (item) => item.origin === "lunchmoney",
+    )) {
+      const roles = resolvedMapping.get(account.id)?.roles;
+      if (roles && roles.length > 0) {
+        provenance[`accounts.${account.id}.roles`] = localValue(
+          roles,
+          "Owner-facing account roles from simple planner configuration",
+          window.endDate,
+        );
+      }
+    }
+    const accountReferences: Array<[string, unknown, string]> = [
+      [
+        "savingsPolicy.operatingCashAccountId",
+        savingsPolicy.operatingCashAccountId,
+        "Operating-cash role compiled to the account retaining unplanned cash",
+      ],
+      [
+        "savingsPolicy.reserveAccountIds",
+        savingsPolicy.reserveAccountIds,
+        "Reserve-member roles compiled to the combined reserve account set",
+      ],
+      [
+        "savingsPolicy.reserveRefillAccountId",
+        savingsPolicy.reserveRefillAccountId,
+        "Reserve-refill role compiled to the reserve deposit account",
+      ],
+      [
+        "savingsPolicy.personalTfsaAccountId",
+        savingsPolicy.personalTfsaAccountId,
+        "Personal-TFSA role compiled to the first personal destination",
+      ],
+      [
+        "savingsPolicy.personalRrspAccountId",
+        savingsPolicy.personalRrspAccountId,
+        "Personal-RRSP role compiled to the second personal destination",
+      ],
+      [
+        "savingsPolicy.workplaceRrspAccountId",
+        savingsPolicy.workplaceRrspAccountId,
+        "Workplace-RRSP role compiled to the income-withheld workplace destination",
+      ],
+      [
+        "savingsPolicy.taxableAccountId",
+        savingsPolicy.taxableAccountId,
+        savingsPolicy.taxableAccountOrigin === "lunchmoney"
+          ? "Personal-taxable role compiled to the imported taxable destination"
+          : "Automatic zero-balance future taxable destination compiled because no imported personal-taxable role was selected",
+      ],
+    ];
+    for (const [field, value, description] of accountReferences) {
+      provenance[field] = localValue(value, description, window.endDate);
+    }
+    provenance["savingsPolicy.taxableAccountOrigin"] = localValue(
+      savingsPolicy.taxableAccountOrigin,
+      "Resolved origin of the personal taxable destination",
+      window.endDate,
+    );
+    provenance["savingsPolicy.unplannedCash"] = localValue(
+      savingsPolicy.unplannedCash,
+      "Unplanned positive cash is retained in operating cash",
+      window.endDate,
+    );
+    provenance["savingsPolicy.personalOrder"] = localValue(
+      savingsPolicy.personalOrder,
+      "Personal investment order compiled from simple savings policy",
+      window.endDate,
+    );
+    provenance["savingsPolicy.workplaceRoomPriority"] = localValue(
+      savingsPolicy.workplaceRoomPriority,
+      "Workplace RRSP receives first claim on the global RRSP room pool",
+      window.endDate,
+    );
+    provenance["savingsPolicy.workplaceOverflow"] = localValue(
+      savingsPolicy.workplaceOverflow,
+      "Workplace RRSP overflow remains visibly unallocated",
+      window.endDate,
+    );
+    provenance["savingsPolicy.reserveAfterTarget"] = localValue(
+      savingsPolicy.reserveAfterTarget,
+      "Reserve-building savings above the reserve target use the personal investment order",
+      window.endDate,
+    );
+    provenance["savingsPolicy.reserveBuilding.targetToday"] = localValue(
+      surplusAllocation.targetCashReserveToday,
+      "Owner-facing reserve-building target in today's dollars",
+      window.endDate,
+    );
+    provenance["savingsPolicy.reserveBuilding.indexingRate"] = localValue(
+      surplusAllocation.reserveIndexingRate,
+      "Owner-facing reserve-building target indexing rate",
+      window.endDate,
+    );
+    for (const phase of savingsPolicy.reserveBuildingPhases) {
+      const prefix = `savingsPolicy.reserveBuilding.phases.${phase.id}`;
+      for (const [field, value] of Object.entries(phase)) {
+        provenance[`${prefix}.${field}`] = localValue(
+          value,
+          "Reserve-building savings phase from simple planner configuration",
+          window.endDate,
+        );
+      }
+    }
+    const simpleRoom = config.registeredRoom!;
+    const simpleRoomProvenance: Array<[string, unknown, string]> = [
+      [
+        "registeredRoom.tfsa.availableAtStart",
+        simpleRoom.tfsa.availableAtStart,
+        "Owner-supplied TFSA room available at projection start",
+      ],
+      [
+        "registeredRoom.tfsa.asOf",
+        simpleRoom.tfsa.asOf,
+        "Effective date of owner-supplied TFSA starting room",
+      ],
+      [
+        "registeredRoom.rrsp.availableAtStart",
+        simpleRoom.rrsp.availableAtStart,
+        "Owner-supplied RRSP deduction room available at projection start",
+      ],
+      [
+        "registeredRoom.rrsp.asOf",
+        simpleRoom.rrsp.asOf,
+        "Effective date of owner-supplied RRSP starting room",
+      ],
+      [
+        "registeredRoom.rrsp.currentYearBeforePlanStart.eligibleEarnedIncome",
+        currentYearBeforePlanStart?.eligibleEarnedIncome ?? 0,
+        "Explicit eligible earned income before the projection-start month",
+      ],
+      [
+        "registeredRoom.rrsp.currentYearBeforePlanStart.pensionAdjustment",
+        currentYearBeforePlanStart?.pensionAdjustment ?? 0,
+        "Explicit pension adjustment before the projection-start month",
+      ],
+      [
+        "registeredRoom.rrsp.currentYearBeforePlanStart.otherReduction",
+        currentYearBeforePlanStart?.otherReduction ?? 0,
+        "Explicit other room reduction before the projection-start month",
+      ],
+    ];
+    for (const [field, value, description] of simpleRoomProvenance) {
+      provenance[field] = localValue(value, description, window.endDate);
+    }
   }
 
   const projectionInputs = validateProjectionInputs({
@@ -1361,12 +1968,17 @@ export function deriveCurrentBaseline(
       rrifConversionAge: config.assumptions.rrifConversionAge,
     },
     accounts: projectionAccounts,
-    surplusAllocation: config.surplusAllocation,
+    ...(registeredAccountRoom
+      ? { registeredAccountRoom }
+      : {}),
+    contributionWaterfall,
+    surplusAllocation,
+    savingsPolicy,
     events: config.futureEvents,
   });
 
   return {
-    schemaVersion: "1.4",
+    schemaVersion: "1.5",
     connection,
     projectionInputs,
     provenance,

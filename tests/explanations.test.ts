@@ -10,8 +10,12 @@ import { calculateProjection } from "@/src/domain/projection/calculate";
 import {
   buildAnnualChartData,
   buildAnnualLedgerData,
+  buildContributionReconciliation,
 } from "@/src/domain/projection/presentation";
-import type { FinancialAccountInput } from "@/src/domain/projection/types";
+import type {
+  FinancialAccountInput,
+  ProjectionInputs,
+} from "@/src/domain/projection/types";
 import {
   currentBaselineFixture,
   projectionFixture,
@@ -30,6 +34,242 @@ function context(
     selectedAllocationYear: 2046,
   };
   mutate?.(value);
+  return value;
+}
+
+function simpleContext(): ExplanationContext {
+  const value = context();
+  const inputs = structuredClone(projectionFixture);
+  const endAge = 40 + 1 / 12;
+  inputs.startDate = "2026-01-15";
+  inputs.person.currentAge = 40;
+  inputs.person.retirementAge = endAge;
+  inputs.endAge = endAge;
+  inputs.annualInflation = 0;
+  inputs.monthlyEssentialSpendingToday = 0;
+  inputs.monthlyDiscretionarySpendingToday = 0;
+  inputs.tax.effectiveTaxRate = 0;
+  inputs.tax.oasRecoveryRate = 0;
+  inputs.person.employmentIncomePhases = [
+    {
+      id: "working",
+      label: "Working",
+      startAge: 40,
+      endAge,
+      annualNetCashToday: 60000,
+      annualGrowth: 0,
+      rrspRoomGeneration: {
+        annualEligibleEarnedIncomeToday: 0,
+        annualPensionAdjustmentToday: 0,
+        annualOtherRoomReductionToday: 0,
+        annualGrowth: 0,
+      },
+    },
+  ];
+  const account = (
+    id: string,
+    label: string,
+    type: FinancialAccountInput["type"],
+    contributionPhases: FinancialAccountInput["contributionPhases"] = [],
+    origin: FinancialAccountInput["origin"] = "lunchmoney",
+  ): FinancialAccountInput => ({
+    id,
+    label,
+    origin,
+    type,
+    openingBalance: 0,
+    annualReturn: 0,
+    contributionPhases,
+    withdrawalPriority: 1,
+    allocation:
+      type === "cash"
+        ? { cash: 1, fixedIncome: 0, equity: 0 }
+        : { cash: 0, fixedIncome: 0.2, equity: 0.8 },
+  });
+  inputs.accounts = [
+    account("manual:operating", "Operating cash", "cash"),
+    account("manual:reserve", "Reserve refill", "cash"),
+    account("plaid:tfsa", "Personal TFSA", "tfsa", [
+      {
+        id: "personal",
+        label: "Personal saving",
+        startAge: 40,
+        endAge,
+        monthlyAmountToday: 1000,
+        funding: "cash",
+        indexingRate: 0,
+      },
+    ]),
+    account("plaid:personal-rrsp", "Personal RRSP", "rrsp_rrif"),
+    account("plaid:workplace-rrsp", "Workplace RRSP", "rrsp_rrif", [
+      {
+        id: "workplace",
+        label: "Workplace saving",
+        startAge: 40,
+        endAge,
+        monthlyAmountToday: 1800,
+        funding: "income_withheld",
+        indexingRate: 0,
+      },
+    ]),
+    account(
+      "projection:future-taxable",
+      "Future taxable",
+      "non_registered",
+      [],
+      "projection_configuration",
+    ),
+  ];
+  inputs.registeredAccountRoom!.tfsa.startingAvailableRoom.amount = 500;
+  inputs.registeredAccountRoom!.rrsp.startingAvailableDeductionRoom.amount =
+    2000;
+  inputs.registeredAccountRoom!.rrsp.newRoom.startYearBeforeProjectionMonth = {
+    calendarYear: 2026,
+    eligibleEarnedIncome: 0,
+    pensionAdjustment: 0,
+    otherRoomReduction: 0,
+  };
+  inputs.contributionWaterfall = {
+    mode: "simple_policy",
+    routes: [
+      {
+        sourceAccountId: "plaid:workplace-rrsp",
+        destinationAccountIds: ["plaid:workplace-rrsp"],
+      },
+      {
+        sourceAccountId: "plaid:tfsa",
+        destinationAccountIds: [
+          "plaid:tfsa",
+          "plaid:personal-rrsp",
+          "projection:future-taxable",
+        ],
+      },
+    ],
+    surplusDestinationAccountIds: [
+      "plaid:tfsa",
+      "plaid:personal-rrsp",
+      "projection:future-taxable",
+    ],
+  };
+  inputs.surplusAllocation = {
+    reserveAccountIds: ["manual:operating", "manual:reserve"],
+    reserveRefillAccountId: "manual:reserve",
+    targetCashReserveToday: 400,
+    reserveIndexingRate: 0,
+    excess: { mode: "allocate_through_contribution_waterfall" },
+  };
+  inputs.savingsPolicy = {
+    mode: "simple",
+    operatingCashAccountId: "manual:operating",
+    reserveAccountIds: ["manual:operating", "manual:reserve"],
+    reserveRefillAccountId: "manual:reserve",
+    personalTfsaAccountId: "plaid:tfsa",
+    personalRrspAccountId: "plaid:personal-rrsp",
+    workplaceRrspAccountId: "plaid:workplace-rrsp",
+    taxableAccountId: "projection:future-taxable",
+    taxableAccountOrigin: "projection_configuration",
+    reserveBuildingPhases: [
+      {
+        id: "reserve",
+        label: "Reserve saving",
+        startAge: 40,
+        endAge,
+        monthlyAmountToday: 1500,
+        indexingRate: 0,
+      },
+    ],
+    unplannedCash: "retain_in_operating_cash",
+    personalOrder: ["personal_tfsa", "personal_rrsp", "taxable"],
+    workplaceRoomPriority: "first",
+    workplaceOverflow: "unallocated",
+    reserveAfterTarget: "personal_investing",
+  };
+  inputs.events = [];
+  value.inputs = inputs satisfies ProjectionInputs;
+  value.baseline.projectionInputs = structuredClone(inputs);
+  value.projection = calculateProjection(inputs);
+  value.displayMode = "real";
+  return value;
+}
+
+function longHorizonSimpleContext(
+  displayMode: ExplanationContext["displayMode"] = "real",
+): ExplanationContext {
+  const value = simpleContext();
+  const inputs = value.inputs;
+  const endAge = 55;
+  inputs.startDate = "2026-07-01";
+  inputs.person.currentAge = 39;
+  inputs.person.retirementAge = endAge;
+  inputs.person.rrifConversionAge = 71;
+  inputs.endAge = endAge;
+  inputs.annualInflation = 0.021;
+  inputs.monthlyEssentialSpendingToday = 2800;
+  inputs.monthlyDiscretionarySpendingToday = 1200;
+  inputs.person.employmentIncomePhases = [
+    {
+      id: "synthetic-long-work",
+      label: "Synthetic long employment",
+      startAge: 39,
+      endAge,
+      annualNetCashToday: 126000,
+      annualGrowth: 0.017,
+      rrspRoomGeneration: {
+        annualEligibleEarnedIncomeToday: 165000,
+        annualPensionAdjustmentToday: 0,
+        annualOtherRoomReductionToday: 0,
+        annualGrowth: 0.019,
+      },
+    },
+  ];
+  for (const account of inputs.accounts) {
+    if (account.type !== "cash") account.annualReturn = 0.047;
+  }
+  inputs.accounts.find(
+    (account) => account.id === "manual:operating",
+  )!.openingBalance = 14000;
+  inputs.accounts.find(
+    (account) => account.id === "manual:reserve",
+  )!.openingBalance = 19000;
+  const personal = inputs.accounts.find(
+    (account) => account.id === "plaid:tfsa",
+  )!.contributionPhases[0]!;
+  personal.startAge = 39;
+  personal.endAge = endAge;
+  personal.monthlyAmountToday = 1111.11;
+  personal.indexingRate = 0.017;
+  const workplace = inputs.accounts.find(
+    (account) => account.id === "plaid:workplace-rrsp",
+  )!.contributionPhases[0]!;
+  workplace.startAge = 39;
+  workplace.endAge = endAge;
+  workplace.monthlyAmountToday = 2888.88;
+  workplace.indexingRate = 0.009;
+  if (inputs.savingsPolicy.mode === "simple") {
+    Object.assign(inputs.savingsPolicy.reserveBuildingPhases[0]!, {
+      startAge: 39,
+      endAge,
+      monthlyAmountToday: 1777.77,
+      indexingRate: 0.011,
+    });
+  }
+  inputs.surplusAllocation.targetCashReserveToday = 48000;
+  inputs.surplusAllocation.reserveIndexingRate = 0.02;
+  inputs.registeredAccountRoom!.tfsa.startingAvailableRoom.amount = 9000;
+  inputs.registeredAccountRoom!.rrsp
+    .startingAvailableDeductionRoom.amount = 24000;
+  inputs.registeredAccountRoom!.rrsp.newRoom
+    .startYearBeforeProjectionMonth = {
+      calendarYear: 2026,
+      eligibleEarnedIncome: 78000,
+      pensionAdjustment: 0,
+      otherRoomReduction: 0,
+    };
+  value.baseline.projectionInputs = structuredClone(inputs);
+  value.projection = calculateProjection(inputs);
+  value.displayMode = displayMode;
+  value.selectedAllocationYear =
+    value.projection.annual[0]!.calendarYear;
   return value;
 }
 
@@ -848,6 +1088,91 @@ describe("calculation explanations", () => {
     ).toBe(false);
   });
 
+  it("explains simple policy intent from shared preview and annual result rows", () => {
+    const value = simpleContext();
+    const document = buildExplanation("surplus-allocation", value);
+    const rows = section(
+      document,
+      "Annual explicit savings and retained cash",
+    ).rows;
+    const chartRows = buildAnnualChartData(
+      value.inputs,
+      value.projection,
+      value.displayMode,
+    );
+
+    expect(document.title).toBe("Explicit savings and retained cash");
+    expect(document.plainLanguage).toContain(
+      "Only configured savings plans are invested",
+    );
+    expect(document.plainLanguage).toContain(
+      "Workplace RRSP gets first claim",
+    );
+    expect(document.plainLanguage).toContain(
+      "Unplanned positive cash is retained",
+    );
+    expect(
+      section(document, "Resolved simple policy preview").rows,
+    ).toEqual(
+      expect.arrayContaining([
+        {
+          concept: "Personal order",
+          resolved: "Personal TFSA → personal RRSP → taxable",
+        },
+        {
+          concept: "Taxable destination",
+          resolved: "Future taxable (projection-only)",
+        },
+      ]),
+    );
+    expect(rows[0]).toMatchObject({
+      positiveCashAvailable: chartRows[0]!.positiveCashAvailable,
+      personalPlanned: chartRows[0]!.personalPlanAmount,
+      reservePlanned: chartRows[0]!.reserveBuildingPlanAmount,
+      reserveRetainedAsCash: chartRows[0]!.reserveCashRetained,
+      reserveRedirected: chartRows[0]!.reservePlanRedirected,
+      workplaceUnallocated: chartRows[0]!.workplaceUnallocated,
+      unplannedCashRetained: chartRows[0]!.unplannedCashRetained,
+      totalInvestmentDeposits: chartRows[0]!.totalInvestmentDeposits,
+    });
+    expect(document.reconciliation?.matched).toBe(true);
+    expect(document.caveats.join(" ")).toContain(
+      "personal cash never uses the workplace RRSP",
+    );
+  });
+
+  it("enforces every simple savings equality in the room explanation", () => {
+    const valid = simpleContext();
+    const document = buildExplanation("registered-account-room", valid);
+    expect(document.reconciliation?.matched).toBe(true);
+    expect(document.plainLanguage).toContain(
+      "Only explicit plans are invested",
+    );
+    expect(section(document, "Resolved policy order").description).toContain(
+      "compiled from owner-facing roles",
+    );
+
+    const reserveMismatch = simpleContext();
+    reserveMismatch.projection.annual[0]!.real.savingsPolicy
+      .reserveRetainedAsCash += 10;
+    expect(
+      buildExplanation(
+        "registered-account-room",
+        reserveMismatch,
+      ).reconciliation?.matched,
+    ).toBe(false);
+
+    const cashMismatch = simpleContext();
+    cashMismatch.projection.annual[0]!.real.savingsPolicy
+      .positiveCashAvailable += 10;
+    expect(
+      buildExplanation(
+        "registered-account-room",
+        cashMismatch,
+      ).reconciliation?.matched,
+    ).toBe(false);
+  });
+
   it("keeps projection-only accounts separate with fixed-zero provenance wording", () => {
     const value = context((draft) => {
       const account: FinancialAccountInput = {
@@ -906,5 +1231,289 @@ describe("calculation explanations", () => {
     expect(finiteNumbers(documents)).toBe(true);
     expect(serialized).not.toContain("synthetic-secret");
     expect(serialized).not.toMatch(/LUNCHMONEY_API_TOKEN|authorization|password/i);
+  });
+
+  it("builds registered-room explanations from shared annual presentation rows", () => {
+    const value = context();
+    const document = buildExplanation("registered-account-room", value);
+    const rows = section(
+      document,
+      "Annual registered room and routing",
+    ).rows;
+    const chartRows = buildAnnualChartData(
+      value.inputs,
+      value.projection,
+      value.displayMode,
+    );
+
+    expect(document.reconciliation?.matched).toBe(true);
+    expect(rows[0]).toMatchObject({
+      period: chartRows[0]!.periodLabel,
+      planned: chartRows[0]!.plannedContributions,
+      allowed: chartRows[0]!.allowedContributions,
+      surplusFunded: chartRows[0]!.surplusFundedContributions,
+      actual: chartRows[0]!.actualContributions,
+      unallocated: chartRows[0]!.unallocatedContributions,
+      tfsaClosing: chartRows[0]!.tfsaRoomClosing,
+      rrspClosing: chartRows[0]!.rrspRoomClosing,
+    });
+    expect(document.caveats.join(" ")).toContain(
+      "Net deposited employment cash is never treated as RRSP-eligible earned income",
+    );
+    expect(document.caveats.join(" ")).toContain(
+      "next January boundary",
+    );
+    expect(document.caveats.join(" ")).toContain(
+      "nominal regulatory dollars",
+    );
+  });
+
+  it("keeps long-horizon simple contribution reconciliation cent-stable in both modes", () => {
+    const nominal = longHorizonSimpleContext("nominal");
+    const nominalSummary = buildContributionReconciliation(
+      nominal.projection,
+      "nominal",
+    );
+    const realSummary = buildContributionReconciliation(
+      nominal.projection,
+      "real",
+    );
+    const cents = (value: number) => Math.round(value * 100);
+
+    expect(nominal.projection.annual.length).toBeGreaterThanOrEqual(16);
+    expect(
+      nominal.projection.inputs.accounts.find(
+        (account) => account.id === "projection:future-taxable",
+      ),
+    ).toMatchObject({
+      origin: "projection_configuration",
+      openingBalance: 0,
+    });
+    expect(
+      nominal.projection.annual.some(
+        (point) =>
+          point.nominal.savingsPolicy.reserveRetainedAsCash > 0,
+      ),
+    ).toBe(true);
+    expect(
+      nominal.projection.annual.some(
+        (point) => point.nominal.savingsPolicy.reserveRedirected > 0,
+      ),
+    ).toBe(true);
+    expect(
+      nominal.projection.annual.some(
+        (point) => point.nominal.savingsPolicy.unplannedCashRetained > 0,
+      ),
+    ).toBe(true);
+    expect(
+      nominal.projection.annual.some(
+        (point) => point.nominal.savingsPolicy.workplaceUnallocated > 0,
+      ),
+    ).toBe(true);
+
+    for (const mode of ["nominal", "real"] as const) {
+      const summary =
+        mode === "nominal" ? nominalSummary : realSummary;
+      const document = buildExplanation(
+        "registered-account-room",
+        longHorizonSimpleContext(mode),
+      );
+      expect(
+        Object.values(summary.equations).every(
+          (equation) =>
+            equation.periodsMatched &&
+            equation.maximumPeriodDifference <= 0.01,
+        ),
+      ).toBe(true);
+      expect(summary.matched).toBe(true);
+      expect(document.reconciliation?.matched).toBe(true);
+      expect(
+        cents(document.reconciliation!.calculatedValue),
+      ).toBe(cents(document.reconciliation!.displayedValue));
+    }
+
+    expect(
+      nominalSummary.equations.totalActual.rawAggregateDifference,
+    ).toBeGreaterThan(0.01);
+    for (const point of nominal.projection.annual) {
+      expect(point.real.registeredAccountRoom).toEqual(
+        point.nominal.registeredAccountRoom,
+      );
+    }
+  });
+
+  it("rejects one-cent-plus annual mismatches and opposite-sign cancellation", () => {
+    const single = longHorizonSimpleContext("nominal");
+    single.projection.annual[2]!.nominal.contributions.total += 0.02;
+    expect(
+      buildExplanation(
+        "registered-account-room",
+        single,
+      ).reconciliation?.matched,
+    ).toBe(false);
+
+    const cancelling = longHorizonSimpleContext("nominal");
+    const baselineAggregateDifference =
+      buildContributionReconciliation(
+        cancelling.projection,
+        "nominal",
+      ).equations.totalActual.rawAggregateDifference;
+    cancelling.projection.annual[2]!.nominal.contributions.total +=
+      0.02;
+    cancelling.projection.annual[3]!.nominal.contributions.total -=
+      0.02;
+    const summary = buildContributionReconciliation(
+      cancelling.projection,
+      "nominal",
+    );
+    expect(
+      summary.equations.totalActual.rawAggregateDifference,
+    ).toBe(baselineAggregateDifference);
+    expect(summary.equations.totalActual.periodsMatched).toBe(false);
+    expect(
+      buildExplanation(
+        "registered-account-room",
+        cancelling,
+      ).reconciliation?.matched,
+    ).toBe(false);
+  });
+
+  it("keeps advanced room explanations reconciled with cent-stable totals", () => {
+    for (const displayMode of ["nominal", "real"] as const) {
+      const value = context((draft) => {
+        draft.displayMode = displayMode;
+      });
+      const summary = buildContributionReconciliation(
+        value.projection,
+        displayMode,
+      );
+      expect(summary.matched).toBe(true);
+      expect(
+        buildExplanation(
+          "registered-account-room",
+          value,
+        ).reconciliation?.matched,
+      ).toBe(true);
+    }
+  });
+
+  it("marks every registered-room contribution and room mismatch unmatched", () => {
+    const mutations: Array<(value: ReturnType<typeof context>) => void> = [
+      (value) => {
+        value.projection.annual[0]!.real.contributions.unallocated += 10;
+      },
+      (value) => {
+        value.projection.annual[0]!.real.contributions.total += 10;
+      },
+      (value) => {
+        value.projection.annual[0]!.real.contributions.surplusFunded += 10;
+      },
+      (value) => {
+        value.projection.annual[0]!.real.contributions.cashFunded += 10;
+      },
+      (value) => {
+        Object.values(
+          value.projection.annual[0]!.real.accountContributionDetails,
+        )[0]!.depositedIntoAccount += 10;
+      },
+      (value) => {
+        Object.values(
+          value.projection.annual[0]!.real.accountContributionDetails,
+        )[0]!.redirectedIn += 10;
+      },
+      (value) => {
+        Object.values(
+          value.projection.annual[0]!.real.accountContributionDetails,
+        )[0]!.redirectedOut += 10;
+      },
+      (value) => {
+        value.projection.annual[0]!.real.registeredAccountRoom.tfsa
+          .closingRoom += 10;
+      },
+    ];
+
+    for (const mutate of mutations) {
+      const mismatch = context();
+      mutate(mismatch);
+      expect(
+        buildExplanation(
+          "registered-account-room",
+          mismatch,
+        ).reconciliation?.matched,
+      ).toBe(false);
+    }
+  });
+
+  it("uses the active displayed room rows for reconciliation in both modes", () => {
+    const real = context();
+    const nominal = context((draft) => {
+      draft.displayMode = "nominal";
+    });
+    const realDocument = buildExplanation("registered-account-room", real);
+    const nominalDocument = buildExplanation(
+      "registered-account-room",
+      nominal,
+    );
+    const realRows = section(
+      realDocument,
+      "Annual registered room and routing",
+    ).rows;
+    const nominalRows = section(
+      nominalDocument,
+      "Annual registered room and routing",
+    ).rows;
+
+    expect(realDocument.reconciliation?.matched).toBe(true);
+    expect(nominalDocument.reconciliation?.matched).toBe(true);
+    expect(
+      realRows.map(
+        ({ tfsaOpening, tfsaNew, tfsaClosing, rrspOpening, rrspNew, rrspClosing }) => ({
+          tfsaOpening,
+          tfsaNew,
+          tfsaClosing,
+          rrspOpening,
+          rrspNew,
+          rrspClosing,
+        }),
+      ),
+    ).toEqual(
+      nominalRows.map(
+        ({ tfsaOpening, tfsaNew, tfsaClosing, rrspOpening, rrspNew, rrspClosing }) => ({
+          tfsaOpening,
+          tfsaNew,
+          tfsaClosing,
+          rrspOpening,
+          rrspNew,
+          rrspClosing,
+        }),
+      ),
+    );
+  });
+
+  it("shows active starting-room overrides and reset values deterministically", () => {
+    const active = context((draft) => {
+      draft.inputs.registeredAccountRoom!.tfsa.startingAvailableRoom.amount =
+        12345;
+      draft.overrides[
+        "registeredAccountRoom.tfsa.startingAvailableRoom.amount"
+      ] = 12345;
+      draft.projection = calculateProjection(draft.inputs);
+    });
+    const document = buildExplanation("registered-account-room", active);
+    expect(
+      document.steps.find((step) => step.label === "Starting TFSA room"),
+    ).toMatchObject({
+      rawValue: 12345,
+      sourceType: "override",
+    });
+
+    const reset = buildExplanation(
+      "registered-account-room",
+      context(),
+    );
+    expect(
+      reset.steps.find((step) => step.label === "Starting TFSA room")
+        ?.sourceType,
+    ).toBe("configuration");
   });
 });

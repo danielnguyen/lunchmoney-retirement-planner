@@ -12,6 +12,7 @@ import type { LunchMoneyData } from "@/src/integrations/lunchmoney/read-service"
 import { PlannerRuntimeError } from "@/src/runtime/errors";
 
 const configFixture: PlannerConfig = {
+  configurationMode: "advanced",
   currentAge: 40,
   retirementAge: 65,
   projectionEndAge: 95,
@@ -32,6 +33,55 @@ const configFixture: PlannerConfig = {
     targetCashReserveToday: 1000,
     reserveIndexingRate: 0.02,
     excess: { mode: "retain_as_cash" },
+  },
+  registeredAccountRoom: {
+    tfsa: {
+      startingAvailableRoom: {
+        source: "configured_amount",
+        amount: 10000,
+        sourceDescription: "Synthetic available TFSA room",
+        effectiveDate: "2026-07-01",
+      },
+      annualNewRoom: {
+        source: "canadian_reference",
+        futureIndexingRate: 0.02,
+        roundingIncrement: 500,
+      },
+      carryForwardUnusedRoom: true,
+      withdrawalRoomRecredit: "next_calendar_year",
+    },
+    rrsp: {
+      startingAvailableDeductionRoom: {
+        source: "explicit_zero",
+        amount: 0,
+        sourceDescription: "Explicit zero starting room",
+        effectiveDate: "1970-01-01",
+      },
+      carryForwardUnusedRoom: true,
+      newRoom: {
+        source: "earned_income",
+        annualCap: {
+          source: "canadian_reference",
+          futureGrowthRate: 0.03,
+          futureRoundingIncrement: 10,
+        },
+        startYearBeforeProjectionMonth: {
+          calendarYear: 2026,
+          eligibleEarnedIncome: 0,
+          pensionAdjustment: 0,
+          otherRoomReduction: 0,
+        },
+      },
+    },
+  },
+  contributionWaterfall: {
+    routes: [
+      {
+        sourceAccountId: "plaid:2",
+        destinationAccountIds: ["plaid:2"],
+      },
+    ],
+    surplusDestinationAccountIds: ["plaid:2"],
   },
   categoryMappings: {
     "10": "essential",
@@ -251,9 +301,510 @@ describe("live baseline derivation", () => {
       }),
     ]);
     expect(baseline.recordsAnalyzed.transactions).toBe(8);
-    expect(baseline.schemaVersion).toBe("1.4");
+    expect(baseline.schemaVersion).toBe("1.5");
     expect(baseline.warnings).toContainEqual(
       expect.objectContaining({ code: "long_live_baseline_income" }),
+    );
+  });
+
+  it("resolves registered room, waterfall routes, and material provenance", () => {
+    const baseline = deriveCurrentBaseline(
+      configFixture,
+      lunchMoneyData(),
+      window,
+      "2026-07-14T12:00:00.000Z",
+    );
+
+    expect(baseline.schemaVersion).toBe("1.5");
+    expect(
+      baseline.projectionInputs.registeredAccountRoom?.tfsa
+        .startingAvailableRoom.amount,
+    ).toBe(10000);
+    expect(baseline.projectionInputs.contributionWaterfall).toMatchObject({
+      mode: "canonical",
+      routes: [
+        {
+          sourceAccountId: "plaid:2",
+          destinationAccountIds: ["plaid:2"],
+        },
+      ],
+    });
+    expect(
+      baseline.provenance[
+        "registeredAccountRoom.tfsa.startingAvailableRoom.amount"
+      ],
+    ).toMatchObject({
+      sourceType: "local_configuration",
+      value: 10000,
+    });
+    expect(
+      baseline.provenance[
+        "registeredAccountRoom.rrsp.newRoom.earnedIncomeRate"
+      ],
+    ).toMatchObject({
+      sourceType: "canadian_reference",
+      value: 0.18,
+    });
+    expect(
+      baseline.provenance[
+        "contributionWaterfall.routes.0.destinationAccountIds"
+      ]?.value,
+    ).toEqual(["plaid:2"]);
+  });
+
+  it("compiles the simple owner policy into one authoritative resolved model and creates a future taxable account", () => {
+    const config = structuredClone(configFixture);
+    config.configurationMode = "simple";
+    delete config.surplusAllocation;
+    delete config.registeredAccountRoom;
+    delete config.contributionWaterfall;
+    config.accountMappings = {
+      "manual:1": {
+        include: true,
+        type: "cash",
+        roles: ["operating_cash", "reserve_member"],
+        withdrawalPriority: 1,
+      },
+      "manual:4": {
+        include: true,
+        type: "cash",
+        roles: ["reserve_member", "reserve_refill"],
+        withdrawalPriority: 2,
+      },
+      "plaid:2": {
+        include: true,
+        type: "tfsa",
+        roles: ["personal_tfsa"],
+        withdrawalPriority: 3,
+      },
+      "plaid:5": {
+        include: true,
+        type: "rrsp",
+        roles: ["personal_rrsp"],
+        withdrawalPriority: 4,
+      },
+      "plaid:6": {
+        include: true,
+        type: "rrsp",
+        roles: ["workplace_rrsp"],
+        withdrawalPriority: 5,
+      },
+      "manual:3": { include: true, type: "debt" },
+    };
+    config.categoryMappings["14"] = "transfer";
+    config.employmentIncomePhases = [
+      {
+        id: "working",
+        label: "Working",
+        startAge: 40,
+        endAge: 65,
+        annualNetCashToday: "live_baseline",
+        annualGrowth: 0.02,
+        rrspRoom: {
+          eligibleEarnedIncomeToday: 80000,
+          pensionAdjustmentToday: 4000,
+          otherReductionToday: 0,
+          annualGrowth: 0.02,
+        },
+      },
+    ];
+    config.registeredRoom = {
+      tfsa: { availableAtStart: 12000, asOf: "2026-07-01" },
+      rrsp: {
+        availableAtStart: 18000,
+        asOf: "2026-07-01",
+        currentYearBeforePlanStart: {
+          eligibleEarnedIncome: 50000,
+          pensionAdjustment: 4000,
+          otherReduction: 0,
+        },
+      },
+    };
+    config.savingsPolicy = {
+      unplannedCash: "retain_in_operating_cash",
+      personalInvesting: {
+        order: ["personal_tfsa", "personal_rrsp", "taxable"],
+        phases: [
+          {
+            id: "personal",
+            label: "Personal saving",
+            startAge: 40,
+            endAge: 65,
+            monthlyAmountToday: 500,
+            indexingRate: 0,
+          },
+        ],
+      },
+      reserveBuilding: {
+        targetToday: 10000,
+        indexingRate: 0.02,
+        phases: [
+          {
+            id: "reserve",
+            label: "Reserve saving",
+            startAge: 40,
+            endAge: 45,
+            monthlyAmountToday: 300,
+            indexingRate: 0,
+          },
+        ],
+        afterTarget: "personal_investing",
+      },
+      workplaceRrsp: {
+        roomPriority: "first",
+        overflow: "unallocated",
+        phases: [
+          {
+            id: "workplace",
+            label: "Workplace saving",
+            startAge: 40,
+            endAge: 65,
+            monthlyAmountToday: 800,
+            indexingRate: 0,
+          },
+        ],
+      },
+    };
+
+    const data = lunchMoneyData();
+    data.manualAccounts.push({
+      id: 4,
+      name: "Reserve",
+      display_name: "Reserve",
+      to_base: 2500,
+      status: "active",
+      balance_as_of: "2026-07-10T00:00:00Z",
+    } as ManualAccount);
+    data.plaidAccounts.push(
+      {
+        id: 5,
+        name: "Personal retirement",
+        display_name: "Personal RRSP",
+        to_base: 4000,
+        status: "active",
+        balance_last_update: "2026-07-11T00:00:00Z",
+      } as PlaidAccount,
+      {
+        id: 6,
+        name: "Workplace retirement",
+        display_name: "Workplace RRSP",
+        to_base: 6000,
+        status: "active",
+        balance_last_update: "2026-07-11T00:00:00Z",
+      } as PlaidAccount,
+    );
+
+    const baseline = deriveCurrentBaseline(
+      config,
+      data,
+      window,
+      "2026-07-14T12:00:00.000Z",
+    );
+    const inputs = baseline.projectionInputs;
+    const taxable = inputs.accounts.find(
+      (account) => account.id === "projection:future-taxable",
+    )!;
+
+    expect(inputs.savingsPolicy).toMatchObject({
+      mode: "simple",
+      operatingCashAccountId: "manual:1",
+      reserveAccountIds: ["manual:1", "manual:4"],
+      reserveRefillAccountId: "manual:4",
+      personalTfsaAccountId: "plaid:2",
+      personalRrspAccountId: "plaid:5",
+      workplaceRrspAccountId: "plaid:6",
+      taxableAccountId: "projection:future-taxable",
+      taxableAccountOrigin: "projection_configuration",
+      personalOrder: ["personal_tfsa", "personal_rrsp", "taxable"],
+    });
+    expect(taxable).toMatchObject({
+      origin: "projection_configuration",
+      openingBalance: 0,
+      type: "non_registered",
+      annualReturn: config.assumptions.nonRegisteredReturn,
+      allocation: config.assumptions.allocations.non_registered,
+      contributionPhases: [],
+      withdrawalPriority: 6,
+    });
+    expect(
+      baseline.derived.accountBalances.some(
+        (account) => account.id === taxable.id,
+      ),
+    ).toBe(false);
+    expect(inputs.contributionWaterfall).toEqual({
+      mode: "simple_policy",
+      routes: [
+        {
+          sourceAccountId: "plaid:6",
+          destinationAccountIds: ["plaid:6"],
+        },
+        {
+          sourceAccountId: "plaid:2",
+          destinationAccountIds: [
+            "plaid:2",
+            "plaid:5",
+            "projection:future-taxable",
+          ],
+        },
+      ],
+      surplusDestinationAccountIds: [
+        "plaid:2",
+        "plaid:5",
+        "projection:future-taxable",
+      ],
+    });
+    expect(inputs.registeredAccountRoom).toMatchObject({
+      tfsa: {
+        startingAvailableRoom: {
+          amount: 12000,
+          source: "configured_amount",
+        },
+        carryForwardUnusedRoom: true,
+        withdrawalRoomRecredit: "next_calendar_year",
+      },
+      rrsp: {
+        startingAvailableDeductionRoom: {
+          amount: 18000,
+          source: "configured_amount",
+        },
+        carryForwardUnusedRoom: true,
+      },
+    });
+    expect(
+      baseline.provenance["accounts.projection:future-taxable.openingBalance"],
+    ).toMatchObject({
+      value: 0,
+      sourceDescription: expect.stringContaining("not an imported balance"),
+    });
+    expect(
+      baseline.provenance["accounts.manual:1.roles"]?.value,
+    ).toEqual(["operating_cash", "reserve_member"]);
+
+    delete config.registeredRoom!.rrsp.currentYearBeforePlanStart;
+    expect(() =>
+      deriveCurrentBaseline(
+        config,
+        data,
+        window,
+        "2026-07-14T12:00:00.000Z",
+      ),
+    ).toThrow(
+      "currentYearBeforePlanStart is required when the live projection starts from February through December",
+    );
+
+    const januaryData = structuredClone(data);
+    januaryData.transactions = januaryData.transactions.map(
+      (transactionValue) => ({
+        ...transactionValue,
+        date: transactionValue.date.replace("2026-07-", "2026-01-"),
+      }),
+    );
+    const january = deriveCurrentBaseline(
+      config,
+      januaryData,
+      {
+        startDate: "2025-01-14",
+        endDate: "2026-01-14",
+        trailingMonths: 12,
+      },
+      "2026-01-14T12:00:00.000Z",
+    );
+    expect(
+      january.projectionInputs.registeredAccountRoom?.rrsp.newRoom
+        .startYearBeforeProjectionMonth,
+    ).toEqual({
+      calendarYear: 2026,
+      eligibleEarnedIncome: 0,
+      pensionAdjustment: 0,
+      otherRoomReduction: 0,
+    });
+  });
+
+  it("uses a real personal-taxable role without creating the projected replacement", () => {
+    const config = structuredClone(configFixture);
+    config.configurationMode = "simple";
+    delete config.surplusAllocation;
+    delete config.registeredAccountRoom;
+    delete config.contributionWaterfall;
+    config.accountMappings["manual:1"]!.roles = [
+      "operating_cash",
+      "reserve_member",
+      "reserve_refill",
+    ];
+    config.accountMappings["plaid:2"]!.roles = ["personal_tfsa"];
+    config.accountMappings["plaid:5"] = {
+      include: true,
+      type: "rrsp",
+      roles: ["personal_rrsp"],
+      withdrawalPriority: 3,
+    };
+    config.accountMappings["plaid:6"] = {
+      include: true,
+      type: "rrsp",
+      roles: ["workplace_rrsp"],
+      withdrawalPriority: 4,
+    };
+    config.accountMappings["plaid:7"] = {
+      include: true,
+      type: "non_registered",
+      roles: ["personal_taxable"],
+      withdrawalPriority: 5,
+    };
+    config.categoryMappings["14"] = "transfer";
+    config.employmentIncomePhases = [
+      {
+        id: "working",
+        label: "Working",
+        startAge: 40,
+        endAge: 65,
+        annualNetCashToday: 60000,
+        annualGrowth: 0,
+        rrspRoom: {
+          eligibleEarnedIncomeToday: 80000,
+          pensionAdjustmentToday: 0,
+          otherReductionToday: 0,
+          annualGrowth: 0,
+        },
+      },
+    ];
+    config.registeredRoom = {
+      tfsa: { availableAtStart: 0, asOf: "2026-07-01" },
+      rrsp: {
+        availableAtStart: 0,
+        asOf: "2026-07-01",
+        currentYearBeforePlanStart: {
+          eligibleEarnedIncome: 0,
+          pensionAdjustment: 0,
+          otherReduction: 0,
+        },
+      },
+    };
+    config.savingsPolicy = {
+      unplannedCash: "retain_in_operating_cash",
+      personalInvesting: {
+        order: ["personal_tfsa", "personal_rrsp", "taxable"],
+        phases: [],
+      },
+      reserveBuilding: {
+        targetToday: 0,
+        indexingRate: 0,
+        phases: [],
+        afterTarget: "personal_investing",
+      },
+      workplaceRrsp: {
+        roomPriority: "first",
+        overflow: "unallocated",
+        phases: [],
+      },
+    };
+    const data = lunchMoneyData();
+    data.plaidAccounts.push(
+      { id: 5, name: "P", to_base: 0, status: "active" } as PlaidAccount,
+      { id: 6, name: "W", to_base: 0, status: "active" } as PlaidAccount,
+      { id: 7, name: "T", to_base: 0, status: "active" } as PlaidAccount,
+    );
+
+    const inputs = deriveCurrentBaseline(
+      config,
+      data,
+      window,
+      "2026-07-14T12:00:00.000Z",
+    ).projectionInputs;
+    expect(inputs.accounts.some(({ id }) => id === "projection:future-taxable")).toBe(false);
+    expect(inputs.savingsPolicy).toMatchObject({
+      mode: "simple",
+      taxableAccountId: "plaid:7",
+      taxableAccountOrigin: "lunchmoney",
+    });
+  });
+
+  it("blocks positive registered contributions when room is omitted", () => {
+    const config = structuredClone(configFixture);
+    delete config.registeredAccountRoom;
+    expect(() =>
+      deriveCurrentBaseline(
+        config,
+        lunchMoneyData(),
+        window,
+        "2026-07-14T12:00:00.000Z",
+      ),
+    ).toThrow("registeredAccountRoom is required");
+  });
+
+  it("blocks missing RRSP generation when RRSP is reachable only by overflow or surplus", () => {
+    const projectionRrsp = {
+      label: "Synthetic future RRSP",
+      type: "rrsp" as const,
+      annualReturn: 0.05,
+      withdrawalPriority: 3,
+      allocation: { cash: 0, fixedIncome: 0.2, equity: 0.8 },
+      contributionPhases: [],
+    };
+
+    const overflow = structuredClone(configFixture);
+    overflow.projectionAccounts = {
+      "projection:future-rrsp": projectionRrsp,
+    };
+    overflow.contributionWaterfall!.routes[0]!.destinationAccountIds.push(
+      "projection:future-rrsp",
+    );
+    expect(() =>
+      deriveCurrentBaseline(
+        overflow,
+        lunchMoneyData(),
+        window,
+        "2026-07-14T12:00:00.000Z",
+      ),
+    ).toThrow(
+      "rrspRoomGeneration is required whenever RRSP/RRIF can receive contributions",
+    );
+
+    const surplusOnly = structuredClone(configFixture);
+    surplusOnly.projectionAccounts = {
+      "projection:future-rrsp": projectionRrsp,
+    };
+    surplusOnly.contributionWaterfall!.surplusDestinationAccountIds = [
+      "projection:future-rrsp",
+    ];
+    surplusOnly.surplusAllocation!.excess = {
+      mode: "allocate_through_contribution_waterfall",
+    };
+    expect(() =>
+      deriveCurrentBaseline(
+        surplusOnly,
+        lunchMoneyData(),
+        window,
+        "2026-07-14T12:00:00.000Z",
+      ),
+    ).toThrow(
+      "rrspRoomGeneration is required whenever RRSP/RRIF can receive contributions",
+    );
+  });
+
+  it("normalizes omitted waterfall configuration visibly without inventing overflow", () => {
+    const config = structuredClone(configFixture);
+    delete config.contributionWaterfall;
+    const baseline = deriveCurrentBaseline(
+      config,
+      lunchMoneyData(),
+      window,
+      "2026-07-14T12:00:00.000Z",
+    );
+
+    expect(baseline.projectionInputs.contributionWaterfall).toEqual({
+      mode: "fixed_source_compatibility",
+      routes: [
+        {
+          sourceAccountId: "plaid:2",
+          destinationAccountIds: ["plaid:2"],
+        },
+      ],
+      surplusDestinationAccountIds: [],
+    });
+    expect(baseline.warnings).toContainEqual(
+      expect.objectContaining({
+        code: "contribution_waterfall_compatibility",
+      }),
     );
   });
 
@@ -685,8 +1236,8 @@ describe("live baseline derivation", () => {
       [
         "missing reserve",
         (config) => {
-          config.surplusAllocation.reserveAccountIds = ["manual:missing"];
-          config.surplusAllocation.reserveRefillAccountId =
+          config.surplusAllocation!.reserveAccountIds = ["manual:missing"];
+          config.surplusAllocation!.reserveRefillAccountId =
             "manual:missing";
         },
         "Unknown surplusAllocation reserve account",
@@ -694,8 +1245,8 @@ describe("live baseline derivation", () => {
       [
         "non-cash reserve",
         (config) => {
-          config.surplusAllocation.reserveAccountIds = ["plaid:2"];
-          config.surplusAllocation.reserveRefillAccountId = "plaid:2";
+          config.surplusAllocation!.reserveAccountIds = ["plaid:2"];
+          config.surplusAllocation!.reserveRefillAccountId = "plaid:2";
         },
         "must be a cash account",
       ],

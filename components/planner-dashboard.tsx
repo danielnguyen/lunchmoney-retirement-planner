@@ -29,6 +29,7 @@ import type { ExplanationTarget } from "@/src/domain/explanations/types";
 import {
   buildAnnualChartData,
   buildAnnualLedgerData,
+  buildSavingsPolicyPreview,
   closestAnnualPoint,
   type DisplayMode,
   monthlyEmploymentNetCash,
@@ -79,7 +80,7 @@ type BlockingError = {
   unmappedCategories?: CurrentBaseline["unmappedCategories"];
 };
 
-type ControlDefinition = {
+export type ControlDefinition = {
   key: string;
   sourceKey: string;
   label: string;
@@ -96,11 +97,16 @@ function fixed(value: number): (inputs: ProjectionInputs) => number {
   return () => value;
 }
 
-function buildControls(baseline: ProjectionInputs): ControlDefinition[] {
+export function buildControls(baseline: ProjectionInputs): ControlDefinition[] {
+  const simplePolicy = baseline.savingsPolicy.mode === "simple";
   const controls: ControlDefinition[] = [
     {
-      key: "surplusAllocation.targetCashReserveToday",
-      sourceKey: "surplusAllocation.targetCashReserveToday",
+      key: simplePolicy
+        ? "savingsPolicy.reserveBuilding.targetToday"
+        : "surplusAllocation.targetCashReserveToday",
+      sourceKey: simplePolicy
+        ? "savingsPolicy.reserveBuilding.targetToday"
+        : "surplusAllocation.targetCashReserveToday",
       label: "Target cash reserve today",
       min: fixed(0),
       max: fixed(
@@ -119,8 +125,12 @@ function buildControls(baseline: ProjectionInputs): ControlDefinition[] {
       inputType: "number",
     },
     {
-      key: "surplusAllocation.reserveIndexingRate",
-      sourceKey: "surplusAllocation.reserveIndexingRate",
+      key: simplePolicy
+        ? "savingsPolicy.reserveBuilding.indexingRate"
+        : "surplusAllocation.reserveIndexingRate",
+      sourceKey: simplePolicy
+        ? "savingsPolicy.reserveBuilding.indexingRate"
+        : "surplusAllocation.reserveIndexingRate",
       label: "Reserve indexing rate",
       min: fixed(-0.2),
       max: fixed(0.5),
@@ -212,6 +222,68 @@ function buildControls(baseline: ProjectionInputs): ControlDefinition[] {
     },
   ];
 
+  if (baseline.registeredAccountRoom) {
+    const simpleRoom = baseline.savingsPolicy.mode === "simple";
+    controls.unshift(
+      {
+        key: simpleRoom
+          ? "registeredRoom.tfsa.availableAtStart"
+          : "registeredAccountRoom.tfsa.startingAvailableRoom.amount",
+        sourceKey:
+          simpleRoom
+            ? "registeredRoom.tfsa.availableAtStart"
+            : "registeredAccountRoom.tfsa.startingAvailableRoom.amount",
+        label: "Starting TFSA room",
+        min: fixed(0),
+        max: fixed(
+          Math.max(
+            250000,
+            baseline.registeredAccountRoom.tfsa.startingAvailableRoom.amount *
+              3,
+          ),
+        ),
+        step: 100,
+        format: currency.format,
+        get: (inputs) =>
+          inputs.registeredAccountRoom!.tfsa.startingAvailableRoom.amount,
+        set: (inputs, value) => {
+          inputs.registeredAccountRoom!.tfsa.startingAvailableRoom.amount =
+            value;
+        },
+        inputType: "number",
+      },
+      {
+        key:
+          simpleRoom
+            ? "registeredRoom.rrsp.availableAtStart"
+            : "registeredAccountRoom.rrsp.startingAvailableDeductionRoom.amount",
+        sourceKey:
+          simpleRoom
+            ? "registeredRoom.rrsp.availableAtStart"
+            : "registeredAccountRoom.rrsp.startingAvailableDeductionRoom.amount",
+        label: "Starting RRSP deduction room",
+        min: fixed(0),
+        max: fixed(
+          Math.max(
+            250000,
+            baseline.registeredAccountRoom.rrsp
+              .startingAvailableDeductionRoom.amount * 3,
+          ),
+        ),
+        step: 100,
+        format: currency.format,
+        get: (inputs) =>
+          inputs.registeredAccountRoom!.rrsp
+            .startingAvailableDeductionRoom.amount,
+        set: (inputs, value) => {
+          inputs.registeredAccountRoom!.rrsp.startingAvailableDeductionRoom.amount =
+            value;
+        },
+        inputType: "number",
+      },
+    );
+  }
+
   for (const phase of baseline.person.employmentIncomePhases) {
     controls.push(
       {
@@ -249,16 +321,61 @@ function buildControls(baseline: ProjectionInputs): ControlDefinition[] {
         },
       },
     );
+    if (phase.rrspRoomGeneration) {
+      for (const [
+        field,
+        label,
+      ] of [
+        [
+          "annualEligibleEarnedIncomeToday",
+          "annual RRSP-eligible earned income",
+        ],
+        ["annualPensionAdjustmentToday", "annual pension adjustment"],
+        ["annualOtherRoomReductionToday", "annual other room reduction"],
+      ] as const) {
+        controls.push({
+          key: `employmentPhase.${phase.id}.rrspRoomGeneration.${field}`,
+          sourceKey: `person.employmentIncomePhases.${phase.id}.rrspRoomGeneration.${field}`,
+          label: `${phase.label} ${label}`,
+          min: fixed(0),
+          max: fixed(
+            Math.max(250000, phase.rrspRoomGeneration[field] * 3),
+          ),
+          step: 100,
+          format: currency.format,
+          get: (inputs) =>
+            inputs.person.employmentIncomePhases.find(
+              (item) => item.id === phase.id,
+            )!.rrspRoomGeneration![field],
+          set: (inputs, value) => {
+            inputs.person.employmentIncomePhases.find(
+              (item) => item.id === phase.id,
+            )!.rrspRoomGeneration![field] = value;
+          },
+          inputType: "number",
+        });
+      }
+    }
   }
 
   for (const account of baseline.accounts) {
     if (!["tfsa", "rrsp_rrif", "non_registered"].includes(account.type)) continue;
     for (const phase of account.contributionPhases) {
+      const resolvedSimplePolicy =
+        baseline.savingsPolicy.mode === "simple"
+          ? baseline.savingsPolicy
+          : null;
+      const planLabel =
+        resolvedSimplePolicy?.personalTfsaAccountId === account.id
+          ? "Personal saving"
+          : resolvedSimplePolicy?.workplaceRrspAccountId === account.id
+            ? "Workplace RRSP saving"
+            : account.label;
       controls.push(
         {
           key: `contributionPhase.${account.id}.${phase.id}.monthlyAmountToday`,
           sourceKey: `accounts.${account.id}.contributionPhases.${phase.id}.monthlyAmountToday`,
-          label: `${account.label} · ${phase.label} monthly contribution`,
+          label: `${planLabel} · ${phase.label} monthly amount`,
           min: fixed(0),
           max: fixed(Math.max(5000, phase.monthlyAmountToday * 3)),
           step: 25,
@@ -278,7 +395,7 @@ function buildControls(baseline: ProjectionInputs): ControlDefinition[] {
         {
           key: `contributionPhase.${account.id}.${phase.id}.indexingRate`,
           sourceKey: `accounts.${account.id}.contributionPhases.${phase.id}.indexingRate`,
-          label: `${account.label} · ${phase.label} contribution indexing`,
+          label: `${planLabel} · ${phase.label} indexing`,
           min: fixed(-0.2),
           max: fixed(0.5),
           step: 0.001,
@@ -292,6 +409,58 @@ function buildControls(baseline: ProjectionInputs): ControlDefinition[] {
               .find((item) => item.id === account.id)!
               .contributionPhases.find((item) => item.id === phase.id)!.indexingRate =
               value;
+          },
+        },
+      );
+    }
+  }
+
+  if (baseline.savingsPolicy.mode === "simple") {
+    for (const phase of baseline.savingsPolicy
+      .reserveBuildingPhases) {
+      controls.push(
+        {
+          key: `reserveBuildingPhase.${phase.id}.monthlyAmountToday`,
+          sourceKey: `savingsPolicy.reserveBuilding.phases.${phase.id}.monthlyAmountToday`,
+          label: `Reserve building · ${phase.label} monthly amount`,
+          min: fixed(0),
+          max: fixed(Math.max(5000, phase.monthlyAmountToday * 3)),
+          step: 25,
+          format: currency.format,
+          get: (inputs) =>
+            inputs.savingsPolicy.mode === "simple"
+              ? inputs.savingsPolicy.reserveBuildingPhases.find(
+                  (item) => item.id === phase.id,
+                )!.monthlyAmountToday
+              : 0,
+          set: (inputs, value) => {
+            if (inputs.savingsPolicy.mode === "simple") {
+              inputs.savingsPolicy.reserveBuildingPhases.find(
+                (item) => item.id === phase.id,
+              )!.monthlyAmountToday = value;
+            }
+          },
+        },
+        {
+          key: `reserveBuildingPhase.${phase.id}.indexingRate`,
+          sourceKey: `savingsPolicy.reserveBuilding.phases.${phase.id}.indexingRate`,
+          label: `Reserve building · ${phase.label} indexing`,
+          min: fixed(-0.2),
+          max: fixed(0.5),
+          step: 0.001,
+          format: percent.format,
+          get: (inputs) =>
+            inputs.savingsPolicy.mode === "simple"
+              ? inputs.savingsPolicy.reserveBuildingPhases.find(
+                  (item) => item.id === phase.id,
+                )!.indexingRate
+              : 0,
+          set: (inputs, value) => {
+            if (inputs.savingsPolicy.mode === "simple") {
+              inputs.savingsPolicy.reserveBuildingPhases.find(
+                (item) => item.id === phase.id,
+              )!.indexingRate = value;
+            }
           },
         },
       );
@@ -328,7 +497,7 @@ function buildControls(baseline: ProjectionInputs): ControlDefinition[] {
   return controls;
 }
 
-function materializeInputs(
+export function materializeInputs(
   baseline: ProjectionInputs,
   controls: ControlDefinition[],
   overrides: Overrides,
@@ -582,6 +751,8 @@ export function PlannerDashboard() {
   const activeWarnings = resolveActiveScenarioWarnings(baseline, inputs);
   const surplusTotals =
     projection?.surplusAllocation.throughRetirement[mode];
+  const savingsTotals =
+    projection?.savingsPolicy.throughRetirement[mode];
   const reserveAccounts = inputs.surplusAllocation.reserveAccountIds.map(
     (accountId) =>
       inputs.accounts.find((account) => account.id === accountId)!,
@@ -603,6 +774,7 @@ export function PlannerDashboard() {
   const projectionOnlyAccounts = inputs.accounts.filter(
     (account) => account.origin === "projection_configuration",
   );
+  const policyPreview = buildSavingsPolicyPreview(inputs);
   const explanationDocument =
     projection && activeExplanation
       ? buildExplanation(activeExplanation.target, {
@@ -784,11 +956,42 @@ export function PlannerDashboard() {
                 </div>
               </article>
 
+              {inputs.registeredAccountRoom ? (
+                <article className="report-card wide-chart">
+                  <ExplainableHeading
+                    kicker="Registered room"
+                    target="registered-account-room"
+                    title="Annual registered room and contributions"
+                    onExplain={openExplanation}
+                    trailing={<span className="pill">Nominal regulatory dollars</span>}
+                  />
+                  <div className="chart-shell medium">
+                    <ResponsiveContainer width="100%" height="100%">
+                      <ComposedChart data={chartData}>
+                        <CartesianGrid stroke="#24364d" strokeDasharray="3 3" vertical={false} />
+                        <XAxis dataKey="year" stroke="#9eb0c4" minTickGap={28} />
+                        <YAxis stroke="#9eb0c4" tickFormatter={compactCurrency} width={72} />
+                        <Tooltip formatter={(value) => currency.format(Number(value))} />
+                        <Legend />
+                        <Bar dataKey="actualContributions" name="Actual contributions" fill="#70d6b2" />
+                        <Bar dataKey="unallocatedContributions" name="Unallocated" fill="#ef7d86" />
+                        <Line dataKey="tfsaRoomClosing" name="TFSA closing room" stroke="#55b8d8" strokeWidth={2} dot={false} />
+                        <Line dataKey="rrspRoomClosing" name="RRSP closing room" stroke="#d8bd65" strokeWidth={2} dot={false} />
+                      </ComposedChart>
+                    </ResponsiveContainer>
+                  </div>
+                </article>
+              ) : null}
+
               <article className="report-card wide-chart">
                 <ExplainableHeading
                   kicker="Surplus policy"
                   target="surplus-allocation"
-                  title="Annual surplus allocation"
+                  title={
+                    inputs.savingsPolicy.mode === "simple"
+                      ? "Annual explicit savings and retained cash"
+                      : "Annual surplus allocation"
+                  }
                   onExplain={openExplanation}
                 />
                 <div className="chart-shell medium">
@@ -804,8 +1007,18 @@ export function PlannerDashboard() {
                         }
                       />
                       <Legend />
-                      <Bar dataKey="surplusRetainedAsCash" name="Retained as cash" fill="#55b8d8" />
-                      <Bar dataKey="surplusRedirected" name="Redirected" fill="#8c78dd" />
+                      {inputs.savingsPolicy.mode === "simple" ? (
+                        <>
+                          <Bar dataKey="reserveCashRetained" name="Reserve plan retained" fill="#55b8d8" />
+                          <Bar dataKey="reservePlanRedirected" name="Reserve plan invested" fill="#8c78dd" />
+                          <Bar dataKey="unplannedCashRetained" name="Unplanned cash retained" fill="#70d6b2" />
+                        </>
+                      ) : (
+                        <>
+                          <Bar dataKey="surplusRetainedAsCash" name="Retained as cash" fill="#55b8d8" />
+                          <Bar dataKey="surplusRedirected" name="Redirected" fill="#8c78dd" />
+                        </>
+                      )}
                       <Line dataKey="surplusReserveTarget" name="Active reserve target" stroke="#f2bd63" strokeWidth={2} dot={false} />
                     </ComposedChart>
                   </ResponsiveContainer>
@@ -974,12 +1187,12 @@ export function PlannerDashboard() {
                 />
                 <div className="table-shell">
                   <table>
-                    <thead><tr><th>Year</th><th>Age</th><th>Income</th><th>Withdrawals</th><th>Tax</th><th>Spending</th><th>Financial assets</th><th>Milestones</th></tr></thead>
+                    <thead><tr><th>Year</th><th>Age</th><th>Income</th><th>Withdrawals</th><th>Tax</th><th>Spending</th><th>Actual contributions</th><th>{inputs.savingsPolicy.mode === "simple" ? "Reserve-plan investing" : "Surplus funded"}</th><th>Financial assets</th><th>Milestones</th></tr></thead>
                     <tbody>
                       {ledgerData.map((row) => (
                         <tr key={row.year}>
                           <td>{row.periodLabel}</td><td>{row.age}</td><td>{currency.format(row.income)}</td><td>{currency.format(row.withdrawals)}</td><td>{currency.format(row.tax)}</td>
-                          <td>{currency.format(row.spending)}</td><td>{currency.format(row.financialAssets)}</td><td>{row.milestones}</td>
+                          <td>{currency.format(row.spending)}</td><td>{currency.format(row.actualContributions)}</td><td>{currency.format(row.surplusFundedContributions)}</td><td>{currency.format(row.financialAssets)}</td><td>{row.milestones}</td>
                         </tr>
                       ))}
                     </tbody>
@@ -1130,19 +1343,64 @@ export function PlannerDashboard() {
                 </dl>
               </div>
               <div>
-                <h3>Surplus allocation policy</h3>
-                <dl>
-                  <div><dt>Reserve accounts</dt><dd>{reserveAccounts.map((account) => account.label).join(", ") || "Unavailable"}</dd></div>
-                  <div><dt>Reserve refill account</dt><dd>{reserveRefillAccount?.label ?? "Unavailable"}</dd></div>
-                  <div><dt>Target reserve today</dt><dd>{currency.format(inputs.surplusAllocation.targetCashReserveToday)}</dd></div>
-                  <div><dt>Reserve indexing</dt><dd>{percent.format(inputs.surplusAllocation.reserveIndexingRate)}</dd></div>
-                  <div><dt>Excess mode</dt><dd>{inputs.surplusAllocation.excess.mode === "retain_as_cash" ? "Retain as cash" : "Allocate to account"}</dd></div>
-                  {destinationAccount ? <div><dt>Destination account</dt><dd>{destinationAccount.label}</dd></div> : null}
-                  <div><dt>Surplus generated through retirement</dt><dd>{currency.format(surplusTotals?.generated ?? 0)}</dd></div>
-                  <div><dt>Retained as cash through retirement</dt><dd>{currency.format(surplusTotals?.retainedAsCash ?? 0)}</dd></div>
-                  <div><dt>Redirected through retirement</dt><dd>{currency.format(surplusTotals?.redirected ?? 0)}</dd></div>
-                </dl>
+                <h3>{inputs.savingsPolicy.mode === "simple" ? "Resolved savings policy" : "Surplus allocation policy"}</h3>
+                {inputs.savingsPolicy.mode === "simple" ? (
+                  <dl>
+                    <div><dt>Policy mode</dt><dd>Simple owner intent</dd></div>
+                    <div><dt>Reserve accounts</dt><dd>{policyPreview.reserveAccounts.join(", ")}</dd></div>
+                    <div><dt>Reserve refill account</dt><dd>{policyPreview.reserveRefillAccount}</dd></div>
+                    <div><dt>Operating cash account</dt><dd>{policyPreview.operatingCashAccount}</dd></div>
+                    <div><dt>Target reserve today</dt><dd>{currency.format(inputs.surplusAllocation.targetCashReserveToday)}</dd></div>
+                    <div><dt>Reserve indexing</dt><dd>{percent.format(inputs.surplusAllocation.reserveIndexingRate)}</dd></div>
+                    <div><dt>Combined reserve at retirement</dt><dd>{currency.format(projection.surplusAllocation.reserveAccountsBalanceAtRetirement[mode])}</dd></div>
+                    <div><dt>Workplace room priority</dt><dd>{policyPreview.workplacePriority}</dd></div>
+                    <div><dt>Workplace overflow</dt><dd>{policyPreview.workplaceOverflow}</dd></div>
+                    <div><dt>Personal order</dt><dd>{policyPreview.personalOrder}</dd></div>
+                    <div><dt>Taxable destination</dt><dd>{policyPreview.taxableDestination} · {policyPreview.taxableDestinationKind}</dd></div>
+                    <div><dt>Reserve transition</dt><dd>{policyPreview.reserveTransition}</dd></div>
+                    <div><dt>Unplanned cash</dt><dd>{policyPreview.unplannedCash}</dd></div>
+                    <div><dt>Personal planned through retirement</dt><dd>{currency.format(savingsTotals?.personalPlanned ?? 0)}</dd></div>
+                    <div><dt>Reserve planned through retirement</dt><dd>{currency.format(savingsTotals?.reservePlanned ?? 0)}</dd></div>
+                    <div><dt>Reserve invested after target</dt><dd>{currency.format(savingsTotals?.reserveRedirected ?? 0)}</dd></div>
+                    <div><dt>Workplace unallocated</dt><dd>{currency.format(savingsTotals?.workplaceUnallocated ?? 0)}</dd></div>
+                    <div><dt>Unplanned cash retained</dt><dd>{currency.format(savingsTotals?.unplannedCashRetained ?? 0)}</dd></div>
+                  </dl>
+                ) : (
+                  <dl>
+                    <div><dt>Reserve accounts</dt><dd>{reserveAccounts.map((account) => account.label).join(", ") || "Unavailable"}</dd></div>
+                    <div><dt>Reserve refill account</dt><dd>{reserveRefillAccount?.label ?? "Unavailable"}</dd></div>
+                    <div><dt>Target reserve today</dt><dd>{currency.format(inputs.surplusAllocation.targetCashReserveToday)}</dd></div>
+                    <div><dt>Reserve indexing</dt><dd>{percent.format(inputs.surplusAllocation.reserveIndexingRate)}</dd></div>
+                    <div><dt>Excess mode</dt><dd>{inputs.surplusAllocation.excess.mode.replaceAll("_", " ")}</dd></div>
+                    {destinationAccount ? <div><dt>Destination account</dt><dd>{destinationAccount.label}</dd></div> : null}
+                    <div><dt>Surplus generated through retirement</dt><dd>{currency.format(surplusTotals?.generated ?? 0)}</dd></div>
+                    <div><dt>Retained as cash through retirement</dt><dd>{currency.format(surplusTotals?.retainedAsCash ?? 0)}</dd></div>
+                    <div><dt>Redirected through retirement</dt><dd>{currency.format(surplusTotals?.redirected ?? 0)}</dd></div>
+                  </dl>
+                )}
               </div>
+              {inputs.registeredAccountRoom ? (
+                <div>
+                  <h3>Registered room and contribution routing</h3>
+                  <dl>
+                    <div><dt>Starting TFSA room</dt><dd>{currency.format(inputs.registeredAccountRoom.tfsa.startingAvailableRoom.amount)} · {inputs.savingsPolicy.mode === "simple" ? "owner supplied" : inputs.registeredAccountRoom.tfsa.startingAvailableRoom.source.replaceAll("_", " ")}</dd></div>
+                    <div><dt>Starting RRSP room</dt><dd>{currency.format(inputs.registeredAccountRoom.rrsp.startingAvailableDeductionRoom.amount)} · {inputs.savingsPolicy.mode === "simple" ? "owner supplied" : inputs.registeredAccountRoom.rrsp.startingAvailableDeductionRoom.source.replaceAll("_", " ")}</dd></div>
+                    <div><dt>TFSA carry-forward</dt><dd>{inputs.registeredAccountRoom.tfsa.carryForwardUnusedRoom ? "Enabled" : "Disabled scenario"}</dd></div>
+                    <div><dt>RRSP carry-forward</dt><dd>{inputs.registeredAccountRoom.rrsp.carryForwardUnusedRoom ? "Enabled" : "Disabled scenario"}</dd></div>
+                    <div><dt>TFSA annual-limit source</dt><dd>Published Canadian reference through 2026; later years are configured forecasts</dd></div>
+                    <div><dt>RRSP annual-cap source</dt><dd>Published Canadian references through 2027; later years are configured forecasts</dd></div>
+                    <div><dt>Current-period planned</dt><dd>{currency.format(projection.annual[0]?.[mode].contributions.planned ?? 0)}</dd></div>
+                    <div><dt>Current-period allowed from planned routes</dt><dd>{currency.format(projection.annual[0]?.[mode].contributions.allowed ?? 0)}</dd></div>
+                    <div><dt>{inputs.savingsPolicy.mode === "simple" ? "Current-period reserve-plan investing" : "Current-period surplus funded"}</dt><dd>{currency.format(projection.annual[0]?.[mode].contributions.surplusFunded ?? 0)}</dd></div>
+                    <div><dt>Current-period total actual</dt><dd>{currency.format(projection.annual[0]?.[mode].contributions.total ?? 0)}</dd></div>
+                    <div><dt>Current-period redirected</dt><dd>{currency.format(projection.annual[0]?.[mode].contributions.redirected ?? 0)}</dd></div>
+                    <div><dt>Current-period unallocated</dt><dd>{currency.format(projection.annual[0]?.[mode].contributions.unallocated ?? 0)}</dd></div>
+                    <div><dt>TFSA closing room</dt><dd>{currency.format(projection.annual[0]?.[mode].registeredAccountRoom.tfsa.closingRoom ?? 0)}</dd></div>
+                    <div><dt>RRSP closing room</dt><dd>{currency.format(projection.annual[0]?.[mode].registeredAccountRoom.rrsp.closingRoom ?? 0)}</dd></div>
+                    <div><dt>Room denomination</dt><dd>Nominal regulatory dollars · unaffected by display mode</dd></div>
+                  </dl>
+                </div>
+              ) : null}
               <div>
                 <h3>Personal settings</h3>
                 <dl>

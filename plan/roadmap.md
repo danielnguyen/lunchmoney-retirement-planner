@@ -176,6 +176,8 @@ Show:
 
 Prevent impossible TFSA or RRSP contributions and model where planned savings go after registered room is exhausted.
 
+The primary owner-facing model is intent based: account IDs occur only as `accountMappings` keys with roles, starting room is an amount plus date, every employment phase explicitly supplies RRSP room-generation assumptions, and named personal, reserve-building, and workplace plans omit source/destination arrays. A compiler resolves that simple model into the detailed projection inputs. The existing low-level route model remains mutually exclusive advanced compatibility.
+
 #### TFSA room
 
 Support:
@@ -202,14 +204,15 @@ The model may remain simplified, but all simplifications must be visible and det
 
 #### Contribution waterfall
 
-Allow a configurable destination order such as:
+The canonical personal order is:
 
 1. TFSA while room is available
 2. RRSP while room is available
 3. Non-registered investments
-4. Cash only when no investment destination is configured
 
-The waterfall must distinguish:
+Workplace RRSP contributions run first against the global RRSP room pool, overflow remains unallocated, and personal cash never uses the workplace account. If no real personal taxable account is assigned, create a deterministic zero-balance projection-only destination. Reserve-building savings stay cash until the indexed combined target is reached and redirect any same-month crossing amount through the personal order. Only explicit plan amounts are invested; remaining positive cash stays in operating cash.
+
+The resolved waterfall must distinguish:
 
 - planned contribution
 - allowed contribution after room constraints
@@ -237,6 +240,11 @@ For each registered account and annual period, show:
 - Income-withheld contributions retain their cash-flow semantics.
 - Ledger and exports expose planned, allowed, and redirected contributions without nested JSON in CSV.
 - Compatibility behaviour is explicit when room modelling is omitted.
+- Simple and advanced configuration cannot mix.
+- Account roles compile to deterministic routes without repeating IDs.
+- Workplace RRSP has first room priority and overflow is unallocated.
+- Unplanned positive cash is retained rather than invested.
+- The automatic taxable destination remains projection-only and opens at zero.
 
 ---
 
