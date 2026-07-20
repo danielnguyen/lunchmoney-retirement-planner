@@ -3521,14 +3521,27 @@ function totalNetWorthDocument(
         ],
       },
     ],
-    assumptions: context.inputs.nonFinancialAssets.map((asset) => ({
-      label: asset.label,
-      value: `${exactCurrency.format(asset.openingValue)} valued ${asset.valueAsOf}; ${percent.format(asset.annualAppreciation)} annual appreciation`,
-      sourceType: "configuration" as const,
-      sourceDescription:
-        "Owner-supplied non-financial-asset valuation and appreciation assumption",
-      effectiveDate: asset.valueAsOf,
-    })),
+    assumptions: context.inputs.nonFinancialAssets.map((asset) => {
+      const provenanceKey =
+        asset.origin === "lunchmoney"
+          ? `nonFinancialAssets.${asset.id}.openingValue`
+          : "nonFinancialAssets.primaryResidence.openingValue";
+      const provenance = context.baseline.provenance[provenanceKey];
+      return {
+        label: asset.label,
+        value: `${exactCurrency.format(asset.openingValue)} valued ${asset.valueAsOf}; ${percent.format(asset.annualAppreciation)} annual appreciation; ${asset.origin === "lunchmoney" ? "imported Lunch Money residence" : "configured residence fallback"}`,
+        sourceType:
+          asset.origin === "lunchmoney"
+            ? ("lunchmoney" as const)
+            : ("configuration" as const),
+        sourceDescription:
+          provenance?.sourceDescription ??
+          (asset.origin === "lunchmoney"
+            ? "Imported Lunch Money primary-residence value with a configured appreciation assumption"
+            : "Owner-supplied non-financial-asset valuation and appreciation assumption"),
+        effectiveDate: provenance?.effectiveDate ?? asset.valueAsOf,
+      };
+    }),
     caveats: [
       "Home equity is included in total net worth but is not available to retirement withdrawals. A future explicit sale or conversion capability would be required.",
       "Mortgage principal repayment lowers financial assets and liabilities together, so it has no direct net-worth effect. Interest is consumption and reduces net worth.",

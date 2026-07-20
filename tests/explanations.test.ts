@@ -1628,6 +1628,31 @@ describe("calculation explanations", () => {
     }
   });
 
+  it("identifies an imported residence separately from the configured fallback", () => {
+    const value = balanceSheetContext("nominal");
+    const asset = value.inputs.nonFinancialAssets[0]!;
+    asset.id = "manual:synthetic-residence";
+    asset.origin = "lunchmoney";
+    value.baseline.projectionInputs = structuredClone(value.inputs);
+    value.baseline.provenance[
+      "nonFinancialAssets.manual:synthetic-residence.openingValue"
+    ] = {
+      value: asset.openingValue,
+      sourceType: "lunchmoney_derived",
+      sourceDescription: "Imported Lunch Money primary-residence value",
+      effectiveDate: asset.valueAsOf,
+    };
+    value.projection = calculateProjection(value.inputs);
+
+    const document = buildExplanation("total-net-worth", value);
+    expect(document.assumptions[0]).toMatchObject({
+      sourceType: "lunchmoney",
+    });
+    expect(document.assumptions[0]!.value).toContain(
+      "imported Lunch Money residence",
+    );
+  });
+
   it("marks net-worth and liability explanations unmatched after independent one-cent-plus mutations", () => {
     const netWorthValue = balanceSheetContext("nominal");
     netWorthValue.projection.netWorthBridge.nominal.liabilityInterest +=

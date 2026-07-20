@@ -68,6 +68,16 @@ export type AccountBaseline = {
   contributionFunding: ContributionFunding | undefined;
 };
 
+export type NonFinancialAssetBaseline = {
+  id: string;
+  lunchMoneyId: number | null;
+  source: "manual" | "plaid";
+  name: string;
+  plannerType: "real_estate";
+  value: number;
+  valueAsOf: string;
+};
+
 export type DerivedMetric = {
   trailingTotal: number;
   monthlyAverage: number;
@@ -135,6 +145,7 @@ export type RecurringExpense = {
 
 export type DerivedBaseline = {
   accountBalances: AccountBaseline[];
+  nonFinancialAssetBalances: NonFinancialAssetBaseline[];
   monthlyIncome: DerivedMetric & { basis: "net_deposited_cash" };
   essentialSpending: DerivedMetric;
   discretionarySpending: DerivedMetric;
@@ -155,7 +166,7 @@ export type DerivedBaseline = {
 };
 
 export type CurrentBaseline = {
-  schemaVersion: "1.6";
+  schemaVersion: "1.7";
   connection: ConnectionStatus;
   projectionInputs: ProjectionInputs;
   provenance: Record<string, BaselineValue<unknown>>;

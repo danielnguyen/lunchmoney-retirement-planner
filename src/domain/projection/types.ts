@@ -101,7 +101,7 @@ export type FinancialAccountInput = {
 export type NonFinancialAssetInput = {
   id: string;
   label: string;
-  origin: "projection_configuration";
+  origin: "lunchmoney" | "projection_configuration";
   type: "primary_residence";
   openingValue: number;
   valueAsOf: string;
@@ -148,6 +148,7 @@ export type LiabilityInput = {
   treatment: LiabilityTreatmentInput;
   historicalPaymentHandling:
     | "category_mapped"
+    | "payee_and_source_account"
     | "already_excluded_or_transfer"
     | "not_applicable";
   historicalMonthlyAverage: number;
@@ -1026,7 +1027,8 @@ export function validateProjectionInputs(value: unknown): ProjectionInputs {
     }
     nonFinancialAssetIds.add(asset.id);
     if (
-      asset.origin !== "projection_configuration" ||
+      (asset.origin !== "projection_configuration" &&
+        asset.origin !== "lunchmoney") ||
       asset.type !== "primary_residence"
     ) {
       throw new Error(`Unsupported non-financial asset ${asset.id}`);
@@ -1097,6 +1099,7 @@ export function validateProjectionInputs(value: unknown): ProjectionInputs {
     if (
       ![
         "category_mapped",
+        "payee_and_source_account",
         "already_excluded_or_transfer",
         "not_applicable",
       ].includes(liability.historicalPaymentHandling)

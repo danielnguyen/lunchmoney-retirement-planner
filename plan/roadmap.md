@@ -270,8 +270,12 @@ withdrawals until a later explicit sale or conversion capability is added.
 
 #### Primary residence and balance sheet
 
-Support an explicit current residence value, valuation date, and nominal
-appreciation assumption. The residence remains unavailable to withdrawals.
+Support either an imported Lunch Money real-estate account or an explicit
+fallback current residence value and valuation date, plus a nominal
+appreciation assumption. The two sources are mutually exclusive. The imported
+form uses the account balance and balance date and does not duplicate the
+valuation in local configuration. The residence remains unavailable to
+withdrawals.
 
 The resolved balance sheet must reconcile:
 
@@ -334,6 +338,15 @@ discretionary spending, retained as audit evidence, and replaced exactly once
 by the configured schedule. The planner must not infer future interest rates,
 payments, or amortization terms from transaction history.
 
+When a liability payment shares a category with unrelated ordinary spending,
+support an exact normalized payee plus exact canonical source-account matcher.
+Run that matcher before category and reviewed-recurring-item classification.
+Only debit/outflow records matching both fields become debt-payment evidence;
+unrelated records in the same category retain their normal classification.
+Amount, date, cadence, substring and fuzzy matching must not select payments.
+Dedicated debt-payment categories and an explicit already-excluded/transfer
+assertion remain mutually exclusive compatibility alternatives.
+
 #### Explanations
 
 Show:
@@ -357,12 +370,17 @@ Show:
   assets.
 - The residence is a typed non-financial asset and is unavailable to
   withdrawals.
+- An included imported real-estate account supplies the residence value and
+  valuation date without also entering financial accounts.
+- Imported and fallback residence sources are mutually exclusive.
 - Imported debts resolve once as typed liabilities with explicit treatment.
 - Debt balances reconcile to amortization schedules.
 - Principal repayment reduces debt without being counted as consumption twice.
 - Interest remains an expense.
 - Debt-linked spending stops at payoff.
 - Historical debt payments are replaced by the schedule exactly once.
+- Exact liability-payment matching runs before categories and preserves
+  unrelated mixed-category spending.
 - Financial-assets and net-worth bridges both reconcile within one cent.
 - Dashboard, explanations, annual rows, JSON, and rectangular CSV consume the
   same balance-sheet result.

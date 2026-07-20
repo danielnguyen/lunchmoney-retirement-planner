@@ -417,6 +417,16 @@ function liabilityTreatment(
   field: string,
 ): LiabilityTreatmentConfig {
   const item = record(value, field);
+  if (
+    item.historicalPayment !== undefined &&
+    item.historicalPaymentHandling !== undefined
+  ) {
+    throw new PlannerRuntimeError(
+      "invalid_planner_config",
+      `${field} cannot combine historicalPayment with the legacy historicalPaymentHandling field.`,
+      422,
+    );
+  }
   const historicalPaymentHandling =
     item.historicalPaymentHandling === undefined
       ? undefined
@@ -431,6 +441,42 @@ function liabilityTreatment(
       422,
     );
   }
+  let historicalPayment:
+    | NonNullable<LiabilityTreatmentConfig["historicalPayment"]>
+    | undefined;
+  if (item.historicalPayment !== undefined) {
+    const handling = record(
+      item.historicalPayment,
+      `${field}.historicalPayment`,
+    );
+    if (handling.mode === "payee_and_source_account") {
+      historicalPayment = {
+        mode: "payee_and_source_account",
+        sourceAccountId: nonEmptyString(
+          handling.sourceAccountId,
+          `${field}.historicalPayment.sourceAccountId`,
+        ),
+        payee: nonEmptyString(
+          handling.payee,
+          `${field}.historicalPayment.payee`,
+        ),
+      };
+    } else if (handling.mode === "already_excluded_or_transfer") {
+      rejectFields(handling, `${field}.historicalPayment`, [
+        "sourceAccountId",
+        "payee",
+      ]);
+      historicalPayment = {
+        mode: "already_excluded_or_transfer",
+      };
+    } else {
+      throw new PlannerRuntimeError(
+        "invalid_planner_config",
+        `${field}.historicalPayment.mode must be payee_and_source_account or already_excluded_or_transfer.`,
+        422,
+      );
+    }
+  }
   if (item.mode === "payoff_at_projection_start") {
     rejectFields(item, field, [
       "annualInterestRate",
@@ -439,8 +485,16 @@ function liabilityTreatment(
       "scheduleStartDate",
       "lumpSumPayments",
     ]);
+    if (historicalPayment?.mode === "payee_and_source_account") {
+      throw new PlannerRuntimeError(
+        "invalid_planner_config",
+        `${field}.historicalPayment.mode payee_and_source_account is supported only for amortizing liabilities.`,
+        422,
+      );
+    }
     return {
       mode: "payoff_at_projection_start",
+      ...(historicalPayment ? { historicalPayment } : {}),
       ...(historicalPaymentHandling
         ? { historicalPaymentHandling }
         : {}),
@@ -520,6 +574,7 @@ function liabilityTreatment(
         ),
       };
     }),
+    ...(historicalPayment ? { historicalPayment } : {}),
     ...(historicalPaymentHandling
       ? { historicalPaymentHandling }
       : {}),
@@ -1031,7 +1086,7 @@ function accountMapping(value: unknown, field: string): AccountMapping {
   if ((item.include && item.type === "exclude") || (!item.include && item.type !== "exclude")) {
     throw new PlannerRuntimeError(
       "invalid_planner_config",
-      `${field} must use include=true with a financial type or include=false with type=exclude.`,
+      `${field} must use include=true with a supported planner type or include=false with type=exclude.`,
       422,
     );
   }
@@ -1129,6 +1184,60 @@ function accountMapping(value: unknown, field: string): AccountMapping {
       422,
     );
   }
+  if (
+    item.annualAppreciation !== undefined &&
+    item.type !== "real_estate"
+  ) {
+    throw new PlannerRuntimeError(
+      "invalid_planner_config",
+      `${field}.annualAppreciation may be configured only for an included real_estate account.`,
+      422,
+    );
+  }
+  if (item.type === "real_estate") {
+    if (!item.include) {
+      throw new PlannerRuntimeError(
+        "invalid_planner_config",
+        `${field} must use include: true when type is real_estate.`,
+        422,
+      );
+    }
+    if (
+      !roles ||
+      roles.length !== 1 ||
+      roles[0] !== "primary_residence"
+    ) {
+      throw new PlannerRuntimeError(
+        "invalid_planner_config",
+        `${field} with type real_estate must use exactly roles: [primary_residence].`,
+        422,
+      );
+    }
+    if (item.annualAppreciation === undefined) {
+      throw new PlannerRuntimeError(
+        "invalid_planner_config",
+        `${field}.annualAppreciation is required for an included real_estate account.`,
+        422,
+      );
+    }
+    for (const invalidField of [
+      "annualReturn",
+      "withdrawalPriority",
+      "allocation",
+      "monthlyContribution",
+      "contributionFunding",
+      "contributionPhases",
+      "liability",
+    ]) {
+      if (item[invalidField] !== undefined) {
+        throw new PlannerRuntimeError(
+          "invalid_planner_config",
+          `${field}.${invalidField} is not valid for real_estate. A residence is a non-financial asset and cannot receive investment, contribution, withdrawal, or liability settings.`,
+          422,
+        );
+      }
+    }
+  }
   if (item.type === "debt") {
     if (item.annualReturn !== undefined && item.annualReturn !== 0) {
       throw new PlannerRuntimeError(
@@ -1175,6 +1284,15 @@ function accountMapping(value: unknown, field: string): AccountMapping {
     ...(item.annualReturn === undefined
       ? {}
       : { annualReturn: number(item.annualReturn, `${field}.annualReturn`, { min: -0.99, max: 1 }) }),
+    ...(item.annualAppreciation === undefined
+      ? {}
+      : {
+          annualAppreciation: number(
+            item.annualAppreciation,
+            `${field}.annualAppreciation`,
+            { min: -0.99, max: 1 },
+          ),
+        }),
     ...(item.withdrawalPriority === undefined
       ? {}
       : {
@@ -1709,12 +1827,65 @@ function validateSimpleAccountRoles(config: PlannerConfig): void {
       422,
     );
   }
-  if (mortgages.length > 0 && !config.primaryResidence) {
+  const importedResidences = roleAccounts(config, "primary_residence");
+  if (importedResidences.length > 1) {
     throw new PlannerRuntimeError(
       "invalid_planner_config",
-      "The primary_mortgage role requires primaryResidence.",
+      `Simple configuration permits at most one included primary_residence role; found ${importedResidences.length}.`,
       422,
     );
+  }
+  if (
+    importedResidences[0] &&
+    importedResidences[0][1].type !== "real_estate"
+  ) {
+    throw new PlannerRuntimeError(
+      "invalid_planner_config",
+      "Account role primary_residence requires planner type real_estate.",
+      422,
+    );
+  }
+  if (importedResidences.length > 0 && config.primaryResidence) {
+    throw new PlannerRuntimeError(
+      "invalid_planner_config",
+      "Configure exactly one primary-residence source: an included real_estate account with role primary_residence or the top-level primaryResidence fallback, not both.",
+      422,
+    );
+  }
+  const residenceSources =
+    importedResidences.length + (config.primaryResidence ? 1 : 0);
+  if (mortgages.length > 0 && residenceSources !== 1) {
+    throw new PlannerRuntimeError(
+      "invalid_planner_config",
+      "The primary_mortgage role requires exactly one resolved primary residence from an included real_estate account or the top-level primaryResidence fallback.",
+      422,
+    );
+  }
+  if (mortgages[0]?.[1].liability?.mode === "amortizing") {
+    const liability = mortgages[0][1].liability;
+    const matcher =
+      liability.historicalPayment?.mode ===
+      "payee_and_source_account";
+    const assertion =
+      liability.historicalPayment?.mode ===
+        "already_excluded_or_transfer" ||
+      liability.historicalPaymentHandling ===
+        "already_excluded_or_transfer";
+    const categoryRoute = Object.values(config.categoryMappings).some(
+      (mapping) =>
+        typeof mapping !== "string" &&
+        mapping.classification === "debt_payment" &&
+        mapping.liabilityRole === "primary_mortgage",
+    );
+    const handlingCount =
+      Number(matcher) + Number(assertion) + Number(categoryRoute);
+    if (handlingCount > 1) {
+      throw new PlannerRuntimeError(
+        "invalid_planner_config",
+        "A positive amortizing liability must use exactly one historical-payment handling source: a debt_payment category, historicalPayment payee_and_source_account matcher, or historicalPayment already_excluded_or_transfer assertion.",
+        422,
+      );
+    }
   }
 }
 

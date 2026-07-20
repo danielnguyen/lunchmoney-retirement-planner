@@ -15,6 +15,7 @@ const RESERVE_REFILL_ID = "manual:synthetic-reserve-refill";
 const PERSONAL_TFSA_ID = "plaid:synthetic-personal-tfsa";
 const PERSONAL_RRSP_ID = "plaid:synthetic-personal-rrsp";
 const WORKPLACE_RRSP_ID = "plaid:synthetic-workplace-rrsp";
+const PRIMARY_RESIDENCE_ID = "manual:synthetic-primary-residence";
 const FUTURE_TAXABLE_ID = "projection:future-taxable";
 
 describe("private planner configuration", () => {
@@ -54,9 +55,10 @@ describe("private planner configuration", () => {
     for (const mapping of Object.values(mappings)) {
       delete mapping.roles;
     }
+    delete mappings[PRIMARY_RESIDENCE_ID];
     delete mappings["manual:synthetic-primary-mortgage"];
     delete (value.categoryMappings as Record<string, unknown>)[
-      "synthetic-mortgage-payment-category"
+      "synthetic-home-auto-category"
     ];
     mappings[PERSONAL_TFSA_ID]!.contributionPhases = [
       {
@@ -221,7 +223,6 @@ describe("private planner configuration", () => {
     expect(config).not.toHaveProperty("surplusAllocation");
     expect(config).not.toHaveProperty("contributionWaterfall");
     for (const id of [
-      OPERATING_CASH_ID,
       RESERVE_REFILL_ID,
       PERSONAL_TFSA_ID,
       PERSONAL_RRSP_ID,
@@ -229,6 +230,17 @@ describe("private planner configuration", () => {
     ]) {
       expect(contents.match(new RegExp(id.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"), "g"))).toHaveLength(1);
     }
+    expect(
+      contents.match(
+        new RegExp(
+          OPERATING_CASH_ID.replace(
+            /[.*+?^${}()|[\]\\]/g,
+            "\\$&",
+          ),
+          "g",
+        ),
+      ),
+    ).toHaveLength(2);
   });
 
   it("uses plain-language, actionable instructions in the primary example", async () => {
@@ -258,9 +270,11 @@ describe("private planner configuration", () => {
       (mapping) => mapping.roles?.includes("primary_mortgage"),
     )!;
 
-    expect(config.primaryResidence).toEqual({
-      currentValue: 500000,
-      asOf: "2026-07-01",
+    expect(config.primaryResidence).toBeUndefined();
+    expect(config.accountMappings[PRIMARY_RESIDENCE_ID]).toEqual({
+      include: true,
+      type: "real_estate",
+      roles: ["primary_residence"],
       annualAppreciation: 0.02,
     });
     expect(mortgage).toMatchObject({
@@ -277,6 +291,11 @@ describe("private planner configuration", () => {
         },
         scheduleStartDate: "2026-01-15",
         lumpSumPayments: [],
+        historicalPayment: {
+          mode: "payee_and_source_account",
+          sourceAccountId: OPERATING_CASH_ID,
+          payee: "Synthetic mortgage payment",
+        },
       },
     });
     expect(mortgage).not.toHaveProperty("annualReturn");
@@ -285,11 +304,11 @@ describe("private planner configuration", () => {
     expect(config.assumptions).not.toHaveProperty("debtReturn");
     expect(config.assumptions.allocations).not.toHaveProperty("debt");
     expect(contents).toContain("not available for retirement withdrawals");
-    expect(contents).toContain("Principal reduces both cash and debt");
+    expect(contents).toContain("principal reduces cash and debt together");
     expect(contents).toContain("interest is consumption");
   });
 
-  it("accepts a mortgage-free residence and rejects duplicate or invalid mortgage roles", async () => {
+  it("accepts a mortgage-free imported residence and rejects duplicate or invalid mortgage roles", async () => {
     const mortgageFree = structuredClone(
       await loadPlannerConfig(EXAMPLE_CONFIG_PATH),
     ) as unknown as Record<string, unknown>;
@@ -298,10 +317,11 @@ describe("private planner configuration", () => {
       Record<string, unknown>
     >;
     delete mappings["manual:synthetic-primary-mortgage"];
-    delete (mortgageFree.categoryMappings as Record<string, unknown>)[
-      "synthetic-mortgage-payment-category"
-    ];
-    expect(validatePlannerConfig(mortgageFree).primaryResidence).toBeDefined();
+    expect(
+      validatePlannerConfig(mortgageFree).accountMappings[
+        PRIMARY_RESIDENCE_ID
+      ],
+    ).toBeDefined();
 
     const duplicate = structuredClone(
       await loadPlannerConfig(EXAMPLE_CONFIG_PATH),
@@ -321,7 +341,9 @@ describe("private planner configuration", () => {
         regularPayment: { amount: 1000, frequency: "monthly" },
         scheduleStartDate: "2026-01-15",
         lumpSumPayments: [],
-        historicalPaymentHandling: "already_excluded_or_transfer",
+        historicalPayment: {
+          mode: "already_excluded_or_transfer",
+        },
       },
     };
     expect(() => validatePlannerConfig(duplicate)).toThrow(
@@ -339,6 +361,123 @@ describe("private planner configuration", () => {
     expect(() => validatePlannerConfig(wrongType)).toThrow(
       "liability may be configured only for an included debt account",
     );
+  });
+
+  it("accepts the manual residence fallback or no residence, but not both", async () => {
+    const fallback = structuredClone(
+      await loadPlannerConfig(EXAMPLE_CONFIG_PATH),
+    ) as unknown as Record<string, unknown>;
+    delete (
+      fallback.accountMappings as Record<string, unknown>
+    )[PRIMARY_RESIDENCE_ID];
+    fallback.primaryResidence = {
+      currentValue: 400000,
+      asOf: "2026-07-01",
+      annualAppreciation: 0.01,
+    };
+    expect(validatePlannerConfig(fallback).primaryResidence).toEqual({
+      currentValue: 400000,
+      asOf: "2026-07-01",
+      annualAppreciation: 0.01,
+    });
+
+    const noResidence = structuredClone(fallback);
+    delete noResidence.primaryResidence;
+    delete (
+      noResidence.accountMappings as Record<string, unknown>
+    )["manual:synthetic-primary-mortgage"];
+    expect(validatePlannerConfig(noResidence).primaryResidence).toBeUndefined();
+  });
+
+  it("rejects duplicate residence sources and invalid real-estate fields", async () => {
+    const duplicate = structuredClone(
+      await loadPlannerConfig(EXAMPLE_CONFIG_PATH),
+    ) as unknown as Record<string, unknown>;
+    duplicate.primaryResidence = {
+      currentValue: 400000,
+      asOf: "2026-07-01",
+      annualAppreciation: 0.01,
+    };
+    expect(() => validatePlannerConfig(duplicate)).toThrow(
+      "Configure exactly one primary-residence source",
+    );
+
+    const extraImported = structuredClone(
+      await loadPlannerConfig(EXAMPLE_CONFIG_PATH),
+    ) as unknown as Record<string, unknown>;
+    (
+      extraImported.accountMappings as Record<
+        string,
+        Record<string, unknown>
+      >
+    )["manual:synthetic-second-residence"] = {
+      include: true,
+      type: "real_estate",
+      roles: ["primary_residence"],
+      annualAppreciation: 0.01,
+    };
+    expect(() => validatePlannerConfig(extraImported)).toThrow(
+      "at most one included primary_residence role",
+    );
+
+    const missingAppreciation = structuredClone(
+      await loadPlannerConfig(EXAMPLE_CONFIG_PATH),
+    ) as unknown as Record<string, unknown>;
+    delete (
+      (
+        missingAppreciation.accountMappings as Record<
+          string,
+          Record<string, unknown>
+        >
+      )[PRIMARY_RESIDENCE_ID]!
+    ).annualAppreciation;
+    expect(() => validatePlannerConfig(missingAppreciation)).toThrow(
+      "annualAppreciation is required",
+    );
+
+    const wrongRole = structuredClone(
+      await loadPlannerConfig(EXAMPLE_CONFIG_PATH),
+    ) as unknown as Record<string, unknown>;
+    (
+      (
+        wrongRole.accountMappings as Record<
+          string,
+          Record<string, unknown>
+        >
+      )[PRIMARY_RESIDENCE_ID]!
+    ).roles = ["reserve_member"];
+    expect(() => validatePlannerConfig(wrongRole)).toThrow(
+      "must use exactly roles: [primary_residence]",
+    );
+
+    for (const [field, value] of [
+      ["annualReturn", 0.02],
+      ["withdrawalPriority", 6],
+      ["allocation", { cash: 0, fixedIncome: 0, equity: 1 }],
+      ["monthlyContribution", 100],
+      [
+        "liability",
+        {
+          mode: "payoff_at_projection_start",
+          historicalPayment: {
+            mode: "already_excluded_or_transfer",
+          },
+        },
+      ],
+    ] as const) {
+      const invalid = structuredClone(
+        await loadPlannerConfig(EXAMPLE_CONFIG_PATH),
+      ) as unknown as Record<string, unknown>;
+      (
+        (
+          invalid.accountMappings as Record<
+            string,
+            Record<string, unknown>
+          >
+        )[PRIMARY_RESIDENCE_ID]!
+      )[field] = value;
+      expect(() => validatePlannerConfig(invalid)).toThrow();
+    }
   });
 
   it("rejects non-positive mortgage payments and non-zero legacy debt investment assumptions", async () => {
@@ -409,6 +548,57 @@ describe("private planner configuration", () => {
     invalidLiability.interestRateConvention = "synthetic_invalid";
     expect(() => validatePlannerConfig(invalid)).toThrow(
       "interestRateConvention must be canadian_mortgage or effective_annual",
+    );
+  });
+
+  it("rejects conflicting historical mortgage-payment handling", async () => {
+    const categoryConflict = structuredClone(
+      await loadPlannerConfig(EXAMPLE_CONFIG_PATH),
+    ) as unknown as Record<string, unknown>;
+    (
+      categoryConflict.categoryMappings as Record<string, unknown>
+    )["synthetic-dedicated-mortgage"] = {
+      classification: "debt_payment",
+      liabilityRole: "primary_mortgage",
+    };
+    expect(() => validatePlannerConfig(categoryConflict)).toThrow(
+      "exactly one historical-payment handling source",
+    );
+
+    const legacyConflict = structuredClone(
+      await loadPlannerConfig(EXAMPLE_CONFIG_PATH),
+    ) as unknown as Record<string, unknown>;
+    const liability = (
+      (
+        legacyConflict.accountMappings as Record<
+          string,
+          Record<string, unknown>
+        >
+      )["manual:synthetic-primary-mortgage"]!
+        .liability as Record<string, unknown>
+    );
+    liability.historicalPaymentHandling =
+      "already_excluded_or_transfer";
+    expect(() => validatePlannerConfig(legacyConflict)).toThrow(
+      "cannot combine historicalPayment with the legacy historicalPaymentHandling",
+    );
+
+    const invalidMatcher = structuredClone(
+      await loadPlannerConfig(EXAMPLE_CONFIG_PATH),
+    ) as unknown as Record<string, unknown>;
+    (
+      (
+        (
+          invalidMatcher.accountMappings as Record<
+            string,
+            Record<string, unknown>
+          >
+        )["manual:synthetic-primary-mortgage"]!
+          .liability as Record<string, unknown>
+      ).historicalPayment as Record<string, unknown>
+    ).payee = "   ";
+    expect(() => validatePlannerConfig(invalidMatcher)).toThrow(
+      "historicalPayment.payee must be a non-empty string",
     );
   });
 

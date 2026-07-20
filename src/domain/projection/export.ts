@@ -79,6 +79,14 @@ export type ShareSafeDerivedBaseline = {
     contributionSource: "lunchmoney_derived" | "local_configuration";
     contributionFunding: ContributionFunding | undefined;
   }>;
+  nonFinancialAssetBalances: Array<{
+    id: string;
+    source: "manual" | "plaid";
+    name: string;
+    plannerType: "real_estate";
+    value: number;
+    valueAsOf: string;
+  }>;
   monthlyIncome: DerivedBaseline["monthlyIncome"];
   essentialSpending: DerivedBaseline["essentialSpending"];
   discretionarySpending: DerivedBaseline["discretionarySpending"];
@@ -522,7 +530,6 @@ function createShareSafeContext(
       });
     }
   }
-
   const counters = Object.fromEntries(ACCOUNT_TYPE_ORDER.map((type) => [type, 0])) as Record<
     AccountType,
     number
@@ -583,6 +590,12 @@ function createShareSafeContext(
       liabilityByRawId.get(account.id);
     if (alias && account.lunchMoneyId !== null) {
       accountByNumericId.set(String(account.lunchMoneyId), alias);
+    }
+  }
+  for (const asset of baseline.derived.nonFinancialAssetBalances) {
+    const alias = nonFinancialAssetByRawId.get(asset.id);
+    if (alias && asset.lunchMoneyId !== null) {
+      accountByNumericId.set(String(asset.lunchMoneyId), alias);
     }
   }
 
@@ -1594,6 +1607,28 @@ function safeDerivedBaseline(
           : undefined,
       };
     }),
+    nonFinancialAssetBalances:
+      derived.nonFinancialAssetBalances.map((asset) => {
+        const alias = requiredNonFinancialAssetAlias(
+          asset.id,
+          context,
+        );
+        return {
+          id: alias.key,
+          source: allowedValue(
+            asset.source,
+            ["manual", "plaid"] as const,
+            "non-financial asset source",
+          ),
+          name: alias.label,
+          plannerType: "real_estate",
+          value: finiteNumber(
+            asset.value,
+            "non-financial asset value",
+          ),
+          valueAsOf: safeDateLike(asset.valueAsOf, dataThrough),
+        };
+      }),
     monthlyIncome: {
       ...metric(derived.monthlyIncome),
       basis: "net_deposited_cash",
@@ -1829,6 +1864,32 @@ function provenanceField(
       reference: rawField,
       finalField: rawField.slice(rawField.lastIndexOf(".") + 1),
     };
+  }
+  const nonFinancialAssetPrefix = "nonFinancialAssets.";
+  if (rawField.startsWith(nonFinancialAssetPrefix)) {
+    const remainder = rawField.slice(
+      nonFinancialAssetPrefix.length,
+    );
+    for (const asset of context.nonFinancialAssets) {
+      const prefix = `${asset.rawId}.`;
+      if (!remainder.startsWith(prefix)) continue;
+      const finalField = remainder.slice(prefix.length);
+      if (
+        ![
+          "openingValue",
+          "valueAsOf",
+          "annualAppreciation",
+          "availableForWithdrawals",
+        ].includes(finalField)
+      ) {
+        return undefined;
+      }
+      return {
+        reference: `nonFinancialAssets.${asset.key}.${finalField}`,
+        balanceSheetRecord: asset,
+        finalField,
+      };
+    }
   }
   const liabilityPrefix = "liabilities.";
   if (rawField.startsWith(liabilityPrefix)) {
@@ -2173,6 +2234,7 @@ function safeProvenanceValue(
       field.finalField === "historicalPaymentHandling" &&
       [
         "category_mapped",
+        "payee_and_source_account",
         "already_excluded_or_transfer",
         "not_applicable",
       ].includes(value)

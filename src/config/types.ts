@@ -13,6 +13,7 @@ export const plannerAccountTypes = [
   "tfsa",
   "rrsp",
   "non_registered",
+  "real_estate",
   "debt",
   "exclude",
 ] as const;
@@ -41,6 +42,7 @@ export const accountRoles = [
   "personal_rrsp",
   "workplace_rrsp",
   "personal_taxable",
+  "primary_residence",
   "primary_mortgage",
 ] as const;
 
@@ -85,6 +87,7 @@ export type AccountMapping = {
   contributionFunding?: ContributionFunding;
   contributionPhases?: ContributionPhaseConfig[];
   annualReturn?: number;
+  annualAppreciation?: number;
   withdrawalPriority?: number;
   allocation?: AssetAllocation;
   liability?: LiabilityTreatmentConfig;
@@ -114,10 +117,24 @@ export type LiabilityTreatmentConfig =
         date: string;
         amount: number;
       }>;
+      historicalPayment?:
+        | {
+            mode: "payee_and_source_account";
+            sourceAccountId: string;
+            payee: string;
+          }
+        | {
+            mode: "already_excluded_or_transfer";
+          };
+      /** @deprecated Use historicalPayment.mode: already_excluded_or_transfer. */
       historicalPaymentHandling?: "already_excluded_or_transfer";
     }
   | {
       mode: "payoff_at_projection_start";
+      historicalPayment?: {
+        mode: "already_excluded_or_transfer";
+      };
+      /** @deprecated Use historicalPayment.mode: already_excluded_or_transfer. */
       historicalPaymentHandling?: "already_excluded_or_transfer";
     };
 
@@ -129,7 +146,7 @@ export type PrimaryResidenceConfig = {
 
 export type ProjectionAccountConfig = {
   label: string;
-  type: Exclude<PlannerAccountType, "debt" | "exclude">;
+  type: Exclude<PlannerAccountType, "debt" | "exclude" | "real_estate">;
   annualReturn: number;
   withdrawalPriority: number;
   allocation: AssetAllocation;

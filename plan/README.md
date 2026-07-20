@@ -386,11 +386,13 @@ Explanation documents are typed domain output. They consume the same current bas
 
 Registered-room chart and explanation rows remain nominal regulatory dollars in both display modes. Their reconciliation enforces personal, workplace, reserve, positive-cash, total, funding-split, account-deposit, per-source, per-destination, TFSA-room, RRSP-room, nominal bridge, and real bridge equations against shared displayed rows.
 
-The baseline API schema `1.6` includes aggregate cash-flow audit evidence, debt-payment replacement evidence, distinct financial accounts/non-financial assets/liabilities, resolved phase provenance, concrete CPP/OAS inputs, projection-only account provenance, surplus-policy provenance, registered-room provenance, and resolved waterfall routes:
+The baseline API schema `1.7` includes aggregate cash-flow audit evidence, debt-payment replacement evidence, typed imported non-financial-asset balances, distinct financial accounts/non-financial assets/liabilities, resolved phase provenance, concrete CPP/OAS inputs, projection-only account provenance, surplus-policy provenance, registered-room provenance, and resolved waterfall routes:
 
 - income, non-debt essential spending, non-debt discretionary spending, and historical debt payments grouped by category and account
 - investment contributions grouped by account with funding and derivation source
 - normalized reviewed recurring-expense items with category/account names
+
+An amortizing liability may use an exact normalized payee plus canonical source-account matcher before category classification. This preserves unrelated transactions in a shared category and prevents a matching reviewed recurring item from adding the scheduled payment back to spending. Raw matcher text and source identifiers remain outside resolved projection inputs and exports.
 
 The audit excludes raw transaction payloads, transaction IDs, credentials, and tokens. Detailed category/account rows remain outside the export allowlist; JSON receives only the typed, aliased debt-payment summary needed to prove schedule replacement.
 

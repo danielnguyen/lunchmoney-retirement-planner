@@ -139,7 +139,7 @@ For migration, replace the legacy top-level ages and amounts plus `assumptions.c
 
 ### Account roles and simple savings policy
 
-The primary configuration places every account ID in exactly one location: as a key under `accountMappings`. Included accounts receive owner-facing roles for operating cash, reserve membership and refill, personal TFSA, personal RRSP, workplace RRSP, and optionally personal taxable. Roles are unique where required, type checked, and rejected on excluded accounts. Personal and workplace RRSP roles must be different accounts.
+The primary configuration assigns account types and roles under `accountMappings`. Included accounts receive roles for operating cash, reserve membership and refill, personal TFSA, personal RRSP, workplace RRSP, optionally personal taxable, and optionally an imported primary residence. Roles are unique where required, type checked, and rejected on excluded accounts. Personal and workplace RRSP roles must be different accounts. The only simple account reference outside those keys is the exact source account in an optional liability payment matcher.
 
 `savingsPolicy` contains named personal, reserve-building, and workplace plans without account IDs or route arrays. Workplace RRSP runs first, consumes the one global RRSP room pool, and leaves any overflow visibly unallocated. Personal cash then follows TFSA → personal RRSP → taxable and never enters the workplace RRSP. Reserve-building savings remain in the refill account until the indexed combined reserve target is reached; any crossing amount follows the personal order in the same month. Only these explicit plans are invested. Every other positive dollar is retained in the operating-cash account, which also counts toward the reserve.
 
@@ -147,7 +147,7 @@ When no included account has `personal_taxable`, the compiler creates a determin
 
 ### Residence, liabilities, and net worth
 
-`primaryResidence` records a dated market-value estimate and an explicit nominal appreciation assumption. A linked debt mapping uses the `primary_mortgage` role plus either an amortizing schedule or an explicit payoff-at-projection-start treatment. A mortgage-free residence needs no linked liability. Financial accounts contain only cash and investments; imported debts resolve once as liabilities and never remain duplicated in the account list.
+The preferred residence source is an included Lunch Money manual asset mapped as `type: real_estate` with the unique `primary_residence` role. Its imported balance and balance date become the opening value and valuation date, while `annualAppreciation` remains an explicit planning assumption. The top-level `primaryResidence` block remains a fallback for a home not represented in Lunch Money; the imported and fallback forms cannot be combined. A linked debt mapping uses the `primary_mortgage` role plus either an amortizing schedule or an explicit payoff-at-projection-start treatment. A mortgage-free residence needs no linked liability. Financial accounts contain only cash and investments; imported residences and debts resolve once into non-financial assets and liabilities.
 
 Amortizing schedules retain the entered payment amount and frequency, convert it to a monthly equivalent, split each payment between interest and principal, apply dated lump sums, reduce the last payment to the exact amount due, and stop at payoff. Enter the annual rate printed by the lender and select the convention stated in the agreement: standard Canadian mortgages normally use a nominal annual rate compounded semi-annually, while `effective_annual` is available for agreements that explicitly quote an effective annual rate. The schedule effective date must be on or before projection start; the imported opening balance remains authoritative and historical principal is not replayed.
 
@@ -155,7 +155,9 @@ Required liability payments are funded from current-month cash and then the esta
 
 The primary example removes debt return, allocation, and withdrawal-priority fields because liabilities are not investments. Legacy zero return, all-zero allocation, and debt priority values are accepted only as ignored migration compatibility; non-zero debt return/allocation and every untreated positive debt are rejected.
 
-Map historical mortgage or other scheduled-debt payment categories as `debt_payment`. They are excluded from ordinary essential and discretionary spending and retained as audit evidence, while the configured schedule supplies future payments exactly once. If historical payments are already absent because they are transfers or excluded, the configuration must say so explicitly. A material difference between the historical monthly evidence and the configured monthly equivalent produces a warning.
+When mortgage payments share a broad spending category, configure `historicalPayment.mode: payee_and_source_account` on the amortizing liability. A transaction matches only the exact included source account, a debit/outflow direction, and the exact payee after trimming, case-folding, and collapsing whitespace. Amount, date, cadence, substring, and fuzzy matching are never selectors. Matching runs before categories, so the mortgage evidence is removed while unrelated transactions in the same category remain ordinary spending. A reviewed recurring mortgage item matching the same exact pair is also prevented from reintroducing the payment.
+
+A dedicated `debt_payment` category remains supported, as does an explicit assertion that payments are already excluded or transfers. Exactly one of these three handling sources is required for a positive amortizing liability. Historical evidence is retained for comparison, while the configured schedule supplies future payments exactly once. A material difference between the historical monthly evidence and the configured monthly equivalent produces a warning. Raw matcher payees and source-account references do not cross the projection or export boundary.
 
 The report keeps two distinct measures:
 
@@ -194,7 +196,7 @@ Registered-room ledgers are always labelled and displayed in nominal regulatory 
 
 The exact `retirementSnapshot` keeps end-of-final-working-month balances and allocation. Its flow fields describe only that final working month, identified by `flowPeriod`; cumulative activity from today through retirement belongs to `financialAssetsBridge`.
 
-Baseline schema `1.6` includes aggregate cash-flow and debt-payment audit evidence, distinct financial accounts, non-financial assets and liabilities, simple/advanced mode, resolved employment and savings phases, concrete CPP/OAS inputs, registered room, routing, and field-level provenance. It contains category/account names and reconciled aggregates—not raw transactions, transaction IDs, credentials, tokens, or private statement metadata.
+Baseline schema `1.7` includes aggregate cash-flow and debt-payment audit evidence, typed imported non-financial-asset balances, distinct financial accounts, non-financial assets and liabilities, simple/advanced mode, resolved employment and savings phases, concrete CPP/OAS inputs, registered room, routing, and field-level provenance. It contains category/account names and reconciled aggregates—not raw transactions, transaction IDs, raw liability matcher text, credentials, tokens, or private statement metadata.
 
 The Retirement funding assets explanation uses the exact end-of-final-working-month snapshot and the financial-assets bridge. Separate total-net-worth and liability-schedule explanations show the three-part balance sheet, residence appreciation, interest/principal split, historical-payment replacement, payoff boundary, and a cent-stable net-worth bridge. Cash-funded contributions and principal repayment are internal balance-sheet movements; only interest is consumption. Success labels appear only when the shared result reconciles within one cent.
 
@@ -215,7 +217,7 @@ POST /api/v1/exports/projection-csv
 
 `GET /api/v1/lunchmoney/status` validates the token with a read-only categories request and returns a sanitized result.
 
-`GET /api/v1/baseline/current` returns schema `1.6` projection inputs, simple/advanced mode, role/compiler, phase, benefit, financial-account, non-financial-asset, liability, savings-policy, registered-room, and waterfall provenance; derived values; cash-flow and debt-payment audit evidence; warnings; and mapping details.
+`GET /api/v1/baseline/current` returns schema `1.7` projection inputs, simple/advanced mode, role/compiler, phase, benefit, financial-account, imported non-financial-asset, liability, savings-policy, registered-room, and waterfall provenance; derived values; cash-flow and debt-payment audit evidence; warnings; and mapping details.
 
 Projection requests use this shape:
 

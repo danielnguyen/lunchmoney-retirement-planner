@@ -170,9 +170,9 @@ describe("simple savings dashboard controls", () => {
     const baseline = simpleControlFixture();
     baseline.nonFinancialAssets = [
       {
-        id: "non_financial:primary_residence",
+        id: "manual:synthetic-residence",
         label: "Synthetic residence",
-        origin: "projection_configuration",
+        origin: "lunchmoney",
         type: "primary_residence",
         openingValue: 500000,
         valueAsOf: "2026-07-14",
@@ -210,10 +210,14 @@ describe("simple savings dashboard controls", () => {
       expect.arrayContaining([
         expect.objectContaining({
           key: "primaryResidence.currentValue",
+          sourceKey:
+            "nonFinancialAssets.manual:synthetic-residence.openingValue",
           label: "Primary residence value",
         }),
         expect.objectContaining({
           key: "primaryResidence.annualAppreciation",
+          sourceKey:
+            "nonFinancialAssets.manual:synthetic-residence.annualAppreciation",
           label: "Residence annual appreciation",
         }),
         expect.objectContaining({

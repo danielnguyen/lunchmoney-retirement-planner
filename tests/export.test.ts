@@ -1615,11 +1615,14 @@ describe("automatically anonymized projection exports", () => {
       `${PRIVATE_TEXT.institution} mortgage at ${PRIVATE_TEXT.streetAddress}`;
     const privateResidenceLabel =
       `Home at ${PRIVATE_TEXT.streetAddress}`;
+    const residenceId = "manual:private-home-919198";
+    const rawMatcherSource = "manual:private-chequing-919197";
+    const rawMatcherPayee = "Private exact mortgage payee";
     inputs.nonFinancialAssets = [
       {
-        id: "non_financial:private-home-919198",
+        id: residenceId,
         label: privateResidenceLabel,
-        origin: "projection_configuration",
+        origin: "lunchmoney",
         type: "primary_residence",
         openingValue: 500000,
         valueAsOf: "2026-07-14",
@@ -1647,7 +1650,7 @@ describe("automatically anonymized projection exports", () => {
           scheduleStartDate: "2026-07-01",
           lumpSumPayments: [],
         },
-        historicalPaymentHandling: "category_mapped",
+        historicalPaymentHandling: "payee_and_source_account",
         historicalMonthlyAverage: 1000,
       },
     ];
@@ -1663,6 +1666,15 @@ describe("automatically anonymized projection exports", () => {
       monthlyContribution: 0,
       contributionSource: "lunchmoney_derived",
       contributionFunding: undefined,
+    });
+    baseline.derived.nonFinancialAssetBalances.push({
+      id: residenceId,
+      lunchMoneyId: 919198,
+      source: "manual",
+      name: privateResidenceLabel,
+      plannerType: "real_estate",
+      value: 500000,
+      valueAsOf: "2026-07-14T00:00:00Z",
     });
     baseline.derived.debtPayments = {
       trailingTotal: 12000,
@@ -1694,11 +1706,12 @@ describe("automatically anonymized projection exports", () => {
       effectiveDate: "2026-07-14",
     };
     baseline.provenance[
-      "nonFinancialAssets.primaryResidence.openingValue"
+      `nonFinancialAssets.${residenceId}.openingValue`
     ] = {
       value: 500000,
-      sourceType: "local_configuration",
-      sourceDescription: privateResidenceLabel,
+      sourceType: "lunchmoney_derived",
+      sourceDescription:
+        `${privateResidenceLabel} ${rawMatcherSource} ${rawMatcherPayee}`,
       effectiveDate: "2026-07-14",
     };
     const projection = calculateProjection(inputs);
@@ -1761,6 +1774,9 @@ describe("automatically anonymized projection exports", () => {
       liabilityId,
       privateLiabilityLabel,
       privateResidenceLabel,
+      residenceId,
+      rawMatcherSource,
+      rawMatcherPayee,
       PRIVATE_TEXT.streetAddress,
       PRIVATE_TEXT.institution,
     ]) {

@@ -188,6 +188,7 @@ export const baselineContextFixture: BaselineExportContext = {
         contributionFunding: "cash",
       },
     ],
+    nonFinancialAssetBalances: [],
     monthlyIncome: {
       trailingTotal: 84000,
       monthlyAverage: 7000,
@@ -271,7 +272,7 @@ export const baselineContextFixture: BaselineExportContext = {
 
 export const currentBaselineFixture: CurrentBaseline = {
   ...baselineContextFixture,
-  schemaVersion: "1.6",
+  schemaVersion: "1.7",
   provenance: {
     ...baselineContextFixture.provenance,
     monthlyDiscretionarySpendingToday: {

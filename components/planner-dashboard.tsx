@@ -507,10 +507,14 @@ export function buildControls(baseline: ProjectionInputs): ControlDefinition[] {
     (asset) => asset.type === "primary_residence",
   );
   if (residence) {
+    const residenceSourcePrefix =
+      residence.origin === "lunchmoney"
+        ? `nonFinancialAssets.${residence.id}`
+        : "nonFinancialAssets.primaryResidence";
     controls.unshift(
       {
         key: "primaryResidence.currentValue",
-        sourceKey: "nonFinancialAssets.primaryResidence.openingValue",
+        sourceKey: `${residenceSourcePrefix}.openingValue`,
         label: "Primary residence value",
         min: fixed(0),
         max: fixed(Math.max(2_000_000, residence.openingValue * 3)),
@@ -529,7 +533,7 @@ export function buildControls(baseline: ProjectionInputs): ControlDefinition[] {
       },
       {
         key: "primaryResidence.annualAppreciation",
-        sourceKey: "nonFinancialAssets.primaryResidence.annualAppreciation",
+        sourceKey: `${residenceSourcePrefix}.annualAppreciation`,
         label: "Residence annual appreciation",
         min: fixed(-0.2),
         max: fixed(0.5),
@@ -1626,7 +1630,11 @@ export function PlannerDashboard() {
                           {currency.format(asset.openingValue)} as of{" "}
                           {asset.valueAsOf} ·{" "}
                           {percent.format(asset.annualAppreciation)} annual
-                          appreciation · unavailable for withdrawals
+                          appreciation ·{" "}
+                          {asset.origin === "lunchmoney"
+                            ? "imported residence value"
+                            : "configured residence fallback"}{" "}
+                          · unavailable for withdrawals
                         </dd>
                       </div>
                     ))}

@@ -8,6 +8,8 @@ import type {
 import { describe, expect, it } from "vitest";
 import type { PlannerConfig } from "@/src/config/types";
 import { deriveCurrentBaseline } from "@/src/domain/baseline/derive";
+import { calculateProjection } from "@/src/domain/projection/calculate";
+import { buildBalanceSheetReconciliation } from "@/src/domain/projection/presentation";
 import type { LunchMoneyData } from "@/src/integrations/lunchmoney/read-service";
 import { PlannerRuntimeError } from "@/src/runtime/errors";
 
@@ -301,7 +303,7 @@ describe("live baseline derivation", () => {
       }),
     ]);
     expect(baseline.recordsAnalyzed.transactions).toBe(8);
-    expect(baseline.schemaVersion).toBe("1.6");
+    expect(baseline.schemaVersion).toBe("1.7");
     expect(baseline.warnings).toContainEqual(
       expect.objectContaining({ code: "long_live_baseline_income" }),
     );
@@ -315,7 +317,7 @@ describe("live baseline derivation", () => {
       "2026-07-14T12:00:00.000Z",
     );
 
-    expect(baseline.schemaVersion).toBe("1.6");
+    expect(baseline.schemaVersion).toBe("1.7");
     expect(
       baseline.projectionInputs.registeredAccountRoom?.tfsa
         .startingAvailableRoom.amount,
@@ -456,6 +458,263 @@ describe("live baseline derivation", () => {
     });
   });
 
+  it("imports the residence and matches mortgage payments before a shared spending category", () => {
+    const config = structuredClone(configFixture);
+    config.accountMappings["manual:3"] = {
+      include: true,
+      type: "debt",
+      roles: ["primary_mortgage"],
+      liability: {
+        mode: "amortizing",
+        annualInterestRate: 0.04,
+        interestRateConvention: "canadian_mortgage",
+        regularPayment: { amount: 1000, frequency: "monthly" },
+        scheduleStartDate: "2026-01-01",
+        lumpSumPayments: [],
+        historicalPayment: {
+          mode: "payee_and_source_account",
+          sourceAccountId: "manual:1",
+          payee: "Synthetic Mortgage Payment",
+        },
+      },
+    };
+    config.accountMappings["manual:4"] = {
+      include: true,
+      type: "real_estate",
+      roles: ["primary_residence"],
+      annualAppreciation: 0.02,
+    };
+    const data = lunchMoneyData();
+    data.manualAccounts.push({
+      id: 4,
+      name: "Synthetic residence",
+      display_name: "Synthetic primary residence",
+      to_base: 500000,
+      status: "active",
+      balance_as_of: "2026-07-09T00:00:00Z",
+    } as ManualAccount);
+    data.transactions = data.transactions.filter(
+      (item) => item.id !== 8,
+    );
+    data.transactions.push(
+      transaction(20, 900, 10, { manual: 1 }, {
+        date: "2026-05-28",
+        payee: "synthetic mortgage payment",
+      }),
+      transaction(21, 1100, 10, { manual: 1 }, {
+        date: "2026-06-30",
+        payee: "  Synthetic   Mortgage Payment  ",
+      }),
+      transaction(22, 250, 10, { manual: 1 }, {
+        payee: "Synthetic home repair",
+      }),
+      transaction(23, 75, 10, { plaid: 2 }, {
+        payee: "Synthetic Mortgage Payment",
+      }),
+      transaction(24, 50, 10, { manual: 1 }, {
+        payee: "Mortgage Payment",
+      }),
+      transaction(25, -1100, 13, { manual: 1 }, {
+        payee: "Synthetic Mortgage Payment",
+      }),
+    );
+    data.recurringItems.push({
+      ...data.recurringItems[0]!,
+      id: 51,
+      description: "Synthetic mortgage recurring item",
+      transaction_criteria: {
+        ...data.recurringItems[0]!.transaction_criteria,
+        payee: "SYNTHETIC MORTGAGE PAYMENT",
+        to_base: 1000,
+      },
+      overrides: { category_id: 10 },
+    } as RecurringItem);
+
+    const baseline = deriveCurrentBaseline(
+      config,
+      data,
+      window,
+      "2026-07-14T12:00:00.000Z",
+    );
+
+    expect(baseline.schemaVersion).toBe("1.7");
+    expect(baseline.projectionInputs.nonFinancialAssets).toEqual([
+      expect.objectContaining({
+        id: "manual:4",
+        origin: "lunchmoney",
+        openingValue: 500000,
+        valueAsOf: "2026-07-09",
+        annualAppreciation: 0.02,
+        availableForWithdrawals: false,
+      }),
+    ]);
+    expect(
+      baseline.projectionInputs.accounts.some(
+        (account) => account.id === "manual:4",
+      ),
+    ).toBe(false);
+    expect(baseline.derived.nonFinancialAssetBalances).toEqual([
+      expect.objectContaining({
+        id: "manual:4",
+        plannerType: "real_estate",
+        value: 500000,
+      }),
+    ]);
+    expect(baseline.projectionInputs.liabilities[0]).toMatchObject({
+      id: "manual:3",
+      historicalPaymentHandling: "payee_and_source_account",
+      historicalMonthlyAverage: 166.67,
+    });
+    expect(baseline.derived.debtPayments).toMatchObject({
+      trailingTotal: 2000,
+      transactionCount: 2,
+    });
+    expect(baseline.derived.essentialSpending).toMatchObject({
+      // Existing broad-category spending is 1,000. The exact-source/payee
+      // mortgage records are removed, while unrelated same-category records
+      // remain 250 + 75 + 50.
+      trailingTotal: 1375,
+      transactionCount: 5,
+    });
+    expect(baseline.derived.recurringExpenses.count).toBe(1);
+    expect(baseline.warnings).toContainEqual(
+      expect.objectContaining({
+        code: "liability_payment_mismatch",
+      }),
+    );
+    expect(
+      baseline.provenance[
+        "nonFinancialAssets.manual:4.openingValue"
+      ],
+    ).toMatchObject({
+      sourceType: "lunchmoney_derived",
+      value: 500000,
+    });
+
+    const projection = calculateProjection(
+      baseline.projectionInputs,
+    );
+    expect(
+      projection.annual[0]!.nominal.liabilitySchedules["manual:3"]!
+        .regularPayment,
+    ).toBeGreaterThan(0);
+    for (const mode of ["nominal", "real"] as const) {
+      expect(
+        buildBalanceSheetReconciliation(projection, mode).matched,
+      ).toBe(true);
+    }
+  });
+
+  it("rejects ambiguous mortgage-history handling and unresolved matcher sources", () => {
+    const configured = structuredClone(configFixture);
+    configured.accountMappings["manual:3"] = {
+      include: true,
+      type: "debt",
+      roles: ["primary_mortgage"],
+      liability: {
+        mode: "amortizing",
+        annualInterestRate: 0.04,
+        interestRateConvention: "canadian_mortgage",
+        regularPayment: { amount: 100, frequency: "monthly" },
+        scheduleStartDate: "2026-01-01",
+        lumpSumPayments: [],
+        historicalPayment: {
+          mode: "payee_and_source_account",
+          sourceAccountId: "manual:1",
+          payee: "Synthetic mortgage payment",
+        },
+      },
+    };
+    configured.primaryResidence = {
+      currentValue: 500000,
+      asOf: "2026-07-01",
+      annualAppreciation: 0,
+    };
+    configured.categoryMappings["16"] = {
+      classification: "debt_payment",
+      liabilityId: "manual:3",
+    };
+    const data = lunchMoneyData();
+    data.categories.push(category(16, "Synthetic debt"));
+    expect(() =>
+      deriveCurrentBaseline(
+        configured,
+        data,
+        window,
+        "2026-07-14T12:00:00.000Z",
+      ),
+    ).toThrow("exactly one historical-payment handling source");
+
+    delete configured.categoryMappings["16"];
+    const liability =
+      configured.accountMappings["manual:3"]!.liability;
+    if (!liability || liability.mode !== "amortizing") {
+      throw new Error("Synthetic liability must amortize");
+    }
+    liability.historicalPayment = {
+      mode: "payee_and_source_account",
+      sourceAccountId: "manual:synthetic-missing",
+      payee: "Synthetic mortgage payment",
+    };
+    expect(() =>
+      deriveCurrentBaseline(
+        configured,
+        data,
+        window,
+        "2026-07-14T12:00:00.000Z",
+      ),
+    ).toThrow("must resolve to exactly one included financial account");
+
+    liability.historicalPayment = {
+      mode: "payee_and_source_account",
+      sourceAccountId: "1",
+      payee: "Synthetic mortgage payment",
+    };
+    configured.accountMappings["plaid:1"] = {
+      include: true,
+      type: "cash",
+      withdrawalPriority: 9,
+    };
+    data.plaidAccounts.push({
+      id: 1,
+      name: "Synthetic second source",
+      display_name: null,
+      to_base: 100,
+      status: "active",
+      balance_last_update: "2026-07-11T00:00:00Z",
+    } as PlaidAccount);
+    expect(() =>
+      deriveCurrentBaseline(
+        configured,
+        data,
+        window,
+        "2026-07-14T12:00:00.000Z",
+      ),
+    ).toThrow("must resolve to exactly one included financial account");
+  });
+
+  it("rejects a negative imported real-estate balance", () => {
+    const config = structuredClone(configFixture);
+    config.accountMappings["manual:3"] = {
+      include: true,
+      type: "real_estate",
+      roles: ["primary_residence"],
+      annualAppreciation: 0,
+    };
+    const data = lunchMoneyData();
+    data.manualAccounts.find((account) => account.id === 3)!.to_base =
+      -1;
+
+    expect(() =>
+      deriveCurrentBaseline(
+        config,
+        data,
+        window,
+        "2026-07-14T12:00:00.000Z",
+      ),
+    ).toThrow("must have a non-negative imported balance");
+  });
+
   it.each([
     ["monthly", 12],
     ["semimonthly", 24],
@@ -575,7 +834,7 @@ describe("live baseline derivation", () => {
         window,
         "2026-07-14T12:00:00.000Z",
       ),
-    ).toThrow("needs a debt_payment category mapping");
+    ).toThrow("needs exactly one historical-payment handling source");
 
     const zeroData = lunchMoneyData();
     zeroData.manualAccounts.find((account) => account.id === 3)!.to_base =
