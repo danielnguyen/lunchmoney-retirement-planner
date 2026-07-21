@@ -166,7 +166,7 @@ export type DerivedBaseline = {
 };
 
 export type CurrentBaseline = {
-  schemaVersion: "1.7";
+  schemaVersion: "1.8";
   connection: ConnectionStatus;
   projectionInputs: ProjectionInputs;
   provenance: Record<string, BaselineValue<unknown>>;

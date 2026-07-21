@@ -294,6 +294,26 @@ describe("live baseline derivation", () => {
         annualGrowth: 0.02,
       }),
     ]);
+    expect(baseline.projectionInputs.spendingPhases).toEqual([
+      {
+        id: "compatibility-full-projection",
+        label: "Historical full-projection spending",
+        startAge: 40,
+        endAge: 95,
+        essentialMultiplier: 1,
+        discretionaryMultiplier: 1,
+        source: "compatibility_default",
+      },
+    ]);
+    expect(
+      baseline.provenance[
+        "spendingPhases.compatibility-full-projection.source"
+      ],
+    ).toMatchObject({
+      value: "compatibility_default",
+      sourceType: "local_configuration",
+      sourceDescription: expect.stringContaining("Backward-compatible"),
+    });
     expect(baseline.projectionInputs.accounts[1]!.contributionPhases).toEqual([
       expect.objectContaining({
         id: "legacy-current-contribution",
@@ -303,10 +323,56 @@ describe("live baseline derivation", () => {
       }),
     ]);
     expect(baseline.recordsAnalyzed.transactions).toBe(8);
-    expect(baseline.schemaVersion).toBe("1.7");
+    expect(baseline.schemaVersion).toBe("1.8");
     expect(baseline.warnings).toContainEqual(
       expect.objectContaining({ code: "long_live_baseline_income" }),
     );
+  });
+
+  it("keeps live spending evidence separate from configured lifestyle multipliers", () => {
+    const config = structuredClone(configFixture);
+    config.spendingPhases = [
+      {
+        id: "synthetic-current-lifestyle",
+        label: "Synthetic current lifestyle",
+        startAge: 40,
+        endAge: 65,
+        essentialMultiplier: 1,
+        discretionaryMultiplier: 1,
+      },
+      {
+        id: "synthetic-retirement-lifestyle",
+        label: "Synthetic retirement lifestyle",
+        startAge: 65,
+        endAge: 95,
+        essentialMultiplier: 1,
+        discretionaryMultiplier: 0.6,
+      },
+    ];
+    const baseline = deriveCurrentBaseline(
+      config,
+      lunchMoneyData(),
+      window,
+      "2026-07-14T12:00:00.000Z",
+    );
+
+    expect(baseline.projectionInputs.spendingPhases[1]).toMatchObject({
+      discretionaryMultiplier: 0.6,
+      source: "explicit_configuration",
+    });
+    expect(
+      baseline.provenance[
+        "spendingPhases.synthetic-retirement-lifestyle.discretionaryMultiplier"
+      ],
+    ).toMatchObject({
+      value: 0.6,
+      sourceType: "local_configuration",
+    });
+    expect(
+      baseline.provenance.monthlyDiscretionarySpendingToday,
+    ).toMatchObject({
+      sourceType: "lunchmoney_derived",
+    });
   });
 
   it("resolves registered room, waterfall routes, and material provenance", () => {
@@ -317,7 +383,7 @@ describe("live baseline derivation", () => {
       "2026-07-14T12:00:00.000Z",
     );
 
-    expect(baseline.schemaVersion).toBe("1.7");
+    expect(baseline.schemaVersion).toBe("1.8");
     expect(
       baseline.projectionInputs.registeredAccountRoom?.tfsa
         .startingAvailableRoom.amount,
@@ -537,7 +603,7 @@ describe("live baseline derivation", () => {
       "2026-07-14T12:00:00.000Z",
     );
 
-    expect(baseline.schemaVersion).toBe("1.7");
+    expect(baseline.schemaVersion).toBe("1.8");
     expect(baseline.projectionInputs.nonFinancialAssets).toEqual([
       expect.objectContaining({
         id: "manual:4",

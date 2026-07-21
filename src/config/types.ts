@@ -69,6 +69,15 @@ export type EmploymentIncomePhaseConfig = {
   };
 };
 
+export type SpendingPhaseConfig = {
+  id: string;
+  label: string;
+  startAge: number;
+  endAge: number;
+  essentialMultiplier: number;
+  discretionaryMultiplier: number;
+};
+
 export type ContributionPhaseConfig = {
   id: string;
   label: string;
@@ -298,6 +307,7 @@ export type PlannerConfig = {
   retirementGoal: number;
   transactionTrailingMonths: number;
   employmentIncomePhases?: EmploymentIncomePhaseConfig[];
+  spendingPhases?: SpendingPhaseConfig[];
   accountMappings: Record<string, AccountMapping>;
   registeredRoom?: RegisteredRoomConfig;
   savingsPolicy?: SavingsPolicyConfig;

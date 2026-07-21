@@ -93,6 +93,8 @@ employmentIncomePhases:
 
 Each simple employment phase explicitly provides RRSP-eligible earned income, pension adjustment, other reduction, and growth. Net deposited cash is separate and is never substituted for those room-generation inputs. Explicit zero is valid; omission is not.
 
+Lifestyle spending phases are independent of employment phases. Each phase multiplies the live trailing essential and discretionary baselines, and the global inflation assumption continues to index the adjusted amounts. `1` keeps a baseline unchanged; `0.60` means 60% of that baseline, or a 40% reduction. Configured phases must continuously cover `currentAge` through `projectionEndAge`, with inclusive starts, exclusive ends, and month-aligned boundaries. Omitting `spendingPhases` preserves the historical full-projection `1 / 1` behaviour.
+
 ```yaml
 savingsPolicy:
   personalInvesting:
@@ -141,7 +143,7 @@ For migration, replace the legacy top-level ages and amounts plus `assumptions.c
 
 The primary configuration assigns account types and roles under `accountMappings`. Included accounts receive roles for operating cash, reserve membership and refill, personal TFSA, personal RRSP, workplace RRSP, optionally personal taxable, and optionally an imported primary residence. Roles are unique where required, type checked, and rejected on excluded accounts. Personal and workplace RRSP roles must be different accounts. The only simple account reference outside those keys is the exact source account in an optional liability payment matcher.
 
-`savingsPolicy` contains named personal, reserve-building, and workplace plans without account IDs or route arrays. Workplace RRSP runs first, consumes the one global RRSP room pool, and leaves any overflow visibly unallocated. Personal cash then follows TFSA → personal RRSP → taxable and never enters the workplace RRSP. Reserve-building savings remain in the refill account until the indexed combined reserve target is reached; any crossing amount follows the personal order in the same month. Only these explicit plans are invested. Every other positive dollar is retained in the operating-cash account, which also counts toward the reserve.
+`savingsPolicy` contains named personal, reserve-building, and workplace plans without account IDs or route arrays. Workplace RRSP runs first, consumes the one global RRSP room pool, and leaves any overflow visibly unallocated. Personal cash then follows TFSA → personal RRSP → taxable and never enters the workplace RRSP. Reserve-building savings remain in the refill account until the indexed combined reserve target is reached; any crossing amount follows the personal order in the same month. Only these explicit plans are planned investments. The explicit unplanned-cash policy either retains remaining positive cash in operating cash or tops up the indexed operating and combined reserve targets before sweeping true excess through the personal order.
 
 When no included account has `personal_taxable`, the compiler creates a deterministic projection-only non-registered destination. It inherits the configured non-registered return and allocation, derives the next withdrawal priority, has no independent contribution phase, and opens at exactly zero. A later imported `personal_taxable` role replaces it without changing the policy. Projection-only accounts remain distinct from imported Lunch Money balances everywhere.
 
@@ -196,7 +198,7 @@ Registered-room ledgers are always labelled and displayed in nominal regulatory 
 
 The exact `retirementSnapshot` keeps end-of-final-working-month balances and allocation. Its flow fields describe only that final working month, identified by `flowPeriod`; cumulative activity from today through retirement belongs to `financialAssetsBridge`.
 
-Baseline schema `1.7` includes aggregate cash-flow and debt-payment audit evidence, typed imported non-financial-asset balances, distinct financial accounts, non-financial assets and liabilities, simple/advanced mode, resolved employment and savings phases, concrete CPP/OAS inputs, registered room, routing, and field-level provenance. It contains category/account names and reconciled aggregates—not raw transactions, transaction IDs, raw liability matcher text, credentials, tokens, or private statement metadata.
+Baseline schema `1.8` includes aggregate cash-flow and debt-payment audit evidence, typed imported non-financial-asset balances, distinct financial accounts, non-financial assets and liabilities, simple/advanced mode, resolved employment, savings, and lifestyle-spending phases, concrete CPP/OAS inputs, registered room, routing, and field-level provenance. It contains category/account names and reconciled aggregates—not raw transactions, transaction IDs, raw liability matcher text, credentials, tokens, or private statement metadata.
 
 The Retirement funding assets explanation uses the exact end-of-final-working-month snapshot and the financial-assets bridge. Separate total-net-worth and liability-schedule explanations show the three-part balance sheet, residence appreciation, interest/principal split, historical-payment replacement, payoff boundary, and a cent-stable net-worth bridge. Cash-funded contributions and principal repayment are internal balance-sheet movements; only interest is consumption. Success labels appear only when the shared result reconciles within one cent.
 
@@ -217,7 +219,7 @@ POST /api/v1/exports/projection-csv
 
 `GET /api/v1/lunchmoney/status` validates the token with a read-only categories request and returns a sanitized result.
 
-`GET /api/v1/baseline/current` returns schema `1.7` projection inputs, simple/advanced mode, role/compiler, phase, benefit, financial-account, imported non-financial-asset, liability, savings-policy, registered-room, and waterfall provenance; derived values; cash-flow and debt-payment audit evidence; warnings; and mapping details.
+`GET /api/v1/baseline/current` returns schema `1.8` projection inputs, simple/advanced mode, role/compiler, phase, benefit, financial-account, imported non-financial-asset, liability, savings-policy, registered-room, and waterfall provenance; derived values; cash-flow and debt-payment audit evidence; warnings; and mapping details.
 
 Projection requests use this shape:
 
@@ -239,7 +241,7 @@ Export requests use the current baseline response, active inputs, and browser ov
 
 Every normal JSON and CSV export is automatically anonymized; there is no raw or private export mode. Financial amounts, dates, account types and origins, assumptions, CPP/OAS and savings calculation summaries, sanitized policy preview, public Canadian reference metadata, the exact retirement snapshot, and both accumulation bridges remain available for analysis. Imported and projection-only account IDs, role and policy references, account and institution labels, employer, category, event, recurring-expense, warning, and employment/contribution/savings-phase text are replaced with stable generic aliases based only on record type and order.
 
-Schema `8.0` JSON is the complete analysis document and uses a typed allowlist with export-local aliases; it never recursively copies source objects. JSON retains typed non-financial assets, liabilities and schedules, debt-payment evidence, balance sheets, financial-assets and net-worth bridges, room ledgers, routes, and policy results with sanitized references. The flat CSV keeps one row per annual period with scalar balance-sheet, liability-flow, explicit-plan, unplanned-cash, room, contribution, and deterministic per-account fields. It never embeds schedules, role lists, route arrays, phase arrays, maps, JSON, or delimited lists in cells. Both formats remain automatically anonymized.
+Schema `9.0` JSON is the complete analysis document and uses a typed allowlist with export-local aliases; it never recursively copies source objects. JSON retains typed non-financial assets, liabilities and schedules, debt-payment evidence, lifestyle-spending phases, balance sheets, financial-assets and net-worth bridges, room ledgers, routes, and policy results with sanitized references. The flat CSV keeps one row per annual period with scalar balance-sheet, liability-flow, explicit-plan, unplanned-cash, room, contribution, and deterministic per-account fields. It never embeds schedules, role lists, route arrays, phase arrays, maps, JSON, or delimited lists in cells. Both formats remain automatically anonymized.
 
 ## Docker Compose
 

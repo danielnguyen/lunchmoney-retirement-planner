@@ -51,6 +51,16 @@ export type EmploymentIncomePhase = {
   };
 };
 
+export type SpendingPhase = {
+  id: string;
+  label: string;
+  startAge: number;
+  endAge: number;
+  essentialMultiplier: number;
+  discretionaryMultiplier: number;
+  source: "explicit_configuration" | "compatibility_default";
+};
+
 export type PersonInput = {
   currentAge: number;
   retirementAge: number;
@@ -269,6 +279,7 @@ export type ProjectionInputs = {
   annualInflation: number;
   monthlyEssentialSpendingToday: number;
   monthlyDiscretionarySpendingToday: number;
+  spendingPhases: SpendingPhase[];
   retirementGoalToday: number;
   tax: TaxAssumptions;
   person: PersonInput;
@@ -664,7 +675,7 @@ export type SavingsPolicyCalculationSummary = {
 };
 
 export type ProjectionResult = {
-  schemaVersion: "8.0";
+  schemaVersion: "9.0";
   inputs: ProjectionInputs;
   summary: ProjectionSummary;
   retirementSnapshot: RetirementSnapshot;
@@ -787,6 +798,70 @@ export function validateProjectionInputs(value: unknown): ProjectionInputs {
   assertRate("OAS indexingRate", input.person.oas.indexingRate, -0.2, 0.5);
   assertNonNegative("monthlyEssentialSpendingToday", input.monthlyEssentialSpendingToday);
   assertNonNegative("monthlyDiscretionarySpendingToday", input.monthlyDiscretionarySpendingToday);
+  if (!Array.isArray(input.spendingPhases) || input.spendingPhases.length === 0) {
+    throw new Error("At least one resolved spending phase is required");
+  }
+  const spendingIds = new Set<string>();
+  for (const [index, phase] of input.spendingPhases.entries()) {
+    const field = `spendingPhases[${index}]`;
+    assertNonEmptyString(`${field}.id`, phase.id);
+    assertNonEmptyString(`${field}.label`, phase.label);
+    if (spendingIds.has(phase.id)) {
+      throw new Error(`Spending phase ids must be unique: ${phase.id}`);
+    }
+    spendingIds.add(phase.id);
+    assertNonNegative(`${field}.essentialMultiplier`, phase.essentialMultiplier);
+    assertNonNegative(
+      `${field}.discretionaryMultiplier`,
+      phase.discretionaryMultiplier,
+    );
+    if (
+      phase.source !== "explicit_configuration" &&
+      phase.source !== "compatibility_default"
+    ) {
+      throw new Error(`${field}.source must identify configuration or compatibility normalization`);
+    }
+    assertMonthAligned(`${field}.startAge`, phase.startAge, input.person.currentAge);
+    assertMonthAligned(`${field}.endAge`, phase.endAge, input.person.currentAge);
+    if (
+      phase.source !== "compatibility_default" &&
+      phase.startAge < input.person.currentAge - PROJECTION_AGE_TOLERANCE
+    ) {
+      throw new Error(`${field}.startAge must not be before currentAge`);
+    }
+    if (phase.endAge <= phase.startAge + PROJECTION_AGE_TOLERANCE) {
+      throw new Error(`${field}.endAge must be greater than startAge`);
+    }
+    const previous = input.spendingPhases[index - 1];
+    if (previous) {
+      if (phase.startAge < previous.endAge - PROJECTION_AGE_TOLERANCE) {
+        throw new Error(`Spending phases overlap between ${previous.id} and ${phase.id}`);
+      }
+      if (phase.startAge > previous.endAge + PROJECTION_AGE_TOLERANCE) {
+        throw new Error(`Spending phases have a gap between ${previous.id} and ${phase.id}`);
+      }
+    }
+  }
+  const compatibilityDefault =
+    input.spendingPhases.length === 1 &&
+    input.spendingPhases[0]!.source === "compatibility_default";
+  if (
+    compatibilityDefault
+      ? input.spendingPhases[0]!.startAge >
+        input.person.currentAge + PROJECTION_AGE_TOLERANCE
+      : !sameAge(
+          input.spendingPhases[0]!.startAge,
+          input.person.currentAge,
+        )
+  ) {
+    throw new Error("The first spending phase must begin at currentAge");
+  }
+  if (
+    input.spendingPhases.at(-1)!.endAge <
+    input.endAge - PROJECTION_AGE_TOLERANCE
+  ) {
+    throw new Error("The final spending phase must cover endAge");
+  }
   assertNonNegative("retirementGoalToday", input.retirementGoalToday);
   assertNonNegative("annualPensionToday", input.person.annualPensionToday);
   assertNonNegative("CPP monthlyAmountAt65Today", input.person.cpp.monthlyAmountAt65Today);

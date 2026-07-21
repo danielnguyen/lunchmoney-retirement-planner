@@ -27,6 +27,7 @@ const RAW_IDS = {
   event: "private-future-event-id",
   warning: "727272",
   employmentPhase: "private-employer-transition-id",
+  spendingPhase: "private-lifestyle-transition-id",
   contributionPhase: "private-workplace-plan-id",
 };
 const PRIVATE_TEXT = {
@@ -39,6 +40,7 @@ const PRIVATE_TEXT = {
   merchant: "Confidential Health Merchant",
   payee: "Private Therapy Payee",
   employmentPhaseLabel: "Senior role at Confidential Employer Incorporated",
+  spendingPhaseLabel: "Confidential retirement lifestyle plan",
   contributionPhaseLabel: "Confidential Employer workplace plan",
   eventLabel: "Purchase a home for Alexandra at 742 Evergreen Privacy Avenue",
   warningMessage: "Alexandra must call the private adviser immediately.",
@@ -66,6 +68,12 @@ function buildExportFixture(): ExportFixture {
     ...inputs.person.employmentIncomePhases[0]!,
     id: RAW_IDS.employmentPhase,
     label: PRIVATE_TEXT.employmentPhaseLabel,
+  };
+  inputs.spendingPhases[0] = {
+    ...inputs.spendingPhases[0]!,
+    id: RAW_IDS.spendingPhase,
+    label: PRIVATE_TEXT.spendingPhaseLabel,
+    source: "explicit_configuration",
   };
   inputs.accounts[0] = {
     ...inputs.accounts[0]!,
@@ -119,6 +127,18 @@ function buildExportFixture(): ExportFixture {
       value: PRIVATE_TEXT.employmentPhaseLabel,
       sourceType: "local_configuration",
       sourceDescription: `Employment phase for ${PRIVATE_TEXT.employer}`,
+      effectiveDate: baseline.dataThrough,
+    },
+    [`spendingPhases.${RAW_IDS.spendingPhase}.label`]: {
+      value: PRIVATE_TEXT.spendingPhaseLabel,
+      sourceType: "local_configuration",
+      sourceDescription: `Private lifestyle phase for ${PRIVATE_TEXT.personalName}`,
+      effectiveDate: baseline.dataThrough,
+    },
+    [`spendingPhases.${RAW_IDS.spendingPhase}.discretionaryMultiplier`]: {
+      value: inputs.spendingPhases[0]!.discretionaryMultiplier,
+      sourceType: "local_configuration",
+      sourceDescription: `Private lifestyle multiplier for ${PRIVATE_TEXT.personalName}`,
       effectiveDate: baseline.dataThrough,
     },
     events: {
@@ -371,8 +391,8 @@ describe("automatically anonymized projection exports", () => {
     const { snapshot } = buildExportFixture();
     const serialized = JSON.stringify(snapshot);
 
-    expect(snapshot.schemaVersion).toBe("8.0");
-    expect(snapshot.projection.schemaVersion).toBe("8.0");
+    expect(snapshot.schemaVersion).toBe("9.0");
+    expect(snapshot.projection.schemaVersion).toBe("9.0");
     expect(snapshot.exportMetadata).toEqual({
       transformation: "typed_allowlist_and_automatic_anonymization",
       automaticSanitizationApplied: true,
@@ -455,6 +475,11 @@ describe("automatically anonymized projection exports", () => {
       id: "employment_phase_1",
       label: "Employment phase 1",
     });
+    expect(snapshot.resolvedBaseline.spendingPhases[0]).toMatchObject({
+      id: "spending_phase_1",
+      label: "Spending phase 1",
+      source: "explicit_configuration",
+    });
     expect(snapshot.resolvedBaseline.accounts[1]!.contributionPhases[0]).toMatchObject({
       id: "contribution_phase_1",
       label: "Contribution phase 1",
@@ -464,14 +489,14 @@ describe("automatically anonymized projection exports", () => {
     expect(idValues.length).toBeGreaterThan(0);
     expect(idValues.every((id) => typeof id === "string")).toBe(true);
     expect(idValues.every((id) =>
-      /^(?:cash|tfsa|rrsp|non_registered|debt|event|recurring_expense|category|unmapped_account|employment_phase|contribution_phase)_\d+$/.test(String(id)),
+      /^(?:cash|tfsa|rrsp|non_registered|debt|event|recurring_expense|category|unmapped_account|employment_phase|spending_phase|contribution_phase)_\d+$/.test(String(id)),
     )).toBe(true);
     expectNoSourceIdentifiersOrCredentials(serialized);
     expect(serialized).not.toContain(AUDIT_RAW_ID);
   });
 
   it("exports only safe provenance field references and override keys", () => {
-    const { snapshot } = buildExportFixture();
+    const { inputs, snapshot } = buildExportFixture();
 
     expect(snapshot.provenance["accounts.cash_1.openingBalance"]).toEqual({
       fieldReference: "accounts.cash_1.openingBalance",
@@ -513,6 +538,14 @@ describe("automatically anonymized projection exports", () => {
         "person.employmentIncomePhases.employment_phase_1.label"
       ]?.value,
     ).toBe("Employment phase 1");
+    expect(
+      snapshot.provenance["spendingPhases.spending_phase_1.label"]?.value,
+    ).toBe("Spending phase 1");
+    expect(
+      snapshot.provenance[
+        "spendingPhases.spending_phase_1.discretionaryMultiplier"
+      ]?.value,
+    ).toBe(inputs.spendingPhases[0]!.discretionaryMultiplier);
     expectNoSourceIdentifiersOrCredentials(JSON.stringify(snapshot.provenance));
     expectNoSourceIdentifiersOrCredentials(JSON.stringify(snapshot.activeOverrides));
   });
@@ -1076,7 +1109,7 @@ describe("automatically anonymized projection exports", () => {
     );
     const serialized = JSON.stringify(snapshot);
 
-    expect(snapshot.schemaVersion).toBe("8.0");
+    expect(snapshot.schemaVersion).toBe("9.0");
     expect(snapshot.projection.inputs.accounts.at(-1)).toMatchObject({
       id: "non_registered_1",
       label: "Non-registered account 1",

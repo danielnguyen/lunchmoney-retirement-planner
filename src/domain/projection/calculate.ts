@@ -24,6 +24,7 @@ import type {
   RetirementSnapshot,
   SavingsPolicyBreakdown,
   SavingsPolicyTotals,
+  SpendingPhase,
   SurplusAllocationBreakdown,
   SurplusAllocationTotals,
   WithdrawalBreakdown,
@@ -83,6 +84,17 @@ function activeContributionPhase(
   phases: ContributionPhase[],
   workingAge: number,
 ): ContributionPhase | undefined {
+  return phases.find(
+    (phase) =>
+      workingAge >= phase.startAge - AGE_TOLERANCE &&
+      workingAge < phase.endAge - AGE_TOLERANCE,
+  );
+}
+
+function activeSpendingPhase(
+  phases: SpendingPhase[],
+  workingAge: number,
+): SpendingPhase | undefined {
   return phases.find(
     (phase) =>
       workingAge >= phase.startAge - AGE_TOLERANCE &&
@@ -1698,8 +1710,23 @@ export function calculateProjection(rawInputs: ProjectionInputs): ProjectionResu
     monthlyFlow.outflows.tax += regularTax + recoveryTax;
     monthlyFlow.outflows.oasRecoveryTax += recoveryTax;
 
-    const essential = inputs.monthlyEssentialSpendingToday * factor;
-    const discretionary = inputs.monthlyDiscretionarySpendingToday * factor;
+    const spendingPhase = activeSpendingPhase(
+      inputs.spendingPhases,
+      workingAge,
+    );
+    if (!spendingPhase) {
+      throw new Error(
+        `No spending phase resolves for projection month ${month}`,
+      );
+    }
+    const essential =
+      inputs.monthlyEssentialSpendingToday *
+      spendingPhase.essentialMultiplier *
+      factor;
+    const discretionary =
+      inputs.monthlyDiscretionarySpendingToday *
+      spendingPhase.discretionaryMultiplier *
+      factor;
     monthlyFlow.outflows.essential += essential;
     monthlyFlow.outflows.discretionary += discretionary;
 
@@ -2694,7 +2721,7 @@ export function calculateProjection(rawInputs: ProjectionInputs): ProjectionResu
   });
 
   return {
-    schemaVersion: "8.0",
+    schemaVersion: "9.0",
     inputs,
     summary: {
       retirementYear,

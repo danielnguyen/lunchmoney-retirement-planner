@@ -1853,6 +1853,43 @@ export function deriveCurrentBaseline(
     });
   }
 
+  const spendingPhases: ProjectionInputs["spendingPhases"] =
+    config.spendingPhases?.map((phase) => ({
+      ...phase,
+      source: "explicit_configuration" as const,
+    })) ?? [
+      {
+        id: "compatibility-full-projection",
+        label: "Historical full-projection spending",
+        startAge: config.currentAge,
+        endAge: config.projectionEndAge,
+        essentialMultiplier: 1,
+        discretionaryMultiplier: 1,
+        source: "compatibility_default",
+      },
+    ];
+  for (const phase of spendingPhases) {
+    const prefix = `spendingPhases.${phase.id}`;
+    const configured = phase.source === "explicit_configuration";
+    const description = configured
+      ? "Explicit lifestyle spending phase from private planner configuration"
+      : "Backward-compatible full-projection phase normalized because spendingPhases was omitted";
+    for (const field of [
+      "label",
+      "startAge",
+      "endAge",
+      "essentialMultiplier",
+      "discretionaryMultiplier",
+      "source",
+    ] as const) {
+      provenance[`${prefix}.${field}`] = localValue(
+        phase[field],
+        description,
+        window.endDate,
+      );
+    }
+  }
+
   const blocking =
     unmappedAccounts.length > 0 ||
     unmappedCategories.length > 0 ||
@@ -2524,6 +2561,7 @@ export function deriveCurrentBaseline(
     annualInflation: config.assumptions.inflation,
     monthlyEssentialSpendingToday: monthlyEssential,
     monthlyDiscretionarySpendingToday: monthlyDiscretionary,
+    spendingPhases,
     retirementGoalToday: config.retirementGoal,
     tax: {
       effectiveTaxRate: config.assumptions.effectiveTaxRate,
@@ -2564,7 +2602,7 @@ export function deriveCurrentBaseline(
   });
 
   return {
-    schemaVersion: "1.7",
+    schemaVersion: "1.8",
     connection,
     projectionInputs,
     provenance,

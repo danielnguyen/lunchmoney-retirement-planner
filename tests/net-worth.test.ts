@@ -22,6 +22,17 @@ function baseInputs(): ProjectionInputs {
     annualInflation: 0.02,
     monthlyEssentialSpendingToday: 0,
     monthlyDiscretionarySpendingToday: 0,
+    spendingPhases: [
+      {
+        id: "synthetic-spending",
+        label: "Synthetic spending",
+        startAge: 40,
+        endAge: 42,
+        essentialMultiplier: 1,
+        discretionaryMultiplier: 1,
+        source: "explicit_configuration",
+      },
+    ],
     retirementGoalToday: 100000,
     tax: {
       effectiveTaxRate: 0.2,

@@ -10,6 +10,17 @@ export const projectionFixture: ProjectionInputs = {
   annualInflation: 0.02,
   monthlyEssentialSpendingToday: 3200,
   monthlyDiscretionarySpendingToday: 800,
+  spendingPhases: [
+    {
+      id: "compatibility-full-projection",
+      label: "Historical full-projection spending",
+      startAge: 40,
+      endAge: 95,
+      essentialMultiplier: 1,
+      discretionaryMultiplier: 1,
+      source: "compatibility_default",
+    },
+  ],
   retirementGoalToday: 900000,
   tax: {
     effectiveTaxRate: 0.2,
@@ -272,7 +283,7 @@ export const baselineContextFixture: BaselineExportContext = {
 
 export const currentBaselineFixture: CurrentBaseline = {
   ...baselineContextFixture,
-  schemaVersion: "1.7",
+  schemaVersion: "1.8",
   provenance: {
     ...baselineContextFixture.provenance,
     monthlyDiscretionarySpendingToday: {

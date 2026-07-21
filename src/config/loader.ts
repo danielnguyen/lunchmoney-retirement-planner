@@ -39,6 +39,7 @@ import {
   type RegisteredRoomConfig,
   type SavingsPlanPhaseConfig,
   type SavingsPolicyConfig,
+  type SpendingPhaseConfig,
   type TransactionClassification,
 } from "./types";
 
@@ -1629,6 +1630,42 @@ function employmentIncomePhases(
   });
 }
 
+function spendingPhases(value: unknown): SpendingPhaseConfig[] {
+  if (!Array.isArray(value) || value.length === 0) {
+    throw new PlannerRuntimeError(
+      "invalid_planner_config",
+      "spendingPhases must contain at least one phase when configured.",
+      422,
+    );
+  }
+  return value.map((raw, index) => {
+    const field = `spendingPhases[${index}]`;
+    const item = record(raw, field);
+    return {
+      id: nonEmptyString(item.id, `${field}.id`),
+      label: nonEmptyString(item.label, `${field}.label`),
+      startAge: number(item.startAge, `${field}.startAge`, {
+        min: 18,
+        max: 120,
+      }),
+      endAge: number(item.endAge, `${field}.endAge`, {
+        min: 18,
+        max: 120,
+      }),
+      essentialMultiplier: number(
+        item.essentialMultiplier,
+        `${field}.essentialMultiplier`,
+        { min: 0 },
+      ),
+      discretionaryMultiplier: number(
+        item.discretionaryMultiplier,
+        `${field}.discretionaryMultiplier`,
+        { min: 0 },
+      ),
+    };
+  });
+}
+
 function sameAge(left: number, right: number): boolean {
   return Math.abs(left - right) <= PROJECTION_AGE_TOLERANCE;
 }
@@ -2047,6 +2084,76 @@ function validateEmploymentPhaseRanges(config: PlannerConfig): void {
   }
 }
 
+function validateSpendingPhaseRanges(config: PlannerConfig): void {
+  const phases = config.spendingPhases;
+  if (!phases) return;
+  const ids = new Set<string>();
+  for (const [index, phase] of phases.entries()) {
+    const field = `spendingPhases[${index}]`;
+    if (ids.has(phase.id)) {
+      throw new PlannerRuntimeError(
+        "invalid_planner_config",
+        `spendingPhases contains duplicate phase id "${phase.id}".`,
+        422,
+      );
+    }
+    ids.add(phase.id);
+    if (phase.startAge < config.currentAge - PROJECTION_AGE_TOLERANCE) {
+      throw new PlannerRuntimeError(
+        "invalid_planner_config",
+        `${field}.startAge must not be before currentAge.`,
+        422,
+      );
+    }
+    if (phase.endAge > config.projectionEndAge + PROJECTION_AGE_TOLERANCE) {
+      throw new PlannerRuntimeError(
+        "invalid_planner_config",
+        `${field}.endAge must not be after projectionEndAge.`,
+        422,
+      );
+    }
+    if (phase.endAge <= phase.startAge + PROJECTION_AGE_TOLERANCE) {
+      throw new PlannerRuntimeError(
+        "invalid_planner_config",
+        `${field}.endAge must be greater than startAge.`,
+        422,
+      );
+    }
+    assertMonthAligned(phase.startAge, config.currentAge, `${field}.startAge`);
+    assertMonthAligned(phase.endAge, config.currentAge, `${field}.endAge`);
+    const previous = phases[index - 1];
+    if (!previous) continue;
+    if (phase.startAge < previous.endAge - PROJECTION_AGE_TOLERANCE) {
+      throw new PlannerRuntimeError(
+        "invalid_planner_config",
+        `spendingPhases overlap between "${previous.id}" and "${phase.id}".`,
+        422,
+      );
+    }
+    if (phase.startAge > previous.endAge + PROJECTION_AGE_TOLERANCE) {
+      throw new PlannerRuntimeError(
+        "invalid_planner_config",
+        `spendingPhases have a gap between "${previous.id}" and "${phase.id}".`,
+        422,
+      );
+    }
+  }
+  if (!sameAge(phases[0]!.startAge, config.currentAge)) {
+    throw new PlannerRuntimeError(
+      "invalid_planner_config",
+      "The first spendingPhase must begin at currentAge.",
+      422,
+    );
+  }
+  if (!sameAge(phases.at(-1)!.endAge, config.projectionEndAge)) {
+    throw new PlannerRuntimeError(
+      "invalid_planner_config",
+      "The final spendingPhase must end at projectionEndAge.",
+      422,
+    );
+  }
+}
+
 function validateContributionPhaseRanges(config: PlannerConfig): void {
   const configuredAccounts = [
     ...Object.entries(config.accountMappings).map(([accountId, mapping]) => ({
@@ -2330,6 +2437,9 @@ export function validatePlannerConfig(value: unknown): PlannerConfig {
             mode,
           ),
         }),
+    ...(item.spendingPhases === undefined
+      ? {}
+      : { spendingPhases: spendingPhases(item.spendingPhases) }),
     accountMappings: Object.fromEntries(
       Object.entries(rawAccountMappings).map(([id, mapping]) => [
         id,
@@ -2456,6 +2566,7 @@ export function validatePlannerConfig(value: unknown): PlannerConfig {
     );
   }
   validateEmploymentPhaseRanges(config);
+  validateSpendingPhaseRanges(config);
   validateContributionPhaseRanges(config);
   validateSavingsPlanPhaseRanges(config);
   validateSimpleAccountRoles(config);
