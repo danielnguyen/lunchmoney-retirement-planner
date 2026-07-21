@@ -16,10 +16,17 @@ Public planning material, examples, and tests must remain synthetic and must not
 | 2 | Surplus allocation policy | Completed | [PR #9](https://github.com/danielnguyen/lunchmoney-retirement-planner/pull/9) |
 | 3 | Registered-account room and contribution waterfall | Completed | [PR #10](https://github.com/danielnguyen/lunchmoney-retirement-planner/pull/10) |
 | 4 | Net worth, real estate, and debt amortization | Completed | [PR #11](https://github.com/danielnguyen/lunchmoney-retirement-planner/pull/11) |
-| 5 | General spending phases | **Next** | — |
-| 6 | RRIF minimum withdrawals and Canadian retirement taxes | Planned | — |
+| 5 | Employment-income today-dollar semantics correction | **Next** | — |
+| 6 | Operating-cash target and automatic excess sweep | Planned | — |
+| 7 | General spending phases | Planned | — |
+| 8 | Retirement funding requirement and terminal balance | Planned | — |
+| 9 | RRIF minimum withdrawals and Canadian retirement taxes | Planned | — |
+| 10 | Deterministic return paths and sequence-risk scenarios | Planned | — |
+| 11 | Structured housing transitions | Planned | — |
 
 Status and delivery metadata for the active implementation belongs in [`implementation-index.md`](./implementation-index.md). The numbered order above is planning shorthand only; product and implementation names must describe their financial capability.
+
+The accepted order is ranked by trustworthiness value and dependency. Known semantic correctness defects come before new modelling breadth. Explicit cash policy comes before interpreting projected asset totals. Spending phases define the retirement cash-flow path required by the funding-requirement calculation. The retirement requirement must remain visibly provisional under compatibility tax assumptions until the Canadian retirement-tax capability lands. Deterministic shock paths remain distinct from probability-of-success reporting.
 
 ## Completed foundation
 
@@ -81,7 +88,64 @@ Resolved typed inputs and projection results are the durable source of truth for
 - Historical mortgage payments are replaced exactly once. Dedicated categories, an explicit already-excluded assertion, or exact normalized payee-plus-source matching are mutually exclusive handling choices. Exact matching occurs before ordinary category and reviewed-recurring classification so unrelated mixed-category spending remains intact.
 - Financial-assets, liability-schedule, balance-sheet, and total-net-worth results reconcile within one cent and feed the same dashboard, explanations, annual rows, JSON, and CSV.
 
-## Next capability: General spending phases
+## Next capability: Employment-income today-dollar semantics correction
+
+### Goal
+
+Make future employment-income phases honour the documented today-dollar contract at the projection start rather than silently rebasing their amounts at each phase boundary.
+
+### Model contract
+
+- `annualNetCashToday` and other employment-income fields explicitly labelled as today-dollar amounts use the projection start as their real-value reference date.
+- A future phase with annual growth equal to inflation produces the configured today-dollar amount in each complete future year.
+- Phase-local growth begins from the correct elapsed time since the projection start while phase selection remains inclusive at the start and exclusive at the end.
+- Partial first and final phase years use the existing calendar-month semantics without a hidden full-year shift.
+- RRSP-room eligible earned income follows the same documented today-dollar basis as the employment cash amount unless a distinct basis is explicitly introduced and named.
+- Any retained legacy interpretation is a visible, deterministic compatibility mode and never silently changes an existing field’s meaning.
+
+### Presentation, provenance, and exports
+
+- Explanations identify the configured today-dollar amount, projection-start reference date, active phase, growth assumption, inflation assumption, and resulting nominal and real amount.
+- Dashboard values, annual rows, bridges, JSON, and CSV consume the corrected shared projection result.
+- Scenario output clearly distinguishes the resolved baseline from active inputs and lists every active override delta.
+
+### Acceptance criteria
+
+- A synthetic future phase configured with equal growth and inflation remains constant in today dollars across complete future years.
+- A zero-growth future phase declines in today dollars only through inflation, without an additional phase-start rebasing error.
+- Integer-age, fractional-age, mid-year, partial-year, and adjacent-phase boundaries are covered by synthetic tests.
+- Employment cash, eligible earned income, room generation, annual ledgers, bridges, explanations, JSON, and CSV agree within one cent.
+- Existing public examples and migrations retain deterministic, documented behaviour without private data.
+
+## Planned capability: Operating-cash target and automatic excess sweep
+
+### Goal
+
+Separate the amount intentionally retained for normal operating cash from the emergency reserve and route cash above both explicit targets through the existing registered-account contribution waterfall.
+
+### Model contract
+
+- The policy distinguishes an indexed operating-cash target from the indexed combined reserve target.
+- Every cash account has an explicit role: operating cash, reserve member, reserve refill destination, or an allowed combination.
+- Cash first satisfies required outflows, then configured contribution plans, then the operating and reserve targets according to an explicit order.
+- Unplanned positive cash above the applicable targets may be retained or swept through the existing personal TFSA, personal RRSP, and taxable order.
+- The exact target-crossing month is calculated without double-counting existing cash or creating financial assets through internal routing.
+- A sweep never consumes cash needed for a required liability payment, current-month spending, configured contribution, or configured minimum operating balance.
+
+### Presentation and exports
+
+- Dashboard, explanations, annual rows, JSON, and CSV expose the operating target, reserve target, balances counted toward each target, retained amount, swept amount, destination accounts, and any unfunded target amount.
+- Active overrides and compatibility behaviour remain explicit and share-safe.
+
+### Acceptance criteria
+
+- Cash below either applicable target is not swept.
+- Cash above both targets is swept at the exact monthly boundary under the selected policy.
+- The retained operating balance, reserve balance, and invested excess reconcile within one cent.
+- Synthetic tests cover overlapping cash roles, exact target crossings, partial months, insufficient cash, registered-room exhaustion, taxable overflow, and retain-versus-sweep policies.
+- Existing configurations that retain unplanned cash preserve that behaviour through an explicit compatibility value rather than a silent default.
+
+## Planned capability: General spending phases
 
 ### Goal
 
@@ -150,6 +214,44 @@ This capability does not add:
 - Synthetic tests cover boundary months, gaps, overlaps, baseline-selected and configured amounts, phase-local growth, partial years, compatibility, privacy, and negative reconciliation cases.
 - No personal transition is inferred automatically.
 
+## Planned capability: Retirement funding requirement and terminal balance
+
+### Goal
+
+Derive the minimum financial assets required at the retirement boundary for the configured spending, benefits, taxes, liabilities, longevity, account composition, and ending-balance objective, then compare that requirement with projected retirement assets.
+
+### Requirement contract
+
+- The owner explicitly configures the terminal age and minimum ending financial-assets balance in today dollars.
+- Residence value and home equity remain excluded from retirement funding unless a structured housing transition explicitly makes proceeds available.
+- The requirement uses the same monthly retirement projection, spending phases, liability schedules, government benefits, withdrawal priorities, tax model, and surplus policy as the ordinary projection.
+- Cash, TFSA, RRSP or RRIF, and non-registered dollars are not treated as interchangeable. The solved requirement uses an explicit retirement-boundary account composition or a documented scaling rule based on the projected composition.
+- The solver finds the minimum retirement-boundary funding amount that satisfies required outflows and the terminal balance without hidden rounding cushions.
+- Until the Canadian retirement-tax capability is complete, any result using the flat-rate compatibility model is clearly labelled provisional and must not be described as fully tax-aware.
+
+### Outputs
+
+Expose, in today dollars:
+
+- projected financial assets at retirement;
+- required financial assets at retirement;
+- margin or shortfall;
+- configured terminal age and terminal balance;
+- retirement-boundary account composition used by the solver;
+- the binding depletion or terminal constraint; and
+- the active spending, benefit, tax, liability, return, and housing assumptions.
+
+The configured round-number goal remains available as an owner marker but is not presented as the derived retirement requirement.
+
+### Acceptance criteria
+
+- The solver converges deterministically to the minimum passing amount within one cent or an explicitly documented numerical tolerance smaller than the display precision.
+- Adding one cent below the accepted requirement fails the configured criterion in synthetic boundary tests.
+- Projected-versus-required margin uses the same retirement date and today-dollar basis.
+- Requirement results recompute when spending, benefits, taxes, returns, liabilities, terminal criteria, account composition, or active overrides change.
+- Dashboard, explanations, annual results, JSON, and CSV do not present a configured goal as a derived requirement.
+- Synthetic tests cover zero and nonzero terminal balances, different account compositions, mortgage overlap, public-benefit starts, flat-tax compatibility, and unavailable or infeasible scenarios.
+
 ## Planned capability: RRIF minimum withdrawals and Canadian retirement taxes
 
 ### Goal
@@ -213,6 +315,49 @@ Dashboard, explanations, annual rows, JSON, and rectangular CSV must use the sam
 - Tax rules, dated references, simplifications, and forecasts remain visible in provenance, explanations, and exports.
 - The flat-rate model remains only as explicitly labelled deterministic compatibility or is removed through a documented migration.
 
+## Planned capability: Deterministic return paths and sequence-risk scenarios
+
+### Goal
+
+Test explicitly configured adverse return sequences without presenting a probability-of-success claim.
+
+### Model contract
+
+- Accounts may use a constant annual return or an explicit dated monthly or annual return path.
+- Return paths apply through the shared monthly projection and never through chart-only or report-only calculations.
+- The owner may configure deterministic scenarios such as a decline immediately before retirement, a decline immediately after retirement, a slow recovery, or a prolonged low-return period.
+- Inflation assumptions remain separate from investment returns and may also use an explicit deterministic path when configured.
+- Constant-return compatibility remains visible and deterministic.
+
+### Acceptance criteria
+
+- Identical long-run average returns with different orderings produce appropriately different withdrawal outcomes.
+- Return-path boundaries, partial years, account-specific paths, rebalancing assumptions, and retirement transitions are tested with synthetic data.
+- Monthly balances, annual rows, bridges, explanations, JSON, and CSV consume the same path-driven returns and reconcile within one cent.
+- Results are labelled deterministic scenarios, not probabilities, confidence levels, or forecasts.
+
+## Planned capability: Structured housing transitions
+
+### Goal
+
+Model an explicit sale, purchase, downsize, relocation, or mortgage transition without treating home equity as continuously spendable retirement funding.
+
+### Model contract
+
+- A transition specifies its date, affected property and liability, sale proceeds or purchase price, transaction costs, mortgage payoff or origination, and destination or source of remaining cash.
+- Residence value becomes retirement funding only when a configured transaction produces spendable proceeds.
+- Property appreciation, mortgage schedules, closing costs, bridge periods, and post-transition housing spending remain explicit.
+- Generic one-time events do not silently perform coordinated asset, liability, and cash-flow changes.
+- The planner never predicts a move, sale, purchase, partner contribution, or downsize automatically.
+
+### Acceptance criteria
+
+- Sale proceeds reconcile to property value less linked liability payoff and configured transaction costs.
+- A purchase or refinance creates the configured asset and liability at the exact boundary without duplicating cash flows.
+- Home equity remains excluded before the transition and only realized net proceeds become retirement funding afterward.
+- Synthetic tests cover sale-only, purchase-only, same-month sale and purchase, downsize, insufficient cash, mortgage payoff, and cancelled or invalid transitions.
+- Dashboard, explanations, bridges, annual rows, JSON, and CSV use the same structured transition results.
+
 ## Cross-cutting requirements
 
 ### One source of truth
@@ -230,6 +375,7 @@ Dashboard, explanations, annual rows, JSON, and rectangular CSV must use the sam
 ### Provenance and compatibility
 
 - Every material resolved value retains source type, source description, effective date, active override where applicable, and compatibility fallback where applicable.
+- Every scenario, dashboard summary, explanation, and export identifies whether it represents resolved baseline inputs or active inputs and lists active override deltas.
 - Compatibility is retained only when deterministic, visible, tested, and documented.
 - Schema migrations are explicit and do not silently reinterpret financial meaning.
 
@@ -260,14 +406,19 @@ Private financial data must never appear in fixtures, screenshots, logs, commits
 
 The accepted deterministic roadmap is complete when an accurately configured scenario can demonstrate that:
 
+- today-dollar employment-income semantics remain consistent across current and future phase boundaries;
 - government benefits are explicit, dated, and officially sourced or clearly labelled as references;
-- positive cash follows explicit reserve, savings, and investment policies;
+- positive cash follows explicit operating, reserve, savings, and investment policies;
 - registered contributions never exceed modelled room;
 - net worth includes non-financial assets and liabilities, debts amortize, and debt-linked payments end at payoff;
 - non-debt expenses change at configured lifecycle boundaries;
+- projected retirement funding is compared with a derived requirement using explicit terminal criteria and account composition;
 - RRIF minimums and annual Canadian retirement taxes are modelled consistently;
+- configured adverse return paths use the same reconciled projection without probability claims;
+- structured housing transitions realize home equity only through explicit transactions;
 - starting assets, accumulation, retirement balances, withdrawals, spending, taxes, liabilities, and ending assets reconcile;
-- every major result traces to Lunch Money evidence, local configuration, dated public reference data, or a temporary override; and
+- every major result traces to Lunch Money evidence, local configuration, dated public reference data, or a temporary override;
+- baseline inputs, active inputs, and override deltas are never conflated; and
 - no material financial behaviour depends on account ordering, silent fallbacks, or inferred personal events.
 
 At that point, the planner may be described as a high-confidence deterministic calculator when its inputs and assumptions are accurate. Probabilistic confidence remains a separate product claim and roadmap.
@@ -277,7 +428,6 @@ At that point, the planner may be described as a high-confidence deterministic c
 The following remain separate later capabilities:
 
 - transaction-coverage and exclusion reconciliation;
-- sequence-of-returns modelling;
 - Monte Carlo simulation;
 - historical rolling-return analysis;
 - probability-of-success reporting;
