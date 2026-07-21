@@ -165,13 +165,30 @@ export type DerivedBaseline = {
   };
 };
 
+export type LunchMoneyMappings = {
+  accounts: Array<{
+    mappingId: string;
+    lunchMoneyId: number | null;
+    source: "manual" | "plaid" | "cash";
+    label: string;
+    description: string | null;
+  }>;
+  categories: Array<{
+    mappingId: string;
+    lunchMoneyId: number;
+    name: string;
+    description: string | null;
+  }>;
+};
+
 export type CurrentBaseline = {
-  schemaVersion: "1.8";
+  schemaVersion: "1.9";
   connection: ConnectionStatus;
   projectionInputs: ProjectionInputs;
   provenance: Record<string, BaselineValue<unknown>>;
   derived: DerivedBaseline;
   cashFlowAudit: CashFlowAudit;
+  lunchMoneyMappings: LunchMoneyMappings;
   dataThrough: string;
   transactionWindow: {
     startDate: string;

@@ -1,5 +1,6 @@
 import type {
   Category,
+  ChildCategory,
   ManualAccount,
   PlaidAccount,
   RecurringItem,
@@ -323,7 +324,7 @@ describe("live baseline derivation", () => {
       }),
     ]);
     expect(baseline.recordsAnalyzed.transactions).toBe(8);
-    expect(baseline.schemaVersion).toBe("1.8");
+    expect(baseline.schemaVersion).toBe("1.9");
     expect(baseline.warnings).toContainEqual(
       expect.objectContaining({ code: "long_live_baseline_income" }),
     );
@@ -375,6 +376,98 @@ describe("live baseline derivation", () => {
     });
   });
 
+  it("emits deterministic UI-safe Lunch Money account and category mapping references", () => {
+    const config = structuredClone(configFixture);
+    config.accountMappings.cash = { include: false, type: "exclude" };
+    const data = lunchMoneyData();
+    data.manualAccounts[0] = {
+      ...data.manualAccounts[0]!,
+      name: "Synthetic manual fallback",
+      display_name: "Synthetic manual display",
+      institution_name: "Synthetic manual institution",
+    } as ManualAccount;
+    data.manualAccounts[1] = {
+      ...data.manualAccounts[1]!,
+      institution_name: data.manualAccounts[1]!.name,
+    } as ManualAccount;
+    data.plaidAccounts[0] = {
+      ...data.plaidAccounts[0]!,
+      name: "Synthetic Plaid fallback",
+      display_name: null,
+      institution_name: "Synthetic Plaid institution",
+    } as PlaidAccount;
+    const child = {
+      ...category(21, "Synthetic child category", true),
+      description: "Synthetic child description",
+      group_id: 20,
+    } as ChildCategory;
+    data.categories.push({
+      ...category(20, "Synthetic parent category", true),
+      description: "Synthetic parent description",
+      is_group: true,
+      children: [child],
+    });
+    data.transactions.push(transaction(10, 0, 13, {}));
+
+    const baseline = deriveCurrentBaseline(
+      config,
+      data,
+      window,
+      "2026-07-14T12:00:00.000Z",
+    );
+
+    expect(baseline.schemaVersion).toBe("1.9");
+    expect(baseline.lunchMoneyMappings.accounts).toEqual([
+      {
+        mappingId: "manual:1",
+        lunchMoneyId: 1,
+        source: "manual",
+        label: "Synthetic manual display",
+        description: "Synthetic manual institution",
+      },
+      {
+        mappingId: "manual:3",
+        lunchMoneyId: 3,
+        source: "manual",
+        label: "Excluded",
+        description: null,
+      },
+      {
+        mappingId: "plaid:2",
+        lunchMoneyId: 2,
+        source: "plaid",
+        label: "Synthetic Plaid fallback",
+        description: "Synthetic Plaid institution",
+      },
+      {
+        mappingId: "cash",
+        lunchMoneyId: null,
+        source: "cash",
+        label: "Cash transactions",
+        description: null,
+      },
+    ]);
+    expect(baseline.lunchMoneyMappings.categories).toEqual(
+      expect.arrayContaining([
+        {
+          mappingId: "20",
+          lunchMoneyId: 20,
+          name: "Synthetic parent category",
+          description: "Synthetic parent description",
+        },
+        {
+          mappingId: "21",
+          lunchMoneyId: 21,
+          name: "Synthetic child category",
+          description: "Synthetic child description",
+        },
+      ]),
+    );
+    expect(
+      baseline.lunchMoneyMappings.categories.map(({ lunchMoneyId }) => lunchMoneyId),
+    ).toEqual([10, 11, 12, 13, 14, 15, 20, 21]);
+  });
+
   it("resolves registered room, waterfall routes, and material provenance", () => {
     const baseline = deriveCurrentBaseline(
       configFixture,
@@ -383,7 +476,7 @@ describe("live baseline derivation", () => {
       "2026-07-14T12:00:00.000Z",
     );
 
-    expect(baseline.schemaVersion).toBe("1.8");
+    expect(baseline.schemaVersion).toBe("1.9");
     expect(
       baseline.projectionInputs.registeredAccountRoom?.tfsa
         .startingAvailableRoom.amount,
@@ -603,7 +696,7 @@ describe("live baseline derivation", () => {
       "2026-07-14T12:00:00.000Z",
     );
 
-    expect(baseline.schemaVersion).toBe("1.8");
+    expect(baseline.schemaVersion).toBe("1.9");
     expect(baseline.projectionInputs.nonFinancialAssets).toEqual([
       expect.objectContaining({
         id: "manual:4",
