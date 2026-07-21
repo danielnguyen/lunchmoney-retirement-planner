@@ -760,6 +760,81 @@ describe("automatically anonymized projection exports", () => {
     expect(milestoneRow).toBeDefined();
   });
 
+  it("exports corrected future employment income from the shared projection result", () => {
+    const inputs = structuredClone(projectionFixture);
+    inputs.startDate = "2026-07-15";
+    inputs.person.currentAge = 40;
+    inputs.person.retirementAge = 43;
+    inputs.endAge = 43;
+    inputs.annualInflation = 0.02;
+    inputs.tax.effectiveTaxRate = 0;
+    inputs.tax.oasRecoveryRate = 0;
+    inputs.events = [];
+    for (const account of inputs.accounts) {
+      account.contributionPhases = [];
+    }
+    inputs.person.employmentIncomePhases = [
+      {
+        id: "synthetic-current-income",
+        label: "Synthetic current income",
+        startAge: 40,
+        endAge: 41,
+        annualNetCashToday: 12000,
+        annualGrowth: 0.02,
+        rrspRoomGeneration: {
+          annualEligibleEarnedIncomeToday: 0,
+          annualPensionAdjustmentToday: 0,
+          annualOtherRoomReductionToday: 0,
+          annualGrowth: 0.02,
+        },
+      },
+      {
+        id: "synthetic-future-income",
+        label: "Synthetic future income",
+        startAge: 41,
+        endAge: 43,
+        annualNetCashToday: 24000,
+        annualGrowth: 0.02,
+        rrspRoomGeneration: {
+          annualEligibleEarnedIncomeToday: 0,
+          annualPensionAdjustmentToday: 0,
+          annualOtherRoomReductionToday: 0,
+          annualGrowth: 0.02,
+        },
+      },
+    ];
+    const baseline = structuredClone(baselineContextFixture);
+    baseline.projectionInputs = inputs;
+    const projection = calculateProjection(inputs);
+    const snapshot = createProjectionSnapshot(projection, baseline, {});
+    const exportedAnnual = snapshot.projection.annual.find(
+      (point) => point.calendarYear === 2028,
+    )!;
+    const sourceAnnual = projection.annual.find(
+      (point) => point.calendarYear === 2028,
+    )!;
+
+    expect(exportedAnnual.real.income.employment).toBe(24000);
+    expect(exportedAnnual.real.income).toEqual(sourceAnnual.real.income);
+    expect(exportedAnnual.real.balances.financialAssets).toBe(
+      sourceAnnual.real.balances.financialAssets,
+    );
+
+    for (const mode of ["real", "nominal"] as const) {
+      const rows = projectionSnapshotToCsv(snapshot, mode)
+        .split("\n")
+        .map(parseCsvLine);
+      const header = rows[0]!;
+      const row = rows.slice(1).find((candidate) =>
+        candidate[0]?.startsWith("2028"),
+      )!;
+      expect(Number(row[header.indexOf("employmentNetCash")])).toBe(
+        exportedAnnual[mode].income.employment,
+      );
+      expect(row).toHaveLength(header.length);
+    }
+  });
+
   it("emits automatically anonymized rectangular real and nominal CSV tables", () => {
     const { snapshot } = buildExportFixture();
     const csv = projectionSnapshotToCsv(snapshot, "real");

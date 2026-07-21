@@ -1269,7 +1269,7 @@ function fundingChartDocument(context: ExplanationContext): ExplanationDocument 
           {
             series: "Employment",
             calculation:
-              "Net deposited employment cash from the phase active in each working month, with growth measured from that phase’s start.",
+              "Net deposited employment cash from the phase active in each working month. Today-dollar employment amounts and related RRSP room-generation inputs grow from the projection start, not from the phase start.",
           },
           {
             series: "CPP",

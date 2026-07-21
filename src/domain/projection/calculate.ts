@@ -1553,7 +1553,7 @@ export function calculateProjection(rawInputs: ProjectionInputs): ProjectionResu
         (employmentPhase.annualNetCashToday *
           indexedFactor(
             employmentPhase.annualGrowth,
-            phaseMonth(age, employmentPhase.startAge),
+            month,
           )) /
         MONTHS_PER_YEAR;
       annualEmploymentPhaseLabels.add(employmentPhase.label);
@@ -1566,7 +1566,7 @@ export function calculateProjection(rawInputs: ProjectionInputs): ProjectionResu
           };
         const generationFactor = indexedFactor(
           employmentPhase.rrspRoomGeneration.annualGrowth,
-          phaseMonth(age, employmentPhase.startAge),
+          month,
         );
         generation.eligible +=
           (employmentPhase.rrspRoomGeneration

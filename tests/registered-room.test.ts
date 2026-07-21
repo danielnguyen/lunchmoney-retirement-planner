@@ -156,6 +156,10 @@ function roomFixture(): ProjectionInputs {
   return input;
 }
 
+function indexedFactor(annualRate: number, month: number): number {
+  return Math.pow(1 + annualRate, month / 12);
+}
+
 describe("global registered-account room", () => {
   it("shares one TFSA pool, partially contributes at exhaustion, and renews next January", () => {
     const input = roomFixture();
@@ -300,6 +304,92 @@ describe("global registered-account room", () => {
     expect(rrsp.annualNewRoom).toBe(20100);
     expect(rrsp.openingRoom).toBe(2000);
     expect(rrsp.closingRoom).toBe(22100);
+  });
+
+  it("grows future-phase RRSP room inputs from the projection start", () => {
+    const input = roomFixture();
+    input.person.retirementAge = 44;
+    input.endAge = 44;
+    input.annualInflation = 0.02;
+    input.person.employmentIncomePhases = [
+      {
+        id: "current",
+        label: "Current",
+        startAge: 40,
+        endAge: 41,
+        annualNetCashToday: 0,
+        annualGrowth: 0.02,
+        rrspRoomGeneration: {
+          annualEligibleEarnedIncomeToday: 0,
+          annualPensionAdjustmentToday: 0,
+          annualOtherRoomReductionToday: 0,
+          annualGrowth: 0.02,
+        },
+      },
+      {
+        id: "future",
+        label: "Future",
+        startAge: 41,
+        endAge: 44,
+        annualNetCashToday: 0,
+        annualGrowth: 0.02,
+        rrspRoomGeneration: {
+          annualEligibleEarnedIncomeToday: 12000,
+          annualPensionAdjustmentToday: 1200,
+          annualOtherRoomReductionToday: 600,
+          annualGrowth: 0.02,
+        },
+      },
+    ];
+    for (const account of input.accounts) {
+      account.contributionPhases = [];
+    }
+    input.contributionWaterfall.routes = [];
+
+    const result = calculateProjection(input);
+    const rrsp = result.annual.find((point) => point.calendarYear === 2029)!
+      .nominal.registeredAccountRoom.rrsp;
+    const realRrsp = result.annual.find((point) => point.calendarYear === 2029)!
+      .real.registeredAccountRoom.rrsp;
+    const expectedFactorTotal = Array.from(
+      { length: 12 },
+      (_, index) => indexedFactor(0.02, 19 + index),
+    ).reduce((total, factor) => total + factor, 0);
+    const expectedEligible = (12000 / 12) * expectedFactorTotal;
+    const expectedPensionAdjustment = (1200 / 12) * expectedFactorTotal;
+    const expectedOtherReduction = (600 / 12) * expectedFactorTotal;
+    const oldPhaseStartEligible = Array.from(
+      { length: 12 },
+      (_, index) => 1000 * indexedFactor(0.02, 7 + index),
+    ).reduce((total, amount) => total + amount, 0);
+
+    expect(rrsp.previousYearEligibleEarnedIncome).toBeCloseTo(
+      expectedEligible,
+      2,
+    );
+    expect(rrsp.previousYearEligibleEarnedIncome).not.toBeCloseTo(
+      oldPhaseStartEligible,
+      2,
+    );
+    expect(rrsp.pensionAdjustment).toBeCloseTo(
+      expectedPensionAdjustment,
+      2,
+    );
+    expect(rrsp.otherRoomReduction).toBeCloseTo(
+      expectedOtherReduction,
+      2,
+    );
+    expect(rrsp.grossGeneratedRoom).toBeCloseTo(
+      expectedEligible * 0.18,
+      2,
+    );
+    expect(rrsp.annualNewRoom).toBeCloseTo(
+      expectedEligible * 0.18 -
+        expectedPensionAdjustment -
+        expectedOtherReduction,
+      2,
+    );
+    expect(realRrsp).toEqual(rrsp);
   });
 
   it("uses exact published RRSP caps and deterministic future forecasts", () => {

@@ -62,6 +62,10 @@ function bridgeEnding(result: ReturnType<typeof calculateProjection>, mode: "rea
   );
 }
 
+function indexedFactor(annualRate: number, month: number): number {
+  return Math.pow(1 + annualRate, month / 12);
+}
+
 function surplusFixture(months = 1): ProjectionInputs {
   const input = structuredClone(projectionFixture);
   const retirementAge = 40 + 1 / 12;
@@ -580,33 +584,173 @@ describe("resolved employment-income phases", () => {
     expect(result.annual[1]!.employmentPhaseLabels).toEqual(["Lower income"]);
   });
 
-  it("resets phase-local growth when a new phase begins", () => {
+  it("keeps future employment income constant in today dollars when growth equals inflation", () => {
     const input = oneYearFixture();
-    input.person.retirementAge = 42;
-    input.endAge = 42;
+    input.startDate = "2026-07-15";
+    input.person.retirementAge = 43;
+    input.endAge = 43;
+    input.annualInflation = 0.02;
+    input.tax.effectiveTaxRate = 0;
+    input.tax.oasRecoveryRate = 0;
     input.person.employmentIncomePhases = [
       {
-        id: "growing",
-        label: "Growing",
+        id: "current",
+        label: "Current",
         startAge: 40,
         endAge: 41,
         annualNetCashToday: 12000,
-        annualGrowth: 0.12,
+        annualGrowth: 0.02,
+        rrspRoomGeneration: {
+          annualEligibleEarnedIncomeToday: 0,
+          annualPensionAdjustmentToday: 0,
+          annualOtherRoomReductionToday: 0,
+          annualGrowth: 0.02,
+        },
       },
       {
-        id: "reset",
-        label: "Reset",
+        id: "future",
+        label: "Future",
         startAge: 41,
-        endAge: 42,
+        endAge: 43,
+        annualNetCashToday: 24000,
+        annualGrowth: 0.02,
+        rrspRoomGeneration: {
+          annualEligibleEarnedIncomeToday: 0,
+          annualPensionAdjustmentToday: 0,
+          annualOtherRoomReductionToday: 0,
+          annualGrowth: 0.02,
+        },
+      },
+    ];
+
+    const result = calculateProjection(input);
+    const partialTransitionYear = result.annual.find(
+      (point) => point.calendarYear === 2027,
+    )!;
+    const completeFutureYear = result.annual.find(
+      (point) => point.calendarYear === 2028,
+    )!;
+    const oldPhaseStartReal = Array.from(
+      { length: 12 },
+      (_, index) => {
+        const projectionMonth = 19 + index;
+        const phaseElapsedMonth = projectionMonth - 12;
+        return (
+          (24000 / 12) *
+          indexedFactor(0.02, phaseElapsedMonth) /
+          indexedFactor(0.02, projectionMonth)
+        );
+      },
+    ).reduce((total, amount) => total + amount, 0);
+
+    expect(partialTransitionYear.employmentPhaseLabels).toEqual([
+      "Current",
+      "Future",
+    ]);
+    expect(partialTransitionYear.real.income.employment).toBe(18000);
+    expect(completeFutureYear.employmentPhaseLabels).toEqual(["Future"]);
+    expect(completeFutureYear.real.income.employment).toBe(24000);
+    expect(oldPhaseStartReal).not.toBeCloseTo(
+      completeFutureYear.real.income.employment,
+      2,
+    );
+    expect(result.retirementSnapshot.calendarDate).toBe("2029-06-30");
+    expect(result.retirementSnapshot.real.income.employment).toBe(2000);
+    expect(result.financialAssetsBridge.real.employmentNetCash).toBeCloseTo(
+      60000,
+      2,
+    );
+    expect(
+      Math.abs(
+        bridgeEnding(result, "nominal") -
+          result.financialAssetsBridge.nominal.endingFinancialAssets,
+      ),
+    ).toBeLessThanOrEqual(0.01);
+    expect(
+      Math.abs(
+        bridgeEnding(result, "real") -
+          result.financialAssetsBridge.real.endingFinancialAssets,
+      ),
+    ).toBeLessThanOrEqual(0.01);
+  });
+
+  it("deflates a zero-growth future phase only from the projection start", () => {
+    const input = oneYearFixture();
+    input.startDate = "2026-07-15";
+    input.person.retirementAge = 43;
+    input.endAge = 43;
+    input.annualInflation = 0.02;
+    input.person.employmentIncomePhases = [
+      {
+        id: "current",
+        label: "Current",
+        startAge: 40,
+        endAge: 41,
         annualNetCashToday: 12000,
+        annualGrowth: 0,
+      },
+      {
+        id: "future-flat",
+        label: "Future flat",
+        startAge: 41,
+        endAge: 43,
+        annualNetCashToday: 24000,
+        annualGrowth: 0,
+      },
+    ];
+
+    const result = calculateProjection(input);
+    const completeFutureYear = result.annual.find(
+      (point) => point.calendarYear === 2028,
+    )!;
+    const expectedReal = Array.from(
+      { length: 12 },
+      (_, index) =>
+        2000 / indexedFactor(input.annualInflation, 19 + index),
+    ).reduce((total, amount) => total + amount, 0);
+
+    expect(completeFutureYear.nominal.income.employment).toBe(24000);
+    expect(completeFutureYear.real.income.employment).toBeCloseTo(
+      expectedReal,
+      2,
+    );
+  });
+
+  it("preserves adjacent fractional-age phases across partial calendar years", () => {
+    const input = oneYearFixture();
+    input.startDate = "2026-07-15";
+    input.person.currentAge = 40.25;
+    input.person.retirementAge = 41.25;
+    input.endAge = 41.25;
+    input.person.employmentIncomePhases = [
+      {
+        id: "first-half",
+        label: "First half",
+        startAge: 40.25,
+        endAge: 40.75,
+        annualNetCashToday: 12000,
+        annualGrowth: 0,
+      },
+      {
+        id: "second-half",
+        label: "Second half",
+        startAge: 40.75,
+        endAge: 41.25,
+        annualNetCashToday: 24000,
         annualGrowth: 0,
       },
     ];
 
     const result = calculateProjection(input);
 
-    expect(result.annual[0]!.nominal.income.employment).toBeGreaterThan(12000);
+    expect(result.annual).toHaveLength(2);
+    expect(result.annual[0]!.employmentPhaseLabels).toEqual(["First half"]);
+    expect(result.annual[0]!.nominal.income.employment).toBe(6000);
+    expect(result.annual[1]!.employmentPhaseLabels).toEqual(["Second half"]);
     expect(result.annual[1]!.nominal.income.employment).toBe(12000);
+    expect(result.retirementSnapshot.calendarDate).toBe("2027-06-30");
+    expect(result.retirementSnapshot.age).toBe(41.25);
+    expect(result.retirementSnapshot.nominal.income.employment).toBe(2000);
   });
 
   it("a lower future-income phase materially reduces assets at retirement", () => {

@@ -499,6 +499,23 @@ describe("calculation explanations", () => {
     );
   });
 
+  it("describes employment today-dollar growth from the projection start", () => {
+    const document = buildExplanation("annual-funding", context());
+    const employment = section(document, "Series calculations").rows.find(
+      (row) => row.series === "Employment",
+    );
+
+    expect(employment?.calculation).toContain(
+      "grow from the projection start",
+    );
+    expect(employment?.calculation).toContain(
+      "related RRSP room-generation inputs",
+    );
+    expect(employment?.calculation).not.toContain(
+      "growth measured from that phase’s start",
+    );
+  });
+
   it("reconciles selected-year allocation components to financial assets", () => {
     const document = buildExplanation("asset-allocation", context());
     const rows = section(document, "Selected-year allocation").rows;
