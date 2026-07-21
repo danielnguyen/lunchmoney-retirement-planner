@@ -9,20 +9,20 @@ Public tracking must remain generic and must not contain private financial value
 - Open roadmap planning pull request: None
 - Planning branch: None
 - Planning status: None
-- Open implementation pull request: None
-- Pull request state: None
+- Open implementation pull request: [#15 Add operating-cash target and automatic excess sweep](https://github.com/danielnguyen/lunchmoney-retirement-planner/pull/15)
+- Pull request state: Open draft
 - Active capability: Operating-cash target and automatic excess sweep
-- Status: Next
+- Status: In progress
 - Implementation branch: `agent/add-operating-cash-target-and-sweep`
-- Latest validated implementation head: Not yet available
-- Synthetic validation: Pending
+- Latest validated implementation head: `ad83b8cce9bda4f4e3b1770e38b3cb3bff08bb08`
+- Synthetic validation: Passed — 283 tests plus focused configuration, baseline, projection, presentation, explanation, controls, one-cent reconciliation, JSON anonymization, and rectangular real/nominal CSV privacy coverage; typecheck, lint, production build, Docker image build, Docker Compose validation, and `git diff --check` passed
 - Last completed capability: Employment-income today-dollar semantics correction
 - Last completed pull request: [#14 Correct employment-income today-dollar semantics](https://github.com/danielnguyen/lunchmoney-retirement-planner/pull/14)
 - Last completed synthetic validation: Passed — 276 tests plus focused employment-income, registered-room, explanation, export, privacy, and one-cent reconciliation coverage; typecheck, lint, production build, Docker image build, Docker Compose validation, and `git diff --check` passed
 - Last completed private migration: Passed — residence, liability, historical-payment replacement, and share-safe export behaviour were validated locally without publishing private values
 - Last completed private smoke test: Passed — the live baseline, projection, balance sheet, bridges, and privacy checks completed successfully without publishing private values
-- Remaining step: implement Operating-cash target and automatic excess sweep
-- Next action: implement Operating-cash target and automatic excess sweep from the latest synchronized `main`
+- Remaining step: public review, then separately authorized repository-owner private policy migration and live smoke testing
+- Next action: review draft PR #15, migrate the private operating-cash policy only with explicit authorization, run the private live smoke test, and mark ready or merge only after explicit owner approval
 
 ## Planned implementation sequence
 
@@ -33,7 +33,7 @@ Public tracking must remain generic and must not contain private financial value
 | 3 | Registered-account room and contribution waterfall | Surplus allocation policy | Completed | [#10](https://github.com/danielnguyen/lunchmoney-retirement-planner/pull/10) |
 | 4 | Net worth, real estate, and debt amortization | Registered-account contribution model | Completed | [#11](https://github.com/danielnguyen/lunchmoney-retirement-planner/pull/11) |
 | 5 | Employment-income today-dollar semantics correction | Existing employment-income phase model | Completed | [#14](https://github.com/danielnguyen/lunchmoney-retirement-planner/pull/14) |
-| 6 | Operating-cash target and automatic excess sweep | Surplus allocation and contribution waterfall | Next | — |
+| 6 | Operating-cash target and automatic excess sweep | Surplus allocation and contribution waterfall | In progress | [#15](https://github.com/danielnguyen/lunchmoney-retirement-planner/pull/15) |
 | 7 | General spending phases | Corrected income and cash policies | Planned | — |
 | 8 | Retirement funding requirement and terminal balance | Spending phases and retirement projection | Planned | — |
 | 9 | RRIF minimum withdrawals and Canadian retirement taxes | Surplus policy, debt model, spending phases, and requirement contract | Planned | — |
@@ -73,6 +73,6 @@ Planning order is project-management shorthand only. Production names must descr
 
 ## New-conversation handoff
 
-> Read `AGENTS.md`, `plan/roadmap.md`, and `plan/implementation-index.md`. Confirm no implementation pull request is open, synchronize the latest `main`, and implement Operating-cash target and automatic excess sweep on a capability-named branch using synthetic data only.
+> Read `AGENTS.md`, `plan/roadmap.md`, and `plan/implementation-index.md`. Review draft PR #15 for Operating-cash target and automatic excess sweep using synthetic data only. Private migration and live smoke testing require separate explicit authorization.
 
 Repository and pull-request state are authoritative if they conflict with this index; correct stale tracking before implementation.
