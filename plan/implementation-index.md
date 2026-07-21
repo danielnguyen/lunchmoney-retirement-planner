@@ -11,7 +11,7 @@ Public tracking must remain generic and must not contain private financial value
 - Active capability: General spending phases
 - Status: Next
 - Branch: None
-- Latest merged `main`: `e9c57eb256e3e1b4d30c281c2a438a75063e9051`
+- Starting point for next work: synchronize the current `main` branch
 - Last completed capability: Net worth, real estate, and debt amortization
 - Last completed pull request: [#11 Add real net worth and debt amortization](https://github.com/danielnguyen/lunchmoney-retirement-planner/pull/11)
 - Last completed synthetic validation: Passed — 271 tests plus required typecheck, lint, production build, Docker image build, Docker Compose validation, one-cent reconciliation, and JSON/CSV export-privacy checks
