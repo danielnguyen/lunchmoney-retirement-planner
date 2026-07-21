@@ -6,19 +6,22 @@ Public tracking must remain generic and must not contain private financial value
 
 ## Current position
 
+- Open roadmap planning pull request: [#13 Rank roadmap work by projection trustworthiness](https://github.com/danielnguyen/lunchmoney-retirement-planner/pull/13)
+- Planning branch: `agent/rank-trustworthiness-roadmap`
+- Planning status: Draft
 - Open implementation pull request: None
 - Pull request state: None
-- Active capability: General spending phases
-- Status: Next
-- Branch: None
-- Starting point for next work: synchronize the current `main` branch
+- Active capability: Employment-income today-dollar semantics correction
+- Status: Next after the roadmap planning pull request merges
+- Implementation branch: None
+- Starting point for next implementation: synchronize the current `main` branch after the roadmap planning pull request merges
 - Last completed capability: Net worth, real estate, and debt amortization
 - Last completed pull request: [#11 Add real net worth and debt amortization](https://github.com/danielnguyen/lunchmoney-retirement-planner/pull/11)
 - Last completed synthetic validation: Passed — 271 tests plus required typecheck, lint, production build, Docker image build, Docker Compose validation, one-cent reconciliation, and JSON/CSV export-privacy checks
 - Last completed private migration: Passed — residence, liability, historical-payment replacement, and share-safe export behaviour were validated locally without publishing private values
 - Last completed private smoke test: Passed — the live baseline, projection, balance sheet, bridges, and privacy checks completed successfully without publishing private values
-- Remaining step: define and implement General spending phases
-- Next action: confirm no open pull request, create a capability-named branch from the latest `main`, and open a draft implementation pull request for General spending phases
+- Remaining planning step: review and merge the trustworthiness-ranked roadmap update
+- Next implementation action: confirm no implementation pull request is open, create a capability-named branch from the latest `main`, and open a draft implementation pull request for Employment-income today-dollar semantics correction
 
 ## Planned implementation sequence
 
@@ -28,8 +31,13 @@ Public tracking must remain generic and must not contain private financial value
 | 2 | Surplus allocation policy | Government benefits | Completed | [#9](https://github.com/danielnguyen/lunchmoney-retirement-planner/pull/9) |
 | 3 | Registered-account room and contribution waterfall | Surplus allocation policy | Completed | [#10](https://github.com/danielnguyen/lunchmoney-retirement-planner/pull/10) |
 | 4 | Net worth, real estate, and debt amortization | Registered-account contribution model | Completed | [#11](https://github.com/danielnguyen/lunchmoney-retirement-planner/pull/11) |
-| 5 | General spending phases | Net-worth and debt model | **Next** | — |
-| 6 | RRIF minimum withdrawals and Canadian taxes | Surplus policy, debt model, and spending phases | Planned | — |
+| 5 | Employment-income today-dollar semantics correction | Existing employment-income phase model | **Next** | — |
+| 6 | Operating-cash target and automatic excess sweep | Surplus allocation and contribution waterfall | Planned | — |
+| 7 | General spending phases | Corrected income and cash policies | Planned | — |
+| 8 | Retirement funding requirement and terminal balance | Spending phases and retirement projection | Planned | — |
+| 9 | RRIF minimum withdrawals and Canadian retirement taxes | Surplus policy, debt model, spending phases, and requirement contract | Planned | — |
+| 10 | Deterministic return paths and sequence-risk scenarios | Reconciled deterministic projection | Planned | — |
+| 11 | Structured housing transitions | Net-worth, debt, spending, and event models | Planned | — |
 
 ## Delivery rules
 
@@ -37,7 +45,7 @@ Public tracking must remain generic and must not contain private financial value
 2. Do not begin the next capability while another implementation pull request is open.
 3. Start implementation branches from the latest synchronized `main` and use capability-specific names.
 4. Keep detailed requirements in `roadmap.md` and transient delivery state in this index.
-5. Update this index when a pull request opens, changes status, becomes blocked, or merges.
+5. Update this index when roadmap work opens, a pull request opens, changes status, becomes blocked, or merges.
 6. Run synthetic validation before any separately authorized private migration or smoke test.
 7. Never publish private financial data in source, fixtures, screenshots, logs, commits, exports, documentation, or pull-request text.
 
@@ -64,6 +72,6 @@ Planning order is project-management shorthand only. Production names must descr
 
 ## New-conversation handoff
 
-> Read `AGENTS.md`, `plan/roadmap.md`, and `plan/implementation-index.md`. Confirm there is no open implementation pull request, synchronize latest `main`, and implement General spending phases on a capability-named branch using synthetic data only.
+> Read `AGENTS.md`, `plan/roadmap.md`, and `plan/implementation-index.md`. If the trustworthiness-ranked roadmap pull request is still open, review or merge it before implementation. Otherwise confirm there is no open implementation pull request, synchronize latest `main`, and implement Employment-income today-dollar semantics correction on a capability-named branch using synthetic data only.
 
 Repository and pull-request state are authoritative if they conflict with this index; correct stale tracking before implementation.
