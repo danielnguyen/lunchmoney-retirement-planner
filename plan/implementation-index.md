@@ -1,92 +1,69 @@
 # Implementation Index
 
-This document is the operational handoff for active roadmap delivery.
+This document is the operational handoff for roadmap delivery. Detailed capability contracts live in [`roadmap.md`](./roadmap.md); repository-wide contribution rules live in [`AGENTS.md`](../AGENTS.md).
 
-Repository-wide contribution and implementation rules are defined in [`AGENTS.md`](../AGENTS.md). Use [`plan/roadmap.md`](./roadmap.md) for detailed capability requirements and acceptance criteria. Use this index to record the current implementation position, pull-request sequence, dependencies, and next action.
-
-Public content must remain generic. Do not add private financial values, account details, employer information, identifying dates, private configuration, credentials, or real exported data.
+Public tracking must remain generic and must not contain private financial values, account details, employer information, identifying dates, private configuration, credentials, or real exported data.
 
 ## Current position
 
-- Open implementation pull request: [#11 Add real net worth and debt amortization](https://github.com/danielnguyen/lunchmoney-retirement-planner/pull/11)
-- Pull request state: Open draft
-- Active capability: Net worth, real estate, and debt amortization
-- Status: In progress
-- Branch: `agent/add-net-worth-and-debt-amortization`
-- Latest validated implementation head: `18d3ed72fa77745e9f7a4cc2e8ad2efa0b512f5f`
-- Synthetic validation: Passed — 271 tests, shared two-line calendar-year and exact projected-age ticks on all eight annual charts including partial years, preserved calendar-year reference-line alignment and tick density, Scenario controls placed before Print in the responsive hero actions with the existing accessible drawer behavior, dedicated active-mode retirement-date explanations for Home equity and Total liabilities, imported residence and exact mortgage-payment matching coverage, nominal/real bridge reconciliation, typecheck, lint, production build, Docker image build, Docker Compose validation, JSON and CSV privacy/shape checks, and `git diff --check`
-- Repository-owner private migration: Passed — imported residence, primary mortgage, exact historical-payment matching, mixed-category replacement, live reconciliation, and anonymized-export privacy were validated locally without publishing private values.
-- Private live smoke test: Passed — the live baseline and projection rendered successfully, matched historical mortgage evidence reconciled to the configured schedule, and retirement-funding assets remained separate from home equity and total net worth.
-- Remaining step: final public review and ready-for-merge decision
-- Next action: final public review of draft PR #11, then mark ready and merge only after explicit owner approval
-- Last completed capability: Registered-account room and contribution waterfall
-
-## Terminology boundary
-
-The numbered sequence in this document is project-management shorthand only. It does not define a code architecture or naming convention.
-
-Do not introduce roadmap-oriented names such as `Phase1`, `PhaseA`, `government-benefits-phase`, phase-numbered directories, phase enums, phase API fields, phase schema versions, or generic phase abstractions merely because this index uses an ordered sequence.
-
-Implementation names must describe the actual financial or product concept, such as government benefits, surplus policy, contribution room, debt schedules, spending phases, RRIF withdrawals, or tax calculation.
-
-The word `phase` remains appropriate only where it is part of the financial domain model—for example, employment-income phases, contribution phases, or spending phases with explicit time boundaries. Roadmap sequencing must not spread that term into unrelated code.
-
-Branches, pull-request titles, commits, tests, documentation headings, types, functions, files, and directories should use capability-specific language rather than sequence numbers.
+- Open implementation pull request: None
+- Pull request state: None
+- Active capability: General spending phases
+- Status: Next
+- Branch: None
+- Starting point for next work: synchronize the current `main` branch
+- Last completed capability: Net worth, real estate, and debt amortization
+- Last completed pull request: [#11 Add real net worth and debt amortization](https://github.com/danielnguyen/lunchmoney-retirement-planner/pull/11)
+- Last completed synthetic validation: Passed — 271 tests plus required typecheck, lint, production build, Docker image build, Docker Compose validation, one-cent reconciliation, and JSON/CSV export-privacy checks
+- Last completed private migration: Passed — residence, liability, historical-payment replacement, and share-safe export behaviour were validated locally without publishing private values
+- Last completed private smoke test: Passed — the live baseline, projection, balance sheet, bridges, and privacy checks completed successfully without publishing private values
+- Remaining step: define and implement General spending phases
+- Next action: confirm no open pull request, create a capability-named branch from the latest `main`, and open a draft implementation pull request for General spending phases
 
 ## Planned implementation sequence
 
-| Sequence | Capability | Primary dependency | Status | Pull request |
+| Order | Capability | Primary dependency | Status | Pull request |
 |---|---|---|---|---|
 | 1 | Government benefits | Phased income model | Completed | [#8](https://github.com/danielnguyen/lunchmoney-retirement-planner/pull/8) |
 | 2 | Surplus allocation policy | Government benefits | Completed | [#9](https://github.com/danielnguyen/lunchmoney-retirement-planner/pull/9) |
 | 3 | Registered-account room and contribution waterfall | Surplus allocation policy | Completed | [#10](https://github.com/danielnguyen/lunchmoney-retirement-planner/pull/10) |
-| 4 | Net worth, real estate, and debt amortization | Registered-account contribution model | In progress | [#11](https://github.com/danielnguyen/lunchmoney-retirement-planner/pull/11) |
-| 5 | General spending phases | Net-worth and debt model | Planned | — |
+| 4 | Net worth, real estate, and debt amortization | Registered-account contribution model | Completed | [#11](https://github.com/danielnguyen/lunchmoney-retirement-planner/pull/11) |
+| 5 | General spending phases | Net-worth and debt model | **Next** | — |
 | 6 | RRIF minimum withdrawals and Canadian taxes | Surplus policy, debt model, and spending phases | Planned | — |
 
 ## Delivery rules
 
-1. Follow the repository-wide rules in `AGENTS.md`.
-2. Keep only one implementation pull request open at a time.
-3. Start each implementation branch from the latest `main`.
-4. Do not begin the next capability until the previous implementation pull request is merged.
-5. Update this index when a pull request opens, changes status, is blocked, or merges.
-6. Keep detailed requirements in `plan/roadmap.md`; link to them rather than duplicating them here.
-7. Run synthetic validation before private local smoke testing.
-8. Never place private financial data in source, fixtures, screenshots, logs, commits, exports, documentation, or pull-request text.
-9. Before opening a new pull request, check the repository for existing open pull requests and report any merge-order or dependency concern.
-10. Use capability-specific implementation names; do not encode roadmap sequence numbers into the product or codebase.
+1. Keep only one roadmap implementation pull request open at a time.
+2. Do not begin the next capability while another implementation pull request is open.
+3. Start implementation branches from the latest synchronized `main` and use capability-specific names.
+4. Keep detailed requirements in `roadmap.md` and transient delivery state in this index.
+5. Update this index when a pull request opens, changes status, becomes blocked, or merges.
+6. Run synthetic validation before any separately authorized private migration or smoke test.
+7. Never publish private financial data in source, fixtures, screenshots, logs, commits, exports, documentation, or pull-request text.
 
 ## Status meanings
 
-- **Next** — the next capability to start after confirming no open implementation pull request exists.
+- **Next** — the one capability to start after confirming no implementation pull request is open.
 - **In progress** — implementation exists in an open pull request.
-- **Blocked** — work has stopped pending a recorded dependency or decision.
+- **Blocked** — delivery cannot proceed without a recorded dependency or owner decision.
 - **Completed** — merged and validated.
-- **Planned** — accepted work that has not started.
+- **Planned** — accepted work that follows the Next capability.
 
-## Capability handoff record
+## Tracking transitions
 
-When work begins, replace the relevant row and current-position fields with:
+When work begins, record the branch, pull-request link, current status, latest validated implementation head, validation state, remaining private step, and next action.
 
-- branch name
-- pull-request number and link
-- current status
-- latest validated head commit
-- remaining validation or private smoke-test step
-- explicit next action
+When a capability merges:
 
-When the capability merges:
+1. mark it **Completed** and retain the merged pull-request link;
+2. mark exactly one following capability **Next**;
+3. clear the open pull-request and branch fields; and
+4. record the latest merged `main`, last completed validation state, and next action.
 
-1. Mark it **Completed** and retain the merged pull-request link.
-2. Mark the following capability **Next**.
-3. Clear the open implementation pull-request field.
-4. Record the next action from the latest merged `main`.
+Planning order is project-management shorthand only. Production names must describe the underlying financial capability rather than roadmap sequence labels.
 
 ## New-conversation handoff
 
-Start a new conversation with:
+> Read `AGENTS.md`, `plan/roadmap.md`, and `plan/implementation-index.md`. Confirm there is no open implementation pull request, synchronize latest `main`, and implement General spending phases on a capability-named branch using synthetic data only.
 
-> Read `AGENTS.md`, `plan/implementation-index.md`, and `plan/roadmap.md`. Check the repository for open pull requests, verify that the index is current, and continue from the recorded next action. Treat roadmap sequence labels as planning shorthand only; use capability-specific implementation names. Do not use or publish private financial data.
-
-The repository state is authoritative when it conflicts with this index. Correct the index before proceeding.
+Repository and pull-request state are authoritative if they conflict with this index; correct stale tracking before implementation.
