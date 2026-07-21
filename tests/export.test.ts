@@ -1320,7 +1320,8 @@ describe("automatically anonymized projection exports", () => {
           indexingRate: 0,
         },
       ],
-      unplannedCash: "retain_in_operating_cash",
+      operatingCashTarget: { targetToday: 10000, indexingRate: 0.02 },
+      unplannedCash: "sweep_above_targets",
       personalOrder: ["personal_tfsa", "personal_rrsp", "taxable"],
       workplaceRoomPriority: "first",
       workplaceOverflow: "unallocated",
@@ -1421,6 +1422,18 @@ describe("automatically anonymized projection exports", () => {
         sourceDescription: PRIVATE_TEXT.note,
         effectiveDate: baseline.dataThrough,
       },
+      "savingsPolicy.operatingCash.targetToday": {
+        value: 10000,
+        sourceType: "local_configuration",
+        sourceDescription: PRIVATE_TEXT.note,
+        effectiveDate: baseline.dataThrough,
+      },
+      "savingsPolicy.operatingCash.indexingRate": {
+        value: 0.02,
+        sourceType: "local_configuration",
+        sourceDescription: PRIVATE_TEXT.note,
+        effectiveDate: baseline.dataThrough,
+      },
     };
     const projection = calculateProjection(inputs);
     const snapshot = createProjectionSnapshot(
@@ -1428,6 +1441,8 @@ describe("automatically anonymized projection exports", () => {
       baseline,
       {
         "savingsPolicy.reserveBuilding.targetToday": 40000,
+        "savingsPolicy.operatingCash.targetToday": 10000,
+        "savingsPolicy.operatingCash.indexingRate": 0.02,
         [`reserveBuildingPhase.${reservePhaseId}.monthlyAmountToday`]:
           1500,
       },
@@ -1457,6 +1472,8 @@ describe("automatically anonymized projection exports", () => {
       workplaceRrspAccountId: "rrsp_2",
       taxableAccountId: "non_registered_1",
       taxableAccountOrigin: "projection_configuration",
+      operatingCashTarget: { targetToday: 10000, indexingRate: 0.02 },
+      unplannedCash: "sweep_above_targets",
     });
     expect(snapshot.projection.savingsPolicy.policy).toMatchObject({
       mode: "simple",
@@ -1466,10 +1483,28 @@ describe("automatically anonymized projection exports", () => {
       taxableAccountId: "non_registered_1",
       workplaceRoomPriority: "first",
       workplaceOverflow: "unallocated",
-      unplannedCash: "retain_in_operating_cash",
+      unplannedCash: "sweep_above_targets",
+      operatingCashIsReserveMember: true,
     });
+    expect(
+      Object.keys(
+        snapshot.projection.savingsPolicy.throughRetirement.nominal
+          .accountSweepAllocations,
+      ),
+    ).toEqual(
+      expect.arrayContaining([
+        expect.stringMatching(/^(tfsa|rrsp|non_registered)_\d+$/),
+      ]),
+    );
+    expect(
+      Object.keys(
+        snapshot.projection.annual[0]!.nominal.accountSweepAllocations,
+      ).every((accountId) => !accountId.includes(":")),
+    ).toBe(true);
     expect(snapshot.activeOverrides).toEqual({
       "reserveBuildingPhase.savings_phase_1.monthlyAmountToday": 1500,
+      "savingsPolicy.operatingCash.indexingRate": 0.02,
+      "savingsPolicy.operatingCash.targetToday": 10000,
       "savingsPolicy.reserveBuilding.targetToday": 40000,
     });
     expect(
@@ -1486,6 +1521,10 @@ describe("automatically anonymized projection exports", () => {
       expect(header).toEqual(
         expect.arrayContaining([
           "savings_policy_mode",
+          "savings_unplanned_cash_policy",
+          "operating_cash_target_today",
+          "operating_cash_indexing_rate",
+          "operating_cash_is_reserve_member",
           "positive_cash_available",
           "personal_plan_planned",
           "personal_plan_allowed",
@@ -1499,10 +1538,16 @@ describe("automatically anonymized projection exports", () => {
           "workplace_plan_allowed",
           "workplace_plan_unallocated",
           "unplanned_cash_retained",
+          "unplanned_cash_swept",
+          "operating_target_unfunded",
+          "reserve_target_unfunded",
           "total_investment_deposits",
           "savings_operating_cash_account",
           "savings_taxable_account",
           "savings_taxable_origin",
+          "unplanned_sweep_allocation_tfsa_1",
+          "unplanned_sweep_allocation_rrsp_1",
+          "unplanned_sweep_allocation_non_registered_1",
         ]),
       );
       expect(rows.every((row) => row.length === header.length)).toBe(true);
@@ -1510,6 +1555,8 @@ describe("automatically anonymized projection exports", () => {
         rows.slice(1).every(
           (row) =>
             row[header.indexOf("savings_policy_mode")] === "simple" &&
+            row[header.indexOf("savings_unplanned_cash_policy")] ===
+              "sweep_above_targets" &&
             row[header.indexOf("savings_operating_cash_account")] ===
               "cash_1" &&
             row[header.indexOf("savings_taxable_account")] ===

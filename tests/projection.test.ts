@@ -317,6 +317,7 @@ function simpleSavingsFixture(months = 1): ProjectionInputs {
         indexingRate: 0,
       },
     ],
+    operatingCashTarget: null,
     unplannedCash: "retain_in_operating_cash",
     personalOrder: ["personal_tfsa", "personal_rrsp", "taxable"],
     workplaceRoomPriority: "first",
@@ -324,6 +325,25 @@ function simpleSavingsFixture(months = 1): ProjectionInputs {
     reserveAfterTarget: "personal_investing",
   };
   input.events = [];
+  return input;
+}
+
+function sweepSavingsFixture(months = 1): ProjectionInputs {
+  const input = simpleSavingsFixture(months);
+  if (input.savingsPolicy.mode !== "simple") throw new Error("fixture");
+  input.savingsPolicy.operatingCashTarget = {
+    targetToday: 100,
+    indexingRate: 0,
+  };
+  input.savingsPolicy.unplannedCash = "sweep_above_targets";
+  input.accounts
+    .flatMap((account) => account.contributionPhases)
+    .forEach((phase) => {
+      phase.monthlyAmountToday = 0;
+    });
+  input.savingsPolicy.reserveBuildingPhases.forEach((phase) => {
+    phase.monthlyAmountToday = 0;
+  });
   return input;
 }
 
@@ -1096,6 +1116,151 @@ describe("exact retirement snapshot and accumulation bridge", () => {
 });
 
 describe("simple explicit-savings policy", () => {
+  it("contains the operating target within an overlapping combined reserve and sweeps only true excess", () => {
+    const input = sweepSavingsFixture();
+    const view = calculateProjection(input).retirementSnapshot.nominal;
+
+    expect(view.savingsPolicy).toMatchObject({
+      operatingCashTarget: 100,
+      operatingCashBalance: 100,
+      combinedReserveTarget: 400,
+      combinedReserveBalance: 400,
+      targetFundingRetained: 400,
+      unplannedCashRetained: 400,
+      unplannedCashSwept: 4600,
+      operatingTargetUnfunded: 0,
+      reserveTargetUnfunded: 0,
+    });
+    expect(view.accountBalances).toMatchObject({
+      "manual:operating": 100,
+      "manual:reserve-refill": 300,
+      "plaid:personal-tfsa": 500,
+      "plaid:personal-rrsp": 2000,
+      "projection:future-taxable": 2100,
+    });
+    expect(view.accountSweepAllocations).toEqual({
+      "plaid:personal-tfsa": 500,
+      "plaid:personal-rrsp": 2000,
+      "projection:future-taxable": 2100,
+    });
+    expect(view.balances.financialAssets).toBe(5000);
+
+    const reordered = structuredClone(input);
+    reordered.accounts.reverse();
+    const reorderedView = calculateProjection(reordered).retirementSnapshot
+      .nominal;
+    expect(reorderedView.savingsPolicy).toEqual(view.savingsPolicy);
+    expect(reorderedView.accountSweepAllocations).toEqual(
+      view.accountSweepAllocations,
+    );
+  });
+
+  it("funds independent operating and reserve targets when operating cash is not a reserve member", () => {
+    const input = sweepSavingsFixture();
+    if (input.savingsPolicy.mode !== "simple") throw new Error("fixture");
+    input.savingsPolicy.reserveAccountIds = ["manual:reserve-refill"];
+    input.surplusAllocation.reserveAccountIds = ["manual:reserve-refill"];
+    const view = calculateProjection(input).retirementSnapshot.nominal;
+
+    expect(view.savingsPolicy).toMatchObject({
+      operatingCashBalance: 100,
+      combinedReserveBalance: 400,
+      targetFundingRetained: 500,
+      unplannedCashRetained: 500,
+      unplannedCashSwept: 4500,
+    });
+    expect(view.accountBalances).toMatchObject({
+      "manual:operating": 100,
+      "manual:reserve-refill": 400,
+    });
+  });
+
+  it("recomputes overlapping reserve membership after satisfying whichever target is short", () => {
+    const reserveShort = sweepSavingsFixture();
+    reserveShort.accounts.find(
+      (account) => account.id === "manual:operating",
+    )!.openingBalance = 100;
+    const reserveView = calculateProjection(reserveShort).retirementSnapshot
+      .nominal;
+    expect(reserveView.savingsPolicy.targetFundingRetained).toBe(300);
+    expect(reserveView.accountBalances["manual:reserve-refill"]).toBe(300);
+
+    const operatingShort = sweepSavingsFixture();
+    operatingShort.accounts.find(
+      (account) => account.id === "manual:reserve-refill",
+    )!.openingBalance = 400;
+    const operatingView = calculateProjection(operatingShort)
+      .retirementSnapshot.nominal;
+    expect(operatingView.savingsPolicy.targetFundingRetained).toBe(100);
+    expect(operatingView.accountBalances["manual:operating"]).toBe(100);
+    expect(operatingView.accountBalances["manual:reserve-refill"]).toBe(400);
+  });
+
+  it("reports unfunded targets without fabricating investments after required cash uses", () => {
+    const input = sweepSavingsFixture();
+    if (input.savingsPolicy.mode !== "simple") throw new Error("fixture");
+    input.person.employmentIncomePhases[0]!.annualNetCashToday = 1200;
+    input.monthlyEssentialSpendingToday = 50;
+    input.savingsPolicy.operatingCashTarget!.targetToday = 1000;
+    input.surplusAllocation.targetCashReserveToday = 4000;
+    const view = calculateProjection(input).retirementSnapshot.nominal;
+
+    expect(view.outflows.essential).toBe(50);
+    expect(view.savingsPolicy.positiveCashAvailable).toBe(50);
+    expect(view.savingsPolicy.unplannedCashRetained).toBe(50);
+    expect(view.savingsPolicy.unplannedCashSwept).toBe(0);
+    expect(view.savingsPolicy.operatingTargetUnfunded).toBe(950);
+    expect(view.savingsPolicy.reserveTargetUnfunded).toBe(3950);
+    expect(view.contributions.total).toBe(0);
+    expect(view.accountBalances["manual:operating"]).toBe(50);
+  });
+
+  it("uses identical indexed target timing in nominal and today-dollar views", () => {
+    const input = sweepSavingsFixture(18);
+    if (input.savingsPolicy.mode !== "simple") throw new Error("fixture");
+    input.annualInflation = 0.12;
+    input.savingsPolicy.operatingCashTarget!.indexingRate = 0.12;
+    input.surplusAllocation.reserveIndexingRate = 0.12;
+    const result = calculateProjection(input);
+
+    for (const point of result.annual) {
+      const factor = Math.pow(
+        1 + input.annualInflation,
+        point.age - input.person.currentAge,
+      );
+      expect(
+        point.nominal.savingsPolicy.operatingCashTarget / factor,
+      ).toBeCloseTo(point.real.savingsPolicy.operatingCashTarget, 2);
+      expect(
+        point.nominal.savingsPolicy.combinedReserveTarget / factor,
+      ).toBeCloseTo(point.real.savingsPolicy.combinedReserveTarget, 2);
+    }
+  });
+
+  it("reports reserve-building redirection separately from unplanned sweep", () => {
+    const input = simpleSavingsFixture();
+    if (input.savingsPolicy.mode !== "simple") throw new Error("fixture");
+    input.savingsPolicy.operatingCashTarget = {
+      targetToday: 100,
+      indexingRate: 0,
+    };
+    input.savingsPolicy.unplannedCash = "sweep_above_targets";
+    const view = calculateProjection(input).retirementSnapshot.nominal;
+
+    expect(view.savingsPolicy.reserveFunded).toBe(1500);
+    expect(view.savingsPolicy.reserveRetainedAsCash).toBe(400);
+    expect(view.savingsPolicy.reserveRedirected).toBe(1100);
+    expect(view.savingsPolicy.unplannedCashRetained).toBe(0);
+    expect(view.savingsPolicy.unplannedCashSwept).toBe(2500);
+    expect(view.savingsPolicy.totalInvestmentDeposits).toBe(6400);
+    expect(
+      Object.values(view.accountSweepAllocations).reduce(
+        (total, amount) => total + amount,
+        0,
+      ),
+    ).toBe(2500);
+  });
+
   it("invests only explicit plans and retains every unplanned positive dollar in operating cash", () => {
     const result = calculateProjection(simpleSavingsFixture());
     const view = result.retirementSnapshot.nominal;
@@ -1113,7 +1278,15 @@ describe("simple explicit-savings policy", () => {
       workplacePlanned: 1800,
       workplaceAllowed: 1800,
       workplaceUnallocated: 0,
+      operatingCashTarget: 0,
+      operatingCashBalance: 2500,
+      combinedReserveTarget: 400,
+      combinedReserveBalance: 2900,
+      targetFundingRetained: 400,
       unplannedCashRetained: 2500,
+      unplannedCashSwept: 0,
+      operatingTargetUnfunded: 0,
+      reserveTargetUnfunded: 0,
       totalInvestmentDeposits: 3900,
     });
     expect(view.accountContributions).toEqual({

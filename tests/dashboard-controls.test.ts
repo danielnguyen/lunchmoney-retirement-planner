@@ -80,6 +80,7 @@ function simpleControlFixture() {
         indexingRate: 0.02,
       },
     ],
+    operatingCashTarget: { targetToday: 10000, indexingRate: 0.02 },
     unplannedCash: "retain_in_operating_cash",
     personalOrder: ["personal_tfsa", "personal_rrsp", "taxable"],
     workplaceRoomPriority: "first",
@@ -103,6 +104,14 @@ describe("simple savings dashboard controls", () => {
         expect.objectContaining({
           key: "registeredRoom.rrsp.availableAtStart",
           label: "Starting RRSP deduction room",
+        }),
+        expect.objectContaining({
+          key: "savingsPolicy.operatingCash.targetToday",
+          label: "Operating cash target today",
+        }),
+        expect.objectContaining({
+          key: "savingsPolicy.operatingCash.indexingRate",
+          label: "Operating cash indexing rate",
         }),
         expect.objectContaining({
           key: "savingsPolicy.reserveBuilding.targetToday",
@@ -133,6 +142,8 @@ describe("simple savings dashboard controls", () => {
     const controls = buildControls(baseline);
     const active = materializeInputs(baseline, controls, {
       "registeredRoom.tfsa.availableAtStart": 12345,
+      "savingsPolicy.operatingCash.targetToday": 12000,
+      "savingsPolicy.operatingCash.indexingRate": 0.03,
       "savingsPolicy.reserveBuilding.targetToday": 55000,
       "reserveBuildingPhase.reserve-plan.monthlyAmountToday": 900,
     });
@@ -141,6 +152,14 @@ describe("simple savings dashboard controls", () => {
       active.registeredAccountRoom!.tfsa.startingAvailableRoom.amount,
     ).toBe(12345);
     expect(active.surplusAllocation.targetCashReserveToday).toBe(55000);
+    expect(
+      active.savingsPolicy.mode === "simple" &&
+        active.savingsPolicy.operatingCashTarget?.targetToday,
+    ).toBe(12000);
+    expect(
+      active.savingsPolicy.mode === "simple" &&
+        active.savingsPolicy.operatingCashTarget?.indexingRate,
+    ).toBe(0.03);
     expect(
       active.savingsPolicy.mode === "simple" &&
         active.savingsPolicy.reserveBuildingPhases[0]!.monthlyAmountToday,

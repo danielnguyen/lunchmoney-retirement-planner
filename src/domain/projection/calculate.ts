@@ -372,13 +372,24 @@ function emptySavingsPolicy(): SavingsPolicyBreakdown {
     workplacePlanned: 0,
     workplaceAllowed: 0,
     workplaceUnallocated: 0,
+    operatingCashTarget: 0,
+    operatingCashBalance: 0,
+    combinedReserveTarget: 0,
+    combinedReserveBalance: 0,
+    targetFundingRetained: 0,
     unplannedCashRetained: 0,
+    unplannedCashSwept: 0,
+    operatingTargetUnfunded: 0,
+    reserveTargetUnfunded: 0,
     totalInvestmentDeposits: 0,
   };
 }
 
 function emptySavingsTotals(): SavingsPolicyTotals {
-  return emptySavingsPolicy();
+  return {
+    ...emptySavingsPolicy(),
+    accountSweepAllocations: {},
+  };
 }
 
 function emptyView(): ProjectionView {
@@ -401,6 +412,7 @@ function emptyView(): ProjectionView {
     surplusAllocation: emptySurplusAllocation(),
     savingsPolicy: emptySavingsPolicy(),
     accountSurplusAllocations: {},
+    accountSweepAllocations: {},
     allocation: { ...ZERO_ALLOCATION },
   };
 }
@@ -777,6 +789,12 @@ function snapshotView(
         round(amount),
       ]),
     ),
+    accountSweepAllocations: Object.fromEntries(
+      Object.entries(flow.accountSweepAllocations).map(([id, amount]) => [
+        id,
+        round(amount),
+      ]),
+    ),
     allocation: {
       cash: divide(allocationAtSnapshot.cash),
       fixedIncome: divide(allocationAtSnapshot.fixedIncome),
@@ -798,10 +816,22 @@ function addMonthlyFlow(target: ProjectionView, monthly: ProjectionView, factor:
   for (const key of Object.keys(monthly.contributions) as Array<keyof ContributionBreakdown>) {
     target.contributions[key] += monthly.contributions[key] / factor;
   }
+  const savingsPointFields: Array<keyof SavingsPolicyBreakdown> = [
+    "operatingCashTarget",
+    "operatingCashBalance",
+    "combinedReserveTarget",
+    "combinedReserveBalance",
+    "operatingTargetUnfunded",
+    "reserveTargetUnfunded",
+  ];
   for (const key of Object.keys(monthly.savingsPolicy) as Array<
     keyof SavingsPolicyBreakdown
   >) {
-    target.savingsPolicy[key] += monthly.savingsPolicy[key] / factor;
+    if (savingsPointFields.includes(key)) {
+      target.savingsPolicy[key] = monthly.savingsPolicy[key] / factor;
+    } else {
+      target.savingsPolicy[key] += monthly.savingsPolicy[key] / factor;
+    }
   }
   for (const [accountId, amount] of Object.entries(monthly.accountContributions)) {
     target.accountContributions[accountId] =
@@ -895,6 +925,12 @@ function addMonthlyFlow(target: ProjectionView, monthly: ProjectionView, factor:
     target.accountSurplusAllocations[accountId] =
       (target.accountSurplusAllocations[accountId] ?? 0) + amount / factor;
   }
+  for (const [accountId, amount] of Object.entries(
+    monthly.accountSweepAllocations,
+  )) {
+    target.accountSweepAllocations[accountId] =
+      (target.accountSweepAllocations[accountId] ?? 0) + amount / factor;
+  }
 }
 
 function addSavingsTotals(
@@ -902,10 +938,28 @@ function addSavingsTotals(
   monthly: ProjectionView,
   factor: number,
 ): void {
+  const pointFields: Array<keyof SavingsPolicyBreakdown> = [
+    "operatingCashTarget",
+    "operatingCashBalance",
+    "combinedReserveTarget",
+    "combinedReserveBalance",
+    "operatingTargetUnfunded",
+    "reserveTargetUnfunded",
+  ];
   for (const key of Object.keys(monthly.savingsPolicy) as Array<
     keyof SavingsPolicyBreakdown
   >) {
-    target[key] += monthly.savingsPolicy[key] / factor;
+    if (pointFields.includes(key)) {
+      target[key] = monthly.savingsPolicy[key] / factor;
+    } else {
+      target[key] += monthly.savingsPolicy[key] / factor;
+    }
+  }
+  for (const [accountId, amount] of Object.entries(
+    monthly.accountSweepAllocations,
+  )) {
+    target.accountSweepAllocations[accountId] =
+      (target.accountSweepAllocations[accountId] ?? 0) + amount / factor;
   }
 }
 
@@ -1137,10 +1191,13 @@ function assertContributionsReconciled(
 function assertSavingsPolicyReconciled(
   view: ProjectionView,
   period: string,
-  mode: ProjectionInputs["savingsPolicy"]["mode"],
+  policy: ProjectionInputs["savingsPolicy"],
 ): void {
-  if (mode !== "simple") return;
+  if (policy.mode !== "simple") return;
   const savings = view.savingsPolicy;
+  const sweepAllocations = Object.values(
+    view.accountSweepAllocations,
+  ).reduce((total, amount) => total + amount, 0);
   const differences = [
     savings.reserveFunded -
       savings.reserveRetainedAsCash -
@@ -1154,11 +1211,13 @@ function assertSavingsPolicyReconciled(
     savings.totalInvestmentDeposits -
       savings.personalAllowed -
       savings.workplaceAllowed -
-      savings.reserveRedirected,
+      savings.reserveRedirected -
+      savings.unplannedCashSwept,
     savings.positiveCashAvailable -
       savings.personalAllowed -
       savings.reserveFunded -
-      savings.unplannedCashRetained,
+      savings.unplannedCashRetained -
+      savings.unplannedCashSwept,
     view.contributions.planned -
       savings.personalPlanned -
       savings.workplacePlanned,
@@ -1169,8 +1228,25 @@ function assertSavingsPolicyReconciled(
       savings.personalUnallocated -
       savings.workplaceUnallocated,
     view.contributions.surplusFunded -
-      savings.reserveRedirected,
+      savings.reserveRedirected -
+      savings.unplannedCashSwept,
     view.contributions.total - savings.totalInvestmentDeposits,
+    sweepAllocations - savings.unplannedCashSwept,
+    savings.targetFundingRetained -
+      savings.reserveRetainedAsCash -
+      (policy.unplannedCash === "sweep_above_targets"
+        ? savings.unplannedCashRetained
+        : 0),
+    savings.operatingTargetUnfunded -
+      Math.max(
+        0,
+        savings.operatingCashTarget - savings.operatingCashBalance,
+      ),
+    savings.reserveTargetUnfunded -
+      Math.max(
+        0,
+        savings.combinedReserveTarget - savings.combinedReserveBalance,
+      ),
   ];
   if (
     differences.some(
@@ -1365,7 +1441,7 @@ export function calculateProjection(rawInputs: ProjectionInputs): ProjectionResu
     assertSavingsPolicyReconciled(
       nominal,
       `${calendarYear} nominal`,
-      inputs.savingsPolicy.mode,
+      inputs.savingsPolicy,
     );
     assertBalanceSheetReconciled(nominal, `${calendarYear} nominal`);
     assertBalanceSheetReconciled(real, `${calendarYear} real`);
@@ -1377,7 +1453,7 @@ export function calculateProjection(rawInputs: ProjectionInputs): ProjectionResu
     assertSavingsPolicyReconciled(
       real,
       `${calendarYear} real`,
-      inputs.savingsPolicy.mode,
+      inputs.savingsPolicy,
     );
     if (inputs.registeredAccountRoom) {
       assertRegisteredRoomReconciled(nominal, `${calendarYear} nominal`);
@@ -1996,6 +2072,121 @@ export function calculateProjection(rawInputs: ProjectionInputs): ProjectionResu
         cashPosition -= personal.deposited;
       }
 
+      const routeThroughPersonalWaterfall = (
+        requested: number,
+        source: "reserve_building" | "unplanned_sweep",
+      ): number => {
+        let remaining = requested;
+        let deposited = 0;
+        for (const destinationId of
+          inputs.contributionWaterfall.surplusDestinationAccountIds) {
+          if (remaining <= 0) break;
+          const destination = inputs.accounts.find(
+            (account) => account.id === destinationId,
+          )!;
+          const amount = Math.min(
+            remaining,
+            availableForAccount(destination, workingAge),
+          );
+          if (amount <= 0) continue;
+          consumeRoom(destination, amount);
+          balances.set(
+            destination.id,
+            (balances.get(destination.id) ?? 0) + amount,
+          );
+          monthlyFlow.accountSurplusAllocations[destination.id] =
+            (monthlyFlow.accountSurplusAllocations[destination.id] ?? 0) +
+            amount;
+          if (source === "unplanned_sweep") {
+            monthlyFlow.accountSweepAllocations[destination.id] =
+              (monthlyFlow.accountSweepAllocations[destination.id] ?? 0) +
+              amount;
+          }
+          monthlyFlow.accountContributions[destination.id] =
+            (monthlyFlow.accountContributions[destination.id] ?? 0) + amount;
+          const detail = contributionDetail(monthlyFlow, destination.id);
+          detail.depositedIntoAccount += amount;
+          detail.surplusFundedDeposit += amount;
+          detail.cashFunded += amount;
+          monthlyFlow.contributions.surplusFunded += amount;
+          monthlyFlow.contributions.cashFunded += amount;
+          monthlyFlow.contributions.total += amount;
+          monthlyFlow.outflows.contributions += amount;
+          if (destination.type === "tfsa") {
+            monthlyFlow.registeredAccountRoom.tfsa
+              .surplusFundedContributions += amount;
+            monthlyFlow.registeredAccountRoom.tfsa.allowedContributions +=
+              amount;
+          }
+          if (destination.type === "rrsp_rrif") {
+            monthlyFlow.registeredAccountRoom.rrsp
+              .surplusFundedContributions += amount;
+            monthlyFlow.registeredAccountRoom.rrsp.allowedContributions +=
+              amount;
+          }
+          deposited += amount;
+          remaining -= amount;
+        }
+        if (remaining > 0.01) {
+          throw new Error(
+            "Simple personal investment waterfall left cash unallocated",
+          );
+        }
+        return deposited;
+      };
+
+      const operatingTarget = simplePolicy.operatingCashTarget
+        ? simplePolicy.operatingCashTarget.targetToday *
+          indexedFactor(
+            simplePolicy.operatingCashTarget.indexingRate,
+            month,
+          )
+        : 0;
+      const reserveTarget = monthlyFlow.surplusAllocation.reserveTarget;
+      const combinedReserveBalance = () =>
+        reserveAccounts.reduce(
+          (total, account) => total + (balances.get(account.id) ?? 0),
+          0,
+        );
+      const fundCashTargets = (available: number) => {
+        let remaining = available;
+        const operatingBalance =
+          balances.get(simplePolicy.operatingCashAccountId) ?? 0;
+        const operatingFunding = Math.min(
+          remaining,
+          Math.max(0, operatingTarget - operatingBalance),
+        );
+        if (operatingFunding > 0) {
+          balances.set(
+            simplePolicy.operatingCashAccountId,
+            operatingBalance + operatingFunding,
+          );
+          monthlyFlow.accountSurplusAllocations[
+            simplePolicy.operatingCashAccountId
+          ] =
+            (monthlyFlow.accountSurplusAllocations[
+              simplePolicy.operatingCashAccountId
+            ] ?? 0) + operatingFunding;
+          remaining -= operatingFunding;
+        }
+        const reserveFunding = Math.min(
+          remaining,
+          Math.max(0, reserveTarget - combinedReserveBalance()),
+        );
+        if (reserveFunding > 0) {
+          balances.set(
+            reserveRefillAccount.id,
+            (balances.get(reserveRefillAccount.id) ?? 0) + reserveFunding,
+          );
+          monthlyFlow.accountSurplusAllocations[reserveRefillAccount.id] =
+            (monthlyFlow.accountSurplusAllocations[
+              reserveRefillAccount.id
+            ] ?? 0) + reserveFunding;
+          remaining -= reserveFunding;
+        }
+        return { operatingFunding, reserveFunding, remaining };
+      };
+
       const reservePhase =
         workingAge < inputs.person.retirementAge - AGE_TOLERANCE
           ? simplePolicy.reserveBuildingPhases.find(
@@ -2015,108 +2206,54 @@ export function calculateProjection(rawInputs: ProjectionInputs): ProjectionResu
         reservePlanned,
         Math.max(0, cashPosition),
       );
-      const reserveBalance = reserveAccounts.reduce(
-        (total, account) => total + (balances.get(account.id) ?? 0),
-        0,
+      const reserveTargetFunding = fundCashTargets(reserveFunded);
+      const reserveRetained =
+        reserveTargetFunding.operatingFunding +
+        reserveTargetFunding.reserveFunding;
+      const reserveRedirected = routeThroughPersonalWaterfall(
+        reserveTargetFunding.remaining,
+        "reserve_building",
       );
-      const reserveShortfall = Math.max(
-        0,
-        monthlyFlow.surplusAllocation.reserveTarget - reserveBalance,
-      );
-      const reserveRetained = Math.min(
-        reserveFunded,
-        reserveShortfall,
-      );
-      if (reserveRetained > 0) {
-        balances.set(
-          reserveRefillAccount.id,
-          (balances.get(reserveRefillAccount.id) ?? 0) +
-            reserveRetained,
-        );
-        monthlyFlow.accountSurplusAllocations[
-          reserveRefillAccount.id
-        ] = reserveRetained;
-      }
-      let reserveRedirected = 0;
-      let remainingReserveInvestment =
-        reserveFunded - reserveRetained;
-      for (const destinationId of
-        inputs.contributionWaterfall.surplusDestinationAccountIds) {
-        if (remainingReserveInvestment <= 0) break;
-        const destination = inputs.accounts.find(
-          (account) => account.id === destinationId,
-        )!;
-        const amount = Math.min(
-          remainingReserveInvestment,
-          availableForAccount(destination, workingAge),
-        );
-        if (amount <= 0) continue;
-        consumeRoom(destination, amount);
-        balances.set(
-          destination.id,
-          (balances.get(destination.id) ?? 0) + amount,
-        );
-        monthlyFlow.accountSurplusAllocations[destination.id] =
-          (monthlyFlow.accountSurplusAllocations[destination.id] ??
-            0) + amount;
-        monthlyFlow.accountContributions[destination.id] =
-          (monthlyFlow.accountContributions[destination.id] ?? 0) +
-          amount;
-        const detail = contributionDetail(
-          monthlyFlow,
-          destination.id,
-        );
-        detail.depositedIntoAccount += amount;
-        detail.surplusFundedDeposit += amount;
-        detail.cashFunded += amount;
-        monthlyFlow.contributions.surplusFunded += amount;
-        monthlyFlow.contributions.cashFunded += amount;
-        monthlyFlow.contributions.total += amount;
-        monthlyFlow.outflows.contributions += amount;
-        if (destination.type === "tfsa") {
-          monthlyFlow.registeredAccountRoom.tfsa
-            .surplusFundedContributions += amount;
-          monthlyFlow.registeredAccountRoom.tfsa
-            .allowedContributions += amount;
-        }
-        if (destination.type === "rrsp_rrif") {
-          monthlyFlow.registeredAccountRoom.rrsp
-            .surplusFundedContributions += amount;
-          monthlyFlow.registeredAccountRoom.rrsp
-            .allowedContributions += amount;
-        }
-        reserveRedirected += amount;
-        remainingReserveInvestment -= amount;
-      }
-      if (remainingReserveInvestment > 0.01) {
-        throw new Error(
-          "Simple reserve-building investment route left an amount unallocated",
-        );
-      }
       cashPosition -= reserveFunded;
-      const unplannedCashRetained = Math.max(0, cashPosition);
-      if (unplannedCashRetained > 0) {
-        balances.set(
-          simplePolicy.operatingCashAccountId,
-          (balances.get(simplePolicy.operatingCashAccountId) ?? 0) +
-            unplannedCashRetained,
-        );
-        monthlyFlow.accountSurplusAllocations[
-          simplePolicy.operatingCashAccountId
-        ] =
-          (monthlyFlow.accountSurplusAllocations[
+      const unplannedCash = Math.max(0, cashPosition);
+      let unplannedCashRetained = 0;
+      let unplannedCashSwept = 0;
+      let unplannedReserveRefill = 0;
+      if (simplePolicy.unplannedCash === "retain_in_operating_cash") {
+        unplannedCashRetained = unplannedCash;
+        if (unplannedCashRetained > 0) {
+          balances.set(
+            simplePolicy.operatingCashAccountId,
+            (balances.get(simplePolicy.operatingCashAccountId) ?? 0) +
+              unplannedCashRetained,
+          );
+          monthlyFlow.accountSurplusAllocations[
             simplePolicy.operatingCashAccountId
-          ] ?? 0) + unplannedCashRetained;
+          ] =
+            (monthlyFlow.accountSurplusAllocations[
+              simplePolicy.operatingCashAccountId
+            ] ?? 0) + unplannedCashRetained;
+        }
+      } else {
+        const unplannedTargetFunding = fundCashTargets(unplannedCash);
+        unplannedCashRetained =
+          unplannedTargetFunding.operatingFunding +
+          unplannedTargetFunding.reserveFunding;
+        unplannedReserveRefill = unplannedTargetFunding.reserveFunding;
+        unplannedCashSwept = routeThroughPersonalWaterfall(
+          unplannedTargetFunding.remaining,
+          "unplanned_sweep",
+        );
       }
       const policyGenerated =
-        reserveFunded + unplannedCashRetained;
+        reserveFunded + unplannedCashRetained + unplannedCashSwept;
       monthlyFlow.surplusAllocation.generated = policyGenerated;
       monthlyFlow.surplusAllocation.reserveRefill =
-        reserveRetained;
+        reserveTargetFunding.reserveFunding + unplannedReserveRefill;
       monthlyFlow.surplusAllocation.retainedAsCash =
         reserveRetained + unplannedCashRetained;
       monthlyFlow.surplusAllocation.redirected =
-        reserveRedirected;
+        reserveRedirected + unplannedCashSwept;
       monthlyFlow.savingsPolicy.reservePlanned = reservePlanned;
       monthlyFlow.savingsPolicy.reserveFunded = reserveFunded;
       monthlyFlow.savingsPolicy.reserveRetainedAsCash =
@@ -2125,11 +2262,32 @@ export function calculateProjection(rawInputs: ProjectionInputs): ProjectionResu
         reserveRedirected;
       monthlyFlow.savingsPolicy.reserveUnfunded =
         reservePlanned - reserveFunded;
+      monthlyFlow.savingsPolicy.operatingCashTarget = operatingTarget;
+      monthlyFlow.savingsPolicy.operatingCashBalance =
+        balances.get(simplePolicy.operatingCashAccountId) ?? 0;
+      monthlyFlow.savingsPolicy.combinedReserveTarget = reserveTarget;
+      monthlyFlow.savingsPolicy.combinedReserveBalance =
+        combinedReserveBalance();
+      monthlyFlow.savingsPolicy.targetFundingRetained =
+        reserveRetained +
+        (simplePolicy.unplannedCash === "sweep_above_targets"
+          ? unplannedCashRetained
+          : 0);
       monthlyFlow.savingsPolicy.unplannedCashRetained =
         unplannedCashRetained;
+      monthlyFlow.savingsPolicy.unplannedCashSwept =
+        unplannedCashSwept;
+      monthlyFlow.savingsPolicy.operatingTargetUnfunded = Math.max(
+        0,
+        operatingTarget - monthlyFlow.savingsPolicy.operatingCashBalance,
+      );
+      monthlyFlow.savingsPolicy.reserveTargetUnfunded = Math.max(
+        0,
+        reserveTarget - monthlyFlow.savingsPolicy.combinedReserveBalance,
+      );
       monthlyFlow.savingsPolicy.totalInvestmentDeposits =
         monthlyFlow.contributions.total;
-      if (cashPosition > 0) cashPosition = 0;
+      cashPosition = 0;
     } else if (cashPosition > 0) {
       const generated = cashPosition;
       const reserveBalance = reserveAccounts.reduce(
@@ -2266,7 +2424,7 @@ export function calculateProjection(rawInputs: ProjectionInputs): ProjectionResu
     assertSavingsPolicyReconciled(
       monthlyFlow,
       `${calendarYear}-${String(calendarMonth).padStart(2, "0")}`,
-      inputs.savingsPolicy.mode,
+      inputs.savingsPolicy,
     );
 
     addMonthlyFlow(annualNominalFlow, monthlyFlow, 1);
@@ -2408,7 +2566,7 @@ export function calculateProjection(rawInputs: ProjectionInputs): ProjectionResu
       assertSavingsPolicyReconciled(
         retirementSnapshot.nominal,
         "retirement snapshot nominal",
-        inputs.savingsPolicy.mode,
+        inputs.savingsPolicy,
       );
       assertBalanceSheetReconciled(
         retirementSnapshot.nominal,
@@ -2429,7 +2587,7 @@ export function calculateProjection(rawInputs: ProjectionInputs): ProjectionResu
       assertSavingsPolicyReconciled(
         retirementSnapshot.real,
         "retirement snapshot real",
-        inputs.savingsPolicy.mode,
+        inputs.savingsPolicy,
       );
       reserveTargetAtRetirementNominal =
         monthlyFlow.surplusAllocation.reserveTarget;
@@ -2669,6 +2827,12 @@ export function calculateProjection(rawInputs: ProjectionInputs): ProjectionResu
               taxableAccountId: inputs.savingsPolicy.taxableAccountId,
               taxableAccountOrigin:
                 inputs.savingsPolicy.taxableAccountOrigin,
+              operatingCashTarget:
+                inputs.savingsPolicy.operatingCashTarget,
+              operatingCashIsReserveMember:
+                inputs.savingsPolicy.reserveAccountIds.includes(
+                  inputs.savingsPolicy.operatingCashAccountId,
+                ),
               personalOrder: inputs.savingsPolicy.personalOrder,
               workplaceRoomPriority:
                 inputs.savingsPolicy.workplaceRoomPriority,

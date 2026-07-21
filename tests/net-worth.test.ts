@@ -455,6 +455,7 @@ describe("real net worth and debt amortization", () => {
       taxableAccountId: "projection:synthetic-taxable",
       taxableAccountOrigin: "projection_configuration",
       reserveBuildingPhases: [],
+      operatingCashTarget: null,
       unplannedCash: "retain_in_operating_cash",
       personalOrder: ["personal_tfsa", "personal_rrsp", "taxable"],
       workplaceRoomPriority: "first",

@@ -1088,6 +1088,56 @@ describe("live baseline derivation", () => {
       baseline.provenance["accounts.manual:1.roles"]?.value,
     ).toEqual(["operating_cash", "reserve_member"]);
 
+    const sweepConfig = structuredClone(config);
+    sweepConfig.savingsPolicy!.operatingCash = {
+      targetToday: 6000,
+      indexingRate: 0.02,
+    };
+    sweepConfig.savingsPolicy!.unplannedCash = "sweep_above_targets";
+    const sweepBaseline = deriveCurrentBaseline(
+      sweepConfig,
+      data,
+      window,
+      "2026-07-14T12:00:00.000Z",
+    );
+    expect(sweepBaseline.projectionInputs.savingsPolicy).toMatchObject({
+      mode: "simple",
+      operatingCashTarget: { targetToday: 6000, indexingRate: 0.02 },
+      unplannedCash: "sweep_above_targets",
+    });
+    expect(
+      sweepBaseline.provenance["savingsPolicy.operatingCash.targetToday"],
+    ).toMatchObject({ value: 6000, sourceType: "local_configuration" });
+
+    const independentTargets = structuredClone(sweepConfig);
+    independentTargets.accountMappings["manual:1"]!.roles = [
+      "operating_cash",
+    ];
+    const independentBaseline = deriveCurrentBaseline(
+      independentTargets,
+      data,
+      window,
+      "2026-07-14T12:00:00.000Z",
+    );
+    expect(
+      independentBaseline.projectionInputs.savingsPolicy,
+    ).toMatchObject({
+      operatingCashAccountId: "manual:1",
+      reserveAccountIds: ["manual:4"],
+      reserveRefillAccountId: "manual:4",
+    });
+
+    const missingSweepTarget = structuredClone(sweepConfig);
+    delete missingSweepTarget.savingsPolicy!.operatingCash;
+    expect(() =>
+      deriveCurrentBaseline(
+        missingSweepTarget,
+        data,
+        window,
+        "2026-07-14T12:00:00.000Z",
+      ),
+    ).toThrow("requires an explicit operating cash target");
+
     delete config.registeredRoom!.rrsp.currentYearBeforePlanStart;
     expect(() =>
       deriveCurrentBaseline(

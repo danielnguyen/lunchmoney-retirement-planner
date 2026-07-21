@@ -364,6 +364,8 @@ const SAFE_PROVENANCE_FIELDS = new Set([
   "savingsPolicy.mode",
   "savingsPolicy.taxableAccountOrigin",
   "savingsPolicy.unplannedCash",
+  "savingsPolicy.operatingCash.targetToday",
+  "savingsPolicy.operatingCash.indexingRate",
   "savingsPolicy.personalOrder",
   "savingsPolicy.workplaceRoomPriority",
   "savingsPolicy.workplaceOverflow",
@@ -399,6 +401,8 @@ const SIMPLE_OVERRIDE_KEYS = new Set([
   "registeredRoom.rrsp.availableAtStart",
   "savingsPolicy.reserveBuilding.targetToday",
   "savingsPolicy.reserveBuilding.indexingRate",
+  "savingsPolicy.operatingCash.targetToday",
+  "savingsPolicy.operatingCash.indexingRate",
   "primaryResidence.currentValue",
   "primaryResidence.annualAppreciation",
 ]);
@@ -1080,7 +1084,11 @@ function safeProjectionInputs(
                   };
                 },
               ),
-            unplannedCash: "retain_in_operating_cash",
+            operatingCashTarget:
+              inputs.savingsPolicy.operatingCashTarget === null
+                ? null
+                : { ...inputs.savingsPolicy.operatingCashTarget },
+            unplannedCash: inputs.savingsPolicy.unplannedCash,
             personalOrder: [
               "personal_tfsa",
               "personal_rrsp",
@@ -1108,6 +1116,13 @@ function safeProjectionView(view: ProjectionView, context: ShareSafeContext): Pr
     view.accountSurplusAllocations,
   )) {
     accountSurplusAllocations[requiredAccountAlias(rawId, context).key] =
+      value;
+  }
+  const accountSweepAllocations: Record<string, number> = {};
+  for (const [rawId, value] of Object.entries(
+    view.accountSweepAllocations,
+  )) {
+    accountSweepAllocations[requiredAccountAlias(rawId, context).key] =
       value;
   }
   const accountContributionDetails = Object.fromEntries(
@@ -1216,6 +1231,7 @@ function safeProjectionView(view: ProjectionView, context: ShareSafeContext): Pr
     },
     savingsPolicy: { ...view.savingsPolicy },
     accountSurplusAllocations,
+    accountSweepAllocations,
     allocation: safeAllocation(view.allocation),
   };
 }
@@ -1234,6 +1250,23 @@ function safeSurplusTotals(
         requiredAccountAlias(rawId, context).key,
         value,
       ]),
+    ),
+  };
+}
+
+function safeSavingsTotals(
+  totals: ProjectionResult["savingsPolicy"]["throughRetirement"]["nominal"],
+  context: ShareSafeContext,
+): ProjectionResult["savingsPolicy"]["throughRetirement"]["nominal"] {
+  return {
+    ...totals,
+    accountSweepAllocations: Object.fromEntries(
+      Object.entries(totals.accountSweepAllocations).map(
+        ([rawId, amount]) => [
+          requiredAccountAlias(rawId, context).key,
+          amount,
+        ],
+      ),
     ),
   };
 }
@@ -1501,6 +1534,13 @@ function safeProjectionResult(
               ).key,
               taxableAccountOrigin:
                 projection.savingsPolicy.policy.taxableAccountOrigin,
+              operatingCashTarget:
+                projection.savingsPolicy.policy.operatingCashTarget === null
+                  ? null
+                  : { ...projection.savingsPolicy.policy.operatingCashTarget },
+              operatingCashIsReserveMember:
+                projection.savingsPolicy.policy
+                  .operatingCashIsReserveMember,
               personalOrder: [
                 "personal_tfsa",
                 "personal_rrsp",
@@ -1509,15 +1549,18 @@ function safeProjectionResult(
               workplaceRoomPriority: "first",
               workplaceOverflow: "unallocated",
               reserveAfterTarget: "personal_investing",
-              unplannedCash: "retain_in_operating_cash",
+              unplannedCash:
+                projection.savingsPolicy.policy.unplannedCash,
             },
       throughRetirement: {
-        nominal: {
-          ...projection.savingsPolicy.throughRetirement.nominal,
-        },
-        real: {
-          ...projection.savingsPolicy.throughRetirement.real,
-        },
+        nominal: safeSavingsTotals(
+          projection.savingsPolicy.throughRetirement.nominal,
+          context,
+        ),
+        real: safeSavingsTotals(
+          projection.savingsPolicy.throughRetirement.real,
+          context,
+        ),
       },
     },
     annual: projection.annual.map((point) => ({
@@ -2180,7 +2223,7 @@ function safeProvenanceValue(
     }
     if (
       field.reference === "savingsPolicy.unplannedCash" &&
-      value === "retain_in_operating_cash"
+      ["retain_in_operating_cash", "sweep_above_targets"].includes(value)
     ) {
       return value;
     }
@@ -2674,6 +2717,10 @@ export function projectionSnapshotToCsv(
     "redirectedContributions",
     "unallocatedContributions",
     "savings_policy_mode",
+    "savings_unplanned_cash_policy",
+    "operating_cash_target_today",
+    "operating_cash_indexing_rate",
+    "operating_cash_is_reserve_member",
     "positive_cash_available",
     "personal_plan_planned",
     "personal_plan_allowed",
@@ -2686,7 +2733,15 @@ export function projectionSnapshotToCsv(
     "workplace_plan_planned",
     "workplace_plan_allowed",
     "workplace_plan_unallocated",
+    "operating_cash_target",
+    "operating_cash_balance",
+    "combined_reserve_target",
+    "combined_reserve_balance",
+    "target_funding_cash_retained",
     "unplanned_cash_retained",
+    "unplanned_cash_swept",
+    "operating_target_unfunded",
+    "reserve_target_unfunded",
     "total_investment_deposits",
     "savings_operating_cash_account",
     "savings_taxable_account",
@@ -2738,6 +2793,9 @@ export function projectionSnapshotToCsv(
     ...accountAliases.map((account) => `account_${account.key}`),
     ...accountAliases.map(
       (account) => `surplus_allocation_${account.key}`,
+    ),
+    ...accountAliases.map(
+      (account) => `unplanned_sweep_allocation_${account.key}`,
     ),
     ...accountAliases.map(
       (account) => `planned_contribution_${account.key}`,
@@ -2825,6 +2883,23 @@ export function projectionSnapshotToCsv(
       view.contributions.redirected,
       view.contributions.unallocated,
       snapshot.projection.savingsPolicy.mode,
+      snapshot.projection.savingsPolicy.policy.mode === "simple"
+        ? snapshot.projection.savingsPolicy.policy.unplannedCash
+        : "",
+      snapshot.projection.savingsPolicy.policy.mode === "simple"
+        ? snapshot.projection.savingsPolicy.policy.operatingCashTarget
+            ?.targetToday ?? ""
+        : "",
+      snapshot.projection.savingsPolicy.policy.mode === "simple"
+        ? snapshot.projection.savingsPolicy.policy.operatingCashTarget
+            ?.indexingRate ?? ""
+        : "",
+      snapshot.projection.savingsPolicy.policy.mode === "simple"
+        ? snapshot.projection.savingsPolicy.policy
+            .operatingCashIsReserveMember
+          ? 1
+          : 0
+        : "",
       view.savingsPolicy.positiveCashAvailable,
       view.savingsPolicy.personalPlanned,
       view.savingsPolicy.personalAllowed,
@@ -2837,7 +2912,15 @@ export function projectionSnapshotToCsv(
       view.savingsPolicy.workplacePlanned,
       view.savingsPolicy.workplaceAllowed,
       view.savingsPolicy.workplaceUnallocated,
+      view.savingsPolicy.operatingCashTarget,
+      view.savingsPolicy.operatingCashBalance,
+      view.savingsPolicy.combinedReserveTarget,
+      view.savingsPolicy.combinedReserveBalance,
+      view.savingsPolicy.targetFundingRetained,
       view.savingsPolicy.unplannedCashRetained,
+      view.savingsPolicy.unplannedCashSwept,
+      view.savingsPolicy.operatingTargetUnfunded,
+      view.savingsPolicy.reserveTargetUnfunded,
       view.savingsPolicy.totalInvestmentDeposits,
       snapshot.projection.savingsPolicy.policy.mode === "simple"
         ? snapshot.projection.savingsPolicy.policy
@@ -2897,6 +2980,9 @@ export function projectionSnapshotToCsv(
       ...accountAliases.map((account) => view.accountBalances[account.key] ?? 0),
       ...accountAliases.map(
         (account) => view.accountSurplusAllocations[account.key] ?? 0,
+      ),
+      ...accountAliases.map(
+        (account) => view.accountSweepAllocations[account.key] ?? 0,
       ),
       ...accountAliases.map(
         (account) =>

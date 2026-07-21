@@ -583,10 +583,24 @@ function liabilityTreatment(
 
 function savingsPolicy(value: unknown): SavingsPolicyConfig {
   const item = record(value, "savingsPolicy");
-  if (item.unplannedCash !== "retain_in_operating_cash") {
+  if (
+    item.unplannedCash !== "retain_in_operating_cash" &&
+    item.unplannedCash !== "sweep_above_targets"
+  ) {
     throw new PlannerRuntimeError(
       "invalid_planner_config",
-      "savingsPolicy.unplannedCash must be retain_in_operating_cash.",
+      "savingsPolicy.unplannedCash must be retain_in_operating_cash or sweep_above_targets.",
+      422,
+    );
+  }
+  const operatingCash =
+    item.operatingCash === undefined
+      ? undefined
+      : record(item.operatingCash, "savingsPolicy.operatingCash");
+  if (item.unplannedCash === "sweep_above_targets" && !operatingCash) {
+    throw new PlannerRuntimeError(
+      "invalid_planner_config",
+      "savingsPolicy.operatingCash is required when unplannedCash is sweep_above_targets; configure an explicit operating-cash target instead of inferring one.",
       422,
     );
   }
@@ -637,7 +651,23 @@ function savingsPolicy(value: unknown): SavingsPolicyConfig {
     );
   }
   return {
-    unplannedCash: "retain_in_operating_cash",
+    ...(operatingCash
+      ? {
+          operatingCash: {
+            targetToday: number(
+              operatingCash.targetToday,
+              "savingsPolicy.operatingCash.targetToday",
+              { min: 0 },
+            ),
+            indexingRate: number(
+              operatingCash.indexingRate,
+              "savingsPolicy.operatingCash.indexingRate",
+              { min: -0.2, max: 0.5 },
+            ),
+          },
+        }
+      : {}),
+    unplannedCash: item.unplannedCash,
     personalInvesting: {
       order: ["personal_tfsa", "personal_rrsp", "taxable"],
       phases: savingsPlanPhases(
@@ -1743,15 +1773,7 @@ function validateSimpleAccountRoles(config: PlannerConfig): void {
       );
     }
   }
-  const operating = roleAccounts(config, "operating_cash")[0]!;
   const refill = roleAccounts(config, "reserve_refill")[0]!;
-  if (!operating[1].roles?.includes("reserve_member")) {
-    throw new PlannerRuntimeError(
-      "invalid_planner_config",
-      "The operating_cash account must also have the reserve_member role.",
-      422,
-    );
-  }
   if (!refill[1].roles?.includes("reserve_member")) {
     throw new PlannerRuntimeError(
       "invalid_planner_config",

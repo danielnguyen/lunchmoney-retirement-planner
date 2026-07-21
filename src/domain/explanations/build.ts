@@ -1751,6 +1751,9 @@ function allocationDocument(context: ExplanationContext): ExplanationDocument {
 
 function ledgerDocument(context: ExplanationContext): ExplanationDocument {
   const simple = context.inputs.savingsPolicy.mode === "simple";
+  const sweeping =
+    context.inputs.savingsPolicy.mode === "simple" &&
+    context.inputs.savingsPolicy.unplannedCash === "sweep_above_targets";
   const rows = buildAnnualLedgerData(
     context.inputs,
     context.projection,
@@ -1804,8 +1807,10 @@ function ledgerDocument(context: ExplanationContext): ExplanationDocument {
           { column: "Personal plan", meaning: "Explicit personal planned, invested, and unallocated amounts." },
           { column: "Reserve-building plan", meaning: "Explicit reserve planned, funded, retained, redirected, and unfunded amounts." },
           { column: "Workplace plan", meaning: "Explicit income-withheld workplace planned, invested, and unallocated amounts." },
-          { column: "Unplanned cash retained", meaning: "Remaining positive cash retained in operating cash rather than invested." },
-          { column: "Total investment deposits", meaning: "All actual personal, workplace, and reserve-plan investment deposits." },
+          { column: "Target funding retained", meaning: "Cash retained to close the indexed operating and combined reserve shortfalls without double-counting overlapping roles." },
+          { column: "Unplanned cash retained", meaning: sweeping ? "Unplanned positive cash retained to close an operating or combined reserve shortfall." : "Remaining positive cash retained in operating cash rather than invested." },
+          { column: "Unplanned cash swept", meaning: "Unplanned positive cash above both applicable targets invested through TFSA, personal RRSP, then taxable." },
+          { column: "Total investment deposits", meaning: "All actual personal, workplace, reserve-plan, and unplanned-sweep investment deposits." },
           { column: "Financial assets", meaning: "End-of-period cash and investment balance snapshot; debt excluded." },
           { column: "Total net worth", meaning: "End-of-period total assets minus total liabilities." },
           { column: "Milestones", meaning: "Events crossed during the period: retirement, CPP, OAS, or RRIF conversion." },
@@ -1847,7 +1852,15 @@ function ledgerDocument(context: ExplanationContext): ExplanationDocument {
           { key: "workplacePlanned", label: "Workplace planned" },
           { key: "workplaceAllowed", label: "Workplace invested" },
           { key: "workplaceUnallocated", label: "Workplace unallocated" },
+          { key: "operatingCashTarget", label: "Operating target" },
+          { key: "operatingCashBalance", label: "Operating balance" },
+          { key: "combinedReserveTarget", label: "Combined reserve target" },
+          { key: "combinedReserveBalance", label: "Combined reserve balance" },
+          { key: "targetFundingRetained", label: "Target funding retained" },
           { key: "unplannedCashRetained", label: "Unplanned cash retained" },
+          { key: "unplannedCashSwept", label: "Unplanned cash swept" },
+          { key: "operatingTargetUnfunded", label: "Operating target unfunded" },
+          { key: "reserveTargetUnfunded", label: "Reserve target unfunded" },
           { key: "totalInvestmentDeposits", label: "Investment deposits" },
           { key: "financialAssets", label: "Financial assets" },
           { key: "totalNonFinancialAssets", label: "Non-financial assets" },
@@ -1985,6 +1998,10 @@ function surplusAllocationDocument(
   const preview = buildSavingsPolicyPreview(context.inputs);
   const result = context.projection.surplusAllocation;
   const totals = result.throughRetirement[context.displayMode];
+  const savingsTotals =
+    context.projection.savingsPolicy.throughRetirement[
+      context.displayMode
+    ];
   const reserveAccounts = result.policy.reserveAccountIds.map(
     (accountId) =>
       context.inputs.accounts.find((account) => account.id === accountId)!,
@@ -2041,7 +2058,15 @@ function surplusAllocationDocument(
     workplacePlanned: row.workplacePlanned,
     workplaceAllowed: row.workplaceAllowed,
     workplaceUnallocated: row.workplaceUnallocated,
+    operatingCashTarget: row.operatingCashTarget,
+    operatingCashBalance: row.operatingCashBalance,
+    combinedReserveTarget: row.combinedReserveTarget,
+    combinedReserveBalance: row.combinedReserveBalance,
+    targetFundingRetained: row.targetFundingRetained,
     unplannedCashRetained: row.unplannedCashRetained,
+    unplannedCashSwept: row.unplannedCashSwept,
+    operatingTargetUnfunded: row.operatingTargetUnfunded,
+    reserveTargetUnfunded: row.reserveTargetUnfunded,
     totalInvestmentDeposits: row.totalInvestmentDeposits,
   }));
   return {
@@ -2057,13 +2082,16 @@ function surplusAllocationDocument(
           : `Positive unassigned monthly cash first compares the combined reserve balance with the indexed target, then follows the configured advanced contribution waterfall.`,
     displayedResult: {
       label: simple
-        ? "Unplanned cash retained through retirement"
+        ? "Unplanned cash handled through retirement"
         : "Surplus generated through retirement",
       value: exactCurrency.format(
         simple
           ? context.projection.savingsPolicy.throughRetirement[
               context.displayMode
-            ].unplannedCashRetained
+            ].unplannedCashRetained +
+            context.projection.savingsPolicy.throughRetirement[
+              context.displayMode
+            ].unplannedCashSwept
           : totals.generated,
       ),
       dollarMode: context.displayMode,
@@ -2155,6 +2183,26 @@ function surplusAllocationDocument(
                   resolved: preview.operatingCashAccount ?? "Not applicable",
                 },
                 {
+                  concept: "Operating target today",
+                  resolved:
+                    preview.operatingTargetToday === null
+                      ? "Not configured (retain compatibility)"
+                      : exactCurrency.format(preview.operatingTargetToday),
+                },
+                {
+                  concept: "Operating target indexing",
+                  resolved:
+                    preview.operatingIndexingRate === null
+                      ? "Not configured"
+                      : percent.format(preview.operatingIndexingRate),
+                },
+                {
+                  concept: "Operating cash in combined reserve",
+                  resolved: preview.operatingCashIsReserveMember
+                    ? "Yes; overlapping targets are not added"
+                    : "No; operating and combined reserve targets are independent",
+                },
+                {
                   concept: "Workplace priority",
                   resolved: preview.workplacePriority,
                 },
@@ -2206,7 +2254,15 @@ function surplusAllocationDocument(
                 { key: "workplacePlanned", label: "Workplace planned" },
                 { key: "workplaceAllowed", label: "Workplace invested" },
                 { key: "workplaceUnallocated", label: "Workplace unallocated" },
+                { key: "operatingCashTarget", label: "Operating target" },
+                { key: "operatingCashBalance", label: "Operating balance" },
+                { key: "combinedReserveTarget", label: "Combined reserve target" },
+                { key: "combinedReserveBalance", label: "Combined reserve balance" },
+                { key: "targetFundingRetained", label: "Target-funding cash retained" },
                 { key: "unplannedCashRetained", label: "Unplanned cash retained" },
+                { key: "unplannedCashSwept", label: "Unplanned cash swept" },
+                { key: "operatingTargetUnfunded", label: "Operating target unfunded" },
+                { key: "reserveTargetUnfunded", label: "Reserve target unfunded" },
                 { key: "totalInvestmentDeposits", label: "Total investment deposits" },
               ]
             : []),
@@ -2214,6 +2270,30 @@ function surplusAllocationDocument(
         rows: annualRows,
         initiallyExpanded: true,
       },
+      ...(simple
+        ? [
+            {
+              title: "Unplanned sweep deposits by destination account",
+              columns: [
+                { key: "account", label: "Account" },
+                { key: "origin", label: "Origin" },
+                { key: "amount", label: "Through retirement" },
+              ],
+              rows: Object.entries(
+                savingsTotals.accountSweepAllocations,
+              ).map(([accountId, amount]) => {
+                const account = context.inputs.accounts.find(
+                  (item) => item.id === accountId,
+                )!;
+                return {
+                  account: account.label,
+                  origin: accountOriginLabel(account),
+                  amount,
+                };
+              }),
+            },
+          ]
+        : []),
       {
         title: "Policy deposits by destination account",
         columns: [
@@ -2332,6 +2412,32 @@ function surplusAllocationDocument(
           : "surplusAllocation.reserveIndexingRate",
         percent.format,
       ),
+      ...(simple &&
+      context.inputs.savingsPolicy.mode === "simple" &&
+      context.inputs.savingsPolicy.operatingCashTarget &&
+      context.baseline.projectionInputs.savingsPolicy.mode === "simple" &&
+      context.baseline.projectionInputs.savingsPolicy.operatingCashTarget
+        ? [
+            inputAssumption(
+              context,
+              "Operating cash target today",
+              context.inputs.savingsPolicy.operatingCashTarget.targetToday,
+              context.baseline.projectionInputs.savingsPolicy
+                .operatingCashTarget.targetToday,
+              "savingsPolicy.operatingCash.targetToday",
+              exactCurrency.format,
+            ),
+            inputAssumption(
+              context,
+              "Operating cash indexing",
+              context.inputs.savingsPolicy.operatingCashTarget.indexingRate,
+              context.baseline.projectionInputs.savingsPolicy
+                .operatingCashTarget.indexingRate,
+              "savingsPolicy.operatingCash.indexingRate",
+              percent.format,
+            ),
+          ]
+        : []),
       {
         label: "Reserve target at retirement",
         value: exactCurrency.format(
@@ -2343,7 +2449,7 @@ function surplusAllocationDocument(
         label: "Excess strategy",
         value:
           simple
-            ? "Explicit reserve-building savings redirect through personal investing after the target; unplanned cash stays in operating cash"
+            ? `Explicit reserve-building savings redirect through personal investing after the target; ${preview.unplannedCash}`
             : result.policy.excessMode === "retain_as_cash"
             ? "Retain as cash"
             : result.policy.excessMode === "allocate_to_account"
@@ -2378,7 +2484,7 @@ function surplusAllocationDocument(
     caveats: [
       ...(simple
         ? [
-            "Only explicit personal, reserve-building, and workplace plans are invested; unplanned positive cash is retained in operating cash and is not swept into investments.",
+            preview.unplannedCash,
             "Workplace RRSP has first claim on the global RRSP room pool, overflow is unallocated, and personal cash never uses the workplace RRSP.",
             "Personal investing follows TFSA → personal RRSP → taxable. The taxable destination may be an imported account or a zero-balance projection-only account.",
           ]
@@ -2795,7 +2901,7 @@ function registeredAccountRoomDocument(
     title: "Registered-account room and contribution routing",
     plainLanguage:
       simple
-        ? `Every TFSA shares one TFSA room pool and every RRSP/RRIF shares one RRSP deduction-room pool. ${preview.workplacePriority}; ${preview.workplaceOverflow}. ${preview.personalOrder}; personal cash never uses the workplace RRSP. Only explicit plans are invested, and unplanned positive cash remains cash.`
+        ? `Every TFSA shares one TFSA room pool and every RRSP/RRIF shares one RRSP deduction-room pool. ${preview.workplacePriority}; ${preview.workplaceOverflow}. ${preview.personalOrder}; personal cash never uses the workplace RRSP. Only explicit plans are invested unless the explicit sweep policy applies. ${preview.unplannedCash}.`
         : "Every TFSA account shares one TFSA room pool and every RRSP/RRIF account shares one RRSP deduction-room pool. Planned routes run in configured order before additional surplus savings.",
     displayedResult: {
       label: "Closing registered room at projection end",
@@ -2804,7 +2910,7 @@ function registeredAccountRoomDocument(
     },
     formula:
       simple
-        ? "Personal planned = allowed + unallocated; workplace planned = allowed + unallocated; funded reserve plan = cash retained + investment deposits; total actual investments = personal allowed + workplace allowed + reserve-plan investment deposits = cash funded + income withheld = sum of account deposits; positive cash = personal allowed + reserve funded + unplanned retained cash; closing room = opening + new + restored withdrawals − room-consuming contributions"
+        ? "Personal planned = allowed + unallocated; workplace planned = allowed + unallocated; funded reserve plan = cash retained + investment deposits; total actual investments = personal allowed + workplace allowed + reserve-plan investment deposits + unplanned sweep deposits = cash funded + income withheld = sum of account deposits; positive cash = personal allowed + reserve funded + unplanned retained cash + unplanned swept cash; closing room = opening + new + restored withdrawals − room-consuming contributions"
         : "Planned = allowed + unallocated; total actual = allowed + surplus funded = cash funded + income withheld = sum of account deposits; each source and destination route reconciles; closing room = opening + new + restored withdrawals − room-consuming contributions",
     steps: [
       {
@@ -3374,7 +3480,7 @@ function registeredAccountRoomDocument(
     caveats: [
       ...(simple
         ? [
-            "Simple policy mode invests only explicit savings plans; unplanned positive cash remains in the operating-cash account.",
+            preview.unplannedCash,
             "Workplace RRSP contributions consume the global RRSP room pool first. Workplace overflow is visibly unallocated and is not redirected or deposited as cash.",
             "Personal investing follows TFSA → personal RRSP → taxable and never uses the workplace RRSP account.",
             "Reserve-building savings stay in reserve until the combined indexed target is reached; any crossing amount follows the personal order in the same month.",
