@@ -1159,7 +1159,7 @@ function spendingChartDocument(context: ExplanationContext): ExplanationDocument
     id: "annual-spending",
     title: "Annual spending projection",
     plainLanguage:
-      "Essential and discretionary spending projected for every labelled period using the active scenario and dollar view.",
+      "The live Lunch Money essential and discretionary monthly baselines are adjusted by the active lifestyle phase, then indexed with inflation for each projected month.",
     displayedResult: {
       label: "Chart view",
       value: modeLabel(context),
@@ -1167,7 +1167,7 @@ function spendingChartDocument(context: ExplanationContext): ExplanationDocument
       period: period(context),
     },
     formula:
-      "Active monthly spending × months in each period, indexed by inflation in future-dollar mode",
+      "Live monthly baseline × active lifestyle multiplier × inflation factor",
     steps: [
       {
         label: "Active essential monthly spending",
@@ -1193,8 +1193,46 @@ function spendingChartDocument(context: ExplanationContext): ExplanationDocument
           context.baseline.projectionInputs.monthlyDiscretionarySpendingToday,
         ),
       },
+      {
+        label: "Resolved lifestyle phases",
+        value: String(context.inputs.spendingPhases.length),
+        operation: "input",
+        sourceType: "configuration",
+        sourceDescription:
+          context.inputs.spendingPhases[0]?.source === "compatibility_default"
+            ? "Backward-compatible full-projection normalization"
+            : "Explicit spendingPhases configuration",
+      },
     ],
     dataSections: [
+      {
+        title: "Lifestyle spending phases",
+        description:
+          "Multipliers apply independently to the observed live baselines. A multiplier of 1 keeps the baseline; 0.60 uses 60% of it.",
+        columns: [
+          { key: "label", label: "Phase" },
+          { key: "startAge", label: "Start age (included)" },
+          { key: "endAge", label: "End age (excluded)" },
+          { key: "essentialMultiplier", label: "Essential multiplier" },
+          {
+            key: "discretionaryMultiplier",
+            label: "Discretionary multiplier",
+          },
+          { key: "source", label: "Source" },
+        ],
+        rows: context.inputs.spendingPhases.map((phase) => ({
+          label: phase.label,
+          startAge: phase.startAge,
+          endAge: phase.endAge,
+          essentialMultiplier: phase.essentialMultiplier,
+          discretionaryMultiplier: phase.discretionaryMultiplier,
+          source:
+            phase.source === "explicit_configuration"
+              ? "Configured lifestyle phase"
+              : "Compatibility default (unchanged baseline)",
+        })),
+        initiallyExpanded: true,
+      },
       {
         title: "Data behind this chart",
         description: "These are the exact essential and discretionary series supplied to the chart.",
@@ -1228,6 +1266,8 @@ function spendingChartDocument(context: ExplanationContext): ExplanationDocument
     assumptions: commonAssumptions(context),
     caveats: [
       "Essential and discretionary labels come from local category mappings; the transaction amounts come from Lunch Money.",
+      "Lifestyle phases are independent of employment-income phases and do not infer retirement or other life events.",
+      "The global inflation assumption continues to index both categories after applying each phase multiplier.",
       `Refreshed monthly averages use ${context.baseline.transactionWindow.trailingMonths} trailing months.`,
       ...chartCaveats(context),
     ],

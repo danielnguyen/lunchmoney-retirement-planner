@@ -16,9 +16,9 @@ Public planning material, examples, and tests must remain synthetic and must not
 | 2 | Surplus allocation policy | Completed | [PR #9](https://github.com/danielnguyen/lunchmoney-retirement-planner/pull/9) |
 | 3 | Registered-account room and contribution waterfall | Completed | [PR #10](https://github.com/danielnguyen/lunchmoney-retirement-planner/pull/10) |
 | 4 | Net worth, real estate, and debt amortization | Completed | [PR #11](https://github.com/danielnguyen/lunchmoney-retirement-planner/pull/11) |
-| 5 | Employment-income today-dollar semantics correction | **Next** | — |
-| 6 | Operating-cash target and automatic excess sweep | Planned | — |
-| 7 | General spending phases | Planned | — |
+| 5 | Employment-income today-dollar semantics correction | Completed | [PR #14](https://github.com/danielnguyen/lunchmoney-retirement-planner/pull/14) |
+| 6 | Operating-cash target and automatic excess sweep | Completed | [PR #15](https://github.com/danielnguyen/lunchmoney-retirement-planner/pull/15) |
+| 7 | General spending phases | **Next** | — |
 | 8 | Retirement funding requirement and terminal balance | Planned | — |
 | 9 | RRIF minimum withdrawals and Canadian retirement taxes | Planned | — |
 | 10 | Deterministic return paths and sequence-risk scenarios | Planned | — |
@@ -88,7 +88,7 @@ Resolved typed inputs and projection results are the durable source of truth for
 - Historical mortgage payments are replaced exactly once. Dedicated categories, an explicit already-excluded assertion, or exact normalized payee-plus-source matching are mutually exclusive handling choices. Exact matching occurs before ordinary category and reviewed-recurring classification so unrelated mixed-category spending remains intact.
 - Financial-assets, liability-schedule, balance-sheet, and total-net-worth results reconcile within one cent and feed the same dashboard, explanations, annual rows, JSON, and CSV.
 
-## Next capability: Employment-income today-dollar semantics correction
+## Completed capability: Employment-income today-dollar semantics correction
 
 ### Goal
 
@@ -117,7 +117,7 @@ Make future employment-income phases honour the documented today-dollar contract
 - Employment cash, eligible earned income, room generation, annual ledgers, bridges, explanations, JSON, and CSV agree within one cent.
 - Existing public examples and migrations retain deterministic, documented behaviour without private data.
 
-## Planned capability: Operating-cash target and automatic excess sweep
+## Completed capability: Operating-cash target and automatic excess sweep
 
 ### Goal
 
@@ -145,7 +145,7 @@ Separate the amount intentionally retained for normal operating cash from the em
 - Synthetic tests cover overlapping cash roles, exact target crossings, partial months, insufficient cash, registered-room exhaustion, taxable overflow, and retain-versus-sweep policies.
 - Existing configurations that retain unplanned cash preserve that behaviour through an explicit compatibility value rather than a silent default.
 
-## Planned capability: General spending phases
+## Next capability: General spending phases
 
 ### Goal
 
@@ -155,10 +155,11 @@ Essential and discretionary spending must remain distinct throughout baseline re
 
 ### Model contract
 
-- Spending is represented by explicit time-bounded phases for essential and discretionary expenses.
+- Spending is represented by optional time-bounded phases with independent essential and discretionary multipliers.
 - Each phase has an inclusive start and exclusive end aligned to projection months.
-- Each phase supplies an explicit amount basis and an explicit inflation or phase-local growth assumption.
-- A phase may use the current Lunch Money spending baseline only when configuration explicitly requests that source; omission must not silently select live baseline spending.
+- Each multiplier applies to the corresponding live trailing Lunch Money baseline: `1` keeps the current amount, while `0.60` means 60% of that baseline.
+- The established global inflation assumption indexes the multiplied baselines; spending phases do not introduce a second phase-local inflation path.
+- Omitted configuration normalizes visibly into one full-projection compatibility phase with `1 / 1` multipliers, preserving historical behaviour.
 - Configuration may represent known transitions such as employment-related costs, temporary household costs, later-life healthcare or care costs, and other owner-specified lifestyle changes.
 - The planner never predicts career, family, health, care, or lifestyle events automatically.
 - Resolved typed spending inputs remain the source of truth; presentation layers do not independently reconstruct phase selection or growth.
@@ -166,10 +167,10 @@ Essential and discretionary spending must remain distinct throughout baseline re
 ### Boundaries and validation
 
 - Phase selection changes at the exact configured projection-month boundary.
-- Overlaps and gaps are validated explicitly rather than resolved by ordering or silent fallback. Any intentionally inactive interval must be represented unambiguously.
-- Phase ages, dates, amounts, and growth assumptions must be finite, internally consistent, and within established project bounds.
+- Configured phases continuously cover `currentAge` through `projectionEndAge`; overlaps and gaps are rejected rather than resolved by ordering or silent fallback.
+- Phase ages and multipliers must be finite, non-negative, internally consistent, and within established project bounds.
 - Inclusive-start and exclusive-end semantics must hold for integer and fractional ages and for mid-calendar-year transitions.
-- Essential and discretionary phases are validated independently while preserving their separate totals.
+- Essential and discretionary multipliers remain independent while sharing the same validated phase boundaries and preserving separate totals.
 - The planner must not infer phase boundaries from transaction cadence, payees, account names, employment changes, or demographic assumptions.
 
 ### Baseline and compatibility behaviour
@@ -177,8 +178,8 @@ Essential and discretionary spending must remain distinct throughout baseline re
 - Lunch Money remains evidence for current non-debt essential and discretionary spending.
 - Debt payments and liability schedules remain outside general spending phases. Historical mortgage payments replaced by a liability schedule must not re-enter essential or discretionary spending.
 - Investment contributions and internal transfers are not lifestyle spending.
-- Configured future phases reconcile to their explicit configuration and, when selected, the relevant baseline evidence and provenance.
-- If current scalar spending inputs remain supported, their compatibility behaviour must be deterministic, visible, documented, and normalized into the same resolved phase model before projection.
+- Configured future phases reconcile to their explicit multipliers, live baseline evidence, and separate provenance.
+- Existing scalar live spending inputs remain the observed baseline. Omitted phase configuration is deterministic, visible, documented, and normalized into the same resolved phase model before projection.
 - Missing or incompatible evidence must produce a clear validation or unavailable-evidence state rather than an invented amount.
 
 ### Projection, presentation, and export behaviour
@@ -188,7 +189,7 @@ Essential and discretionary spending must remain distinct throughout baseline re
 - Nominal and today-dollar views apply the same phase timing and differ only through the established inflation/display semantics.
 - Financial-asset and net-worth bridges subtract the same non-debt spending results used by the monthly projection.
 - Dashboard summaries, annual charts, ledger rows, explanations, JSON, and CSV consume the shared projected spending results.
-- Explanations identify the active phase, essential and discretionary amounts, growth assumption, source, effective boundary, and any active override.
+- Explanations distinguish the live baseline, active essential and discretionary multipliers, global inflation, source, and effective boundary.
 - JSON remains typed and anonymized; CSV remains one rectangular annual scalar table without nested phase objects or private labels.
 - Temporary controls, reset, and refresh behaviour must preserve the existing provenance contract if phase assumptions are exposed as overrides.
 
@@ -207,11 +208,11 @@ This capability does not add:
 - Essential and discretionary spending change at exact inclusive-start, exclusive-end monthly boundaries.
 - Partial first years, partial final years, and fractional-age transitions use the projection’s existing calendar semantics.
 - Gaps and overlaps cannot silently select or omit spending.
-- Every phase has explicit growth and an inspectable source; live baseline values are used only when requested.
+- Every configured phase has explicit multipliers and an inspectable source; omitted configuration has a visible compatibility-default source.
 - Debt payments, liability schedules, contributions, and transfers are not duplicated as lifestyle spending.
-- Current scalar compatibility, if retained, resolves deterministically into the same typed inputs.
+- Current scalar baseline compatibility resolves deterministically into one full-projection `1 / 1` phase.
 - Monthly results, annual presentation, explanations, nominal and real bridges, JSON, and CSV agree within one cent.
-- Synthetic tests cover boundary months, gaps, overlaps, baseline-selected and configured amounts, phase-local growth, partial years, compatibility, privacy, and negative reconciliation cases.
+- Synthetic tests cover boundary months, gaps, overlaps, independent multipliers, global inflation, partial years, compatibility, privacy, and reconciliation.
 - No personal transition is inferred automatically.
 
 ## Planned capability: Retirement funding requirement and terminal balance

@@ -207,6 +207,17 @@ function longHorizonSimpleContext(
   inputs.annualInflation = 0.021;
   inputs.monthlyEssentialSpendingToday = 2800;
   inputs.monthlyDiscretionarySpendingToday = 1200;
+  inputs.spendingPhases = [
+    {
+      id: "synthetic-long-spending",
+      label: "Synthetic long spending",
+      startAge: 39,
+      endAge,
+      essentialMultiplier: 1,
+      discretionaryMultiplier: 1,
+      source: "explicit_configuration",
+    },
+  ];
   inputs.person.employmentIncomePhases = [
     {
       id: "synthetic-long-work",
@@ -453,6 +464,56 @@ describe("calculation explanations", () => {
     expect(realDocument.displayedResult?.value).toBe("Today’s dollars");
     expect(nominalDocument.displayedResult?.value).toBe("Future dollars");
     expect(realRows[0]?.periodLabel).toBe("2026 (Jul–Dec)");
+  });
+
+  it("distinguishes the live spending baseline, lifestyle multipliers, and inflation", () => {
+    const explicit = context((draft) => {
+      draft.inputs.spendingPhases = [
+        {
+          id: "synthetic-current-lifestyle",
+          label: "Synthetic current lifestyle",
+          startAge: 40,
+          endAge: 65,
+          essentialMultiplier: 1,
+          discretionaryMultiplier: 1,
+          source: "explicit_configuration",
+        },
+        {
+          id: "synthetic-retirement-lifestyle",
+          label: "Synthetic retirement lifestyle",
+          startAge: 65,
+          endAge: 95,
+          essentialMultiplier: 1,
+          discretionaryMultiplier: 0.6,
+          source: "explicit_configuration",
+        },
+      ];
+      draft.projection = calculateProjection(draft.inputs);
+    });
+    const document = buildExplanation("annual-spending", explicit);
+    const phaseRows = section(document, "Lifestyle spending phases").rows;
+
+    expect(document.formula).toContain("Live monthly baseline");
+    expect(document.formula).toContain("lifestyle multiplier");
+    expect(document.formula).toContain("inflation factor");
+    expect(phaseRows).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          label: "Synthetic retirement lifestyle",
+          essentialMultiplier: 1,
+          discretionaryMultiplier: 0.6,
+          source: "Configured lifestyle phase",
+        }),
+      ]),
+    );
+    expect(document.caveats.join(" ")).toContain(
+      "independent of employment-income phases",
+    );
+
+    const compatibility = buildExplanation("annual-spending", context());
+    expect(
+      section(compatibility, "Lifestyle spending phases").rows[0]?.source,
+    ).toBe("Compatibility default (unchanged baseline)");
   });
 
   it("uses the shared plotted rows for every annual chart and the ledger", () => {

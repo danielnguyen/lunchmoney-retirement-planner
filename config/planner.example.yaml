@@ -13,6 +13,27 @@ projectionEndAge: 95
 retirementGoal: 0
 transactionTrailingMonths: 12
 
+# Adjust how the live Lunch Money spending baseline changes over time. These
+# phases are independent of employment income. Ages include startAge and stop
+# before endAge, and the phases must cover currentAge through projectionEndAge
+# without gaps. A multiplier of 1 keeps the current baseline; 0.60 uses 60% of
+# it, which is a 40% reduction. Spending continues to grow with inflation.
+# Leave out spendingPhases to keep both baselines unchanged for the full plan.
+spendingPhases:
+  - id: current-lifestyle
+    label: Current working lifestyle
+    startAge: 38
+    endAge: 62
+    essentialMultiplier: 1
+    discretionaryMultiplier: 1
+
+  - id: retirement-lifestyle
+    label: Retirement lifestyle
+    startAge: 62
+    endAge: 95
+    essentialMultiplier: 1
+    discretionaryMultiplier: 0.60
+
 # Choose when CPP and OAS begin and how their payments grow each year.
 # canadian_reference uses the dated public amount bundled with the planner.
 # For CPP, replace it with your own Service Canada estimate when available;

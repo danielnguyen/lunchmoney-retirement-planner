@@ -62,6 +62,70 @@ function bridgeEnding(result: ReturnType<typeof calculateProjection>, mode: "rea
   );
 }
 
+function netWorthBridgeEnding(
+  result: ReturnType<typeof calculateProjection>,
+  mode: "real" | "nominal",
+) {
+  const bridge = result.netWorthBridge[mode];
+  return (
+    bridge.startingFinancialAssets +
+    bridge.startingNonFinancialAssets -
+    bridge.startingLiabilities +
+    bridge.externalNetCashInflows +
+    bridge.incomeWithheldContributions +
+    bridge.investmentReturns +
+    bridge.nonFinancialAssetAppreciation -
+    bridge.nonDebtEssentialSpending -
+    bridge.discretionarySpending -
+    bridge.liabilityInterest -
+    bridge.liabilityPrincipalPayments +
+    bridge.liabilityPrincipalReduction -
+    bridge.taxes -
+    bridge.oneTimeConsumptionOutflows
+  );
+}
+
+function phasedSpendingFixture(): ProjectionInputs {
+  const input = oneYearFixture();
+  input.startDate = "2026-07-15";
+  input.person.currentAge = 54.75;
+  input.person.retirementAge = 55;
+  input.endAge = 55.75;
+  input.monthlyEssentialSpendingToday = 100;
+  input.monthlyDiscretionarySpendingToday = 100;
+  input.person.employmentIncomePhases = [
+    {
+      id: "synthetic-pre-retirement-income",
+      label: "Synthetic pre-retirement income",
+      startAge: 54.75,
+      endAge: 55,
+      annualNetCashToday: 0,
+      annualGrowth: 0,
+    },
+  ];
+  input.spendingPhases = [
+    {
+      id: "synthetic-working-lifestyle",
+      label: "Synthetic working lifestyle",
+      startAge: 54.75,
+      endAge: 55,
+      essentialMultiplier: 1,
+      discretionaryMultiplier: 1,
+      source: "explicit_configuration",
+    },
+    {
+      id: "synthetic-retirement-lifestyle",
+      label: "Synthetic retirement lifestyle",
+      startAge: 55,
+      endAge: 55.75,
+      essentialMultiplier: 1,
+      discretionaryMultiplier: 0.6,
+      source: "explicit_configuration",
+    },
+  ];
+  return input;
+}
+
 function indexedFactor(annualRate: number, month: number): number {
   return Math.pow(1 + annualRate, month / 12);
 }
@@ -970,7 +1034,7 @@ describe("exact retirement snapshot and accumulation bridge", () => {
   it("captures an integer-age retirement after the final working month", () => {
     const result = calculateProjection(oneYearFixture());
 
-    expect(result.schemaVersion).toBe("8.0");
+    expect(result.schemaVersion).toBe("9.0");
     expect(result.retirementSnapshot.calendarDate).toBe("2026-12-31");
     expect(result.retirementSnapshot.age).toBe(41);
     expect(result.retirementSnapshot.flowPeriod).toEqual({
@@ -1897,6 +1961,101 @@ describe("explicit surplus allocation policy", () => {
     ).toEqual(result.retirementSnapshot.nominal.accountSurplusAllocations);
     expect(summary.reserveAccountsBalanceAtRetirement.nominal).toBe(500);
     expect(summary.destinationAccountBalanceAtRetirement?.nominal).toBe(500);
+  });
+});
+
+describe("resolved lifestyle spending phases", () => {
+  it("preserves the historical scalar projection when configuration is omitted", () => {
+    const compatibility = oneYearFixture();
+    compatibility.monthlyEssentialSpendingToday = 125;
+    compatibility.monthlyDiscretionarySpendingToday = 75;
+    compatibility.spendingPhases = [
+      {
+        id: "compatibility-full-projection",
+        label: "Historical full-projection spending",
+        startAge: 40,
+        endAge: 41,
+        essentialMultiplier: 1,
+        discretionaryMultiplier: 1,
+        source: "compatibility_default",
+      },
+    ];
+    const explicit = structuredClone(compatibility);
+    explicit.spendingPhases = [
+      {
+        ...compatibility.spendingPhases[0]!,
+        id: "explicit-full-projection",
+        label: "Explicit full-projection spending",
+        source: "explicit_configuration",
+      },
+    ];
+
+    const compatibilityResult = calculateProjection(compatibility);
+    const explicitResult = calculateProjection(explicit);
+    expect(compatibilityResult.annual).toEqual(explicitResult.annual);
+    expect(compatibilityResult.summary).toEqual(explicitResult.summary);
+    expect(compatibilityResult.financialAssetsBridge).toEqual(
+      explicitResult.financialAssetsBridge,
+    );
+    expect(compatibilityResult.netWorthBridge).toEqual(
+      explicitResult.netWorthBridge,
+    );
+  });
+
+  it("changes discretionary spending at the exact retirement boundary without changing essential spending", () => {
+    const phased = phasedSpendingFixture();
+    const result = calculateProjection(phased);
+    const boundaryYear = result.annual.find(
+      (point) => point.calendarYear === 2026,
+    )!;
+    expect(boundaryYear.real.outflows.essential).toBeCloseTo(600, 2);
+    expect(boundaryYear.real.outflows.discretionary).toBeCloseTo(480, 2);
+
+    const unchanged = structuredClone(phased);
+    unchanged.spendingPhases[1]!.discretionaryMultiplier = 1;
+    const unchangedResult = calculateProjection(unchanged);
+    const unchangedBoundary = unchangedResult.annual.find(
+      (point) => point.calendarYear === 2026,
+    )!;
+    expect(unchangedBoundary.real.outflows.essential).toBeCloseTo(
+      boundaryYear.real.outflows.essential,
+      2,
+    );
+    expect(unchangedBoundary.real.outflows.discretionary).toBeCloseTo(600, 2);
+  });
+
+  it("applies inflation after the lifestyle multiplier and preserves both bridges", () => {
+    const input = phasedSpendingFixture();
+    input.annualInflation = 0.02;
+    const result = calculateProjection(input);
+    const boundaryYear = result.annual.find(
+      (point) => point.calendarYear === 2026,
+    )!;
+    const expectedNominalDiscretionary = Array.from(
+      { length: 6 },
+      (_, index) => {
+        const month = index + 1;
+        const multiplier = month <= 3 ? 1 : 0.6;
+        return 100 * multiplier * indexedFactor(0.02, month);
+      },
+    ).reduce((total, value) => total + value, 0);
+
+    expect(boundaryYear.real.outflows.essential).toBeCloseTo(600, 2);
+    expect(boundaryYear.real.outflows.discretionary).toBeCloseTo(480, 2);
+    expect(boundaryYear.nominal.outflows.discretionary).toBeCloseTo(
+      expectedNominalDiscretionary,
+      2,
+    );
+    for (const mode of ["nominal", "real"] as const) {
+      expect(bridgeEnding(result, mode)).toBeCloseTo(
+        result.financialAssetsBridge[mode].endingFinancialAssets,
+        2,
+      );
+      expect(netWorthBridgeEnding(result, mode)).toBeCloseTo(
+        result.netWorthBridge[mode].endingNetWorth,
+        2,
+      );
+    }
   });
 });
 

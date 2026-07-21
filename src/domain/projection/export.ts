@@ -117,7 +117,7 @@ export type ShareSafeDerivedBaseline = {
 };
 
 export type ProjectionSnapshot = {
-  schemaVersion: "8.0";
+  schemaVersion: "9.0";
   generatedAt: string;
   exportMetadata: {
     transformation: "typed_allowlist_and_automatic_anonymization";
@@ -203,6 +203,8 @@ type ShareSafeContext = {
   accountByNumericId: Map<string, RecordAlias>;
   employmentPhaseByRawId: Map<string, RecordAlias>;
   employmentPhaseByRawLabel: Map<string, RecordAlias>;
+  spendingPhaseByRawId: Map<string, RecordAlias>;
+  spendingPhaseByRawLabel: Map<string, RecordAlias>;
   contributionPhaseByAccountAndRawId: Map<string, RecordAlias>;
   contributionPhaseByAccountAndRawLabel: Map<string, RecordAlias>;
   savingsPhaseByRawId: Map<string, RecordAlias>;
@@ -220,6 +222,7 @@ type ProvenanceField = {
   accountReferences?: AccountAlias[];
   accountField?: string;
   employmentPhase?: RecordAlias;
+  spendingPhase?: RecordAlias;
   contributionPhase?: RecordAlias;
   savingsPhase?: RecordAlias;
   balanceSheetRecord?: RawRecordAlias;
@@ -271,6 +274,14 @@ const EMPLOYMENT_PHASE_PROVENANCE_FIELDS = new Set([
   "endAge",
   "annualNetCashToday",
   "annualGrowth",
+]);
+const SPENDING_PHASE_PROVENANCE_FIELDS = new Set([
+  "label",
+  "startAge",
+  "endAge",
+  "essentialMultiplier",
+  "discretionaryMultiplier",
+  "source",
 ]);
 const RRSP_ROOM_GENERATION_PROVENANCE_FIELDS = new Set([
   "annualEligibleEarnedIncomeToday",
@@ -623,6 +634,25 @@ function createShareSafeContext(
     }
   }
 
+  const spendingPhaseByRawId = new Map<string, RecordAlias>();
+  const spendingPhaseByRawLabel = new Map<string, RecordAlias>();
+  for (const input of [baseline.projectionInputs, projection.inputs]) {
+    for (const phase of input.spendingPhases) {
+      let alias = spendingPhaseByRawId.get(phase.id);
+      if (!alias) {
+        const sequence = spendingPhaseByRawId.size + 1;
+        alias = {
+          key: `spending_phase_${sequence}`,
+          label: `Spending phase ${sequence}`,
+        };
+        spendingPhaseByRawId.set(phase.id, alias);
+      }
+      if (!spendingPhaseByRawLabel.has(phase.label)) {
+        spendingPhaseByRawLabel.set(phase.label, alias);
+      }
+    }
+  }
+
   const contributionPhaseByAccountAndRawId = new Map<string, RecordAlias>();
   const contributionPhaseByAccountAndRawLabel = new Map<string, RecordAlias>();
   let contributionSequence = 0;
@@ -724,6 +754,8 @@ function createShareSafeContext(
     accountByNumericId,
     employmentPhaseByRawId,
     employmentPhaseByRawLabel,
+    spendingPhaseByRawId,
+    spendingPhaseByRawLabel,
     contributionPhaseByAccountAndRawId,
     contributionPhaseByAccountAndRawLabel,
     savingsPhaseByRawId,
@@ -779,6 +811,17 @@ function requiredEmploymentPhaseAlias(
     rawId,
     context.employmentPhaseByRawId,
     "employment phase",
+  );
+}
+
+function requiredSpendingPhaseAlias(
+  rawId: string,
+  context: ShareSafeContext,
+): RecordAlias {
+  return requiredRecordAlias(
+    rawId,
+    context.spendingPhaseByRawId,
+    "spending phase",
   );
 }
 
@@ -911,6 +954,18 @@ function safeProjectionInputs(
     annualInflation: inputs.annualInflation,
     monthlyEssentialSpendingToday: inputs.monthlyEssentialSpendingToday,
     monthlyDiscretionarySpendingToday: inputs.monthlyDiscretionarySpendingToday,
+    spendingPhases: inputs.spendingPhases.map((phase) => {
+      const alias = requiredSpendingPhaseAlias(phase.id, context);
+      return {
+        id: alias.key,
+        label: alias.label,
+        startAge: phase.startAge,
+        endAge: phase.endAge,
+        essentialMultiplier: phase.essentialMultiplier,
+        discretionaryMultiplier: phase.discretionaryMultiplier,
+        source: phase.source,
+      };
+    }),
     retirementGoalToday: inputs.retirementGoalToday,
     tax: {
       effectiveTaxRate: inputs.tax.effectiveTaxRate,
@@ -1312,7 +1367,7 @@ function safeProjectionResult(
   context: ShareSafeContext,
 ): ProjectionResult {
   return {
-    schemaVersion: "8.0",
+    schemaVersion: "9.0",
     inputs: safeProjectionInputs(projection.inputs, context),
     summary: {
       retirementYear: projection.summary.retirementYear,
@@ -1966,6 +2021,23 @@ function provenanceField(
       };
     }
   }
+  const spendingPrefix = "spendingPhases.";
+  if (rawField.startsWith(spendingPrefix)) {
+    const remainder = rawField.slice(spendingPrefix.length);
+    const separator = remainder.lastIndexOf(".");
+    if (separator < 0) return undefined;
+    const rawPhaseId = remainder.slice(0, separator);
+    const finalField = remainder.slice(separator + 1);
+    if (!SPENDING_PHASE_PROVENANCE_FIELDS.has(finalField)) return undefined;
+    const phase = context.spendingPhaseByRawId.get(rawPhaseId);
+    return phase
+      ? {
+          reference: `${spendingPrefix}${phase.key}.${finalField}`,
+          spendingPhase: phase,
+          finalField,
+        }
+      : undefined;
+  }
   const employmentPrefix = "person.employmentIncomePhases.";
   if (rawField.startsWith(employmentPrefix)) {
     const remainder = rawField.slice(employmentPrefix.length);
@@ -2095,6 +2167,9 @@ function safeProvenanceValue(
   if (field.finalField === "label" && field.employmentPhase) {
     return field.employmentPhase.label;
   }
+  if (field.finalField === "label" && field.spendingPhase) {
+    return field.spendingPhase.label;
+  }
   if (field.finalField === "label" && field.contributionPhase) {
     return field.contributionPhase.label;
   }
@@ -2167,6 +2242,13 @@ function safeProvenanceValue(
     }
     if (field.finalField === "funding") {
       return allowedValue(value, CONTRIBUTION_FUNDING, "provenance contribution funding");
+    }
+    if (
+      field.finalField === "source" &&
+      field.spendingPhase &&
+      ["explicit_configuration", "compatibility_default"].includes(value)
+    ) {
+      return value;
     }
     if (field.accountField === "type") {
       return allowedValue(value, ACCOUNT_TYPE_ORDER, "provenance account type");
@@ -2538,7 +2620,7 @@ export function createProjectionSnapshot(
   const dataThrough = safeDateLike(baseline.dataThrough, projection.inputs.startDate);
   const safeGeneratedAt = requireIsoTimestamp(generatedAt);
   return {
-    schemaVersion: "8.0",
+    schemaVersion: "9.0",
     generatedAt: safeGeneratedAt,
     exportMetadata: {
       transformation: "typed_allowlist_and_automatic_anonymization",

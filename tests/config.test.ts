@@ -243,6 +243,71 @@ describe("private planner configuration", () => {
     ).toHaveLength(2);
   });
 
+  it("accepts spending phases in simple and advanced modes and preserves omission compatibility", async () => {
+    const simple = await loadPlannerConfig(EXAMPLE_CONFIG_PATH);
+    expect(simple.spendingPhases).toHaveLength(2);
+    expect(() => validatePlannerConfig(simple)).not.toThrow();
+
+    const omittedSimple = structuredClone(simple);
+    delete omittedSimple.spendingPhases;
+    expect(() => validatePlannerConfig(omittedSimple)).not.toThrow();
+
+    const advanced = await advancedConfig();
+    expect(advanced.configurationMode).toBe("advanced");
+    expect(advanced.spendingPhases).toHaveLength(2);
+    expect(() => validatePlannerConfig(advanced)).not.toThrow();
+
+    const omittedAdvanced = structuredClone(advanced);
+    delete omittedAdvanced.spendingPhases;
+    expect(() => validatePlannerConfig(omittedAdvanced)).not.toThrow();
+  });
+
+  it("rejects invalid spending-phase values and incomplete ranges", async () => {
+    const valid = await loadPlannerConfig(EXAMPLE_CONFIG_PATH);
+    const invalid = (mutate: (config: PlannerConfig) => void) => {
+      const config = structuredClone(valid);
+      mutate(config);
+      return () => validatePlannerConfig(config);
+    };
+
+    expect(invalid((config) => { config.spendingPhases = []; })).toThrow(
+      "must contain at least one phase",
+    );
+    expect(invalid((config) => {
+      config.spendingPhases![1]!.id = config.spendingPhases![0]!.id;
+    })).toThrow("duplicate phase id");
+    expect(invalid((config) => {
+      config.spendingPhases![0]!.startAge = config.currentAge - 1 / 12;
+    })).toThrow("must not be before currentAge");
+    expect(invalid((config) => {
+      config.spendingPhases![1]!.endAge = config.projectionEndAge + 1 / 12;
+    })).toThrow("must not be after projectionEndAge");
+    expect(invalid((config) => {
+      config.spendingPhases![0]!.endAge = config.spendingPhases![0]!.startAge;
+    })).toThrow("endAge must be greater than startAge");
+    expect(invalid((config) => {
+      config.spendingPhases![0]!.endAge += 0.01;
+    })).toThrow("must align to a projection month");
+    expect(invalid((config) => {
+      config.spendingPhases![1]!.startAge = 61;
+    })).toThrow("overlap");
+    expect(invalid((config) => {
+      config.spendingPhases![1]!.startAge = 63;
+    })).toThrow("gap");
+    expect(invalid((config) => {
+      config.spendingPhases![0]!.startAge += 1 / 12;
+    })).toThrow("must begin at currentAge");
+    expect(invalid((config) => {
+      config.spendingPhases![1]!.endAge -= 1 / 12;
+    })).toThrow("must end at projectionEndAge");
+    expect(invalid((config) => {
+      config.spendingPhases![0]!.essentialMultiplier = -0.01;
+    })).toThrow("essentialMultiplier must be at least 0");
+    expect(invalid((config) => {
+      config.spendingPhases![0]!.discretionaryMultiplier = "not-a-number" as never;
+    })).toThrow("discretionaryMultiplier must be a finite number");
+  });
+
   it("uses plain-language, actionable instructions in the primary example", async () => {
     const contents = await exampleContents();
     const comments = contents
