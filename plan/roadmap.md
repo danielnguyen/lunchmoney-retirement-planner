@@ -1,619 +1,289 @@
 # Project Roadmap
 
-This is the living roadmap for Lunch Money Retirement Planner.
+## Purpose and product standard
 
-It records planned modelling and product capabilities without embedding any private financial scenario, personal target, account detail, employer information, or identifying data. Public examples and tests must remain synthetic.
+Lunch Money Retirement Planner is intended to be a high-confidence deterministic calculator. Given accurate source data and explicit assumptions, it should calculate the stated scenario consistently, reconcile important results, retain provenance, and avoid material hidden behaviour.
 
-## How to use this document
+This standard is distinct from probability-of-success reporting. A deterministic projection does not establish a success probability. Sequence-of-returns analysis, Monte Carlo simulation, and other probabilistic methods remain later capabilities.
 
-Roadmap items use these statuses:
+Public planning material, examples, and tests must remain synthetic and must not contain private financial scenarios, account details, employer information, credentials, or identifying data.
 
-- **Completed** — merged and validated
-- **In progress** — implementation exists in an open pull request
-- **Planned** — accepted next work
-- **Later** — useful work intentionally deferred
+## Status summary
 
-Each major capability should normally be delivered in its own pull request. Adjacent items may be combined only when their model contracts cannot be separated safely.
+| Order | Capability | Status | Delivery |
+|---|---|---|---|
+| 1 | Government benefits | Completed | [PR #8](https://github.com/danielnguyen/lunchmoney-retirement-planner/pull/8) |
+| 2 | Surplus allocation policy | Completed | [PR #9](https://github.com/danielnguyen/lunchmoney-retirement-planner/pull/9) |
+| 3 | Registered-account room and contribution waterfall | Completed | [PR #10](https://github.com/danielnguyen/lunchmoney-retirement-planner/pull/10) |
+| 4 | Net worth, real estate, and debt amortization | Completed | [PR #11](https://github.com/danielnguyen/lunchmoney-retirement-planner/pull/11) |
+| 5 | General spending phases | **Next** | — |
+| 6 | RRIF minimum withdrawals and Canadian retirement taxes | Planned | — |
 
-## Product standard
+Status and delivery metadata for the active implementation belongs in [`implementation-index.md`](./implementation-index.md). The numbered order above is planning shorthand only; product and implementation names must describe their financial capability.
 
-The planner should become a high-confidence deterministic calculator: given accurate inputs and explicit assumptions, it should calculate the stated scenario consistently, reconcile important results, and avoid material hidden behaviour.
+## Completed foundation
 
-This standard is different from probability-of-success reporting. A single deterministic projection cannot establish a success probability. Sequence-of-returns and probabilistic modelling remain later roadmap items.
+### Core baseline and projection foundation
 
-## Current foundation
+The completed foundation provides:
 
-### Completed
+- read-only Lunch Money ingestion for accounts, categories, recurring items, and paginated transactions;
+- explicit account and category mappings through ignored local configuration;
+- a deterministic monthly, single-person projection with nominal and today-dollar views;
+- account-level balances, returns, allocations, contributions, and withdrawal priority;
+- employment income represented as net deposited cash, with distinct cash-funded and income-withheld contribution semantics;
+- explicit employment-income and account-contribution phases with inclusive starts, exclusive ends, and phase-local funding, indexing, or growth;
+- calendar-anchored partial-year reporting and exact retirement-boundary snapshots;
+- start-to-retirement bridges and annual ledgers that reconcile to shared projection results;
+- cash-flow audit evidence grouped by category and account;
+- accessible explanations, provenance, temporary overrides, reset behaviour, and deterministic legacy normalization; and
+- typed allowlisted JSON plus a conventional rectangular annual CSV with source identifiers and credentials removed.
 
-- Read-only Lunch Money baseline for accounts, categories, recurring items, and paginated transactions
-- Explicit account and category mappings through private local configuration
-- Single-person monthly projection with nominal and today-dollar views
-- Account-level balances, contributions, returns, allocations, and withdrawal priority
-- Employment income treated as net deposited cash rather than taxed again
-- Cash-funded and income-withheld contribution semantics
-- Calendar-anchored partial-year reporting
-- Typed JSON export and conventional flat CSV export
-- Source-identifier and credential removal at the export boundary
-- Accessible tooltips and inspectable calculation explanations
-- Cash-flow audit evidence grouped by category and account
-- Explicit employment-income phases with inclusive starts and exclusive ends
-- Per-account contribution phases with phase-local funding and indexing
-- Exact retirement-boundary snapshots covering the final working month
-- Start-to-retirement accumulation bridges that reconcile to the retirement snapshot
-- Temporary phase overrides and reset behaviour
-- Deterministic compatibility normalization for legacy scalar inputs
+Resolved typed inputs and projection results are the durable source of truth for the dashboard, charts, explanations, ledger, and exports.
 
-The phased income and contribution model is the foundation for the planned modelling work below.
+### Government benefits
 
----
+[PR #8](https://github.com/danielnguyen/lunchmoney-retirement-planner/pull/8) made CPP and OAS explicit, dated, inspectable retirement-income inputs.
 
-## Planned modelling roadmap
+- CPP supports an owner-supplied official estimate, an explicit configured amount, or a clearly labelled dated Canadian reference fallback. The amount-at-65 basis, claim age, early or delayed adjustment, indexing, source, and effective date remain visible.
+- OAS retains its dated amount-at-65 basis, explicit full or partial eligibility, qualifying Canadian-residence years after age 18 and resulting fraction where applicable, claim-age adjustment, indexing, and the permanent increase after the age-75 boundary.
+- Generic maximum, average, or reference amounts are never presented as personal entitlements, and zero benefits require explicit evidence or a visible warning.
+- Calculations, explanations, dashboard values, ledger rows, and exports use the same resolved benefit results, tax treatment, and provenance.
 
-### 1. Government benefits
+### Surplus allocation policy
 
-#### Goal
+[PR #9](https://github.com/danielnguyen/lunchmoney-retirement-planner/pull/9) replaced account-order-dependent positive-cash handling with an explicit reserve and excess-allocation policy.
 
-Resolve CPP and OAS into explicit, dated, inspectable retirement-income inputs instead of silently defaulting to zero or presenting generic reference values as personal entitlements.
+- The policy identifies the cash accounts counted toward a today-dollar indexed reserve target and the account that receives reserve refills.
+- Remaining excess follows the resolved strategy, while projection-only investment accounts open at zero, retain explicit return/allocation/withdrawal assumptions, and remain distinct from imported Lunch Money balances. Invalid policy destinations block projection.
+- Targeted event inflows remain isolated from unrelated monthly cash, policy deposits reconcile by destination, and internal routing does not create financial assets.
+- Dashboard controls, explanations, annual rows, JSON, and rectangular CSV use shared policy results with deterministic export aliases.
 
-#### CPP requirements
+### Registered-account room and contribution waterfall
 
-Support these source modes:
+[PR #10](https://github.com/danielnguyen/lunchmoney-retirement-planner/pull/10) added one global TFSA room pool, one global RRSP room pool, and room-constrained contribution routing.
 
-1. Official estimate supplied through private configuration
-2. Explicit configured amount when an official estimate is unavailable
-3. Dated Canadian reference value used only as a clearly labelled fallback
+- Starting room is explicit, dated, and authoritative for the projection-start position rather than inferred from balances or added to the current year twice. Annual room generation, carry-forward, TFSA next-year withdrawal restoration, RRSP eligible earned income, dated statutory caps, pension adjustments, and other reductions remain inspectable.
+- Workplace RRSP contributions receive first claim on global RRSP room and unsupported overflow remains unallocated.
+- Personal investing follows TFSA, personal RRSP, then taxable; personal cash never uses the workplace RRSP.
+- Reserve-building savings remain cash until the indexed combined target is reached and redirect through the personal order at the exact crossing boundary.
+- Only explicit savings plans are invested. Unplanned positive cash remains operating cash, and a missing real taxable destination resolves to a deterministic zero-balance projection-only account.
+- Simple intent-based configuration and advanced routing compatibility are mutually exclusive, deterministic, and resolved before calculation.
 
-Retain:
+### Net worth, real estate, and debt amortization
 
-- monthly amount at age 65 in today’s dollars
-- source type and description
-- effective date
-- claim age
-- early or delayed claim adjustment
-- indexing assumption
+[PR #11](https://github.com/danielnguyen/lunchmoney-retirement-planner/pull/11) established a complete balance-sheet contract while keeping retirement funding separate from net worth.
 
-A generic maximum, average, or reference value must never be described as a personal CPP entitlement.
+- Financial accounts, non-financial assets, and liabilities are distinct resolved concepts. Total net worth is financial assets plus non-financial assets minus liabilities, and home equity is residence value minus linked mortgage. Retirement-funding assets contain only cash and investments; residence equity remains unavailable to withdrawals.
+- A primary residence may come from one imported real-estate account or an explicit fallback valuation, with mutually exclusive sources and explicit appreciation.
+- Positive liabilities require explicit payoff treatment. Amortizing schedules preserve rate convention, payment amount and frequency, monthly equivalent, effective date, lump sums, interest, principal, closing balance, and payoff date.
+- Required liability payments are funded before ordinary spending or cash-funded savings. Principal reduces financial assets and liabilities together without being counted as consumption; interest remains an expense; payments stop at payoff.
+- Historical mortgage payments are replaced exactly once. Dedicated categories, an explicit already-excluded assertion, or exact normalized payee-plus-source matching are mutually exclusive handling choices. Exact matching occurs before ordinary category and reviewed-recurring classification so unrelated mixed-category spending remains intact.
+- Financial-assets, liability-schedule, balance-sheet, and total-net-worth results reconcile within one cent and feed the same dashboard, explanations, annual rows, JSON, and CSV.
 
-#### OAS requirements
+## Next capability: General spending phases
 
-Support:
+### Goal
 
-- full OAS amount at age 65 in today’s dollars
-- qualifying Canadian-residence years after age 18
-- explicit full or partial eligibility
-- claim age
-- delayed-claim adjustment
-- permanent 10% increase beginning in the first modelled month after the age-75 boundary
-- indexing assumption
+Model non-debt lifestyle expenses that change over time without coupling them to liability amortization or inferring personal life events.
 
-When residence years are supplied, calculate the eligible fraction deterministically. When eligibility is unknown, require an explicit assumption or clearly labelled reference fallback.
+Essential and discretionary spending must remain distinct throughout baseline resolution, monthly projection, presentation, explanations, and exports.
 
-#### Explanations
+### Model contract
 
-CPP and OAS explanations must show:
+- Spending is represented by explicit time-bounded phases for essential and discretionary expenses.
+- Each phase has an inclusive start and exclusive end aligned to projection months.
+- Each phase supplies an explicit amount basis and an explicit inflation or phase-local growth assumption.
+- A phase may use the current Lunch Money spending baseline only when configuration explicitly requests that source; omission must not silently select live baseline spending.
+- Configuration may represent known transitions such as employment-related costs, temporary household costs, later-life healthcare or care costs, and other owner-specified lifestyle changes.
+- The planner never predicts career, family, health, care, or lifestyle events automatically.
+- Resolved typed spending inputs remain the source of truth; presentation layers do not independently reconstruct phase selection or growth.
 
-- base amount at age 65
-- claim-age adjustment
-- eligibility fraction where applicable
-- indexing
-- gross annual benefit
-- tax treatment
-- source and effective date
+### Boundaries and validation
 
-#### Acceptance criteria
+- Phase selection changes at the exact configured projection-month boundary.
+- Overlaps and gaps are validated explicitly rather than resolved by ordering or silent fallback. Any intentionally inactive interval must be represented unambiguously.
+- Phase ages, dates, amounts, and growth assumptions must be finite, internally consistent, and within established project bounds.
+- Inclusive-start and exclusive-end semantics must hold for integer and fractional ages and for mid-calendar-year transitions.
+- Essential and discretionary phases are validated independently while preserving their separate totals.
+- The planner must not infer phase boundaries from transaction cadence, payees, account names, employment changes, or demographic assumptions.
 
-- CPP and OAS cannot remain zero without an explicit zero assumption or visible warning.
-- Official estimates remain distinguishable from generic references.
-- Claim-age adjustments reconcile exactly to projected monthly benefits.
-- OAS partial eligibility reconciles to the configured residence fraction.
-- OAS increases by exactly 10% beginning in the first modelled month after the age-75 boundary.
-- Dashboard, ledger, charts, explanations, JSON, and CSV use the same resolved values.
-- Private statements and external credentials are never committed or exported.
+### Baseline and compatibility behaviour
 
----
+- Lunch Money remains evidence for current non-debt essential and discretionary spending.
+- Debt payments and liability schedules remain outside general spending phases. Historical mortgage payments replaced by a liability schedule must not re-enter essential or discretionary spending.
+- Investment contributions and internal transfers are not lifestyle spending.
+- Configured future phases reconcile to their explicit configuration and, when selected, the relevant baseline evidence and provenance.
+- If current scalar spending inputs remain supported, their compatibility behaviour must be deterministic, visible, documented, and normalized into the same resolved phase model before projection.
+- Missing or incompatible evidence must produce a clear validation or unavailable-evidence state rather than an invented amount.
 
-### 2. Surplus allocation policy
+### Projection, presentation, and export behaviour
 
-#### Goal
+- Monthly spending changes exactly when a configured phase starts or ends.
+- Partial first and final years remain anchored to calendar months, and annual totals include only the active months in each phase.
+- Nominal and today-dollar views apply the same phase timing and differ only through the established inflation/display semantics.
+- Financial-asset and net-worth bridges subtract the same non-debt spending results used by the monthly projection.
+- Dashboard summaries, annual charts, ledger rows, explanations, JSON, and CSV consume the shared projected spending results.
+- Explanations identify the active phase, essential and discretionary amounts, growth assumption, source, effective boundary, and any active override.
+- JSON remains typed and anonymized; CSV remains one rectangular annual scalar table without nested phase objects or private labels.
+- Temporary controls, reset, and refresh behaviour must preserve the existing provenance contract if phase assumptions are exposed as overrides.
 
-Replace the implicit behaviour that sends every positive monthly cash flow to the first cash account with an explicit and inspectable allocation policy.
+### Non-goals
 
-#### Required policy model
+This capability does not add:
 
-The resolved policy must include:
+- automatic career, family, healthcare, care, or lifestyle forecasting;
+- mortgage, debt-amortization, refinancing, or property-cost submodels;
+- RRIF minimum withdrawals or a progressive Canadian tax engine;
+- stochastic, sequence-of-returns, or probability-of-success modelling; or
+- a generic event or rules engine.
 
-- target cash reserve in today’s dollars
-- reserve indexing
-- destination for cash above the reserve
-- explicit handling when no valid destination exists
+### Acceptance criteria
 
-#### Projection-only accounts
+- Essential and discretionary spending change at exact inclusive-start, exclusive-end monthly boundaries.
+- Partial first years, partial final years, and fractional-age transitions use the projection’s existing calendar semantics.
+- Gaps and overlaps cannot silently select or omit spending.
+- Every phase has explicit growth and an inspectable source; live baseline values are used only when requested.
+- Debt payments, liability schedules, contributions, and transfers are not duplicated as lifestyle spending.
+- Current scalar compatibility, if retained, resolves deterministically into the same typed inputs.
+- Monthly results, annual presentation, explanations, nominal and real bridges, JSON, and CSV agree within one cent.
+- Synthetic tests cover boundary months, gaps, overlaps, baseline-selected and configured amounts, phase-local growth, partial years, compatibility, privacy, and negative reconciliation cases.
+- No personal transition is inferred automatically.
 
-Allow explicitly configured projection accounts with zero opening balance, such as a future non-registered investment account. They must:
+## Planned capability: RRIF minimum withdrawals and Canadian retirement taxes
 
-- remain clearly distinguished from Lunch Money accounts
-- have explicit return, allocation, contribution, and withdrawal assumptions
-- use deterministic export-local identifiers
-- never be presented as imported balances
+### Goal
 
-#### Monthly behaviour
+Model mandatory registered-account withdrawals and a materially more realistic deterministic Canadian retirement-tax path.
 
-For each positive monthly surplus:
+### RRIF conversion and minimum withdrawals
 
-1. Refill the indexed cash reserve.
-2. Allocate remaining surplus according to the configured strategy.
-3. Record the amount retained as cash and the amount routed elsewhere.
-4. Block or warn when no valid destination exists.
+- Convert RRSP treatment to RRIF treatment at the configured conversion age.
+- Calculate statutory minimum withdrawals from dated age-based factors with source and effective-date provenance.
+- Ensure actual annual withdrawals are never below the applicable minimum while allowing larger withdrawals when cash flow requires them.
+- Tax RRIF withdrawals as ordinary income.
+- Route cash remaining after spending and tax through the active surplus policy.
+- Make the RRIF milestone reflect actual conversion and withdrawal behaviour rather than a label alone.
 
-Do not automatically route excess into TFSA or RRSP until registered-account room is modelled.
+### Tax model
 
-#### Explanations
+Replace the single flat effective retirement-income rate with a deterministic Canadian model that includes at least:
 
-Show:
+- annual federal brackets and configured provincial brackets;
+- the basic personal amount;
+- the age amount where applicable;
+- the pension-income amount where applicable;
+- CPP and OAS taxation;
+- RRSP and RRIF taxation;
+- TFSA tax-free treatment; and
+- OAS recovery tax based on relevant taxable income, including registered withdrawals.
 
-- total surplus generated
-- amount retained in cash
-- amount redirected to each destination
-- active reserve target
-- policy source
-- effect on retirement assets and allocation
+Non-registered taxation may initially use explicit simplified assumptions for interest, eligible dividends, capital gains, and adjusted cost base. Every simplification must be labelled, sourced, and tested.
 
-#### Acceptance criteria
+### Tax-year semantics
 
-- The engine no longer selects the first cash account implicitly.
-- Cash reserve and excess allocation are first-class resolved inputs.
-- Internal transfers do not change total financial assets.
-- Account composition and investment returns change consistently with the policy.
-- Accumulation bridges remain reconciled.
-- Overrides and resets update policy explanations immediately.
-- Export privacy and deterministic account aliasing remain intact.
+- Accumulate taxable income by calendar tax year rather than independently applying annual rules each month.
+- Apply annual brackets, credits, and recovery tax to the relevant tax year.
+- Reconcile annual tax to the projection’s cash flows and withdrawal decisions.
+- Handle partial first and final years explicitly without silently applying a full-year assumption.
+- Keep nominal statutory inputs, reference years, indexation, and future forecasts inspectable.
 
----
+### Explanations and exports
 
-### 3. Registered-account room and contribution waterfall
+For each annual period, expose:
 
-#### Goal
+- taxable income by source;
+- deductions and credits modelled;
+- federal and provincial tax;
+- OAS recovery tax;
+- total tax and effective tax rate; and
+- RRIF minimum and actual withdrawal.
 
-Prevent impossible TFSA or RRSP contributions and model where planned savings go after registered room is exhausted.
+Dashboard, explanations, annual rows, JSON, and rectangular CSV must use the same tax and RRIF results. Statutory sources, reference dates, forecast assumptions, and compatibility behaviour must retain provenance and share-safe aliases.
 
-The primary owner-facing model is intent based: account IDs occur only as `accountMappings` keys with roles, starting room is an amount plus date, every employment phase explicitly supplies RRSP room-generation assumptions, and named personal, reserve-building, and workplace plans omit source/destination arrays. A compiler resolves that simple model into the detailed projection inputs. The existing low-level route model remains mutually exclusive advanced compatibility.
-
-#### TFSA room
-
-Support:
-
-- starting available room
-- annual new room
-- optional carry-forward assumptions
-- room consumed by projected contributions
-- contribution suspension when room reaches zero until new room becomes available
-
-The annual room amount must be explicitly configured or resolved from dated Canadian reference data. Historical room must never be inferred from current balances alone.
-
-#### RRSP room
-
-Support:
-
-- starting available deduction room
-- new annual room generated from eligible earned income
-- annual statutory cap from dated reference data
-- configurable pension adjustment or other room reduction
-- room consumed by projected contributions
-
-The model may remain simplified, but all simplifications must be visible and deterministic.
-
-#### Contribution waterfall
-
-The canonical personal order is:
-
-1. TFSA while room is available
-2. RRSP while room is available
-3. Non-registered investments
-
-Workplace RRSP contributions run first against the global RRSP room pool, overflow remains unallocated, and personal cash never uses the workplace account. If no real personal taxable account is assigned, create a deterministic zero-balance projection-only destination. Reserve-building savings stay cash until the indexed combined target is reached and redirect any same-month crossing amount through the personal order. Only explicit plan amounts are invested; remaining positive cash stays in operating cash.
-
-The resolved waterfall must distinguish:
-
-- planned contribution
-- allowed contribution after room constraints
-- cash-funded contribution
-- income-withheld contribution
-- redirected amount
-- unallocated amount
-
-#### Explanations
-
-For each registered account and annual period, show:
-
-- opening room
-- new room
-- planned contribution
-- allowed contribution
-- closing room
-- overflow destination
-
-#### Acceptance criteria
-
-- TFSA and RRSP balances cannot receive contributions beyond modelled room.
-- Room generation and consumption reconcile by year.
-- Planned contributions above available room are redirected or visibly left unallocated according to policy.
-- Income-withheld contributions retain their cash-flow semantics.
-- Ledger and exports expose planned, allowed, and redirected contributions without nested JSON in CSV.
-- Compatibility behaviour is explicit when room modelling is omitted.
-- Simple and advanced configuration cannot mix.
-- Account roles compile to deterministic routes without repeating IDs.
-- Workplace RRSP has first room priority and overflow is unallocated.
-- Unplanned positive cash is retained rather than invested.
-- The automatic taxable destination remains projection-only and opens at zero.
-
----
-
-### 4. Net worth, real estate, and debt amortization
-
-#### Goal
-
-Make projected net worth conceptually and mathematically complete by separating
-financial accounts, non-financial assets, and liabilities, then replacing
-static positive debt with explicit payoff behaviour.
-
-The model must distinguish:
-
-- retirement-funding financial assets that are available to the withdrawal
-  engine
-- non-financial assets, beginning with a primary residence
-- liabilities, including a linked primary mortgage
-- home equity
-- total assets, total liabilities, and total net worth
-
-Home equity is part of net worth but is not available for retirement
-withdrawals until a later explicit sale or conversion capability is added.
-
-#### Primary residence and balance sheet
-
-Support either an imported Lunch Money real-estate account or an explicit
-fallback current residence value and valuation date, plus a nominal
-appreciation assumption. The two sources are mutually exclusive. The imported
-form uses the account balance and balance date and does not duplicate the
-valuation in local configuration. The residence remains unavailable to
-withdrawals.
-
-The resolved balance sheet must reconcile:
-
-```text
-retirement funding assets
-= cash + TFSA + RRSP/RRIF + non-registered investments
-
-total assets
-= retirement funding assets + non-financial assets
-
-total liabilities
-= the sum of liability balances
-
-home equity
-= residence value - linked mortgage balance
-
-total net worth
-= total assets - total liabilities
-```
-
-Liabilities must not remain inside the resolved financial-account collection,
-and the same opening debt must never appear in both places.
-
-#### Debt schedules and spending replacement
-
-Support explicit amortization schedules for mapped debts that materially affect the projection.
-
-A schedule should support:
-
-- opening principal
-- interest rate
-- explicit interest-rate convention
-- regular payment
-- payment frequency or monthly equivalent
-- start date
-- optional lump-sum payments
-
-The schedule effective date must be on or before projection start for an
-imported opening liability. The imported balance remains authoritative; the
-projection must not replay historical amortization or imply future debt
-origination. Required liability demand must be fully funded before the
-liability closing balance is committed, and a configured lump sum must be
-consumed exactly once or rejected clearly.
-
-The engine must distinguish:
-
-- interest expense
-- principal repayment
-- lump-sum principal repayment
-- total liability cash payment
-- remaining debt balance
-- payoff date
-
-Principal repayment reduces financial assets and the liability equally, so it
-has no direct net-worth effect. Interest is consumption. The full payment still
-leaves the financial portfolio, and payments stop automatically at payoff.
-
-Historical debt-payment categories must be excluded from essential and
-discretionary spending, retained as audit evidence, and replaced exactly once
-by the configured schedule. The planner must not infer future interest rates,
-payments, or amortization terms from transaction history.
-
-When a liability payment shares a category with unrelated ordinary spending,
-support an exact normalized payee plus exact canonical source-account matcher.
-Run that matcher before category and reviewed-recurring-item classification.
-Only debit/outflow records matching both fields become debt-payment evidence;
-unrelated records in the same category retain their normal classification.
-Amount, date, cadence, substring and fuzzy matching must not select payments.
-Dedicated debt-payment categories and an explicit already-excluded/transfer
-assertion remain mutually exclusive compatibility alternatives.
-
-#### Explanations
-
-Show:
-
-- retirement-funding assets, non-financial assets, liabilities, home equity,
-  and total net worth
-- the total-net-worth formula and bridge
-- residence value and appreciation provenance
-- opening liability principal and treatment
-- entered payment amount and frequency plus its monthly equivalent
-- debt payment, interest, and principal components
-- lump sums, closing balance, and payoff date
-- historical-payment replacement evidence
-- the limitation that residence equity cannot fund retirement
-- the limitation that mortgage renewal and rate-change phases are not yet
-  modelled
-
-#### Acceptance criteria
-
-- Financial accounts contain only cash, TFSA, RRSP/RRIF, and non-registered
-  assets.
-- The residence is a typed non-financial asset and is unavailable to
-  withdrawals.
-- An included imported real-estate account supplies the residence value and
-  valuation date without also entering financial accounts.
-- Imported and fallback residence sources are mutually exclusive.
-- Imported debts resolve once as typed liabilities with explicit treatment.
-- Debt balances reconcile to amortization schedules.
-- Principal repayment reduces debt without being counted as consumption twice.
-- Interest remains an expense.
-- Debt-linked spending stops at payoff.
-- Historical debt payments are replaced by the schedule exactly once.
-- Exact liability-payment matching runs before categories and preserves
-  unrelated mixed-category spending.
-- Financial-assets and net-worth bridges both reconcile within one cent.
-- Dashboard, explanations, annual rows, JSON, and rectangular CSV consume the
-  same balance-sheet result.
-- Total net worth includes the residence and liabilities, while retirement
-  depletion continues to use financial assets only.
-- Static positive debt cannot run silently.
-
----
-
-### 5. General spending phases
-
-#### Goal
-
-Model non-debt lifestyle expenses that change over time without coupling them
-to liability amortization.
-
-Support explicit essential and discretionary spending phases with:
-
-- inclusive starts and exclusive ends
-- projection-month-aligned boundaries
-- explicit gap and overlap validation
-- explicit inflation or phase-local growth
-- optional use of the current Lunch Money spending baseline only when the
-  configured phase requests it
-
-Allow configured transitions for employment-related costs, temporary
-household expenses, later-life healthcare or care costs, and other known
-lifestyle changes. The planner must not infer personal life events
-automatically.
-
-Acceptance requires spending to change at exact configured boundaries and
-future phases to reconcile to their explicit configuration and baseline
-evidence.
-
----
-
-### 6. RRIF minimum withdrawals and improved Canadian taxes
-
-#### Goal
-
-Model mandatory registered-account withdrawals and a materially more realistic Canadian retirement-tax path.
-
-#### RRIF conversion and minimum withdrawals
-
-At the configured conversion age:
-
-- convert RRSP treatment to RRIF treatment
-- calculate the statutory minimum withdrawal using dated age-based factors
-- withdraw at least the minimum each year
-- allow larger withdrawals when cash flow requires them
-- tax RRIF withdrawals as ordinary income
-- route excess after spending and tax through the active surplus policy
-
-The RRIF milestone must represent real model behaviour rather than a label only.
-
-#### Tax model
-
-Replace the single flat effective rate for retirement income with a deterministic Canadian tax model that includes at least:
-
-- federal brackets
-- configured provincial brackets
-- basic personal amount
-- age amount where applicable
-- pension-income amount where applicable
-- CPP and OAS taxation
-- RRSP and RRIF taxation
-- TFSA tax-free treatment
-- OAS recovery tax based on relevant taxable income, including RRIF withdrawals
-
-Non-registered taxation may initially use explicit simplified assumptions for:
-
-- interest
-- eligible dividends
-- capital gains
-- adjusted cost base
-
-Every simplification must be labelled and covered by tests.
-
-#### Tax-year semantics
-
-Tax must be calculated on annual taxable income rather than independently per month when that would produce materially different results.
-
-The engine should:
-
-1. Accumulate taxable income by tax year.
-2. Apply annual brackets, credits, and recovery tax.
-3. Reconcile annual tax to projection cash flows.
-4. Handle partial first and final years explicitly.
-
-#### Explanations
-
-For each annual period, show:
-
-- taxable income by source
-- deductions and credits modelled
-- federal tax
-- provincial tax
-- OAS recovery tax
-- total tax
-- effective tax rate
-- RRIF minimum and actual withdrawal
-
-#### Acceptance criteria
+### Acceptance criteria
 
 - RRIF minimum withdrawals begin at the configured statutory age and use dated factors.
-- Actual RRIF withdrawal is never below the required minimum.
+- Actual RRIF withdrawals are never below the required minimum, while larger cash-flow withdrawals remain possible.
 - Excess RRIF cash follows the surplus policy.
-- Taxable income and tax reconcile by annual period.
-- OAS recovery tax includes taxable registered withdrawals.
-- TFSA withdrawals remain tax-free.
-- Tax rules and reference dates are visible in provenance and exports.
-- The flat-rate model remains only as an explicitly labelled compatibility mode or is removed through a documented migration.
-
----
+- RRIF, RRSP, CPP, and OAS taxable income is included correctly; TFSA withdrawals remain tax-free.
+- OAS recovery tax includes applicable taxable registered withdrawals.
+- Federal tax, provincial tax, credits, recovery tax, and total tax reconcile by annual period within one cent.
+- Partial-year and tax-year boundary behaviour is explicit and tested.
+- Tax rules, dated references, simplifications, and forecasts remain visible in provenance, explanations, and exports.
+- The flat-rate model remains only as explicitly labelled deterministic compatibility or is removed through a documented migration.
 
 ## Cross-cutting requirements
 
-Every roadmap capability must preserve the planner’s existing trust boundary.
-
 ### One source of truth
 
-- Projection calculations consume resolved typed inputs.
-- UI components do not recreate financial formulas.
-- Explanations, charts, ledgers, and exports use the same projection result.
+- Calculations consume resolved typed inputs.
+- UI components and explanation layers do not recreate financial formulas.
+- Dashboard, charts, ledger, explanations, and exports consume the same projection result.
 
 ### Reconciliation
 
-- Important balances and flows reconcile within one cent.
-- A success label appears only after reconciliation.
-- Missing evidence produces an honest unavailable-evidence state.
+- Material balances and flows reconcile within one cent at relevant monthly, annual, retirement, and aggregate boundaries.
+- A success label appears only after every required equality passes.
+- Missing evidence produces an honest validation or unavailable-evidence state.
 
-### Provenance
+### Provenance and compatibility
 
-Every resolved value records:
+- Every material resolved value retains source type, source description, effective date, active override where applicable, and compatibility fallback where applicable.
+- Compatibility is retained only when deterministic, visible, tested, and documented.
+- Schema migrations are explicit and do not silently reinterpret financial meaning.
 
-- source type
-- source description
-- effective date
-- active override where applicable
-- compatibility fallback where applicable
+### Privacy and exports
 
-### Configuration and compatibility
-
-- Canonical public examples use synthetic data only.
-- Private YAML remains ignored by Git and Docker build contexts.
-- Schema migrations are explicit.
-- Legacy inputs remain supported only when compatibility behaviour is deterministic and documented.
-
-### Exports and privacy
-
+- Private YAML remains ignored by Git and excluded from Docker build contexts.
+- Public documentation, fixtures, screenshots, commits, logs, and pull-request text use synthetic, non-identifying data only.
 - JSON remains typed and allowlisted.
-- CSV remains one rectangular annual table.
-- Raw source-system identifiers, account numbers, credentials, statements, and private configuration are not exposed.
-- New account, phase, benefit, debt, room, and tax references use deterministic export-local keys.
-- Public documentation, fixtures, screenshots, commits, logs, and pull-request text contain no private financial values or identifying scenario details.
+- CSV remains one rectangular annual table without embedded objects, arrays, metadata preambles, or multiple schemas.
+- Raw source-system identifiers, account numbers, credentials, statements, private labels, and private configuration text do not cross export boundaries.
+- Account, phase, benefit, debt, room, and tax references use deterministic export-local identifiers.
 
 ### Validation
 
-Each implementation pull request must run:
+Each implementation pull request must run and report:
 
-- unit and regression tests
-- typecheck
-- lint
-- production build
-- Docker build
-- Docker Compose validation
-- synthetic end-to-end smoke tests
-- export privacy checks
+- unit and regression tests;
+- typecheck and lint;
+- production build;
+- Docker image build and Docker Compose validation;
+- relevant synthetic end-to-end checks;
+- one-cent reconciliation checks; and
+- JSON and nominal/real CSV privacy checks.
 
-No implementation pull request may use private financial data in fixtures, screenshots, logs, commits, or pull-request text.
-
----
-
-## Delivery sequence
-
-### Phase A — Government benefits
-
-Resolve CPP and OAS inputs, provenance, claim-age behaviour, explanations, and exports.
-
-### Phase B — Surplus policy
-
-Add indexed cash reserve, projection-only investment destinations, explicit surplus routing, and reconciliation.
-
-### Phase C — Contribution room
-
-Add TFSA/RRSP room ledgers and a configurable contribution waterfall.
-
-### Phase D — Net worth and debt amortization
-
-Add the residence balance sheet, liability schedules, debt-payment spending
-replacement, home equity, and reconciled total net worth.
-
-### Phase E — General spending phases
-
-Add explicit non-debt lifestyle spending transitions.
-
-### Phase F — RRIF and taxes
-
-Add statutory RRIF minimums and annual Canadian retirement-tax calculations.
-
-Implementation should pause after each phase for synthetic review and private local smoke testing before proceeding.
-
----
+Private financial data must never appear in fixtures, screenshots, logs, commits, documentation, or pull-request text.
 
 ## Deterministic-confidence exit criteria
 
-The current planned sequence is complete when the planner can demonstrate all of the following for an accurately configured scenario:
+The accepted deterministic roadmap is complete when an accurately configured scenario can demonstrate that:
 
-- Government benefits are explicit, dated, and officially sourced or clearly labelled as references.
-- Positive surplus follows an explicit reserve and investment policy.
-- Registered contributions never exceed modelled room.
-- Net worth includes non-financial assets and liabilities, debts amortize, and
-  debt-linked payments end at payoff.
-- Non-debt expenses change at configured lifecycle boundaries.
-- RRIF minimums and annual retirement taxes are modelled consistently.
-- Starting assets, accumulation, retirement balances, withdrawals, taxes, and ending assets reconcile.
-- Every major result can be traced to Lunch Money data, private configuration, dated reference data, or a temporary override.
-- No material financial behaviour depends on implicit account ordering or silent fallback logic.
+- government benefits are explicit, dated, and officially sourced or clearly labelled as references;
+- positive cash follows explicit reserve, savings, and investment policies;
+- registered contributions never exceed modelled room;
+- net worth includes non-financial assets and liabilities, debts amortize, and debt-linked payments end at payoff;
+- non-debt expenses change at configured lifecycle boundaries;
+- RRIF minimums and annual Canadian retirement taxes are modelled consistently;
+- starting assets, accumulation, retirement balances, withdrawals, spending, taxes, liabilities, and ending assets reconcile;
+- every major result traces to Lunch Money evidence, local configuration, dated public reference data, or a temporary override; and
+- no material financial behaviour depends on account ordering, silent fallbacks, or inferred personal events.
 
-At that point, the planner may be described as a high-confidence deterministic calculator when its assumptions are accurate.
+At that point, the planner may be described as a high-confidence deterministic calculator when its inputs and assumptions are accurate. Probabilistic confidence remains a separate product claim and roadmap.
 
 ## Later roadmap
 
 The following remain separate later capabilities:
 
-- transaction-coverage and exclusion reconciliation
-- sequence-of-returns modelling
-- Monte Carlo simulation
-- historical rolling-return analysis
-- probability-of-success reporting
-- household and spouse modelling
-- tax-optimized withdrawal strategies
-- automatic career, spending, or life-event forecasting
-- full tax-return fidelity
+- transaction-coverage and exclusion reconciliation;
+- sequence-of-returns modelling;
+- Monte Carlo simulation;
+- historical rolling-return analysis;
+- probability-of-success reporting;
+- household and spouse modelling;
+- tax-optimized withdrawal strategies;
+- automatic career, spending, or life-event forecasting; and
+- full tax-return fidelity.
 
-These items should be added or promoted as implementation priorities evolve.
+These items may be promoted as priorities evolve, but probabilistic modelling must remain distinct from deterministic projection confidence.
