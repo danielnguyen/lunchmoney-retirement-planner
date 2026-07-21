@@ -178,6 +178,7 @@ function simpleContext(): ExplanationContext {
         indexingRate: 0,
       },
     ],
+    operatingCashTarget: null,
     unplannedCash: "retain_in_operating_cash",
     personalOrder: ["personal_tfsa", "personal_rrsp", "taxable"],
     workplaceRoomPriority: "first",
@@ -270,6 +271,21 @@ function longHorizonSimpleContext(
   value.displayMode = displayMode;
   value.selectedAllocationYear =
     value.projection.annual[0]!.calendarYear;
+  return value;
+}
+
+function sweepContext(): ExplanationContext {
+  const value = simpleContext();
+  if (value.inputs.savingsPolicy.mode !== "simple") {
+    throw new Error("fixture");
+  }
+  value.inputs.savingsPolicy.operatingCashTarget = {
+    targetToday: 100,
+    indexingRate: 0,
+  };
+  value.inputs.savingsPolicy.unplannedCash = "sweep_above_targets";
+  value.baseline.projectionInputs = structuredClone(value.inputs);
+  value.projection = calculateProjection(value.inputs);
   return value;
 }
 
@@ -1211,6 +1227,67 @@ describe("calculation explanations", () => {
     expect(document.caveats.join(" ")).toContain(
       "personal cash never uses the workplace RRSP",
     );
+  });
+
+  it("explains indexed operating targets and unplanned sweeps from shared results", () => {
+    const value = sweepContext();
+    const document = buildExplanation("surplus-allocation", value);
+    const previewRows = section(
+      document,
+      "Resolved simple policy preview",
+    ).rows;
+    const annualRows = section(
+      document,
+      "Annual explicit savings and retained cash",
+    ).rows;
+
+    expect(document.plainLanguage).toContain(
+      "fills any operating or combined reserve shortfall",
+    );
+    expect(previewRows).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          concept: "Operating target today",
+        }),
+        expect.objectContaining({
+          concept: "Operating cash in combined reserve",
+          resolved: expect.stringContaining("not added"),
+        }),
+      ]),
+    );
+    expect(annualRows[0]).toMatchObject({
+      operatingCashTarget:
+        value.projection.annual[0]!.real.savingsPolicy.operatingCashTarget,
+      combinedReserveTarget:
+        value.projection.annual[0]!.real.savingsPolicy.combinedReserveTarget,
+      unplannedCashSwept:
+        value.projection.annual[0]!.real.savingsPolicy.unplannedCashSwept,
+    });
+    expect(document.reconciliation?.matched).toBe(true);
+
+    if (value.inputs.savingsPolicy.mode !== "simple") {
+      throw new Error("fixture");
+    }
+    value.inputs.savingsPolicy.operatingCashTarget!.targetToday = 200;
+    value.overrides["savingsPolicy.operatingCash.targetToday"] = 200;
+    value.projection = calculateProjection(value.inputs);
+    const overridden = buildExplanation("surplus-allocation", value);
+    expect(
+      overridden.assumptions.find(
+        (item) => item.label === "Operating cash target today",
+      ),
+    ).toMatchObject({ sourceType: "override" });
+
+    const mismatch = sweepContext();
+    mismatch.projection.annual[0]!.real.accountSweepAllocations[
+      "projection:future-taxable"
+    ] += 10;
+    expect(
+      buildExplanation(
+        "registered-account-room",
+        mismatch,
+      ).reconciliation?.matched,
+    ).toBe(false);
   });
 
   it("enforces every simple savings equality in the room explanation", () => {

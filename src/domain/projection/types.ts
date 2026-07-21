@@ -234,7 +234,13 @@ export type SavingsPolicyInput =
       taxableAccountId: string;
       taxableAccountOrigin: FinancialAccountOrigin;
       reserveBuildingPhases: SavingsPlanPhase[];
-      unplannedCash: "retain_in_operating_cash";
+      operatingCashTarget: {
+        targetToday: number;
+        indexingRate: number;
+      } | null;
+      unplannedCash:
+        | "retain_in_operating_cash"
+        | "sweep_above_targets";
       personalOrder: ["personal_tfsa", "personal_rrsp", "taxable"];
       workplaceRoomPriority: "first";
       workplaceOverflow: "unallocated";
@@ -409,7 +415,15 @@ export type SavingsPolicyBreakdown = {
   workplacePlanned: number;
   workplaceAllowed: number;
   workplaceUnallocated: number;
+  operatingCashTarget: number;
+  operatingCashBalance: number;
+  combinedReserveTarget: number;
+  combinedReserveBalance: number;
+  targetFundingRetained: number;
   unplannedCashRetained: number;
+  unplannedCashSwept: number;
+  operatingTargetUnfunded: number;
+  reserveTargetUnfunded: number;
   totalInvestmentDeposits: number;
 };
 
@@ -429,6 +443,7 @@ export type ProjectionView = {
   surplusAllocation: SurplusAllocationBreakdown;
   savingsPolicy: SavingsPolicyBreakdown;
   accountSurplusAllocations: Record<string, number>;
+  accountSweepAllocations: Record<string, number>;
   allocation: AssetAllocation;
 };
 
@@ -609,7 +624,9 @@ export type RegisteredAccountRoomCalculationSummary = {
   }>;
 };
 
-export type SavingsPolicyTotals = SavingsPolicyBreakdown;
+export type SavingsPolicyTotals = SavingsPolicyBreakdown & {
+  accountSweepAllocations: Record<string, number>;
+};
 
 export type SavingsPolicyCalculationSummary = {
   mode: SavingsPolicyInput["mode"];
@@ -627,11 +644,18 @@ export type SavingsPolicyCalculationSummary = {
         workplaceRrspAccountId: string | null;
         taxableAccountId: string;
         taxableAccountOrigin: FinancialAccountOrigin;
+        operatingCashTarget: {
+          targetToday: number;
+          indexingRate: number;
+        } | null;
+        operatingCashIsReserveMember: boolean;
         personalOrder: ["personal_tfsa", "personal_rrsp", "taxable"];
         workplaceRoomPriority: "first";
         workplaceOverflow: "unallocated";
         reserveAfterTarget: "personal_investing";
-        unplannedCash: "retain_in_operating_cash";
+        unplannedCash:
+          | "retain_in_operating_cash"
+          | "sweep_above_targets";
       };
   throughRetirement: {
     nominal: SavingsPolicyTotals;
@@ -1666,11 +1690,10 @@ export function validateProjectionInputs(value: unknown): ProjectionInputs {
     if (
       !Array.isArray(savingsPolicy.reserveAccountIds) ||
       savingsPolicy.reserveAccountIds.length === 0 ||
-      !savingsPolicy.reserveAccountIds.includes(operatingCash.id) ||
       !savingsPolicy.reserveAccountIds.includes(reserveRefill.id)
     ) {
       throw new Error(
-        "savingsPolicy reserve accounts must include operating cash and the reserve refill account",
+        "savingsPolicy reserve accounts must include the reserve refill account",
       );
     }
     if (
@@ -1688,7 +1711,8 @@ export function validateProjectionInputs(value: unknown): ProjectionInputs {
       );
     }
     if (
-      savingsPolicy.unplannedCash !== "retain_in_operating_cash" ||
+      (savingsPolicy.unplannedCash !== "retain_in_operating_cash" &&
+        savingsPolicy.unplannedCash !== "sweep_above_targets") ||
       savingsPolicy.workplaceRoomPriority !== "first" ||
       savingsPolicy.workplaceOverflow !== "unallocated" ||
       savingsPolicy.reserveAfterTarget !== "personal_investing" ||
@@ -1699,6 +1723,26 @@ export function validateProjectionInputs(value: unknown): ProjectionInputs {
       savingsPolicy.personalOrder[2] !== "taxable"
     ) {
       throw new Error("savingsPolicy contains an unsupported simple policy");
+    }
+    if (savingsPolicy.operatingCashTarget !== null) {
+      assertNonNegative(
+        "savingsPolicy.operatingCashTarget.targetToday",
+        savingsPolicy.operatingCashTarget.targetToday,
+      );
+      assertRate(
+        "savingsPolicy.operatingCashTarget.indexingRate",
+        savingsPolicy.operatingCashTarget.indexingRate,
+        -0.2,
+        0.5,
+      );
+    }
+    if (
+      savingsPolicy.unplannedCash === "sweep_above_targets" &&
+      savingsPolicy.operatingCashTarget === null
+    ) {
+      throw new Error(
+        "savingsPolicy sweep_above_targets requires an explicit operating cash target",
+      );
     }
     const personalRoute = waterfall.routes.find(
       (route) => route.sourceAccountId === personalTfsa.id,

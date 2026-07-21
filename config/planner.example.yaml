@@ -245,10 +245,21 @@ registeredRoom:
       otherReduction: 0
 
 # Only amounts listed in these plans are deliberately saved or invested. The
-# planner does not invest every dollar left after expenses. Money outside these
-# plans remains in operating_cash.
+# planner does not invest every dollar left after expenses unless you choose the
+# explicit sweep policy below.
 savingsPolicy:
-  unplannedCash: retain_in_operating_cash
+  # This is the everyday cash balance to keep before sweeping extra cash. Enter
+  # the target in today's dollars and how it should grow each year. For example,
+  # 0.02 means 2% annual indexing. Do not infer this from monthly spending.
+  operatingCash:
+    targetToday: 10000
+    indexingRate: 0.02
+
+  # sweep_above_targets keeps enough cash for both the operating target above
+  # and the combined emergency reserve below, then invests the rest through the
+  # personal order. Use retain_in_operating_cash to keep all unplanned positive
+  # cash in the everyday account exactly as before.
+  unplannedCash: sweep_above_targets
 
   # Money deliberately moved from cash into investments follows TFSA, then the
   # personal RRSP, then taxable. It never goes to the workplace RRSP. If no real
@@ -279,7 +290,8 @@ savingsPolicy:
   # to reserve_refill until the indexed target is reached. If one deposit
   # crosses the target, only the amount needed stays in cash and the remainder
   # is invested that month. After the target, the full plan follows the
-  # personal investing order.
+  # personal investing order. If operating_cash is also a reserve_member, its
+  # balance counts toward this combined target; the two targets are not added.
   reserveBuilding:
     targetToday: 40000
     indexingRate: 0.02

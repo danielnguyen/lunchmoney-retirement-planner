@@ -1632,7 +1632,10 @@ export function deriveCurrentBaseline(
             config.savingsPolicy!.reserveBuilding.phases.map((phase) => ({
               ...phase,
             })),
-          unplannedCash: "retain_in_operating_cash",
+          operatingCashTarget: config.savingsPolicy!.operatingCash
+            ? { ...config.savingsPolicy!.operatingCash }
+            : null,
+          unplannedCash: config.savingsPolicy!.unplannedCash,
           personalOrder: [
             "personal_tfsa",
             "personal_rrsp",
@@ -2368,9 +2371,23 @@ export function deriveCurrentBaseline(
     );
     provenance["savingsPolicy.unplannedCash"] = localValue(
       savingsPolicy.unplannedCash,
-      "Unplanned positive cash is retained in operating cash",
+      savingsPolicy.unplannedCash === "retain_in_operating_cash"
+        ? "Unplanned positive cash is retained in operating cash"
+        : "Unplanned positive cash above the operating and combined reserve targets follows the personal contribution waterfall",
       window.endDate,
     );
+    if (savingsPolicy.operatingCashTarget) {
+      provenance["savingsPolicy.operatingCash.targetToday"] = localValue(
+        savingsPolicy.operatingCashTarget.targetToday,
+        "Explicit operating-cash target in today's dollars",
+        window.endDate,
+      );
+      provenance["savingsPolicy.operatingCash.indexingRate"] = localValue(
+        savingsPolicy.operatingCashTarget.indexingRate,
+        "Explicit operating-cash target indexing rate",
+        window.endDate,
+      );
+    }
     provenance["savingsPolicy.personalOrder"] = localValue(
       savingsPolicy.personalOrder,
       "Personal investment order compiled from simple savings policy",

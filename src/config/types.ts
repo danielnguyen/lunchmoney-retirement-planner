@@ -179,7 +179,13 @@ export type SavingsPlanPhaseConfig = {
 };
 
 export type SavingsPolicyConfig = {
-  unplannedCash: "retain_in_operating_cash";
+  operatingCash?: {
+    targetToday: number;
+    indexingRate: number;
+  };
+  unplannedCash:
+    | "retain_in_operating_cash"
+    | "sweep_above_targets";
   personalInvesting: {
     order: ["personal_tfsa", "personal_rrsp", "taxable"];
     phases: SavingsPlanPhaseConfig[];

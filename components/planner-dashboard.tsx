@@ -302,6 +302,63 @@ export function buildControls(baseline: ProjectionInputs): ControlDefinition[] {
     },
   ];
 
+  if (
+    baseline.savingsPolicy.mode === "simple" &&
+    baseline.savingsPolicy.operatingCashTarget
+  ) {
+    controls.unshift(
+      {
+        key: "savingsPolicy.operatingCash.targetToday",
+        sourceKey: "savingsPolicy.operatingCash.targetToday",
+        label: "Operating cash target today",
+        min: fixed(0),
+        max: fixed(
+          Math.max(
+            100000,
+            baseline.savingsPolicy.operatingCashTarget.targetToday * 3,
+          ),
+        ),
+        step: 100,
+        format: currency.format,
+        get: (inputs) =>
+          inputs.savingsPolicy.mode === "simple"
+            ? inputs.savingsPolicy.operatingCashTarget?.targetToday ?? 0
+            : 0,
+        set: (inputs, value) => {
+          if (
+            inputs.savingsPolicy.mode === "simple" &&
+            inputs.savingsPolicy.operatingCashTarget
+          ) {
+            inputs.savingsPolicy.operatingCashTarget.targetToday = value;
+          }
+        },
+        inputType: "number",
+      },
+      {
+        key: "savingsPolicy.operatingCash.indexingRate",
+        sourceKey: "savingsPolicy.operatingCash.indexingRate",
+        label: "Operating cash indexing rate",
+        min: fixed(-0.2),
+        max: fixed(0.5),
+        step: 0.001,
+        format: percent.format,
+        get: (inputs) =>
+          inputs.savingsPolicy.mode === "simple"
+            ? inputs.savingsPolicy.operatingCashTarget?.indexingRate ?? 0
+            : 0,
+        set: (inputs, value) => {
+          if (
+            inputs.savingsPolicy.mode === "simple" &&
+            inputs.savingsPolicy.operatingCashTarget
+          ) {
+            inputs.savingsPolicy.operatingCashTarget.indexingRate = value;
+          }
+        },
+        inputType: "number",
+      },
+    );
+  }
+
   if (baseline.registeredAccountRoom) {
     const simpleRoom = baseline.savingsPolicy.mode === "simple";
     controls.unshift(
@@ -1388,6 +1445,8 @@ export function PlannerDashboard() {
                           <Bar dataKey="reserveCashRetained" name="Reserve plan retained" fill="#55b8d8" />
                           <Bar dataKey="reservePlanRedirected" name="Reserve plan invested" fill="#8c78dd" />
                           <Bar dataKey="unplannedCashRetained" name="Unplanned cash retained" fill="#70d6b2" />
+                          <Bar dataKey="unplannedCashSwept" name="Unplanned cash swept" fill="#d99269" />
+                          <Line dataKey="operatingCashTarget" name="Operating cash target" stroke="#ef7d86" strokeWidth={2} dot={false} />
                         </>
                       ) : (
                         <>
@@ -1752,6 +1811,9 @@ export function PlannerDashboard() {
                     <div><dt>Reserve accounts</dt><dd>{policyPreview.reserveAccounts.join(", ")}</dd></div>
                     <div><dt>Reserve refill account</dt><dd>{policyPreview.reserveRefillAccount}</dd></div>
                     <div><dt>Operating cash account</dt><dd>{policyPreview.operatingCashAccount}</dd></div>
+                    <div><dt>Operating target today</dt><dd>{policyPreview.operatingTargetToday === null ? "Not configured (retain compatibility)" : currency.format(policyPreview.operatingTargetToday)}</dd></div>
+                    <div><dt>Operating indexing</dt><dd>{policyPreview.operatingIndexingRate === null ? "Not configured" : percent.format(policyPreview.operatingIndexingRate)}</dd></div>
+                    <div><dt>Operating cash in combined reserve</dt><dd>{policyPreview.operatingCashIsReserveMember ? "Yes — the targets overlap and are not added" : "No — the targets are funded independently"}</dd></div>
                     <div><dt>Target reserve today</dt><dd>{currency.format(inputs.surplusAllocation.targetCashReserveToday)}</dd></div>
                     <div><dt>Reserve indexing</dt><dd>{percent.format(inputs.surplusAllocation.reserveIndexingRate)}</dd></div>
                     <div><dt>Combined reserve at retirement</dt><dd>{currency.format(projection.surplusAllocation.reserveAccountsBalanceAtRetirement[mode])}</dd></div>
@@ -1765,7 +1827,11 @@ export function PlannerDashboard() {
                     <div><dt>Reserve planned through retirement</dt><dd>{currency.format(savingsTotals?.reservePlanned ?? 0)}</dd></div>
                     <div><dt>Reserve invested after target</dt><dd>{currency.format(savingsTotals?.reserveRedirected ?? 0)}</dd></div>
                     <div><dt>Workplace unallocated</dt><dd>{currency.format(savingsTotals?.workplaceUnallocated ?? 0)}</dd></div>
+                    <div><dt>Target-funding cash retained</dt><dd>{currency.format(savingsTotals?.targetFundingRetained ?? 0)}</dd></div>
                     <div><dt>Unplanned cash retained</dt><dd>{currency.format(savingsTotals?.unplannedCashRetained ?? 0)}</dd></div>
+                    <div><dt>Unplanned cash swept</dt><dd>{currency.format(savingsTotals?.unplannedCashSwept ?? 0)}</dd></div>
+                    <div><dt>Operating target unfunded</dt><dd>{currency.format(savingsTotals?.operatingTargetUnfunded ?? 0)}</dd></div>
+                    <div><dt>Combined reserve target unfunded</dt><dd>{currency.format(savingsTotals?.reserveTargetUnfunded ?? 0)}</dd></div>
                   </dl>
                 ) : (
                   <dl>

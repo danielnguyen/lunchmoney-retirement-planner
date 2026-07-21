@@ -289,6 +289,7 @@ export function buildContributionReconciliation(
             savings.personalAllowed,
             savings.workplaceAllowed,
             savings.reserveRedirected,
+            savings.unplannedCashSwept,
           ],
         ),
         centDifference(
@@ -297,6 +298,7 @@ export function buildContributionReconciliation(
             savings.personalAllowed,
             savings.reserveFunded,
             savings.unplannedCashRetained,
+            savings.unplannedCashSwept,
           ],
         ),
         centDifference(
@@ -316,7 +318,41 @@ export function buildContributionReconciliation(
         ),
         centDifference(
           [view.contributions.surplusFunded],
-          [savings.reserveRedirected],
+          [savings.reserveRedirected, savings.unplannedCashSwept],
+        ),
+        centDifference(
+          [savings.unplannedCashSwept],
+          Object.values(view.accountSweepAllocations),
+        ),
+        centDifference(
+          [savings.targetFundingRetained],
+          [
+            savings.reserveRetainedAsCash,
+            projection.savingsPolicy.policy.mode === "simple" &&
+            projection.savingsPolicy.policy.unplannedCash ===
+              "sweep_above_targets"
+              ? savings.unplannedCashRetained
+              : 0,
+          ],
+        ),
+        centDifference(
+          [savings.operatingTargetUnfunded],
+          [
+            Math.max(
+              0,
+              savings.operatingCashTarget - savings.operatingCashBalance,
+            ),
+          ],
+        ),
+        centDifference(
+          [savings.reserveTargetUnfunded],
+          [
+            Math.max(
+              0,
+              savings.combinedReserveTarget -
+                savings.combinedReserveBalance,
+            ),
+          ],
         ),
         centDifference(
           [view.contributions.total],
@@ -638,7 +674,15 @@ export type AnnualChartRow = {
   workplacePlanned: number;
   workplaceAllowed: number;
   workplaceUnallocated: number;
+  operatingCashTarget: number;
+  operatingCashBalance: number;
+  combinedReserveTarget: number;
+  combinedReserveBalance: number;
+  targetFundingRetained: number;
   unplannedCashRetained: number;
+  unplannedCashSwept: number;
+  operatingTargetUnfunded: number;
+  reserveTargetUnfunded: number;
   totalInvestmentDeposits: number;
   financialAssets: number;
   nonFinancialAssets: number;
@@ -684,7 +728,15 @@ export type AnnualLedgerRow = {
   workplacePlanned: number;
   workplaceAllowed: number;
   workplaceUnallocated: number;
+  operatingCashTarget: number;
+  operatingCashBalance: number;
+  combinedReserveTarget: number;
+  combinedReserveBalance: number;
+  targetFundingRetained: number;
   unplannedCashRetained: number;
+  unplannedCashSwept: number;
+  operatingTargetUnfunded: number;
+  reserveTargetUnfunded: number;
   totalInvestmentDeposits: number;
   financialAssets: number;
   nonFinancialAssets: number;
@@ -797,8 +849,18 @@ export function buildAnnualChartData(
       workplaceAllowed: view.savingsPolicy.workplaceAllowed,
       workplaceUnallocated:
         view.savingsPolicy.workplaceUnallocated,
+      operatingCashTarget: view.savingsPolicy.operatingCashTarget,
+      operatingCashBalance: view.savingsPolicy.operatingCashBalance,
+      combinedReserveTarget: view.savingsPolicy.combinedReserveTarget,
+      combinedReserveBalance: view.savingsPolicy.combinedReserveBalance,
+      targetFundingRetained: view.savingsPolicy.targetFundingRetained,
       unplannedCashRetained:
         view.savingsPolicy.unplannedCashRetained,
+      unplannedCashSwept: view.savingsPolicy.unplannedCashSwept,
+      operatingTargetUnfunded:
+        view.savingsPolicy.operatingTargetUnfunded,
+      reserveTargetUnfunded:
+        view.savingsPolicy.reserveTargetUnfunded,
       totalInvestmentDeposits:
         view.savingsPolicy.totalInvestmentDeposits,
       financialAssets: view.balances.financialAssets,
@@ -839,6 +901,12 @@ export function buildAnnualChartData(
       ...Object.fromEntries(
         Object.entries(view.accountSurplusAllocations).map(([id, value]) => [
           `surplusAllocation:${id}`,
+          value,
+        ]),
+      ),
+      ...Object.fromEntries(
+        Object.entries(view.accountSweepAllocations).map(([id, value]) => [
+          `sweepAllocation:${id}`,
           value,
         ]),
       ),
@@ -904,8 +972,18 @@ export function buildAnnualLedgerData(
       workplaceAllowed: view.savingsPolicy.workplaceAllowed,
       workplaceUnallocated:
         view.savingsPolicy.workplaceUnallocated,
+      operatingCashTarget: view.savingsPolicy.operatingCashTarget,
+      operatingCashBalance: view.savingsPolicy.operatingCashBalance,
+      combinedReserveTarget: view.savingsPolicy.combinedReserveTarget,
+      combinedReserveBalance: view.savingsPolicy.combinedReserveBalance,
+      targetFundingRetained: view.savingsPolicy.targetFundingRetained,
       unplannedCashRetained:
         view.savingsPolicy.unplannedCashRetained,
+      unplannedCashSwept: view.savingsPolicy.unplannedCashSwept,
+      operatingTargetUnfunded:
+        view.savingsPolicy.operatingTargetUnfunded,
+      reserveTargetUnfunded:
+        view.savingsPolicy.reserveTargetUnfunded,
       totalInvestmentDeposits:
         view.savingsPolicy.totalInvestmentDeposits,
       financialAssets: view.balances.financialAssets,
@@ -925,6 +1003,9 @@ export type SavingsPolicyPreview = {
   reserveAccounts: string[];
   reserveRefillAccount: string;
   operatingCashAccount: string | null;
+  operatingTargetToday: number | null;
+  operatingIndexingRate: number | null;
+  operatingCashIsReserveMember: boolean | null;
   workplacePriority: string;
   workplaceOverflow: string;
   personalOrder: string;
@@ -952,6 +1033,9 @@ export function buildSavingsPolicyPreview(
       reserveAccounts,
       reserveRefillAccount,
       operatingCashAccount: null,
+      operatingTargetToday: null,
+      operatingIndexingRate: null,
+      operatingCashIsReserveMember: null,
       workplacePriority: "Advanced route order",
       workplaceOverflow: "Advanced route policy",
       personalOrder: "Advanced configured routes",
@@ -973,6 +1057,14 @@ export function buildSavingsPolicyPreview(
     operatingCashAccount: accountLabel(
       inputs.savingsPolicy.operatingCashAccountId,
     ),
+    operatingTargetToday:
+      inputs.savingsPolicy.operatingCashTarget?.targetToday ?? null,
+    operatingIndexingRate:
+      inputs.savingsPolicy.operatingCashTarget?.indexingRate ?? null,
+    operatingCashIsReserveMember:
+      inputs.savingsPolicy.reserveAccountIds.includes(
+        inputs.savingsPolicy.operatingCashAccountId,
+      ),
     workplacePriority:
       "Workplace RRSP gets first claim on global RRSP room",
     workplaceOverflow: "Workplace RRSP overflow is unallocated",
@@ -987,7 +1079,9 @@ export function buildSavingsPolicyPreview(
     reserveTransition:
       "Reserve-building savings redirect through the personal order after the indexed target",
     unplannedCash:
-      "Unplanned positive cash is retained in operating cash and is not swept into investments",
+      inputs.savingsPolicy.unplannedCash === "retain_in_operating_cash"
+        ? "Unplanned positive cash is retained in operating cash and is not swept into investments"
+        : "Unplanned positive cash first fills any operating or combined reserve shortfall, then follows the personal investment order",
   };
 }
 

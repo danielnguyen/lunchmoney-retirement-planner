@@ -138,7 +138,10 @@ registeredRoom:
       pensionAdjustment: 0
       otherReduction: 0
 savingsPolicy:
-  unplannedCash: retain_in_operating_cash
+  operatingCash:
+    targetToday: 10000
+    indexingRate: 0.02
+  unplannedCash: sweep_above_targets
   personalInvesting:
     order: [personal_tfsa, personal_rrsp, taxable]
     phases: []
@@ -162,6 +165,8 @@ assumptions:
 ```
 
 The primary format keeps account IDs only under `accountMappings`. If no imported mapping has `personal_taxable`, the baseline compiler creates the zero-balance future taxable destination automatically. Owner-authored projection accounts, source/destination arrays, account-targeted contribution categories or events, starting-room source unions, reference URLs, carry-forward switches, and forecast rounding are advanced compatibility inputs and do not appear in the primary example. Simple and advanced modes cannot be mixed.
+
+The simple savings policy keeps an explicit indexed operating-cash target separate from the indexed combined reserve target. When the operating account is also a reserve member, its balance satisfies both targets without being counted twice. `sweep_above_targets` fills any operating and reserve shortfalls before routing true excess through personal TFSA, personal RRSP, and taxable accounts subject to registered room. `retain_in_operating_cash` preserves the earlier behavior and does not invent or apply an operating target when none is configured.
 
 CPP source modes distinguish a privately entered official estimate, an explicit planning amount, the dated Canadian average reference, and intentional zero. OAS resolves its full amount separately from explicit full, partial, or absent eligibility; partial eligibility is asserted qualifying residence years divided by 40. CPP and OAS claim adjustments and the permanent 10% OAS increase beginning after age 75 are calculated in the monthly projection. Legacy scalar benefit fields remain deterministic compatibility inputs but cannot be mixed with `governmentBenefits`.
 

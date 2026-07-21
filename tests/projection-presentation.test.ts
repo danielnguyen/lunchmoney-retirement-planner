@@ -185,6 +185,7 @@ describe("projection presentation metadata", () => {
       taxableAccountId: "projection:taxable",
       taxableAccountOrigin: "projection_configuration",
       reserveBuildingPhases: [],
+      operatingCashTarget: null,
       unplannedCash: "retain_in_operating_cash",
       personalOrder: ["personal_tfsa", "personal_rrsp", "taxable"],
       workplaceRoomPriority: "first",
@@ -197,6 +198,9 @@ describe("projection presentation metadata", () => {
       reserveAccounts: ["Operating", "Reserve refill"],
       reserveRefillAccount: "Reserve refill",
       operatingCashAccount: "Operating",
+      operatingTargetToday: null,
+      operatingIndexingRate: null,
+      operatingCashIsReserveMember: true,
       workplacePriority:
         "Workplace RRSP gets first claim on global RRSP room",
       workplaceOverflow: "Workplace RRSP overflow is unallocated",
@@ -207,6 +211,19 @@ describe("projection presentation metadata", () => {
         "Reserve-building savings redirect through the personal order after the indexed target",
       unplannedCash:
         "Unplanned positive cash is retained in operating cash and is not swept into investments",
+    });
+
+    if (inputs.savingsPolicy.mode !== "simple") throw new Error("fixture");
+    inputs.savingsPolicy.operatingCashTarget = {
+      targetToday: 8000,
+      indexingRate: 0.02,
+    };
+    inputs.savingsPolicy.unplannedCash = "sweep_above_targets";
+    expect(buildSavingsPolicyPreview(inputs)).toMatchObject({
+      operatingTargetToday: 8000,
+      operatingIndexingRate: 0.02,
+      operatingCashIsReserveMember: true,
+      unplannedCash: expect.stringContaining("personal investment order"),
     });
   });
 });
