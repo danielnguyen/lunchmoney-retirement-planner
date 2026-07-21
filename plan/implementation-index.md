@@ -9,20 +9,20 @@ Public tracking must remain generic and must not contain private financial value
 - Open roadmap planning pull request: None
 - Planning branch: None
 - Planning status: None
-- Open implementation pull request: [#14 Correct employment-income today-dollar semantics](https://github.com/danielnguyen/lunchmoney-retirement-planner/pull/14)
-- Pull request state: Open draft
-- Active capability: Employment-income today-dollar semantics correction
-- Status: In progress
-- Implementation branch: `agent/correct-employment-income-today-dollar-semantics`
-- Latest validated implementation head: `1c79724bc512d5a17f808d7c4a0962bf294b86ea`
-- Synthetic validation: Passed — 276 tests plus focused employment-income, registered-room, explanation, export, privacy, and one-cent reconciliation coverage; typecheck, lint, production build, Docker image build, Docker Compose validation, and `git diff --check` passed
-- Last completed capability: Net worth, real estate, and debt amortization
-- Last completed pull request: [#11 Add real net worth and debt amortization](https://github.com/danielnguyen/lunchmoney-retirement-planner/pull/11)
-- Last completed synthetic validation: Passed — 271 tests plus required typecheck, lint, production build, Docker image build, Docker Compose validation, one-cent reconciliation, and JSON/CSV export-privacy checks
+- Open implementation pull request: None
+- Pull request state: None
+- Active capability: Operating-cash target and automatic excess sweep
+- Status: Next
+- Implementation branch: `agent/add-operating-cash-target-and-sweep`
+- Latest validated implementation head: Not yet available
+- Synthetic validation: Pending
+- Last completed capability: Employment-income today-dollar semantics correction
+- Last completed pull request: [#14 Correct employment-income today-dollar semantics](https://github.com/danielnguyen/lunchmoney-retirement-planner/pull/14)
+- Last completed synthetic validation: Passed — 276 tests plus focused employment-income, registered-room, explanation, export, privacy, and one-cent reconciliation coverage; typecheck, lint, production build, Docker image build, Docker Compose validation, and `git diff --check` passed
 - Last completed private migration: Passed — residence, liability, historical-payment replacement, and share-safe export behaviour were validated locally without publishing private values
 - Last completed private smoke test: Passed — the live baseline, projection, balance sheet, bridges, and privacy checks completed successfully without publishing private values
-- Remaining step: public review of draft PR #14
-- Next action: review draft PR #14 and merge only after explicit owner approval
+- Remaining step: implement Operating-cash target and automatic excess sweep
+- Next action: implement Operating-cash target and automatic excess sweep from the latest synchronized `main`
 
 ## Planned implementation sequence
 
@@ -32,8 +32,8 @@ Public tracking must remain generic and must not contain private financial value
 | 2 | Surplus allocation policy | Government benefits | Completed | [#9](https://github.com/danielnguyen/lunchmoney-retirement-planner/pull/9) |
 | 3 | Registered-account room and contribution waterfall | Surplus allocation policy | Completed | [#10](https://github.com/danielnguyen/lunchmoney-retirement-planner/pull/10) |
 | 4 | Net worth, real estate, and debt amortization | Registered-account contribution model | Completed | [#11](https://github.com/danielnguyen/lunchmoney-retirement-planner/pull/11) |
-| 5 | Employment-income today-dollar semantics correction | Existing employment-income phase model | In progress | [#14](https://github.com/danielnguyen/lunchmoney-retirement-planner/pull/14) |
-| 6 | Operating-cash target and automatic excess sweep | Surplus allocation and contribution waterfall | Planned | — |
+| 5 | Employment-income today-dollar semantics correction | Existing employment-income phase model | Completed | [#14](https://github.com/danielnguyen/lunchmoney-retirement-planner/pull/14) |
+| 6 | Operating-cash target and automatic excess sweep | Surplus allocation and contribution waterfall | Next | — |
 | 7 | General spending phases | Corrected income and cash policies | Planned | — |
 | 8 | Retirement funding requirement and terminal balance | Spending phases and retirement projection | Planned | — |
 | 9 | RRIF minimum withdrawals and Canadian retirement taxes | Surplus policy, debt model, spending phases, and requirement contract | Planned | — |
@@ -73,6 +73,6 @@ Planning order is project-management shorthand only. Production names must descr
 
 ## New-conversation handoff
 
-> Read `AGENTS.md`, `plan/roadmap.md`, and `plan/implementation-index.md`. Review draft PR #14 for Employment-income today-dollar semantics correction using synthetic data only. Do not begin the next roadmap capability until PR #14 merges.
+> Read `AGENTS.md`, `plan/roadmap.md`, and `plan/implementation-index.md`. Confirm no implementation pull request is open, synchronize the latest `main`, and implement Operating-cash target and automatic excess sweep on a capability-named branch using synthetic data only.
 
 Repository and pull-request state are authoritative if they conflict with this index; correct stale tracking before implementation.
