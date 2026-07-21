@@ -6,9 +6,9 @@ Public tracking must remain generic and must not contain private financial value
 
 ## Current position
 
-- Open roadmap planning pull request: Pending
+- Open roadmap planning pull request: [#13 Rank roadmap work by projection trustworthiness](https://github.com/danielnguyen/lunchmoney-retirement-planner/pull/13)
 - Planning branch: `agent/rank-trustworthiness-roadmap`
-- Planning status: In progress
+- Planning status: Draft
 - Open implementation pull request: None
 - Pull request state: None
 - Active capability: Employment-income today-dollar semantics correction
