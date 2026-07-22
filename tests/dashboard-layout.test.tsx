@@ -8,6 +8,7 @@ import { afterEach, describe, expect, it } from "vitest";
 import {
   AnnualXAxis,
   formatProjectedAge,
+  LunchMoneyMappingsDrawer,
   ScenarioControlsDrawer,
   YearAgeTick,
 } from "@/components/planner-dashboard";
@@ -45,8 +46,58 @@ function ScenarioHarness() {
   );
 }
 
+const syntheticMappings = {
+  accounts: [
+    {
+      mappingId: "manual:101",
+      lunchMoneyId: 101,
+      source: "manual" as const,
+      label: "Synthetic cash account",
+      description: "Synthetic institution",
+    },
+    {
+      mappingId: "cash",
+      lunchMoneyId: null,
+      source: "cash" as const,
+      label: "Cash transactions",
+      description: null,
+    },
+  ],
+  categories: [
+    {
+      mappingId: "201",
+      lunchMoneyId: 201,
+      name: "Synthetic category",
+      description: "Synthetic category description",
+    },
+  ],
+};
+
+function MappingsHarness() {
+  const [opener, setOpener] = useState<HTMLButtonElement | null>(null);
+  return (
+    <>
+      <button
+        type="button"
+        aria-expanded={opener !== null}
+        aria-controls="lunch-money-mappings-drawer"
+        onClick={(event) => setOpener(event.currentTarget)}
+      >
+        Lunch Money mappings
+      </button>
+      {opener ? (
+        <LunchMoneyMappingsDrawer
+          mappings={syntheticMappings}
+          opener={opener}
+          onClose={() => setOpener(null)}
+        />
+      ) : null}
+    </>
+  );
+}
+
 describe("responsive scenario controls", () => {
-  it("keeps the report full width and places one trigger first in the hero actions", async () => {
+  it("keeps the report full width and places both drawer triggers first in the hero actions", async () => {
     const css = await readFile("app/globals.css", "utf8");
     const dashboard = await readFile("components/planner-dashboard.tsx", "utf8");
     const heroActions = dashboard.slice(
@@ -63,6 +114,9 @@ describe("responsive scenario controls", () => {
     expect(css).not.toContain("controls-panel-desktop");
     expect(css).not.toContain("grid-template-columns: minmax(0, 3fr)");
     expect(css).not.toContain("scenario-controls-trigger");
+    expect(heroActions.indexOf("Lunch Money mappings")).toBeLessThan(
+      heroActions.indexOf("Scenario controls"),
+    );
     expect(heroActions.indexOf("Scenario controls")).toBeLessThan(
       heroActions.indexOf("Print"),
     );
@@ -70,6 +124,8 @@ describe("responsive scenario controls", () => {
       heroActions.indexOf("Export JSON"),
     );
     expect(toolbar).not.toContain("Scenario controls");
+    expect(toolbar).not.toContain("Lunch Money mappings");
+    expect(dashboard.match(/aria-controls="lunch-money-mappings-drawer"/g)).toHaveLength(1);
     expect(dashboard.match(/aria-controls="scenario-controls-drawer"/g)).toHaveLength(1);
     expect(dashboard).not.toContain("controls-panel-desktop");
   });
@@ -155,6 +211,48 @@ describe("responsive scenario controls", () => {
     expect(opener).toHaveFocus();
   });
 
+  it("renders the read-only mappings drawer and preserves its full interaction contract", () => {
+    render(<MappingsHarness />);
+    const opener = screen.getByRole("button", { name: "Lunch Money mappings" });
+
+    expect(opener).toHaveAttribute("aria-expanded", "false");
+    expect(opener).toHaveAttribute("aria-controls", "lunch-money-mappings-drawer");
+    expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
+
+    fireEvent.click(opener);
+    expect(opener).toHaveAttribute("aria-expanded", "true");
+    expect(screen.getByRole("dialog", { name: "Lunch Money mappings" })).toHaveAttribute(
+      "aria-modal",
+      "true",
+    );
+    expect(screen.getByRole("heading", { name: "Accounts" })).toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: "Categories" })).toBeInTheDocument();
+    expect(screen.getByText("manual:101")).toBeInTheDocument();
+    expect(screen.getByText("Synthetic cash account")).toBeInTheDocument();
+    expect(screen.getByText("Synthetic institution")).toBeInTheDocument();
+    expect(screen.getByText("201")).toBeInTheDocument();
+    expect(screen.getByText("Synthetic category description")).toBeInTheDocument();
+    const close = screen.getByRole("button", { name: "Close Lunch Money mappings" });
+    expect(close).toHaveFocus();
+    expect(document.body.style.overflow).toBe("hidden");
+
+    fireEvent.keyDown(document, { key: "Tab" });
+    expect(close).toHaveFocus();
+    fireEvent.click(close);
+    expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
+    expect(opener).toHaveFocus();
+
+    fireEvent.click(opener);
+    fireEvent.keyDown(document, { key: "Escape" });
+    expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
+    expect(opener).toHaveFocus();
+
+    fireEvent.click(opener);
+    fireEvent.click(screen.getByTestId("lunch-money-mappings-overlay"));
+    expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
+    expect(opener).toHaveFocus();
+  });
+
   it("keeps temporary overrides while closed and preserves Reset all", () => {
     render(<ScenarioHarness />);
     const opener = screen.getByRole("button", { name: "Scenario controls" });
@@ -169,7 +267,7 @@ describe("responsive scenario controls", () => {
     expect(screen.getByLabelText("Synthetic override")).toHaveValue("100");
   });
 
-  it("uses mutually exclusive scenario and explanation drawer state", async () => {
+  it("uses mutually exclusive scenario, mappings, and explanation drawer state", async () => {
     const dashboard = await readFile("components/planner-dashboard.tsx", "utf8");
     const openExplanation = dashboard.slice(
       dashboard.indexOf("const openExplanation"),
@@ -179,9 +277,17 @@ describe("responsive scenario controls", () => {
       dashboard.indexOf('aria-controls="scenario-controls-drawer"'),
       dashboard.indexOf("</button>", dashboard.indexOf('aria-controls="scenario-controls-drawer"')),
     );
+    const mappingsButton = dashboard.slice(
+      dashboard.indexOf('aria-controls="lunch-money-mappings-drawer"'),
+      dashboard.indexOf("</button>", dashboard.indexOf('aria-controls="lunch-money-mappings-drawer"')),
+    );
 
     expect(openExplanation).toContain("setScenarioControls(null)");
+    expect(openExplanation).toContain("setLunchMoneyMappings(null)");
     expect(scenarioButton).toContain("setActiveExplanation(null)");
+    expect(scenarioButton).toContain("setLunchMoneyMappings(null)");
+    expect(mappingsButton).toContain("setActiveExplanation(null)");
+    expect(mappingsButton).toContain("setScenarioControls(null)");
     expect(scenarioButton).not.toContain("setOverrides");
     expect(scenarioButton).not.toContain("setProjectionResult");
   });
@@ -191,11 +297,12 @@ describe("responsive scenario controls", () => {
     const mobile = css.slice(css.indexOf("@media (max-width: 620px)"));
     const print = css.slice(css.indexOf("@media print"));
 
-    expect(mobile).toContain(".scenario-controls-drawer { width: 100vw");
-    expect(mobile).toContain("grid-template-columns: repeat(3, minmax(0, 1fr))");
-    expect(css).toContain(".scenario-controls-drawer-content { height: calc(100% - 84px)");
+    expect(mobile).toContain(".scenario-controls-drawer, .lunch-money-mappings-drawer { width: 100vw");
+    expect(mobile).toContain("grid-template-columns: repeat(2, minmax(0, 1fr))");
+    expect(css).toContain(".scenario-controls-drawer-content, .lunch-money-mappings-drawer-content { height: calc(100% - 84px)");
     expect(css).toContain("overflow-y: auto");
     expect(print).toContain(".scenario-controls-overlay");
+    expect(print).toContain(".lunch-money-mappings-overlay");
     expect(print).toContain("display: none !important");
   });
 });

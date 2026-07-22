@@ -813,17 +813,29 @@ function ScenarioControlsPanel({
   );
 }
 
-function focusableScenarioElements(container: HTMLElement): HTMLElement[] {
+function focusableDrawerElements(container: HTMLElement): HTMLElement[] {
   return [...container.querySelectorAll<HTMLElement>(
     'button:not([disabled]), [href], input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])',
   )].filter((element) => !element.hasAttribute("hidden"));
 }
 
-export function ScenarioControlsDrawer({
+function RightSideDrawer({
+  variant,
+  drawerId,
+  titleId,
+  title,
+  kicker,
+  closeLabel,
   opener,
   onClose,
   children,
 }: {
+  variant: "scenario-controls" | "lunch-money-mappings";
+  drawerId: string;
+  titleId: string;
+  title: string;
+  kicker: string;
+  closeLabel: string;
   opener: HTMLButtonElement | null;
   onClose: () => void;
   children: ReactNode;
@@ -835,7 +847,7 @@ export function ScenarioControlsDrawer({
     if (!dialog) return;
     const previousOverflow = window.document.body.style.overflow;
     window.document.body.style.overflow = "hidden";
-    focusableScenarioElements(dialog)[0]?.focus();
+    focusableDrawerElements(dialog)[0]?.focus();
 
     function onKeyDown(event: KeyboardEvent) {
       if (event.key === "Escape") {
@@ -844,7 +856,7 @@ export function ScenarioControlsDrawer({
         return;
       }
       if (event.key !== "Tab") return;
-      const elements = focusableScenarioElements(dialog!);
+      const elements = focusableDrawerElements(dialog!);
       if (elements.length === 0) {
         event.preventDefault();
         return;
@@ -870,32 +882,108 @@ export function ScenarioControlsDrawer({
 
   return (
     <div
-      className="scenario-controls-overlay no-print"
-      data-testid="scenario-controls-overlay"
+      className={`${variant}-overlay no-print`}
+      data-testid={`${variant}-overlay`}
       onClick={(event) => {
         if (event.target === event.currentTarget) onClose();
       }}
     >
       <aside
-        className="scenario-controls-drawer"
-        id="scenario-controls-drawer"
+        className={`${variant}-drawer`}
+        id={drawerId}
         ref={dialogRef}
         role="dialog"
         aria-modal="true"
-        aria-labelledby="scenario-controls-title"
+        aria-labelledby={titleId}
       >
-        <header className="scenario-controls-drawer-header">
+        <header className={`${variant}-drawer-header`}>
           <div>
-            <span className="section-kicker">Scenario</span>
-            <h2 id="scenario-controls-title">Scenario controls</h2>
+            <span className="section-kicker">{kicker}</span>
+            <h2 id={titleId}>{title}</h2>
           </div>
-          <button type="button" className="drawer-close" aria-label="Close scenario controls" onClick={onClose}>
+          <button type="button" className="drawer-close" aria-label={closeLabel} onClick={onClose}>
             ×
           </button>
         </header>
-        <div className="scenario-controls-drawer-content">{children}</div>
+        <div className={`${variant}-drawer-content`}>{children}</div>
       </aside>
     </div>
+  );
+}
+
+export function ScenarioControlsDrawer({
+  opener,
+  onClose,
+  children,
+}: {
+  opener: HTMLButtonElement | null;
+  onClose: () => void;
+  children: ReactNode;
+}) {
+  return (
+    <RightSideDrawer
+      variant="scenario-controls"
+      drawerId="scenario-controls-drawer"
+      titleId="scenario-controls-title"
+      title="Scenario controls"
+      kicker="Scenario"
+      closeLabel="Close scenario controls"
+      opener={opener}
+      onClose={onClose}
+    >
+      {children}
+    </RightSideDrawer>
+  );
+}
+
+export function LunchMoneyMappingsDrawer({
+  mappings,
+  opener,
+  onClose,
+}: {
+  mappings: CurrentBaseline["lunchMoneyMappings"];
+  opener: HTMLButtonElement | null;
+  onClose: () => void;
+}) {
+  return (
+    <RightSideDrawer
+      variant="lunch-money-mappings"
+      drawerId="lunch-money-mappings-drawer"
+      titleId="lunch-money-mappings-title"
+      title="Lunch Money mappings"
+      kicker="Read-only reference"
+      closeLabel="Close Lunch Money mappings"
+      opener={opener}
+      onClose={onClose}
+    >
+      <section className="mapping-reference-section" aria-labelledby="mapping-reference-accounts">
+        <h3 id="mapping-reference-accounts">Accounts</h3>
+        <div className="mapping-reference-list">
+          {mappings.accounts.map((account) => (
+            <article className="mapping-reference-row" key={account.mappingId}>
+              <code>{account.mappingId}</code>
+              <strong>{account.label}</strong>
+              {account.lunchMoneyId !== null ? (
+                <small>Lunch Money ID: {account.lunchMoneyId}</small>
+              ) : null}
+              {account.description ? <p>{account.description}</p> : null}
+            </article>
+          ))}
+        </div>
+      </section>
+      <section className="mapping-reference-section" aria-labelledby="mapping-reference-categories">
+        <h3 id="mapping-reference-categories">Categories</h3>
+        <div className="mapping-reference-list">
+          {mappings.categories.map((category) => (
+            <article className="mapping-reference-row" key={category.mappingId}>
+              <code>{category.mappingId}</code>
+              <strong>{category.name}</strong>
+              {category.description ? <p>{category.description}</p> : null}
+            </article>
+          ))}
+        </div>
+      </section>
+    </RightSideDrawer>
   );
 }
 
@@ -988,16 +1076,24 @@ export function PlannerDashboard() {
   const [scenarioControls, setScenarioControls] = useState<{
     opener: HTMLButtonElement;
   } | null>(null);
+  const [lunchMoneyMappings, setLunchMoneyMappings] = useState<{
+    opener: HTMLButtonElement;
+  } | null>(null);
 
   const openExplanation = useCallback(
     (target: ExplanationTarget, opener: HTMLButtonElement) => {
       setScenarioControls(null);
+      setLunchMoneyMappings(null);
       setActiveExplanation({ target, opener });
     },
     [],
   );
   const closeExplanation = useCallback(() => setActiveExplanation(null), []);
   const closeScenarioControls = useCallback(() => setScenarioControls(null), []);
+  const closeLunchMoneyMappings = useCallback(
+    () => setLunchMoneyMappings(null),
+    [],
+  );
 
   const refresh = useCallback(() => {
     setRefreshGeneration((current) => current + 1);
@@ -1005,6 +1101,7 @@ export function PlannerDashboard() {
     setExportStatus("");
     setActiveExplanation(null);
     setScenarioControls(null);
+    setLunchMoneyMappings(null);
   }, []);
 
   useEffect(() => {
@@ -1189,10 +1286,24 @@ export function PlannerDashboard() {
           <button
             type="button"
             className="button secondary"
+            aria-expanded={lunchMoneyMappings !== null}
+            aria-controls="lunch-money-mappings-drawer"
+            onClick={(event) => {
+              setActiveExplanation(null);
+              setScenarioControls(null);
+              setLunchMoneyMappings({ opener: event.currentTarget });
+            }}
+          >
+            Lunch Money mappings
+          </button>
+          <button
+            type="button"
+            className="button secondary"
             aria-expanded={scenarioControls !== null}
             aria-controls="scenario-controls-drawer"
             onClick={(event) => {
               setActiveExplanation(null);
+              setLunchMoneyMappings(null);
               setScenarioControls({ opener: event.currentTarget });
             }}
           >
@@ -1988,6 +2099,13 @@ export function PlannerDashboard() {
             setOverrides={setOverrides}
           />
         </ScenarioControlsDrawer>
+      ) : null}
+      {lunchMoneyMappings ? (
+        <LunchMoneyMappingsDrawer
+          mappings={baseline.lunchMoneyMappings}
+          opener={lunchMoneyMappings.opener}
+          onClose={closeLunchMoneyMappings}
+        />
       ) : null}
     </main>
   );

@@ -54,6 +54,7 @@ type RawAccount = {
   lunchMoneyId: number | null;
   source: "manual" | "plaid" | "cash";
   name: string;
+  description: string | null;
   status: string;
   balance: number;
   balanceAsOf: string;
@@ -170,6 +171,10 @@ function rawAccounts(data: LunchMoneyData, endDate: string, includeCash: boolean
     lunchMoneyId: account.id,
     source: "manual",
     name: account.display_name || account.name,
+    description: distinctDescription(
+      account.institution_name,
+      account.display_name || account.name,
+    ),
     status: account.status,
     balance: account.to_base,
     balanceAsOf: account.balance_as_of,
@@ -179,6 +184,10 @@ function rawAccounts(data: LunchMoneyData, endDate: string, includeCash: boolean
     lunchMoneyId: account.id,
     source: "plaid",
     name: account.display_name || account.name,
+    description: distinctDescription(
+      account.institution_name,
+      account.display_name || account.name,
+    ),
     status: account.status,
     balance: account.to_base,
     balanceAsOf: account.balance_last_update || account.last_fetch || endDate,
@@ -193,6 +202,7 @@ function rawAccounts(data: LunchMoneyData, endDate: string, includeCash: boolean
             lunchMoneyId: null,
             source: "cash" as const,
             name: "Cash transactions",
+            description: null,
             status: "active",
             balance: 0,
             balanceAsOf: endDate,
@@ -200,6 +210,22 @@ function rawAccounts(data: LunchMoneyData, endDate: string, includeCash: boolean
         ]
       : []),
   ];
+}
+
+function nonEmptyDescription(value: string | null | undefined): string | null {
+  return value && value.trim() ? value : null;
+}
+
+function distinctDescription(
+  value: string | null | undefined,
+  label: string,
+): string | null {
+  const description = nonEmptyDescription(value);
+  return description &&
+    description.trim().toLocaleLowerCase("en-CA") !==
+      label.trim().toLocaleLowerCase("en-CA")
+    ? description
+    : null;
 }
 
 function flattenCategories(categories: Category[]): Map<number, CategoryRecord> {
@@ -1905,6 +1931,36 @@ export function deriveCurrentBaseline(
     recurringItems: data.recurringItems.length,
     transactions: transactions.length,
   };
+  const accountSourceOrder: Record<RawAccount["source"], number> = {
+    manual: 0,
+    plaid: 1,
+    cash: 2,
+  };
+  const lunchMoneyMappings: CurrentBaseline["lunchMoneyMappings"] = {
+    accounts: accounts
+      .map((account) => ({
+        mappingId: account.canonicalId,
+        lunchMoneyId: account.lunchMoneyId,
+        source: account.source,
+        label: account.name,
+        description: account.description,
+      }))
+      .sort(
+        (left, right) =>
+          accountSourceOrder[left.source] - accountSourceOrder[right.source] ||
+          (left.lunchMoneyId ?? Number.MAX_SAFE_INTEGER) -
+            (right.lunchMoneyId ?? Number.MAX_SAFE_INTEGER) ||
+          left.mappingId.localeCompare(right.mappingId),
+      ),
+    categories: [...categories.values()]
+      .map((category) => ({
+        mappingId: String(category.id),
+        lunchMoneyId: category.id,
+        name: category.name,
+        description: nonEmptyDescription(category.description),
+      }))
+      .sort((left, right) => left.lunchMoneyId - right.lunchMoneyId),
+  };
 
   if (blocking) {
     throw new PlannerRuntimeError(
@@ -2602,7 +2658,7 @@ export function deriveCurrentBaseline(
   });
 
   return {
-    schemaVersion: "1.8",
+    schemaVersion: "1.9",
     connection,
     projectionInputs,
     provenance,
@@ -2698,6 +2754,7 @@ export function deriveCurrentBaseline(
         items: recurringAuditItems,
       },
     },
+    lunchMoneyMappings,
     dataThrough,
     transactionWindow: { ...window, transactionCount: transactions.length },
     recordsAnalyzed,

@@ -11,7 +11,11 @@ import {
   projectionJsonFilename,
 } from "@/src/domain/projection/filenames";
 import type { ProjectionInputs, ProjectionResult } from "@/src/domain/projection/types";
-import { baselineContextFixture, projectionFixture } from "./fixtures/projection";
+import {
+  baselineContextFixture,
+  currentBaselineFixture,
+  projectionFixture,
+} from "./fixtures/projection";
 
 const EXPORT_TOKEN = "fixture-export-token-never-share";
 const EXPORT_API_KEY = "fixture-api-key-never-share";
@@ -387,6 +391,50 @@ function expectNoSourceIdentifiersOrCredentials(exported: string): void {
 }
 
 describe("automatically anonymized projection exports", () => {
+  it("keeps Lunch Money mapping reference metadata outside JSON and both CSV modes", () => {
+    const baseline = structuredClone(currentBaselineFixture);
+    baseline.lunchMoneyMappings = {
+      accounts: [
+        {
+          mappingId: "manual:707070",
+          lunchMoneyId: 707070,
+          source: "manual",
+          label: "Synthetic raw mapping account",
+          description: "Synthetic raw mapping institution",
+        },
+      ],
+      categories: [
+        {
+          mappingId: "808080",
+          lunchMoneyId: 808080,
+          name: "Synthetic raw mapping category",
+          description: "Synthetic raw mapping description",
+        },
+      ],
+    };
+    const projection = calculateProjection(baseline.projectionInputs);
+    const snapshot = createProjectionSnapshot(projection, baseline, {});
+    const exported = [
+      JSON.stringify(snapshot),
+      projectionSnapshotToCsv(snapshot, "real"),
+      projectionSnapshotToCsv(snapshot, "nominal"),
+    ].join("\n");
+
+    expect(snapshot.schemaVersion).toBe("9.0");
+    expect(exported).not.toContain("lunchMoneyMappings");
+    for (const privateMappingValue of [
+      "manual:707070",
+      "707070",
+      "808080",
+      "Synthetic raw mapping account",
+      "Synthetic raw mapping institution",
+      "Synthetic raw mapping category",
+      "Synthetic raw mapping description",
+    ]) {
+      expect(exported).not.toContain(privateMappingValue);
+    }
+  });
+
   it("aliases every exported identifier and removes descriptive private text", () => {
     const { snapshot } = buildExportFixture();
     const serialized = JSON.stringify(snapshot);

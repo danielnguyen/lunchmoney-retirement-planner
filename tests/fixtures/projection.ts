@@ -283,7 +283,39 @@ export const baselineContextFixture: BaselineExportContext = {
 
 export const currentBaselineFixture: CurrentBaseline = {
   ...baselineContextFixture,
-  schemaVersion: "1.8",
+  schemaVersion: "1.9",
+  lunchMoneyMappings: {
+    accounts: [
+      {
+        mappingId: "manual:101",
+        lunchMoneyId: 101,
+        source: "manual",
+        label: "Synthetic everyday account",
+        description: "Synthetic credit union",
+      },
+      {
+        mappingId: "plaid:202",
+        lunchMoneyId: 202,
+        source: "plaid",
+        label: "Synthetic investment account",
+        description: null,
+      },
+    ],
+    categories: [
+      {
+        mappingId: "301",
+        lunchMoneyId: 301,
+        name: "Synthetic essentials",
+        description: "Synthetic essential spending category",
+      },
+      {
+        mappingId: "302",
+        lunchMoneyId: 302,
+        name: "Synthetic discretionary",
+        description: null,
+      },
+    ],
+  },
   provenance: {
     ...baselineContextFixture.provenance,
     monthlyDiscretionarySpendingToday: {
