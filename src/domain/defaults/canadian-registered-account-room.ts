@@ -57,6 +57,27 @@ function roundedForecast(value: number, increment: number): number {
   return Math.round(value / increment) * increment;
 }
 
+function forecastFromPublishedBase(
+  calendarYear: number,
+  publishedBase: CanadianAnnualLimitReference,
+  annualGrowthRate: number,
+  roundingIncrement: number,
+  referenceUrl: string,
+): CanadianAnnualLimitReference {
+  const elapsedYears = calendarYear - publishedBase.calendarYear;
+  return {
+    calendarYear,
+    amount: roundedForecast(
+      publishedBase.amount * Math.pow(1 + annualGrowthRate, elapsedYears),
+      roundingIncrement,
+    ),
+    effectiveDate: `${calendarYear}-01-01`,
+    referenceKind: "statutory_annual_limit",
+    referenceUrl,
+    sourceKind: "configured_forecast",
+  };
+}
+
 export function tfsaAnnualLimit(
   calendarYear: number,
   futureIndexingRate: number,
@@ -66,21 +87,13 @@ export function tfsaAnnualLimit(
     (reference) => reference.calendarYear === calendarYear,
   );
   if (published) return published;
-  let previous = TFSA_ANNUAL_LIMITS.at(-1)!;
-  for (let year = previous.calendarYear + 1; year <= calendarYear; year += 1) {
-    previous = {
-      calendarYear: year,
-      amount: roundedForecast(
-        previous.amount * (1 + futureIndexingRate),
-        roundingIncrement,
-      ),
-      effectiveDate: `${year}-01-01`,
-      referenceKind: "statutory_annual_limit",
-      referenceUrl: TFSA_LIMIT_REFERENCE_URL,
-      sourceKind: "configured_forecast",
-    };
-  }
-  return previous;
+  return forecastFromPublishedBase(
+    calendarYear,
+    TFSA_ANNUAL_LIMITS.at(-1)!,
+    futureIndexingRate,
+    roundingIncrement,
+    TFSA_LIMIT_REFERENCE_URL,
+  );
 }
 
 export function rrspAnnualCap(
@@ -92,19 +105,11 @@ export function rrspAnnualCap(
     (reference) => reference.calendarYear === calendarYear,
   );
   if (published) return published;
-  let previous = RRSP_ANNUAL_LIMITS.at(-1)!;
-  for (let year = previous.calendarYear + 1; year <= calendarYear; year += 1) {
-    previous = {
-      calendarYear: year,
-      amount: roundedForecast(
-        previous.amount * (1 + futureGrowthRate),
-        roundingIncrement,
-      ),
-      effectiveDate: `${year}-01-01`,
-      referenceKind: "statutory_annual_limit",
-      referenceUrl: RRSP_LIMIT_REFERENCE_URL,
-      sourceKind: "configured_forecast",
-    };
-  }
-  return previous;
+  return forecastFromPublishedBase(
+    calendarYear,
+    RRSP_ANNUAL_LIMITS.at(-1)!,
+    futureGrowthRate,
+    roundingIncrement,
+    RRSP_LIMIT_REFERENCE_URL,
+  );
 }

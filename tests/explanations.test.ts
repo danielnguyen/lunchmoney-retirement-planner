@@ -1542,14 +1542,36 @@ describe("calculation explanations", () => {
       ).toBe(cents(document.reconciliation!.displayedValue));
     }
 
-    expect(
-      nominalSummary.equations.totalActual.rawAggregateDifference,
-    ).toBeGreaterThan(0.01);
     for (const point of nominal.projection.annual) {
       expect(point.real.registeredAccountRoom).toEqual(
         point.nominal.registeredAccountRoom,
       );
     }
+  });
+
+  it("normalizes deliberate annual rounding drift on a cent-stable aggregate", () => {
+    const value = longHorizonSimpleContext("nominal");
+    value.projection.annual[2]!.nominal.contributions.allowed += 0.01;
+    value.projection.annual[3]!.nominal.contributions.allowed += 0.01;
+
+    const summary = buildContributionReconciliation(
+      value.projection,
+      "nominal",
+    );
+    const equation = summary.equations.totalActual;
+
+    expect(equation.rawAggregateDifference).toBeGreaterThan(0.01);
+    expect(equation.aggregateDifference).toBeLessThanOrEqual(0.01);
+    expect(equation.periodsMatched).toBe(true);
+    expect(equation.matched).toBe(true);
+    expect(summary.matched).toBe(true);
+    expect(equation.displayedValue).toBe(equation.calculatedValue);
+    expect(
+      buildExplanation(
+        "registered-account-room",
+        value,
+      ).reconciliation?.matched,
+    ).toBe(true);
   });
 
   it("rejects one-cent-plus annual mismatches and opposite-sign cancellation", () => {
