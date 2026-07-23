@@ -1,5 +1,11 @@
 import { describe, expect, it } from "vitest";
 import {
+  RRSP_ANNUAL_LIMITS,
+  SIMPLE_POLICY_RRSP_FUTURE_GROWTH_RATE,
+  SIMPLE_POLICY_RRSP_ROUNDING_INCREMENT,
+  SIMPLE_POLICY_TFSA_FUTURE_INDEXING_RATE,
+  SIMPLE_POLICY_TFSA_ROUNDING_INCREMENT,
+  TFSA_ANNUAL_LIMITS,
   rrspAnnualCap,
   tfsaAnnualLimit,
 } from "@/src/domain/defaults/canadian-registered-account-room";
@@ -288,6 +294,49 @@ describe("global registered-account room", () => {
     });
   });
 
+  it("accumulates default TFSA indexing from the unrounded published basis", () => {
+    const expected = [
+      [2026, 7000, "published_reference"],
+      [2027, 7000, "configured_forecast"],
+      [2028, 7500, "configured_forecast"],
+      [2029, 7500, "configured_forecast"],
+      [2030, 7500, "configured_forecast"],
+      [2031, 7500, "configured_forecast"],
+      [2032, 8000, "configured_forecast"],
+    ] as const;
+    const sequential = expected.map(([calendarYear]) =>
+      tfsaAnnualLimit(
+        calendarYear,
+        SIMPLE_POLICY_TFSA_FUTURE_INDEXING_RATE,
+        SIMPLE_POLICY_TFSA_ROUNDING_INCREMENT,
+      ),
+    );
+
+    expect(sequential.map(({ calendarYear, amount, sourceKind }) => [
+      calendarYear,
+      amount,
+      sourceKind,
+    ])).toEqual(expected);
+    expect(sequential[0]).toBe(TFSA_ANNUAL_LIMITS[0]);
+    expect(sequential[1]).toMatchObject({
+      effectiveDate: "2027-01-01",
+      sourceKind: "configured_forecast",
+    });
+    const direct = tfsaAnnualLimit(
+      2032,
+      SIMPLE_POLICY_TFSA_FUTURE_INDEXING_RATE,
+      SIMPLE_POLICY_TFSA_ROUNDING_INCREMENT,
+    );
+    expect(direct).toEqual(sequential.at(-1));
+    expect(
+      tfsaAnnualLimit(
+        2032,
+        SIMPLE_POLICY_TFSA_FUTURE_INDEXING_RATE,
+        SIMPLE_POLICY_TFSA_ROUNDING_INCREMENT,
+      ),
+    ).toEqual(direct);
+  });
+
   it("generates RRSP room from explicit prior-year values, 18%, caps, and reductions", () => {
     const input = roomFixture();
     input.accounts.find((account) => account.id === "tfsa:one")!
@@ -399,6 +448,34 @@ describe("global registered-account room", () => {
       amount: 36450,
       sourceKind: "configured_forecast",
     });
+  });
+
+  it("accumulates default RRSP cap growth from the unrounded published basis", () => {
+    const sequential = [2027, 2028, 2029].map((calendarYear) =>
+      rrspAnnualCap(
+        calendarYear,
+        SIMPLE_POLICY_RRSP_FUTURE_GROWTH_RATE,
+        SIMPLE_POLICY_RRSP_ROUNDING_INCREMENT,
+      ),
+    );
+
+    expect(sequential[0]).toBe(RRSP_ANNUAL_LIMITS.at(-1));
+    expect(sequential.map(({ amount }) => amount)).toEqual([
+      35390,
+      36450,
+      37550,
+    ]);
+    expect(sequential[2]).toMatchObject({
+      effectiveDate: "2029-01-01",
+      sourceKind: "configured_forecast",
+    });
+    expect(
+      rrspAnnualCap(
+        2029,
+        SIMPLE_POLICY_RRSP_FUTURE_GROWTH_RATE,
+        SIMPLE_POLICY_RRSP_ROUNDING_INCREMENT,
+      ),
+    ).toEqual(sequential[2]);
   });
 
   it("shares one RRSP pool across multiple RRSP accounts by route priority", () => {

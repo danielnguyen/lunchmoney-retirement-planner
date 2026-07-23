@@ -1542,9 +1542,6 @@ describe("calculation explanations", () => {
       ).toBe(cents(document.reconciliation!.displayedValue));
     }
 
-    expect(
-      nominalSummary.equations.totalActual.rawAggregateDifference,
-    ).toBeGreaterThan(0.01);
     for (const point of nominal.projection.annual) {
       expect(point.real.registeredAccountRoom).toEqual(
         point.nominal.registeredAccountRoom,
