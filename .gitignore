@@ -5,8 +5,10 @@ coverage
 .env
 .env.local
 .env.*.local
-config/*
-!config/planner.example.yaml
+config/planner.local.yaml
+config/planner.local.yml
+config/planner.local.json
+config/planner.*.bak
 *.log
 .DS_Store
 dist

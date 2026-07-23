@@ -1101,14 +1101,12 @@ describe("private planner configuration", () => {
   });
 
   it("ignores all supported private local filenames in Git and Docker contexts", async () => {
-    const gitIgnore = await readFile(".gitignore", "utf8");
-    expect(gitIgnore).toMatch(/^config\/\*$/m);
-    expect(gitIgnore).toMatch(/^!config\/planner\.example\.yaml$/m);
-
-    const dockerIgnore = await readFile(".dockerignore", "utf8");
-    expect(dockerIgnore).toContain("config/planner.local.yaml");
-    expect(dockerIgnore).toContain("config/planner.local.yml");
-    expect(dockerIgnore).toContain("config/planner.local.json");
+    for (const ignoreFile of [".gitignore", ".dockerignore"]) {
+      const contents = await readFile(ignoreFile, "utf8");
+      expect(contents).toContain("config/planner.local.yaml");
+      expect(contents).toContain("config/planner.local.yml");
+      expect(contents).toContain("config/planner.local.json");
+    }
   });
 
   it("requires an explicit surplus allocation policy", async () => {
