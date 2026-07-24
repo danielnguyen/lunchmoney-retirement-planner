@@ -136,7 +136,7 @@ export function AnnualXAxis({
   );
 }
 
-type Overrides = Record<string, number>;
+export type Overrides = Record<string, number>;
 
 type BlockingError = {
   error: string;
@@ -154,14 +154,22 @@ export type ControlDefinition = {
   key: string;
   sourceKey: string;
   label: string;
+  kind: "age" | "currency" | "percentage" | "number";
   min: (inputs: ProjectionInputs) => number;
   max: (inputs: ProjectionInputs) => number;
   step: number;
   format: (value: number) => string;
   get: (inputs: ProjectionInputs) => number;
   set: (inputs: ProjectionInputs, value: number) => void;
-  inputType?: "range" | "number";
 };
+
+export function controlInputValue(control: ControlDefinition, value: number): number {
+  return control.kind === "percentage" ? value * 100 : value;
+}
+
+export function controlDomainValue(control: ControlDefinition, value: number): number {
+  return control.kind === "percentage" ? value / 100 : value;
+}
 
 function fixed(value: number): (inputs: ProjectionInputs) => number {
   return () => value;
@@ -188,6 +196,7 @@ export function buildControls(baseline: ProjectionInputs): ControlDefinition[] {
         ? "savingsPolicy.reserveBuilding.targetToday"
         : "surplusAllocation.targetCashReserveToday",
       label: "Target cash reserve today",
+      kind: "currency",
       min: fixed(0),
       max: fixed(
         Math.max(
@@ -195,14 +204,13 @@ export function buildControls(baseline: ProjectionInputs): ControlDefinition[] {
           baseline.surplusAllocation.targetCashReserveToday * 3,
         ),
       ),
-      step: 100,
+      step: 0.01,
       format: currency.format,
       get: (inputs) =>
         inputs.surplusAllocation.targetCashReserveToday,
       set: (inputs, value) => {
         inputs.surplusAllocation.targetCashReserveToday = value;
       },
-      inputType: "number",
     },
     {
       key: simplePolicy
@@ -212,20 +220,21 @@ export function buildControls(baseline: ProjectionInputs): ControlDefinition[] {
         ? "savingsPolicy.reserveBuilding.indexingRate"
         : "surplusAllocation.reserveIndexingRate",
       label: "Reserve indexing rate",
+      kind: "percentage",
       min: fixed(-0.2),
       max: fixed(0.5),
-      step: 0.001,
+      step: 0.01,
       format: percent.format,
       get: (inputs) => inputs.surplusAllocation.reserveIndexingRate,
       set: (inputs, value) => {
         inputs.surplusAllocation.reserveIndexingRate = value;
       },
-      inputType: "number",
     },
     {
       key: "cppStartAge",
       sourceKey: "person.cpp.startAge",
       label: "CPP start age",
+      kind: "age",
       min: fixed(60),
       max: fixed(70),
       step: 1,
@@ -239,6 +248,7 @@ export function buildControls(baseline: ProjectionInputs): ControlDefinition[] {
       key: "oasStartAge",
       sourceKey: "person.oas.startAge",
       label: "OAS start age",
+      kind: "age",
       min: fixed(65),
       max: fixed(70),
       step: 1,
@@ -252,9 +262,10 @@ export function buildControls(baseline: ProjectionInputs): ControlDefinition[] {
       key: "monthlyEssentialSpendingToday",
       sourceKey: "monthlyEssentialSpendingToday",
       label: "Essential monthly spending",
+      kind: "currency",
       min: fixed(0),
       max: fixed(Math.max(20000, baseline.monthlyEssentialSpendingToday * 3)),
-      step: 50,
+      step: 0.01,
       format: currency.format,
       get: (inputs) => inputs.monthlyEssentialSpendingToday,
       set: (inputs, value) => {
@@ -265,9 +276,10 @@ export function buildControls(baseline: ProjectionInputs): ControlDefinition[] {
       key: "monthlyDiscretionarySpendingToday",
       sourceKey: "monthlyDiscretionarySpendingToday",
       label: "Discretionary monthly spending",
+      kind: "currency",
       min: fixed(0),
       max: fixed(Math.max(10000, baseline.monthlyDiscretionarySpendingToday * 3)),
-      step: 50,
+      step: 0.01,
       format: currency.format,
       get: (inputs) => inputs.monthlyDiscretionarySpendingToday,
       set: (inputs, value) => {
@@ -278,9 +290,10 @@ export function buildControls(baseline: ProjectionInputs): ControlDefinition[] {
       key: "annualInflation",
       sourceKey: "annualInflation",
       label: "Inflation",
+      kind: "percentage",
       min: fixed(0),
       max: fixed(0.1),
-      step: 0.001,
+      step: 0.01,
       format: percent.format,
       get: (inputs) => inputs.annualInflation,
       set: (inputs, value) => {
@@ -291,6 +304,7 @@ export function buildControls(baseline: ProjectionInputs): ControlDefinition[] {
       key: "endAge",
       sourceKey: "endAge",
       label: "Projection end age",
+      kind: "age",
       min: (inputs) => inputs.person.retirementAge,
       max: fixed(120),
       step: 1,
@@ -311,6 +325,7 @@ export function buildControls(baseline: ProjectionInputs): ControlDefinition[] {
         key: "savingsPolicy.operatingCash.targetToday",
         sourceKey: "savingsPolicy.operatingCash.targetToday",
         label: "Operating cash target today",
+        kind: "currency",
         min: fixed(0),
         max: fixed(
           Math.max(
@@ -318,7 +333,7 @@ export function buildControls(baseline: ProjectionInputs): ControlDefinition[] {
             baseline.savingsPolicy.operatingCashTarget.targetToday * 3,
           ),
         ),
-        step: 100,
+        step: 0.01,
         format: currency.format,
         get: (inputs) =>
           inputs.savingsPolicy.mode === "simple"
@@ -332,15 +347,15 @@ export function buildControls(baseline: ProjectionInputs): ControlDefinition[] {
             inputs.savingsPolicy.operatingCashTarget.targetToday = value;
           }
         },
-        inputType: "number",
       },
       {
         key: "savingsPolicy.operatingCash.indexingRate",
         sourceKey: "savingsPolicy.operatingCash.indexingRate",
         label: "Operating cash indexing rate",
+        kind: "percentage",
         min: fixed(-0.2),
         max: fixed(0.5),
-        step: 0.001,
+        step: 0.01,
         format: percent.format,
         get: (inputs) =>
           inputs.savingsPolicy.mode === "simple"
@@ -354,7 +369,6 @@ export function buildControls(baseline: ProjectionInputs): ControlDefinition[] {
             inputs.savingsPolicy.operatingCashTarget.indexingRate = value;
           }
         },
-        inputType: "number",
       },
     );
   }
@@ -371,6 +385,7 @@ export function buildControls(baseline: ProjectionInputs): ControlDefinition[] {
             ? "registeredRoom.tfsa.availableAtStart"
             : "registeredAccountRoom.tfsa.startingAvailableRoom.amount",
         label: "Starting TFSA room",
+        kind: "currency",
         min: fixed(0),
         max: fixed(
           Math.max(
@@ -379,7 +394,7 @@ export function buildControls(baseline: ProjectionInputs): ControlDefinition[] {
               3,
           ),
         ),
-        step: 100,
+        step: 0.01,
         format: currency.format,
         get: (inputs) =>
           inputs.registeredAccountRoom!.tfsa.startingAvailableRoom.amount,
@@ -387,7 +402,6 @@ export function buildControls(baseline: ProjectionInputs): ControlDefinition[] {
           inputs.registeredAccountRoom!.tfsa.startingAvailableRoom.amount =
             value;
         },
-        inputType: "number",
       },
       {
         key:
@@ -399,6 +413,7 @@ export function buildControls(baseline: ProjectionInputs): ControlDefinition[] {
             ? "registeredRoom.rrsp.availableAtStart"
             : "registeredAccountRoom.rrsp.startingAvailableDeductionRoom.amount",
         label: "Starting RRSP deduction room",
+        kind: "currency",
         min: fixed(0),
         max: fixed(
           Math.max(
@@ -407,7 +422,7 @@ export function buildControls(baseline: ProjectionInputs): ControlDefinition[] {
               .startingAvailableDeductionRoom.amount * 3,
           ),
         ),
-        step: 100,
+        step: 0.01,
         format: currency.format,
         get: (inputs) =>
           inputs.registeredAccountRoom!.rrsp
@@ -416,7 +431,6 @@ export function buildControls(baseline: ProjectionInputs): ControlDefinition[] {
           inputs.registeredAccountRoom!.rrsp.startingAvailableDeductionRoom.amount =
             value;
         },
-        inputType: "number",
       },
     );
   }
@@ -427,9 +441,10 @@ export function buildControls(baseline: ProjectionInputs): ControlDefinition[] {
         key: `employmentPhase.${phase.id}.annualNetCashToday`,
         sourceKey: `person.employmentIncomePhases.${phase.id}.annualNetCashToday`,
         label: `${phase.label} annual net cash`,
+        kind: "currency",
         min: fixed(0),
         max: fixed(Math.max(250000, phase.annualNetCashToday * 3)),
-        step: 1000,
+        step: 0.01,
         format: currency.format,
         get: (inputs) =>
           inputs.person.employmentIncomePhases.find((item) => item.id === phase.id)!
@@ -444,9 +459,10 @@ export function buildControls(baseline: ProjectionInputs): ControlDefinition[] {
         key: `employmentPhase.${phase.id}.annualGrowth`,
         sourceKey: `person.employmentIncomePhases.${phase.id}.annualGrowth`,
         label: `${phase.label} annual income growth`,
+        kind: "percentage",
         min: fixed(-0.2),
         max: fixed(0.5),
-        step: 0.001,
+        step: 0.01,
         format: percent.format,
         get: (inputs) =>
           inputs.person.employmentIncomePhases.find((item) => item.id === phase.id)!
@@ -474,11 +490,12 @@ export function buildControls(baseline: ProjectionInputs): ControlDefinition[] {
           key: `employmentPhase.${phase.id}.rrspRoomGeneration.${field}`,
           sourceKey: `person.employmentIncomePhases.${phase.id}.rrspRoomGeneration.${field}`,
           label: `${phase.label} ${label}`,
+          kind: "currency",
           min: fixed(0),
           max: fixed(
             Math.max(250000, phase.rrspRoomGeneration[field] * 3),
           ),
-          step: 100,
+          step: 0.01,
           format: currency.format,
           get: (inputs) =>
             inputs.person.employmentIncomePhases.find(
@@ -489,7 +506,6 @@ export function buildControls(baseline: ProjectionInputs): ControlDefinition[] {
               (item) => item.id === phase.id,
             )!.rrspRoomGeneration![field] = value;
           },
-          inputType: "number",
         });
       }
     }
@@ -513,9 +529,10 @@ export function buildControls(baseline: ProjectionInputs): ControlDefinition[] {
           key: `contributionPhase.${account.id}.${phase.id}.monthlyAmountToday`,
           sourceKey: `accounts.${account.id}.contributionPhases.${phase.id}.monthlyAmountToday`,
           label: `${planLabel} · ${phase.label} monthly amount`,
+          kind: "currency",
           min: fixed(0),
           max: fixed(Math.max(5000, phase.monthlyAmountToday * 3)),
-          step: 25,
+          step: 0.01,
           format: currency.format,
           get: (inputs) =>
             inputs.accounts
@@ -533,9 +550,10 @@ export function buildControls(baseline: ProjectionInputs): ControlDefinition[] {
           key: `contributionPhase.${account.id}.${phase.id}.indexingRate`,
           sourceKey: `accounts.${account.id}.contributionPhases.${phase.id}.indexingRate`,
           label: `${planLabel} · ${phase.label} indexing`,
+          kind: "percentage",
           min: fixed(-0.2),
           max: fixed(0.5),
-          step: 0.001,
+          step: 0.01,
           format: percent.format,
           get: (inputs) =>
             inputs.accounts
@@ -560,9 +578,10 @@ export function buildControls(baseline: ProjectionInputs): ControlDefinition[] {
           key: `reserveBuildingPhase.${phase.id}.monthlyAmountToday`,
           sourceKey: `savingsPolicy.reserveBuilding.phases.${phase.id}.monthlyAmountToday`,
           label: `Reserve building · ${phase.label} monthly amount`,
+          kind: "currency",
           min: fixed(0),
           max: fixed(Math.max(5000, phase.monthlyAmountToday * 3)),
-          step: 25,
+          step: 0.01,
           format: currency.format,
           get: (inputs) =>
             inputs.savingsPolicy.mode === "simple"
@@ -582,9 +601,10 @@ export function buildControls(baseline: ProjectionInputs): ControlDefinition[] {
           key: `reserveBuildingPhase.${phase.id}.indexingRate`,
           sourceKey: `savingsPolicy.reserveBuilding.phases.${phase.id}.indexingRate`,
           label: `Reserve building · ${phase.label} indexing`,
+          kind: "percentage",
           min: fixed(-0.2),
           max: fixed(0.5),
-          step: 0.001,
+          step: 0.01,
           format: percent.format,
           get: (inputs) =>
             inputs.savingsPolicy.mode === "simple"
@@ -618,9 +638,10 @@ export function buildControls(baseline: ProjectionInputs): ControlDefinition[] {
       key: `return.${account.type}`,
       sourceKey: `accounts.${account.id}.annualReturn`,
       label: typeLabels[account.type],
+      kind: "percentage",
       min: fixed(-0.5),
       max: fixed(0.5),
-      step: 0.001,
+      step: 0.01,
       format: percent.format,
       get: (inputs) => inputs.accounts.find((item) => item.type === account.type)!.annualReturn,
       set: (inputs, value) => {
@@ -643,9 +664,10 @@ export function buildControls(baseline: ProjectionInputs): ControlDefinition[] {
         key: "primaryResidence.currentValue",
         sourceKey: `${residenceSourcePrefix}.openingValue`,
         label: "Primary residence value",
+        kind: "currency",
         min: fixed(0),
         max: fixed(Math.max(2_000_000, residence.openingValue * 3)),
-        step: 1_000,
+        step: 0.01,
         format: currency.format,
         get: (inputs) =>
           inputs.nonFinancialAssets.find(
@@ -656,15 +678,15 @@ export function buildControls(baseline: ProjectionInputs): ControlDefinition[] {
             (asset) => asset.id === residence.id,
           )!.openingValue = value;
         },
-        inputType: "number",
       },
       {
         key: "primaryResidence.annualAppreciation",
         sourceKey: `${residenceSourcePrefix}.annualAppreciation`,
         label: "Residence annual appreciation",
+        kind: "percentage",
         min: fixed(-0.2),
         max: fixed(0.5),
-        step: 0.001,
+        step: 0.01,
         format: percent.format,
         get: (inputs) =>
           inputs.nonFinancialAssets.find(
@@ -675,7 +697,6 @@ export function buildControls(baseline: ProjectionInputs): ControlDefinition[] {
             (asset) => asset.id === residence.id,
           )!.annualAppreciation = value;
         },
-        inputType: "number",
       },
     );
   }
@@ -687,9 +708,10 @@ export function buildControls(baseline: ProjectionInputs): ControlDefinition[] {
         key: `liability.${liability.id}.annualInterestRate`,
         sourceKey: `liabilities.${liability.id}.treatment.annualInterestRate`,
         label: `${liability.label} annual interest rate`,
+        kind: "percentage",
         min: fixed(0),
         max: fixed(0.5),
-        step: 0.001,
+        step: 0.01,
         format: percent.format,
         get: (inputs) => {
           const treatment = inputs.liabilities.find(
@@ -707,17 +729,17 @@ export function buildControls(baseline: ProjectionInputs): ControlDefinition[] {
             treatment.annualInterestRate = value;
           }
         },
-        inputType: "number",
       },
       {
         key: `liability.${liability.id}.regularPayment.amount`,
         sourceKey: `liabilities.${liability.id}.treatment.regularPaymentAmount`,
         label: `${liability.label} regular payment`,
+        kind: "currency",
         min: fixed(0.01),
         max: fixed(
           Math.max(20_000, baselineTreatment.regularPayment.amount * 3),
         ),
-        step: 1,
+        step: 0.01,
         format: exactCurrency.format,
         get: (inputs) => {
           const treatment = inputs.liabilities.find(
@@ -740,7 +762,6 @@ export function buildControls(baseline: ProjectionInputs): ControlDefinition[] {
               );
           }
         },
-        inputType: "number",
       },
     );
   }
@@ -771,7 +792,7 @@ function sourceLabel(baseline: CurrentBaseline, key: string): string {
   return baseline.provenance[key]?.sourceType.replaceAll("_", " ") ?? "live baseline";
 }
 
-function ScenarioControlsPanel({
+export function ScenarioControlsPanel({
   baseline,
   inputs,
   controls,
@@ -800,7 +821,21 @@ function ScenarioControlsPanel({
           return (
             <div className={`control ${overridden ? "is-overridden" : ""}`} key={control.key}>
               <div className="control-head"><label htmlFor={inputId}>{control.label}</label><output>{control.format(currentValue)}</output></div>
-              <input id={inputId} type={control.inputType ?? "range"} min={control.min(inputs)} max={control.max(inputs)} step={control.step} value={currentValue} onChange={(event) => setOverrides((current) => ({ ...current, [control.key]: Number(event.target.value) }))} />
+              <input
+                id={inputId}
+                type={control.kind === "age" ? "range" : "number"}
+                min={controlInputValue(control, control.min(inputs))}
+                max={controlInputValue(control, control.max(inputs))}
+                step={control.step}
+                value={controlInputValue(control, currentValue)}
+                onChange={(event) => setOverrides((current) => ({
+                  ...current,
+                  [control.key]: controlDomainValue(
+                    control,
+                    Number(event.target.value),
+                  ),
+                }))}
+              />
               <div className="control-meta">
                 <span>{sourceLabel(baseline, control.sourceKey)}</span>
                 <button className="text-button" disabled={!overridden} onClick={() => setOverrides((current) => { const next = { ...current }; delete next[control.key]; return next; })}>Reset to {control.format(baselineValue)}</button>
@@ -830,7 +865,7 @@ function RightSideDrawer({
   onClose,
   children,
 }: {
-  variant: "scenario-controls" | "lunch-money-mappings";
+  variant: "scenario-controls" | "lunch-money-mappings" | "planner-config";
   drawerId: string;
   titleId: string;
   title: string;
@@ -987,6 +1022,238 @@ export function LunchMoneyMappingsDrawer({
   );
 }
 
+type PlannerConfigDocument = {
+  contents: string;
+  displayPath: string;
+  writeEnabled: boolean;
+  version: string;
+};
+
+async function configErrorMessage(
+  response: Response,
+  fallback: string,
+): Promise<string> {
+  try {
+    const body = (await response.json()) as { message?: string };
+    return body.message || fallback;
+  } catch {
+    return fallback;
+  }
+}
+
+export function PlannerConfigEditor({
+  onSaved,
+}: {
+  onSaved: () => Promise<void>;
+}) {
+  const [configDocument, setConfigDocument] = useState<PlannerConfigDocument | null>(null);
+  const [contents, setContents] = useState("");
+  const [loading, setLoading] = useState(true);
+  const [busy, setBusy] = useState(false);
+  const [validation, setValidation] = useState<"idle" | "valid" | "invalid">("idle");
+  const [message, setMessage] = useState("");
+  const [error, setError] = useState("");
+
+  const loadLatest = useCallback(async () => {
+    setLoading(true);
+    setMessage("");
+    setError("");
+    try {
+      const response = await fetch("/api/v1/config/current", { cache: "no-store" });
+      if (!response.ok) {
+        throw new Error(await configErrorMessage(response, "The planner configuration could not be loaded."));
+      }
+      const current = (await response.json()) as PlannerConfigDocument;
+      setConfigDocument(current);
+      setContents(current.contents);
+      setValidation("idle");
+    } catch (loadError) {
+      setError(loadError instanceof Error ? loadError.message : "The planner configuration could not be loaded.");
+    } finally {
+      setLoading(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    let active = true;
+    void fetch("/api/v1/config/current", { cache: "no-store" })
+      .then(async (response) => {
+        if (!response.ok) {
+          throw new Error(await configErrorMessage(response, "The planner configuration could not be loaded."));
+        }
+        const current = (await response.json()) as PlannerConfigDocument;
+        if (!active) return;
+        setConfigDocument(current);
+        setContents(current.contents);
+        setValidation("idle");
+      })
+      .catch((loadError: unknown) => {
+        if (!active) return;
+        setError(loadError instanceof Error ? loadError.message : "The planner configuration could not be loaded.");
+      })
+      .finally(() => {
+        if (active) setLoading(false);
+      });
+    return () => {
+      active = false;
+    };
+  }, []);
+
+  async function validate(): Promise<boolean> {
+    setBusy(true);
+    setMessage("");
+    setError("");
+    try {
+      const response = await fetch("/api/v1/config/current", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ contents }),
+      });
+      if (!response.ok) {
+        setValidation("invalid");
+        setError(await configErrorMessage(response, "The YAML is not a valid planner configuration."));
+        return false;
+      }
+      setValidation("valid");
+      setMessage("Configuration is valid. No file was changed.");
+      return true;
+    } catch {
+      setValidation("invalid");
+      setError("The configuration could not be validated.");
+      return false;
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function save() {
+    if (!configDocument?.writeEnabled) return;
+    if (!(await validate())) return;
+
+    setBusy(true);
+    setMessage("");
+    setError("");
+    try {
+      const response = await fetch("/api/v1/config/current", {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          contents,
+          expectedVersion: configDocument.version,
+        }),
+      });
+      if (!response.ok) {
+        setError(await configErrorMessage(response, "The planner configuration could not be saved."));
+        return;
+      }
+      const saved = (await response.json()) as { version: string };
+      setConfigDocument((current) => current ? {
+        ...current,
+        contents,
+        version: saved.version,
+      } : current);
+      setMessage("Configuration saved. Reloading the active baseline…");
+      try {
+        await onSaved();
+        setMessage("Configuration saved and the active baseline was reloaded.");
+      } catch (reloadError) {
+        setError(
+          reloadError instanceof Error
+            ? `Configuration saved, but the active baseline could not be reloaded: ${reloadError.message}`
+            : "Configuration saved, but the active baseline could not be reloaded.",
+        );
+      }
+    } catch {
+      setError("The planner configuration could not be saved.");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  const dirty = configDocument !== null && contents !== configDocument.contents;
+  const validationLabel = validation === "valid"
+    ? "Valid configuration"
+    : validation === "invalid"
+      ? "Validation failed"
+      : "Not yet validated";
+
+  if (loading) return <p className="panel-copy" aria-live="polite">Loading planner configuration…</p>;
+  if (!configDocument) return <p className="config-message error" role="alert">{error}</p>;
+
+  return (
+    <section className="config-editor" aria-label="Active planner configuration editor">
+      <div className="config-editor-meta">
+        <div><span>Active file</span><strong>{configDocument.displayPath}</strong></div>
+        <div><span>Editor state</span><strong>{dirty ? "Unsaved changes" : "Matches disk"}</strong></div>
+        <div><span>Validation</span><strong>{validationLabel}</strong></div>
+      </div>
+      <p className="panel-copy">
+        Scenario controls remain temporary and are not applied to this YAML.
+      </p>
+      {!configDocument.writeEnabled ? (
+        <p className="config-write-disabled">
+          Saving is disabled. Validation and viewing remain available. Set
+          {" "}<code>PLANNER_CONFIG_WRITE_ENABLED=true</code> and restart the application to enable saving.
+        </p>
+      ) : (
+        <p className="config-write-enabled">Saving is enabled. A successful save replaces the backup and reloads the baseline.</p>
+      )}
+      <label className="config-editor-label" htmlFor="planner-config-yaml">Planner YAML</label>
+      <textarea
+        id="planner-config-yaml"
+        className="config-editor-textarea"
+        value={contents}
+        onChange={(event) => {
+          setContents(event.target.value);
+          setValidation("idle");
+          setMessage("");
+          setError("");
+        }}
+        spellCheck={false}
+        rows={30}
+      />
+      {message ? <p className="config-message success" role="status">{message}</p> : null}
+      {error ? <p className="config-message error" role="alert">{error}</p> : null}
+      <div className="config-editor-actions">
+        <button type="button" className="button secondary" disabled={busy} onClick={() => void validate()}>
+          Validate
+        </button>
+        <button type="button" className="button secondary" disabled={busy} onClick={() => void loadLatest()}>
+          Revert changes
+        </button>
+        <button type="button" className="button" disabled={busy || !configDocument.writeEnabled} onClick={() => void save()}>
+          Save config
+        </button>
+      </div>
+    </section>
+  );
+}
+
+export function PlannerConfigDrawer({
+  opener,
+  onClose,
+  onSaved,
+}: {
+  opener: HTMLButtonElement | null;
+  onClose: () => void;
+  onSaved: () => Promise<void>;
+}) {
+  return (
+    <RightSideDrawer
+      variant="planner-config"
+      drawerId="planner-config-drawer"
+      titleId="planner-config-title"
+      title="Planner config"
+      kicker="Local YAML"
+      closeLabel="Close planner config"
+      opener={opener}
+      onClose={onClose}
+    >
+      <PlannerConfigEditor onSaved={onSaved} />
+    </RightSideDrawer>
+  );
+}
+
 function benefitSourceLabel(
   baseline: CurrentBaseline,
   key: "person.cpp.amountSourceMode" | "person.oas.fullAmountSourceMode",
@@ -1000,7 +1267,17 @@ function benefitSourceLabel(
   return "Source unavailable";
 }
 
-function BlockingState({ error, onRefresh }: { error: BlockingError; onRefresh: () => void }) {
+function BlockingState({
+  error,
+  onRefresh,
+  onOpenConfig,
+  configOpen,
+}: {
+  error: BlockingError;
+  onRefresh: () => void;
+  onOpenConfig: (opener: HTMLButtonElement) => void;
+  configOpen: boolean;
+}) {
   const connected = error.connection?.status === "connected";
   return (
     <main>
@@ -1010,7 +1287,18 @@ function BlockingState({ error, onRefresh }: { error: BlockingError; onRefresh: 
           <h1>Live baseline required.</h1>
           <p>The planner will not render projections until Lunch Money and the private mappings are valid.</p>
         </div>
-        <button className="button no-print" onClick={onRefresh}>Try again</button>
+        <div className="hero-actions no-print">
+          <button
+            type="button"
+            className="button secondary"
+            aria-controls="planner-config-drawer"
+            aria-expanded={configOpen}
+            onClick={(event) => onOpenConfig(event.currentTarget)}
+          >
+            Planner config
+          </button>
+          <button className="button" onClick={onRefresh}>Try again</button>
+        </div>
       </header>
       <section className="blocking-card" role="alert">
         <span className={`connection-badge ${connected ? "connected" : "failed"}`}>
@@ -1079,11 +1367,15 @@ export function PlannerDashboard() {
   const [lunchMoneyMappings, setLunchMoneyMappings] = useState<{
     opener: HTMLButtonElement;
   } | null>(null);
+  const [plannerConfig, setPlannerConfig] = useState<{
+    opener: HTMLButtonElement;
+  } | null>(null);
 
   const openExplanation = useCallback(
     (target: ExplanationTarget, opener: HTMLButtonElement) => {
       setScenarioControls(null);
       setLunchMoneyMappings(null);
+      setPlannerConfig(null);
       setActiveExplanation({ target, opener });
     },
     [],
@@ -1094,6 +1386,7 @@ export function PlannerDashboard() {
     () => setLunchMoneyMappings(null),
     [],
   );
+  const closePlannerConfig = useCallback(() => setPlannerConfig(null), []);
 
   const refresh = useCallback(() => {
     setRefreshGeneration((current) => current + 1);
@@ -1102,6 +1395,7 @@ export function PlannerDashboard() {
     setActiveExplanation(null);
     setScenarioControls(null);
     setLunchMoneyMappings(null);
+    setPlannerConfig(null);
   }, []);
 
   useEffect(() => {
@@ -1172,6 +1466,23 @@ export function PlannerDashboard() {
   const projectionError = currentProjectionResult?.error ?? "";
   const projecting = Boolean(inputs) && currentProjectionResult === null;
 
+  const reloadBaselineAfterConfigSave = useCallback(async () => {
+    const response = await fetch("/api/v1/baseline/current", { cache: "no-store" });
+    const body = (await response.json()) as CurrentBaseline | BlockingError;
+    if (!response.ok) {
+      throw new Error((body as BlockingError).message || "The active baseline could not be loaded.");
+    }
+    const current = body as CurrentBaseline;
+    setBaselineResult({ generation: refreshGeneration, baseline: current });
+    setAllocationYear(Number(current.projectionInputs.startDate.slice(0, 4)) + 20);
+    setOverrides({});
+    setProjectionResult(null);
+    setExportStatus("");
+    setActiveExplanation(null);
+    setScenarioControls(null);
+    setLunchMoneyMappings(null);
+  }, [refreshGeneration]);
+
   async function download(endpoint: string, filename: string) {
     if (!baseline || !inputs) return;
     setExportStatus("Preparing export…");
@@ -1206,7 +1517,23 @@ export function PlannerDashboard() {
       </main>
     );
   }
-  if (loadError) return <BlockingState error={loadError} onRefresh={() => void refresh()} />;
+  if (loadError) return (
+    <>
+      <BlockingState
+        error={loadError}
+        onRefresh={() => void refresh()}
+        onOpenConfig={(opener) => setPlannerConfig({ opener })}
+        configOpen={plannerConfig !== null}
+      />
+      {plannerConfig ? (
+        <PlannerConfigDrawer
+          opener={plannerConfig.opener}
+          onClose={closePlannerConfig}
+          onSaved={reloadBaselineAfterConfigSave}
+        />
+      ) : null}
+    </>
+  );
   if (!baseline || !inputs) return null;
 
   const chartData = projection ? buildAnnualChartData(inputs, projection, mode) : [];
@@ -1286,11 +1613,26 @@ export function PlannerDashboard() {
           <button
             type="button"
             className="button secondary"
+            aria-expanded={plannerConfig !== null}
+            aria-controls="planner-config-drawer"
+            onClick={(event) => {
+              setActiveExplanation(null);
+              setScenarioControls(null);
+              setLunchMoneyMappings(null);
+              setPlannerConfig({ opener: event.currentTarget });
+            }}
+          >
+            Planner config
+          </button>
+          <button
+            type="button"
+            className="button secondary"
             aria-expanded={lunchMoneyMappings !== null}
             aria-controls="lunch-money-mappings-drawer"
             onClick={(event) => {
               setActiveExplanation(null);
               setScenarioControls(null);
+              setPlannerConfig(null);
               setLunchMoneyMappings({ opener: event.currentTarget });
             }}
           >
@@ -1304,6 +1646,7 @@ export function PlannerDashboard() {
             onClick={(event) => {
               setActiveExplanation(null);
               setLunchMoneyMappings(null);
+              setPlannerConfig(null);
               setScenarioControls({ opener: event.currentTarget });
             }}
           >
@@ -2105,6 +2448,13 @@ export function PlannerDashboard() {
           mappings={baseline.lunchMoneyMappings}
           opener={lunchMoneyMappings.opener}
           onClose={closeLunchMoneyMappings}
+        />
+      ) : null}
+      {plannerConfig ? (
+        <PlannerConfigDrawer
+          opener={plannerConfig.opener}
+          onClose={closePlannerConfig}
+          onSaved={reloadBaselineAfterConfigSave}
         />
       ) : null}
     </main>

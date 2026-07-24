@@ -100,9 +100,10 @@ describe("responsive scenario controls", () => {
   it("keeps the report full width and places both drawer triggers first in the hero actions", async () => {
     const css = await readFile("app/globals.css", "utf8");
     const dashboard = await readFile("components/planner-dashboard.tsx", "utf8");
+    const heroActionsStart = dashboard.lastIndexOf('<div className="hero-actions no-print">');
     const heroActions = dashboard.slice(
-      dashboard.indexOf('<div className="hero-actions no-print">'),
-      dashboard.indexOf("</div>", dashboard.indexOf('<div className="hero-actions no-print">')),
+      heroActionsStart,
+      dashboard.indexOf("</div>", heroActionsStart),
     );
     const toolbar = dashboard.slice(
       dashboard.indexOf('<section className="toolbar no-print"'),
@@ -114,6 +115,9 @@ describe("responsive scenario controls", () => {
     expect(css).not.toContain("controls-panel-desktop");
     expect(css).not.toContain("grid-template-columns: minmax(0, 3fr)");
     expect(css).not.toContain("scenario-controls-trigger");
+    expect(heroActions.indexOf("Planner config")).toBeLessThan(
+      heroActions.indexOf("Lunch Money mappings"),
+    );
     expect(heroActions.indexOf("Lunch Money mappings")).toBeLessThan(
       heroActions.indexOf("Scenario controls"),
     );
@@ -297,11 +301,12 @@ describe("responsive scenario controls", () => {
     const mobile = css.slice(css.indexOf("@media (max-width: 620px)"));
     const print = css.slice(css.indexOf("@media print"));
 
-    expect(mobile).toContain(".scenario-controls-drawer, .lunch-money-mappings-drawer { width: 100vw");
+    expect(mobile).toContain(".scenario-controls-drawer, .lunch-money-mappings-drawer, .planner-config-drawer { width: 100vw");
     expect(mobile).toContain("grid-template-columns: repeat(2, minmax(0, 1fr))");
-    expect(css).toContain(".scenario-controls-drawer-content, .lunch-money-mappings-drawer-content { height: calc(100% - 84px)");
+    expect(css).toContain(".scenario-controls-drawer-content, .lunch-money-mappings-drawer-content, .planner-config-drawer-content { height: calc(100% - 84px)");
     expect(css).toContain("overflow-y: auto");
     expect(print).toContain(".scenario-controls-overlay");
+    expect(print).toContain(".planner-config-overlay");
     expect(print).toContain(".lunch-money-mappings-overlay");
     expect(print).toContain("display: none !important");
   });

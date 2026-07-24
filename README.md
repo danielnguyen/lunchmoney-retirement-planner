@@ -37,6 +37,20 @@ Set `LUNCHMONEY_API_TOKEN` in `.env`. Replace every placeholder in `config/plann
 
 Open `http://localhost:3000`.
 
+### Editing planner YAML in the dashboard
+
+Open **Planner config** to view the active YAML in a local editor drawer. **Validate** parses the editor text and runs the complete planner configuration validator without changing the file. **Revert changes** always reloads the latest contents from disk, including edits made outside the dashboard.
+
+Saving is disabled by default. To enable the explicit **Save config** action for local development, set this in `.env` and restart the application:
+
+```text
+PLANNER_CONFIG_WRITE_ENABLED=true
+```
+
+A save validates first, checks that the file version still matches the version loaded by the editor, writes the submitted YAML atomically, and replaces `planner.local.yaml.bak` with the previous contents. Comments and formatting are preserved. If an external edit changes the file first, the API returns a conflict and the editor keeps the unsaved text; use **Revert changes** to load the newer version before saving again.
+
+After a successful save, the dashboard reloads the active baseline and projection and clears temporary scenario overrides. Scenario controls remain intentionally independent: they are never copied into YAML and are not persisted by this workflow.
+
 ### Mapping Lunch Money records
 
 Account keys should be source-scoped so manual and Plaid IDs cannot collide:
@@ -210,6 +224,9 @@ Covered targets are the summary cards, main charts including annual explicit sav
 GET  /api/v1/health
 GET  /api/v1/lunchmoney/status
 GET  /api/v1/baseline/current
+GET  /api/v1/config/current
+POST /api/v1/config/current
+PUT  /api/v1/config/current
 POST /api/v1/projections
 POST /api/v1/exports/projection
 POST /api/v1/exports/projection-csv
@@ -220,6 +237,8 @@ POST /api/v1/exports/projection-csv
 `GET /api/v1/lunchmoney/status` validates the token with a read-only categories request and returns a sanitized result.
 
 `GET /api/v1/baseline/current` returns schema `1.8` projection inputs, simple/advanced mode, role/compiler, phase, benefit, financial-account, imported non-financial-asset, liability, savings-policy, registered-room, and waterfall provenance; derived values; cash-flow and debt-payment audit evidence; warnings; and mapping details.
+
+The current-config API is dynamic and uncached. `GET` returns only the active YAML text, a display-safe filename, write capability, and a content hash. `POST` validates submitted YAML without saving. `PUT` is available only when `PLANNER_CONFIG_WRITE_ENABLED=true`; it accepts YAML and the expected content hash, never a browser-supplied path.
 
 Projection requests use this shape:
 
@@ -253,7 +272,7 @@ cp config/planner.example.yaml config/planner.local.yaml
 docker compose up --build
 ```
 
-Compose starts one planner container, passes the token through the environment, and mounts `config/planner.local.yaml` read-only at `/app/config/planner.local.yaml`. The mount retains the Fedora-compatible `:ro,Z` SELinux option. PostgreSQL is not used.
+Compose starts one planner container, passes the token and explicit write flag through the environment, and mounts the local `config` directory at `/app/config` with the Fedora-compatible `:rw,Z` SELinux option. The directory mount is required because atomic save replaces the file with a completed temporary file and writes the adjacent backup. Ensure the local `config` directory and planner file are writable by the container user before enabling saves. Application writes still remain disabled unless `PLANNER_CONFIG_WRITE_ENABLED=true`. PostgreSQL is not used.
 
 ## Validation
 
@@ -273,8 +292,8 @@ Tests use synthetic fixtures under `tests/`. Production modules do not import th
 - The token is never logged, returned by an API, or included in an export.
 - JSON and CSV exports use deterministic export-local aliases and exclude all source-system IDs and user-controlled free text before serialization.
 - The application-facing Lunch Money service exposes retrieval methods only.
-- `config/planner.local.yaml`, `config/planner.local.yml`, `config/planner.local.json`, `.env`, and the private config in the Docker build context are ignored.
-- No baseline, scenario, transaction, or account data is persisted by the application.
+- Every file under `config/` except the clearly synthetic `planner.example.yaml`, plus `.env`, is ignored by Git and the Docker build context.
+- The application persists only an explicitly saved active YAML configuration and its backup. Imported Lunch Money baselines, scenarios, transactions, and account data are not persisted.
 
 ## Projection scope
 

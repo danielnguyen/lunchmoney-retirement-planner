@@ -185,6 +185,25 @@ describe("simple savings dashboard controls", () => {
     expect(refreshBody).toContain("setOverrides({})");
   });
 
+  it("reloads the saved config baseline before clearing temporary overrides", async () => {
+    const dashboard = await readFile(
+      "components/planner-dashboard.tsx",
+      "utf8",
+    );
+    const reloadStart = dashboard.indexOf("const reloadBaselineAfterConfigSave");
+    const reloadBody = dashboard.slice(
+      reloadStart,
+      dashboard.indexOf("}, [refreshGeneration])", reloadStart),
+    );
+    expect(reloadBody).toContain('fetch("/api/v1/baseline/current"');
+    expect(reloadBody.indexOf("if (!response.ok)")).toBeLessThan(
+      reloadBody.indexOf("setOverrides({})"),
+    );
+    expect(reloadBody.indexOf("setBaselineResult")).toBeLessThan(
+      reloadBody.indexOf("setOverrides({})"),
+    );
+  });
+
   it("overrides residence value, appreciation, mortgage rate, and entered payment through shared inputs", () => {
     const baseline = simpleControlFixture();
     baseline.nonFinancialAssets = [
