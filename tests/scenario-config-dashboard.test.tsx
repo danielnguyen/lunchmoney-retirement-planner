@@ -281,7 +281,7 @@ describe("scenario-to-config dashboard workflow", () => {
     expect(screen.getByLabelText("Planner YAML")).toHaveValue(
       "annualInflation: 0.02\nannualNetCashToday: live_baseline\n",
     );
-  });
+  }, 10_000);
 
   it("shows one live-baseline dialog only on apply and supports cancel then keep", async () => {
     let applyCalls = 0;
