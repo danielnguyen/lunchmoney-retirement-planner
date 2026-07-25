@@ -1100,12 +1100,11 @@ describe("private planner configuration", () => {
     );
   });
 
-  it("ignores all supported private local filenames in Git and Docker contexts", async () => {
+  it("ignores every private config artifact while retaining the synthetic example", async () => {
     for (const ignoreFile of [".gitignore", ".dockerignore"]) {
       const contents = await readFile(ignoreFile, "utf8");
-      expect(contents).toContain("config/planner.local.yaml");
-      expect(contents).toContain("config/planner.local.yml");
-      expect(contents).toContain("config/planner.local.json");
+      expect(contents).toContain("config/*");
+      expect(contents).toContain("!config/planner.example.yaml");
     }
   });
 

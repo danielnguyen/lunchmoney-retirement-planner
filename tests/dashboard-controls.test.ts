@@ -185,6 +185,26 @@ describe("simple savings dashboard controls", () => {
     expect(refreshBody).toContain("setOverrides({})");
   });
 
+  it("clears stale scenario and projection state for every post-save reload outcome", async () => {
+    const dashboard = await readFile(
+      "components/planner-dashboard.tsx",
+      "utf8",
+    );
+    const reloadStart = dashboard.indexOf("const reloadBaselineAfterConfigSave");
+    const reloadBody = dashboard.slice(
+      reloadStart,
+      dashboard.indexOf("}, [refreshGeneration])", reloadStart),
+    );
+    expect(reloadBody).toContain('fetch("/api/v1/baseline/current"');
+    expect(reloadBody.indexOf("await response.json()")).toBeLessThan(
+      reloadBody.indexOf("setOverrides({})"),
+    );
+    expect(reloadBody).toContain("setProjectionResult(null)");
+    expect(reloadBody).toContain("if (!response.ok)");
+    expect(reloadBody).toContain("error: body as BlockingError");
+    expect(reloadBody).toContain("baseline: current");
+  });
+
   it("overrides residence value, appreciation, mortgage rate, and entered payment through shared inputs", () => {
     const baseline = simpleControlFixture();
     baseline.nonFinancialAssets = [

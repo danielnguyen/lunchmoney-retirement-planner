@@ -2616,13 +2616,21 @@ export async function loadPlannerConfig(path = plannerConfigPath()): Promise<Pla
     );
   }
 
+  return parseAndValidatePlannerConfig(contents, format, `at "${path}"`);
+}
+
+export function parseAndValidatePlannerConfig(
+  contents: string,
+  format: "YAML" | "JSON",
+  sourceDescription = "provided to the planner",
+): PlannerConfig {
   let parsed: unknown;
   try {
     parsed = format === "YAML" ? parseYaml(contents) : JSON.parse(contents);
   } catch {
     throw new PlannerRuntimeError(
       "invalid_planner_config",
-      `The planner configuration at "${path}" is not valid ${format}.`,
+      `The planner configuration ${sourceDescription} is not valid ${format}.`,
       422,
     );
   }

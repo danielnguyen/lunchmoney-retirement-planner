@@ -9,20 +9,21 @@ Public tracking must remain generic and must not contain private financial value
 - Open roadmap planning pull request: None
 - Planning branch: None
 - Planning status: None
-- Open implementation pull request: [#16 Add configurable lifestyle spending phases](https://github.com/danielnguyen/lunchmoney-retirement-planner/pull/16)
+- Open implementation pull request: [#19 Add editable planner config and precise scenario inputs](https://github.com/danielnguyen/lunchmoney-retirement-planner/pull/19)
 - Pull request state: Open draft
-- Active capability: General spending phases
-- Status: In progress
-- Implementation branch: `agent/add-general-spending-phases`
-- Latest validated implementation head: `dd60224fabb9ff91e5af9d6696be5356cc139802`
-- Synthetic validation: Passed — 290 tests plus focused configuration, baseline, projection, explanation, one-cent bridge reconciliation, JSON anonymization, and rectangular real/nominal CSV privacy coverage; typecheck, lint, production build, Docker image build, Docker Compose validation, and `git diff --check` passed
-- Last completed capability: Operating-cash target and automatic excess sweep
-- Last completed pull request: [#15 Add operating-cash target and automatic excess sweep](https://github.com/danielnguyen/lunchmoney-retirement-planner/pull/15)
+- Active capability: Precise scenario inputs and editable local YAML configuration
+- Status: Ready for independent review
+- Implementation branch: `agent/editable-planner-config`
+- Latest validated implementation head: `6ff97700bf2bb1003650b6cf3a2c1b2942a49afb`
+- Synthetic validation: Passed — 330 synthetic tests including numeric draft editing, post-save dashboard transitions, config API validation, deterministic conflict and backup-failure coverage, deployment safeguards, and export privacy; typecheck, lint, production build, standalone config API smoke test, Docker image build, Docker Compose validation, and `git diff --check` passed
+- Last completed capability: General spending phases
+- Last completed pull request: [#16 Add configurable lifestyle spending phases](https://github.com/danielnguyen/lunchmoney-retirement-planner/pull/16)
+- Last maintenance pull request: [#18 Correct TFSA annual-limit forecasting](https://github.com/danielnguyen/lunchmoney-retirement-planner/pull/18)
 - Last completed synthetic validation: Passed — 283 tests plus focused configuration, baseline, projection, presentation, explanation, controls, one-cent reconciliation, JSON anonymization, and rectangular real/nominal CSV privacy coverage; typecheck, lint, production build, Docker image build, Docker Compose validation, and `git diff --check` passed
 - Last completed private migration: Passed — the operating-cash policy was updated and validated locally without publishing private values
 - Last completed private smoke test: Not run for the operating-cash capability
-- Remaining step: public review, then separately authorized repository-owner private spending-phase migration and live smoke testing
-- Next action: review draft PR #16 with synthetic data, then perform private migration and smoke testing only with separate explicit authorization
+- Remaining step: independently review the draft pull request
+- Next action: independently review the precise-input and local YAML editor draft pull request; scenario-to-config persistence remains deferred
 
 ## Planned implementation sequence
 
@@ -34,7 +35,7 @@ Public tracking must remain generic and must not contain private financial value
 | 4 | Net worth, real estate, and debt amortization | Registered-account contribution model | Completed | [#11](https://github.com/danielnguyen/lunchmoney-retirement-planner/pull/11) |
 | 5 | Employment-income today-dollar semantics correction | Existing employment-income phase model | Completed | [#14](https://github.com/danielnguyen/lunchmoney-retirement-planner/pull/14) |
 | 6 | Operating-cash target and automatic excess sweep | Surplus allocation and contribution waterfall | Completed | [#15](https://github.com/danielnguyen/lunchmoney-retirement-planner/pull/15) |
-| 7 | General spending phases | Corrected income and cash policies | In progress | [#16](https://github.com/danielnguyen/lunchmoney-retirement-planner/pull/16) |
+| 7 | General spending phases | Corrected income and cash policies | Completed | [#16](https://github.com/danielnguyen/lunchmoney-retirement-planner/pull/16) |
 | 8 | Retirement funding requirement and terminal balance | Spending phases and retirement projection | Planned | — |
 | 9 | RRIF minimum withdrawals and Canadian retirement taxes | Surplus policy, debt model, spending phases, and requirement contract | Planned | — |
 | 10 | Deterministic return paths and sequence-risk scenarios | Reconciled deterministic projection | Planned | — |
@@ -73,6 +74,6 @@ Planning order is project-management shorthand only. Production names must descr
 
 ## New-conversation handoff
 
-> Read `AGENTS.md`, `plan/roadmap.md`, and `plan/implementation-index.md`. Review draft PR #16 for General spending phases using synthetic data only. Private migration and live smoke testing require separate explicit authorization.
+> Read `AGENTS.md`, `plan/roadmap.md`, and `plan/implementation-index.md`. Continue review of draft PR #19 for precise scenario inputs and editable local YAML configuration using synthetic data only. Scenario-to-config persistence remains deferred.
 
 Repository and pull-request state are authoritative if they conflict with this index; correct stale tracking before implementation.

@@ -26,6 +26,21 @@ describe("runtime safety regressions", () => {
     expect(source).not.toMatch(/DATABASE_URL|postgres/i);
   });
 
+  it("keeps planner config writes opt-in while mounting the config directory for atomic replacement", async () => {
+    const compose = await readFile("compose.yaml", "utf8");
+    const environment = await readFile(".env.example", "utf8");
+    const route = await readFile("app/api/v1/config/current/route.ts", "utf8");
+
+    expect(compose).toContain(
+      "PLANNER_CONFIG_WRITE_ENABLED: ${PLANNER_CONFIG_WRITE_ENABLED:-false}",
+    );
+    expect(compose).toContain("./config:/app/config:rw,Z");
+    expect(environment).toContain("PLANNER_CONFIG_WRITE_ENABLED=false");
+    expect(route).toContain('export const dynamic = "force-dynamic"');
+    expect(route).toContain('export const runtime = "nodejs"');
+    expect(route).toContain('"Cache-Control": "no-store"');
+  });
+
   it("contains no Lunch Money mutation call", async () => {
     const service = await readFile("src/integrations/lunchmoney/read-service.ts", "utf8");
     expect(service).not.toMatch(/\.create\(|\.update\(|\.delete\(|\.split\(|\.group\(|triggerFetch/);

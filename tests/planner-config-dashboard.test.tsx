@@ -1,0 +1,213 @@
+// @vitest-environment jsdom
+
+import "@testing-library/jest-dom/vitest";
+import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { afterEach, describe, expect, it, vi } from "vitest";
+import { PlannerDashboard } from "@/components/planner-dashboard";
+import { calculateProjection } from "@/src/domain/projection/calculate";
+import type { ProjectionInputs } from "@/src/domain/projection/types";
+import { currentBaselineFixture } from "./fixtures/projection";
+
+vi.mock("recharts", () => {
+  const EmptyChart = () => null;
+  return {
+    Area: EmptyChart,
+    Bar: EmptyChart,
+    BarChart: EmptyChart,
+    CartesianGrid: EmptyChart,
+    Cell: EmptyChart,
+    ComposedChart: EmptyChart,
+    Legend: EmptyChart,
+    Line: EmptyChart,
+    Pie: EmptyChart,
+    PieChart: EmptyChart,
+    ReferenceLine: EmptyChart,
+    ResponsiveContainer: EmptyChart,
+    Tooltip: EmptyChart,
+    XAxis: EmptyChart,
+    YAxis: EmptyChart,
+  };
+});
+
+function jsonResponse(body: unknown, status = 200): Response {
+  return Response.json(body, { status });
+}
+
+function deferred<T>() {
+  let resolve!: (value: T) => void;
+  const promise = new Promise<T>((resolvePromise) => {
+    resolve = resolvePromise;
+  });
+  return { promise, resolve };
+}
+
+function requestUrl(input: RequestInfo | URL): string {
+  return typeof input === "string" ? input : input instanceof URL ? input.href : input.url;
+}
+
+afterEach(() => {
+  cleanup();
+  vi.unstubAllGlobals();
+  document.body.style.overflow = "";
+});
+
+describe("dashboard config-save baseline transitions", () => {
+  it("clears overrides and stale projection before regenerating from a reloaded baseline", async () => {
+    const initialBaseline = structuredClone(currentBaselineFixture);
+    const refreshedBaseline = structuredClone(currentBaselineFixture);
+    refreshedBaseline.dataThrough = "2026-08-14";
+    refreshedBaseline.projectionInputs.monthlyEssentialSpendingToday = 3600.25;
+    const pendingProjection = deferred<Response>();
+    const projectionInputs: ProjectionInputs[] = [];
+    let baselineRequests = 0;
+
+    const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = requestUrl(input);
+      if (url === "/api/v1/baseline/current") {
+        baselineRequests += 1;
+        return jsonResponse(baselineRequests === 1 ? initialBaseline : refreshedBaseline);
+      }
+      if (url === "/api/v1/projections") {
+        const payload = JSON.parse(init?.body as string) as { inputs: ProjectionInputs };
+        projectionInputs.push(payload.inputs);
+        if (baselineRequests >= 2) return pendingProjection.promise;
+        return jsonResponse(calculateProjection(payload.inputs));
+      }
+      if (url === "/api/v1/config/current" && !init?.method) {
+        return jsonResponse({
+          contents: "currentAge: 38\n",
+          displayPath: "planner.local.yaml",
+          writeEnabled: true,
+          version: "sha256:loaded",
+        });
+      }
+      if (url === "/api/v1/config/current" && init?.method === "POST") {
+        return jsonResponse({ valid: true });
+      }
+      if (url === "/api/v1/config/current" && init?.method === "PUT") {
+        return jsonResponse({ version: "sha256:saved" });
+      }
+      throw new Error(`Unexpected request: ${url}`);
+    });
+    vi.stubGlobal("fetch", fetchMock);
+    render(<PlannerDashboard />);
+
+    expect(await screen.findByLabelText("Projection summary")).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Scenario controls" }));
+    const essential = await screen.findByLabelText("Essential monthly spending");
+    fireEvent.change(essential, { target: { value: "4321.67" } });
+    await waitFor(() => {
+      expect(projectionInputs.at(-1)?.monthlyEssentialSpendingToday).toBe(4321.67);
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Close scenario controls" }));
+
+    fireEvent.click(screen.getByRole("button", { name: "Planner config" }));
+    const editor = await screen.findByLabelText("Planner YAML");
+    fireEvent.change(editor, { target: { value: "currentAge: 39\n" } });
+    fireEvent.click(screen.getByRole("button", { name: "Save config" }));
+
+    expect(await screen.findByText("Configuration saved and the active baseline was reloaded.")).toBeInTheDocument();
+    await waitFor(() => {
+      expect(projectionInputs.at(-1)?.monthlyEssentialSpendingToday).toBe(3600.25);
+    });
+    expect(screen.queryByLabelText("Projection summary")).not.toBeInTheDocument();
+    expect(screen.getByText("Recalculating…")).toBeInTheDocument();
+    expect(screen.getByRole("dialog", { name: "Planner config" })).toBeInTheDocument();
+
+    await act(async () => {
+      pendingProjection.resolve(
+        jsonResponse(calculateProjection(projectionInputs.at(-1)!)),
+      );
+    });
+    expect(await screen.findByLabelText("Projection summary")).toBeInTheDocument();
+    expect(projectionInputs.at(-1)?.monthlyEssentialSpendingToday).toBe(3600.25);
+  });
+
+  it("installs a blocking error after reload failure and keeps the editor usable for repair", async () => {
+    const initialBaseline = structuredClone(currentBaselineFixture);
+    const repairedBaseline = structuredClone(currentBaselineFixture);
+    repairedBaseline.dataThrough = "2026-08-14";
+    repairedBaseline.projectionInputs.monthlyEssentialSpendingToday = 3700.5;
+    const blockingError = {
+      error: "configuration_required",
+      message: "Synthetic mappings need correction.",
+      connection: { status: "connected", message: "Synthetic connection" },
+      unmappedAccounts: [],
+      unmappedCategories: [],
+    };
+    const projectionInputs: ProjectionInputs[] = [];
+    let baselineRequests = 0;
+    let configReads = 0;
+    let configWrites = 0;
+
+    const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = requestUrl(input);
+      if (url === "/api/v1/baseline/current") {
+        baselineRequests += 1;
+        if (baselineRequests === 1) return jsonResponse(initialBaseline);
+        if (baselineRequests === 2) return jsonResponse(blockingError, 422);
+        return jsonResponse(repairedBaseline);
+      }
+      if (url === "/api/v1/projections") {
+        const payload = JSON.parse(init?.body as string) as { inputs: ProjectionInputs };
+        projectionInputs.push(payload.inputs);
+        return jsonResponse(calculateProjection(payload.inputs));
+      }
+      if (url === "/api/v1/config/current" && !init?.method) {
+        configReads += 1;
+        return jsonResponse({
+          contents: "currentAge: 38\n",
+          displayPath: "planner.local.yaml",
+          writeEnabled: true,
+          version: "sha256:loaded",
+        });
+      }
+      if (url === "/api/v1/config/current" && init?.method === "POST") {
+        return jsonResponse({ valid: true });
+      }
+      if (url === "/api/v1/config/current" && init?.method === "PUT") {
+        configWrites += 1;
+        const body = JSON.parse(init!.body as string) as { expectedVersion: string };
+        expect(body.expectedVersion).toBe(
+          configWrites === 1 ? "sha256:loaded" : "sha256:saved-1",
+        );
+        return jsonResponse({ version: `sha256:saved-${configWrites}` });
+      }
+      throw new Error(`Unexpected request: ${url}`);
+    });
+    vi.stubGlobal("fetch", fetchMock);
+    render(<PlannerDashboard />);
+
+    expect(await screen.findByLabelText("Projection summary")).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Scenario controls" }));
+    fireEvent.change(await screen.findByLabelText("Essential monthly spending"), {
+      target: { value: "4321.67" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Close scenario controls" }));
+    fireEvent.click(screen.getByRole("button", { name: "Planner config" }));
+    const editor = await screen.findByLabelText("Planner YAML");
+    fireEvent.change(editor, { target: { value: "currentAge: 39\n" } });
+    fireEvent.click(screen.getByRole("button", { name: "Save config" }));
+
+    expect(await screen.findByText("Live baseline required.")).toBeInTheDocument();
+    expect(screen.getByText("Synthetic mappings need correction.")).toBeInTheDocument();
+    expect(screen.queryByLabelText("Projection summary")).not.toBeInTheDocument();
+    expect(screen.getByRole("dialog", { name: "Planner config" })).toBeInTheDocument();
+    expect(screen.getByLabelText("Planner YAML")).toHaveValue("currentAge: 39\n");
+    expect(screen.getByRole("status")).toHaveTextContent("Configuration saved to disk.");
+    expect(screen.getByText(
+      "Configuration saved, but the active baseline could not be loaded. Fix the configuration and save again.",
+    )).toHaveAttribute("role", "alert");
+    expect(configReads).toBe(1);
+
+    fireEvent.change(screen.getByLabelText("Planner YAML"), {
+      target: { value: "currentAge: 40\n" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Save config" }));
+
+    expect(await screen.findByText("Configuration saved and the active baseline was reloaded.")).toBeInTheDocument();
+    expect(await screen.findByLabelText("Projection summary")).toBeInTheDocument();
+    expect(projectionInputs.at(-1)?.monthlyEssentialSpendingToday).toBe(3700.5);
+    expect(configReads).toBe(1);
+  });
+});
