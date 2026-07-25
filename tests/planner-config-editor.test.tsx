@@ -1,9 +1,15 @@
 // @vitest-environment jsdom
 
 import "@testing-library/jest-dom/vitest";
+import { useState } from "react";
 import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { PlannerConfigEditor } from "@/components/planner-dashboard";
+import {
+  PlannerConfigEditor,
+  type ConfigReloadResult,
+  type PlannerConfigDocument,
+  type PlannerConfigDraftState,
+} from "@/components/planner-dashboard";
 
 function jsonResponse(body: unknown, status = 200): Response {
   return Response.json(body, { status });
@@ -24,6 +30,47 @@ function currentConfig(overrides: Partial<{
   };
 }
 
+function EditorHarness({
+  document = currentConfig(),
+  onSaved = vi.fn(),
+}: {
+  document?: PlannerConfigDocument;
+  onSaved?: () => Promise<ConfigReloadResult>;
+}) {
+  const [draft, setDraft] = useState<PlannerConfigDraftState>({
+    document,
+    contents: document.contents,
+    loading: false,
+    busy: false,
+    validation: "idle",
+    message: "",
+    error: "",
+    appliedSummary: null,
+  });
+  return (
+    <PlannerConfigEditor
+      draft={draft}
+      setDraft={setDraft}
+      onSaved={onSaved}
+      onRevert={async () => {
+        const response = await fetch("/api/v1/config/current", {
+          cache: "no-store",
+        });
+        const latest = (await response.json()) as PlannerConfigDocument;
+        setDraft((current) => ({
+          ...current,
+          document: latest,
+          contents: latest.contents,
+          validation: "idle",
+          message: "",
+          error: "",
+          appliedSummary: null,
+        }));
+      }}
+    />
+  );
+}
+
 afterEach(() => {
   cleanup();
   vi.unstubAllGlobals();
@@ -31,11 +78,7 @@ afterEach(() => {
 
 describe("planner config editor", () => {
   it("loads current YAML and clearly explains the write-disabled state", async () => {
-    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(
-      jsonResponse(currentConfig({ writeEnabled: false })),
-    ));
-
-    render(<PlannerConfigEditor onSaved={vi.fn()} />);
+    render(<EditorHarness document={currentConfig({ writeEnabled: false })} />);
 
     expect(await screen.findByLabelText("Planner YAML")).toHaveValue("currentAge: 38\n");
     expect(screen.getByText("planner.local.yaml")).toBeInTheDocument();
@@ -46,13 +89,12 @@ describe("planner config editor", () => {
 
   it("tracks dirty state, validates without saving, and preserves invalid text", async () => {
     const fetchMock = vi.fn()
-      .mockResolvedValueOnce(jsonResponse(currentConfig()))
       .mockResolvedValueOnce(jsonResponse({
         error: "invalid_planner_config",
         message: "currentAge must be a finite number.",
       }, 422));
     vi.stubGlobal("fetch", fetchMock);
-    render(<PlannerConfigEditor onSaved={vi.fn()} />);
+    render(<EditorHarness />);
     const editor = await screen.findByLabelText("Planner YAML");
 
     fireEvent.change(editor, { target: { value: "currentAge: nope\n" } });
@@ -64,19 +106,18 @@ describe("planner config editor", () => {
     );
     expect(screen.getByLabelText("Planner YAML")).toHaveValue("currentAge: nope\n");
     expect(screen.getByText("Validation failed")).toBeInTheDocument();
-    expect(fetchMock).toHaveBeenCalledTimes(2);
-    expect((fetchMock.mock.calls[1]![1] as RequestInit).method).toBe("POST");
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect((fetchMock.mock.calls[0]![1] as RequestInit).method).toBe("POST");
   });
 
   it("revert reloads the latest file contents instead of the originally loaded text", async () => {
     const fetchMock = vi.fn()
-      .mockResolvedValueOnce(jsonResponse(currentConfig()))
       .mockResolvedValueOnce(jsonResponse(currentConfig({
         contents: "currentAge: 39\n",
         version: "sha256:external",
       })));
     vi.stubGlobal("fetch", fetchMock);
-    render(<PlannerConfigEditor onSaved={vi.fn()} />);
+    render(<EditorHarness />);
     const editor = await screen.findByLabelText("Planner YAML");
 
     fireEvent.change(editor, { target: { value: "currentAge: 40\n" } });
@@ -93,14 +134,13 @@ describe("planner config editor", () => {
   it("validates before save and preserves unsaved text on a version conflict", async () => {
     const onSaved = vi.fn();
     const fetchMock = vi.fn()
-      .mockResolvedValueOnce(jsonResponse(currentConfig()))
       .mockResolvedValueOnce(jsonResponse({ valid: true }))
       .mockResolvedValueOnce(jsonResponse({
         error: "planner_config_conflict",
         message: "The planner configuration changed on disk. Revert changes to load the latest contents before saving again.",
       }, 409));
     vi.stubGlobal("fetch", fetchMock);
-    render(<PlannerConfigEditor onSaved={onSaved} />);
+    render(<EditorHarness onSaved={onSaved} />);
     const editor = await screen.findByLabelText("Planner YAML");
 
     fireEvent.change(editor, { target: { value: "currentAge: 40\n" } });
@@ -108,9 +148,9 @@ describe("planner config editor", () => {
 
     expect(await screen.findByRole("alert")).toHaveTextContent("changed on disk");
     expect(screen.getByLabelText("Planner YAML")).toHaveValue("currentAge: 40\n");
-    expect(fetchMock).toHaveBeenCalledTimes(3);
-    expect((fetchMock.mock.calls[1]![1] as RequestInit).method).toBe("POST");
-    const saveRequest = fetchMock.mock.calls[2]![1] as RequestInit;
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+    expect((fetchMock.mock.calls[0]![1] as RequestInit).method).toBe("POST");
+    const saveRequest = fetchMock.mock.calls[1]![1] as RequestInit;
     expect(saveRequest.method).toBe("PUT");
     expect(JSON.parse(saveRequest.body as string)).toEqual({
       contents: "currentAge: 40\n",
@@ -122,13 +162,12 @@ describe("planner config editor", () => {
   it("updates the version, reloads the baseline, and reports a saved state", async () => {
     const onSaved = vi.fn().mockResolvedValue({ ok: true });
     const fetchMock = vi.fn()
-      .mockResolvedValueOnce(jsonResponse(currentConfig()))
       .mockResolvedValueOnce(jsonResponse({ valid: true }))
       .mockResolvedValueOnce(jsonResponse({ version: "sha256:saved" }))
       .mockResolvedValueOnce(jsonResponse({ valid: true }))
       .mockResolvedValueOnce(jsonResponse({ version: "sha256:saved-again" }));
     vi.stubGlobal("fetch", fetchMock);
-    render(<PlannerConfigEditor onSaved={onSaved} />);
+    render(<EditorHarness onSaved={onSaved} />);
     const editor = await screen.findByLabelText("Planner YAML");
 
     fireEvent.change(editor, { target: { value: "currentAge: 39\n" } });
@@ -144,7 +183,7 @@ describe("planner config editor", () => {
     });
     fireEvent.click(screen.getByRole("button", { name: "Save config" }));
     await waitFor(() => expect(onSaved).toHaveBeenCalledTimes(2));
-    expect(JSON.parse((fetchMock.mock.calls[4]![1] as RequestInit).body as string)).toMatchObject({
+    expect(JSON.parse((fetchMock.mock.calls[3]![1] as RequestInit).body as string)).toMatchObject({
       expectedVersion: "sha256:saved",
     });
   });

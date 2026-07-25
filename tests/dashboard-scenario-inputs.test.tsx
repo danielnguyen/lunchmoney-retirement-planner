@@ -28,7 +28,26 @@ function ScenarioInputHarness() {
   );
   const baseline = {
     projectionInputs,
-    provenance: {},
+    provenance: {
+      annualInflation: {
+        value: projectionInputs.annualInflation,
+        sourceType: "local_configuration",
+        sourceDescription: "Configured inflation",
+        effectiveDate: "2026-07-01",
+      },
+      "person.employmentIncomePhases.current-income.annualNetCashToday": {
+        value: projectionInputs.person.employmentIncomePhases[0]!.annualNetCashToday,
+        sourceType: "lunchmoney_derived",
+        sourceDescription: "Live annualized synthetic income",
+        effectiveDate: "2026-07-01",
+      },
+      monthlyEssentialSpendingToday: {
+        value: projectionInputs.monthlyEssentialSpendingToday,
+        sourceType: "lunchmoney_derived",
+        sourceDescription: "Synthetic transaction baseline",
+        effectiveDate: "2026-07-01",
+      },
+    },
   } as unknown as CurrentBaseline;
 
   return (
@@ -87,6 +106,26 @@ describe("precise scenario input semantics", () => {
     expect(screen.getByLabelText("CPP start age")).toHaveAttribute("type", "range");
     expect(screen.getByLabelText("OAS start age")).toHaveAttribute("type", "range");
     expect(screen.getByLabelText("Projection end age")).toHaveAttribute("type", "range");
+  });
+
+  it("distinguishes temporary scenarios, baseline values, and human-readable sources", () => {
+    render(<ScenarioInputHarness />);
+
+    expect(screen.getByLabelText("Inflation").closest(".control")).toHaveTextContent(
+      "Source: planner.local.yaml",
+    );
+    expect(screen.getByLabelText("Current income annual net cash").closest(".control"))
+      .toHaveTextContent("Source: Live Lunch Money baseline (live_baseline)");
+    expect(screen.getByLabelText("Essential monthly spending").closest(".control"))
+      .toHaveTextContent("Source: Live Lunch Money baseline");
+
+    fireEvent.change(screen.getByLabelText("Inflation"), {
+      target: { value: "2.5" },
+    });
+    const inflationControl = screen.getByLabelText("Inflation").closest(".control")!;
+    expect(inflationControl).toHaveTextContent("Scenario: 2.5%");
+    expect(inflationControl).toHaveTextContent("Baseline: 2%");
+    expect(inflationControl).toHaveTextContent("Source: planner.local.yaml");
   });
 
   it("keeps an empty currency draft without temporarily applying zero", () => {
