@@ -606,6 +606,7 @@ export type ConfigReloadResult =
 export type PlannerConfigDraftState = {
   document: PlannerConfigDocument | null;
   contents: string;
+  revision: number;
   loading: boolean;
   busy: boolean;
   validation: "idle" | "valid" | "invalid";
@@ -614,13 +615,14 @@ export type PlannerConfigDraftState = {
   appliedSummary: Pick<
     ScenarioApplyResult,
     "appliedChanges" | "skippedChanges"
-  > | null;
+  > & { appliedRevision: number } | null;
 };
 
 function initialPlannerConfigDraft(): PlannerConfigDraftState {
   return {
     document: null,
     contents: "",
+    revision: 0,
     loading: false,
     busy: false,
     validation: "idle",
@@ -651,11 +653,24 @@ function ChangeList({
     <ul>
       {changes.map((change) => (
         <li key={`${change.kind}-${change.key}`}>
-          <strong>{change.label}:</strong>{" "}
-          {change.formattedBaselineValue} → {change.formattedScenarioValue}
+          <strong>{change.label}</strong>
+          <span>Active baseline: {change.formattedActiveBaselineValue}</span>
+          {change.draftDestinations.map((destination) => (
+            <span key={destination.displayName}>
+              {destination.sourceKind === "live_baseline"
+                ? "Current YAML source"
+                : "Current YAML draft"}
+              {change.destinationCount > 1 ? ` — ${destination.displayName}` : ""}:
+              {" "}{destination.formattedCurrentValue}
+            </span>
+          ))}
+          <span>Scenario: {change.formattedScenarioValue}</span>
+          {change.destinationCount > 1 ? (
+            <span>{change.destinationCount} YAML destinations</span>
+          ) : null}
           {change.kind === "scenario_only" ||
           change.kind === "live_baseline_kept" ? (
-            <span> — {change.consequence}</span>
+            <span>{change.consequence}</span>
           ) : null}
           <small>{change.source}</small>
         </li>
@@ -666,8 +681,10 @@ function ChangeList({
 
 export function AppliedScenarioSummary({
   summary,
+  stale,
 }: {
   summary: NonNullable<PlannerConfigDraftState["appliedSummary"]>;
+  stale: boolean;
 }) {
   const direct = summary.appliedChanges.filter(
     (change) => change.kind === "config",
@@ -683,8 +700,13 @@ export function AppliedScenarioSummary({
   );
   return (
     <section className="scenario-change-summary" aria-labelledby="scenario-change-summary-title">
-      <h3 id="scenario-change-summary-title">Applied to YAML draft</h3>
-      <p>Draft only—review these changes and press Save config separately.</p>
+      <h3 id="scenario-change-summary-title">Last scenario application</h3>
+      <p>Applied to YAML draft only—review these changes and press Save config separately.</p>
+      {stale ? (
+        <p className="scenario-summary-stale" role="status">
+          The YAML draft has been edited since this scenario was applied. Review the YAML as the source of truth.
+        </p>
+      ) : null}
       {direct.length > 0 ? (
         <div>
           <h4>Applied config changes</h4>
@@ -871,7 +893,10 @@ export function PlannerConfigEditor({
         Scenario controls remain temporary until explicitly applied to this draft and saved.
       </p>
       {draft.appliedSummary ? (
-        <AppliedScenarioSummary summary={draft.appliedSummary} />
+        <AppliedScenarioSummary
+          summary={draft.appliedSummary}
+          stale={draft.revision !== draft.appliedSummary.appliedRevision}
+        />
       ) : null}
       {!draft.document.writeEnabled ? (
         <p className="config-write-disabled">
@@ -891,6 +916,7 @@ export function PlannerConfigEditor({
           setDraft((current) => ({
             ...current,
             contents,
+            revision: current.revision + 1,
             validation: "idle",
             message: "",
             error: "",
@@ -1018,10 +1044,16 @@ export function LiveBaselineConfirmationDialog({
           {conversions.map((conversion) => (
             <article key={conversion.key}>
               <h3>{conversion.label}</h3>
-              <p>
-                {conversion.formattedBaselineValue} →{" "}
-                <strong>{conversion.formattedScenarioValue}</strong>
-              </p>
+              {conversion.draftDestinations.map((destination) => (
+                <p key={destination.displayName}>
+                  Current YAML source
+                  {conversion.destinationCount > 1
+                    ? ` — ${destination.displayName}`
+                    : ""}: <code>{destination.formattedCurrentValue}</code>
+                </p>
+              ))}
+              <p>Resolved baseline: {conversion.formattedActiveBaselineValue}</p>
+              <p>Fixed scenario value: <strong>{conversion.formattedScenarioValue}</strong></p>
               <small>{conversion.consequence}</small>
             </article>
           ))}
@@ -1191,6 +1223,7 @@ export function PlannerDashboard() {
         const next: PlannerConfigDraftState = {
           document,
           contents: document.contents,
+          revision: configDraft.revision + 1,
           loading: false,
           busy: false,
           validation: "idle",
@@ -1211,7 +1244,7 @@ export function PlannerDashboard() {
         return null;
       }
     },
-    [configDraft.appliedSummary],
+    [configDraft.appliedSummary, configDraft.revision],
   );
 
   const openPlannerConfig = useCallback(
@@ -1412,19 +1445,24 @@ export function PlannerDashboard() {
         return;
       }
       const result = (await response.json()) as ScenarioApplyResult;
-      setConfigDraft((current) => ({
-        ...current,
-        contents: result.contents,
-        validation: "valid",
-        message: result.appliedChanges.length > 0
-          ? "Scenario values were applied to the YAML draft. Nothing has been saved."
-          : "No YAML values changed. Scenario overrides remain temporary.",
-        error: "",
-        appliedSummary: {
-          appliedChanges: result.appliedChanges,
-          skippedChanges: result.skippedChanges,
-        },
-      }));
+      setConfigDraft((current) => {
+        const revision = current.revision + 1;
+        return {
+          ...current,
+          contents: result.contents,
+          revision,
+          validation: "valid",
+          message: result.appliedChanges.length > 0
+            ? "Scenario values were applied to the YAML draft. Nothing has been saved."
+            : "No YAML values changed. Scenario overrides remain temporary.",
+          error: "",
+          appliedSummary: {
+            appliedChanges: result.appliedChanges,
+            skippedChanges: result.skippedChanges,
+            appliedRevision: revision,
+          },
+        };
+      });
       setScenarioPreview(null);
       setScenarioControls(null);
       setPlannerConfig({ opener });

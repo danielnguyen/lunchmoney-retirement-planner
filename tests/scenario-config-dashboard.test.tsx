@@ -52,7 +52,13 @@ function requestBody(init?: RequestInit): Record<string, unknown> {
 const directChange: ScenarioReviewItem = {
   key: "annualInflation",
   label: "Inflation",
-  formattedBaselineValue: "2%",
+  formattedActiveBaselineValue: "2%",
+  draftDestinations: [{
+    displayName: "Inflation",
+    formattedCurrentValue: "2%",
+    sourceKind: "number",
+  }],
+  destinationCount: 1,
   formattedScenarioValue: "2.5%",
   source: "planner.local.yaml",
   consequence: "Updates the corresponding configured scalar in the YAML draft only.",
@@ -61,7 +67,13 @@ const directChange: ScenarioReviewItem = {
 const liveChange: ScenarioReviewItem = {
   key: "person.employmentIncomePhases.current-income.annualNetCashToday",
   label: "Current income annual net cash",
-  formattedBaselineValue: "$84,000.00",
+  formattedActiveBaselineValue: "$84,000.00",
+  draftDestinations: [{
+    displayName: "Current income annual net cash",
+    formattedCurrentValue: "live_baseline",
+    sourceKind: "live_baseline",
+  }],
+  destinationCount: 1,
   formattedScenarioValue: "$85,000.00",
   source: "Live Lunch Money baseline (live_baseline)",
   consequence:
@@ -72,14 +84,21 @@ const secondLiveChange: ScenarioReviewItem = {
   ...liveChange,
   key: "contributionPhase.synthetic.current.monthlyAmountToday",
   label: "Current contribution monthly amount",
-  formattedBaselineValue: "$500.00",
+  formattedActiveBaselineValue: "$500.00",
+  draftDestinations: [{
+    displayName: "Current contribution monthly amount",
+    formattedCurrentValue: "live_baseline",
+    sourceKind: "live_baseline",
+  }],
   formattedScenarioValue: "$550.00",
 };
 
 const spendingChange: ScenarioReviewItem = {
   key: "monthlyEssentialSpendingToday",
   label: "Essential monthly spending",
-  formattedBaselineValue: "$3,200.00",
+  formattedActiveBaselineValue: "$3,200.00",
+  draftDestinations: [],
+  destinationCount: 0,
   formattedScenarioValue: "$3,300.25",
   source: "Live Lunch Money transaction baseline",
   consequence:
@@ -92,12 +111,28 @@ const directPreview: ScenarioPreview = {
   scenarioOnlyChanges: [],
 };
 
+const dirtyDirectChange: ScenarioReviewItem = {
+  ...directChange,
+  draftDestinations: [{
+    displayName: "Inflation",
+    formattedCurrentValue: "3%",
+    sourceKind: "number",
+  }],
+};
+
+const dirtyDirectPreview: ScenarioPreview = {
+  directChanges: [dirtyDirectChange],
+  liveBaselineConversions: [],
+  scenarioOnlyChanges: [spendingChange],
+};
+
 function installBaseFetch(
   scenarioHandler: (
     body: Record<string, unknown>,
   ) => Response | Promise<Response>,
   options: {
     writeEnabled?: boolean;
+    validate?: (body: Record<string, unknown>) => Response | Promise<Response>;
     put?: (body: Record<string, unknown>) => Response | Promise<Response>;
     reload?: Response;
   } = {},
@@ -126,6 +161,7 @@ function installBaseFetch(
       return scenarioHandler(requestBody(init));
     }
     if (url === "/api/v1/config/current" && init?.method === "POST") {
+      if (options.validate) return options.validate(requestBody(init));
       return jsonResponse({ valid: true });
     }
     if (url === "/api/v1/config/current" && init?.method === "PUT") {
@@ -160,10 +196,10 @@ describe("scenario-to-config dashboard workflow", () => {
     const requestBodies: Record<string, unknown>[] = [];
     const fetchMock = installBaseFetch((body) => {
       requestBodies.push(body);
-      if (body.action === "preview") return jsonResponse(directPreview);
+      if (body.action === "preview") return jsonResponse(dirtyDirectPreview);
       return jsonResponse({
-        contents: `${body.contents as string}\n# scenario patch\n`,
-        appliedChanges: [{ ...directChange, kind: "config" }],
+        contents: `${(body.contents as string).replace("annualInflation: 0.03", "annualInflation: 0.025")}\n# scenario patch\n`,
+        appliedChanges: [{ ...dirtyDirectChange, kind: "config" }],
         skippedChanges: [{ ...spendingChange, kind: "scenario_only" }],
       } satisfies ScenarioApplyResult);
     }, { writeEnabled: false });
@@ -174,7 +210,7 @@ describe("scenario-to-config dashboard workflow", () => {
     const editor = await screen.findByLabelText("Planner YAML");
     fireEvent.change(editor, {
       target: {
-        value: "annualInflation: 0.02\nannualNetCashToday: live_baseline\n# manual edit\n",
+        value: "annualInflation: 0.03\nannualNetCashToday: live_baseline\n# manual edit\n",
       },
     });
     fireEvent.click(screen.getByRole("button", { name: "Close planner config" }));
@@ -187,7 +223,7 @@ describe("scenario-to-config dashboard workflow", () => {
 
     expect(await screen.findByRole("dialog", { name: "Planner config" })).toBeInTheDocument();
     expect(screen.getByLabelText("Planner YAML")).toHaveValue(
-      "annualInflation: 0.02\nannualNetCashToday: live_baseline\n# manual edit\n\n# scenario patch\n",
+      "annualInflation: 0.025\nannualNetCashToday: live_baseline\n# manual edit\n\n# scenario patch\n",
     );
     expect(requestBodies[0]).toMatchObject({
       action: "preview",
@@ -208,7 +244,10 @@ describe("scenario-to-config dashboard workflow", () => {
     expect(screen.getByText("This value is calculated from Lunch Money transactions.", {
       exact: false,
     })).toBeInTheDocument();
-    expect(screen.getByText("Draft only—review these changes and press Save config separately.")).toBeInTheDocument();
+    expect(screen.getByText("Applied to YAML draft only—review these changes and press Save config separately.")).toBeInTheDocument();
+    expect(screen.getByText("Active baseline: 2%")).toBeInTheDocument();
+    expect(screen.getByText("Current YAML draft: 3%")).toBeInTheDocument();
+    expect(screen.getByText("Scenario: 2.5%")).toBeInTheDocument();
     expect(screen.getByText("Saving is disabled.", { exact: false })).toBeInTheDocument();
     expect(fetchMock.mock.calls.some(([, init]) => init?.method === "PUT")).toBe(false);
 
@@ -217,6 +256,23 @@ describe("scenario-to-config dashboard workflow", () => {
     expect((await screen.findByLabelText("Planner YAML") as HTMLTextAreaElement).value)
       .toContain("# manual edit");
     expect(screen.getByText("Applied config changes")).toBeInTheDocument();
+
+    fireEvent.change(screen.getByLabelText("Planner YAML"), {
+      target: {
+        value: `${(screen.getByLabelText("Planner YAML") as HTMLTextAreaElement).value}# edited after apply\n`,
+      },
+    });
+    expect(screen.getByText(
+      "The YAML draft has been edited since this scenario was applied. Review the YAML as the source of truth.",
+    )).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: "Close planner config" }));
+    fireEvent.click(screen.getByRole("button", { name: "Scenario controls" }));
+    fireEvent.click(await screen.findByRole("button", { name: "Apply scenario to config" }));
+    expect(await screen.findByText("Last scenario application")).toBeInTheDocument();
+    expect(screen.queryByText(
+      "The YAML draft has been edited since this scenario was applied. Review the YAML as the source of truth.",
+    )).not.toBeInTheDocument();
 
     fireEvent.click(screen.getByRole("button", { name: "Revert changes" }));
     await waitFor(() => {
@@ -335,15 +391,63 @@ describe("scenario-to-config dashboard workflow", () => {
     await overrideInflation();
     fireEvent.click(screen.getByRole("button", { name: "Apply scenario to config" }));
     expect(await screen.findByText("Applied config changes")).toBeInTheDocument();
+    fireEvent.change(screen.getByLabelText("Planner YAML"), {
+      target: {
+        value: `${(screen.getByLabelText("Planner YAML") as HTMLTextAreaElement).value}# manual repair\n`,
+      },
+    });
+    expect(screen.getByText(
+      "The YAML draft has been edited since this scenario was applied. Review the YAML as the source of truth.",
+    )).toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: "Save config" }));
 
     expect(await screen.findByText("The planner configuration changed on disk. Revert changes first.")).toBeInTheDocument();
     expect((screen.getByLabelText("Planner YAML") as HTMLTextAreaElement).value)
       .toContain("0.025");
     expect(screen.getByText("Applied config changes")).toBeInTheDocument();
+    expect(screen.getByText(
+      "The YAML draft has been edited since this scenario was applied. Review the YAML as the source of truth.",
+    )).toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: "Close planner config" }));
     fireEvent.click(screen.getByRole("button", { name: "Scenario controls" }));
     expect(await screen.findByLabelText("Inflation")).toHaveValue(2.5);
+  });
+
+  it("preserves the applied summary and stale notice after validation failure", async () => {
+    installBaseFetch((body) => {
+      if (body.action === "preview") return jsonResponse(directPreview);
+      return jsonResponse({
+        contents: "annualInflation: 0.025\nannualNetCashToday: live_baseline\n",
+        appliedChanges: [{ ...directChange, kind: "config" }],
+        skippedChanges: [],
+      } satisfies ScenarioApplyResult);
+    }, {
+      validate: () => jsonResponse({
+        error: "invalid_planner_config",
+        message: "Synthetic validation failure.",
+      }, 422),
+    });
+    render(<PlannerDashboard />);
+    await waitForDashboard();
+    await overrideInflation();
+    fireEvent.click(screen.getByRole("button", { name: "Apply scenario to config" }));
+    expect(await screen.findByText("Applied config changes")).toBeInTheDocument();
+
+    fireEvent.change(screen.getByLabelText("Planner YAML"), {
+      target: {
+        value: `${(screen.getByLabelText("Planner YAML") as HTMLTextAreaElement).value}# invalid manual edit\n`,
+      },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Validate" }));
+
+    expect(await screen.findByText("Synthetic validation failure.")).toBeInTheDocument();
+    expect(screen.getByText("Applied config changes")).toBeInTheDocument();
+    expect(screen.getByText(
+      "The YAML draft has been edited since this scenario was applied. Review the YAML as the source of truth.",
+    )).toBeInTheDocument();
+    expect(screen.getByLabelText("Planner YAML")).toHaveValue(
+      "annualInflation: 0.025\nannualNetCashToday: live_baseline\n# invalid manual edit\n",
+    );
   });
 
   it("preserves invalid manual YAML and overrides when preview validation fails", async () => {

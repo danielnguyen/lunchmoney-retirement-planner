@@ -40,6 +40,7 @@ function EditorHarness({
   const [draft, setDraft] = useState<PlannerConfigDraftState>({
     document,
     contents: document.contents,
+    revision: 0,
     loading: false,
     busy: false,
     validation: "idle",
@@ -61,6 +62,7 @@ function EditorHarness({
           ...current,
           document: latest,
           contents: latest.contents,
+          revision: current.revision + 1,
           validation: "idle",
           message: "",
           error: "",

@@ -179,7 +179,9 @@ dd { margin: 0; text-align: right; font-size: 0.78rem; }
 .scenario-change-summary p { margin: 0 0 8px; color: var(--muted); font-size: 0.8rem; line-height: 1.5; }
 .scenario-change-summary ul { margin: 0; padding-left: 20px; color: var(--muted); font-size: 0.78rem; line-height: 1.55; }
 .scenario-change-summary li + li { margin-top: 5px; }
+.scenario-change-summary li > span { display: block; }
 .scenario-change-summary li small { display: block; margin-top: 2px; color: var(--muted); }
+.scenario-change-summary .scenario-summary-stale { padding: 9px 10px; border-left: 3px solid var(--warning); color: #ffd7ad; background: rgba(236, 165, 91, 0.08); }
 .config-editor-meta { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 9px; }
 .config-editor-meta div { display: grid; gap: 4px; min-width: 0; padding: 11px 12px; border: 1px solid var(--border); border-radius: 10px; background: var(--panel-soft); }
 .config-editor-meta span { color: var(--muted); font-size: 0.7rem; text-transform: uppercase; letter-spacing: 0.06em; }

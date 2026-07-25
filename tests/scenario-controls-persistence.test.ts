@@ -31,7 +31,7 @@ describe("scenario control persistence inventory", () => {
     }
   });
 
-  it("resolves simple and advanced reserve bindings without positional inference", async () => {
+  it("resolves matching reserve bindings and rejects mode-only structural pretence", async () => {
     const contents = await readFile("config/planner.example.yaml", "utf8");
     const simpleConfig = parseAndValidatePlannerConfig(contents, "YAML");
     const simpleInputs = structuredClone(projectionFixture);
@@ -70,10 +70,8 @@ describe("scenario control persistence inventory", () => {
       ...simpleConfig,
       configurationMode: "advanced",
     })).toEqual({
-      kind: "config",
-      targets: [{
-        segments: ["surplusAllocation", "targetCashReserveToday"],
-      }],
+      kind: "scenario_only",
+      reason: "The reserve target cannot be applied because surplusAllocation is missing from the YAML draft.",
     });
   });
 

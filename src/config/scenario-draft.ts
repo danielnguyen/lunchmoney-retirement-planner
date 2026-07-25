@@ -24,10 +24,18 @@ import { PlannerRuntimeError } from "@/src/runtime/errors";
 export type ScenarioReviewItem = {
   key: string;
   label: string;
-  formattedBaselineValue: string;
+  formattedActiveBaselineValue: string;
+  draftDestinations: ScenarioDraftDestination[];
+  destinationCount: number;
   formattedScenarioValue: string;
   source: string;
   consequence: string;
+};
+
+export type ScenarioDraftDestination = {
+  displayName: string;
+  formattedCurrentValue: string;
+  sourceKind: "number" | "live_baseline" | "unsupported_yaml";
 };
 
 export type ScenarioPreview = {
@@ -97,6 +105,80 @@ function consequenceFor(persistence: ScenarioPersistence): string {
   return persistence.reason;
 }
 
+function targetDisplayName(
+  control: ControlDefinition,
+  target: ScenarioConfigTarget,
+  index: number,
+  count: number,
+): string {
+  if (target.displayName) return target.displayName;
+  return count === 1
+    ? control.label
+    : `${control.label} destination ${index + 1}`;
+}
+
+function draftDestination(
+  root: YamlNode,
+  target: ScenarioConfigTarget,
+  control: ControlDefinition,
+  index: number,
+  count: number,
+): ScenarioDraftDestination {
+  const displayName = targetDisplayName(control, target, index, count);
+  let node: Scalar;
+  try {
+    node = scalarNode(root, target, control.label);
+  } catch (error) {
+    if (
+      error instanceof PlannerRuntimeError &&
+      error.code === "scenario_binding_unsupported_yaml"
+    ) {
+      return {
+        displayName,
+        formattedCurrentValue: "Unsupported YAML construct",
+        sourceKind: "unsupported_yaml",
+      };
+    }
+    throw error;
+  }
+  if (node.value === "live_baseline") {
+    return {
+      displayName,
+      formattedCurrentValue: "live_baseline",
+      sourceKind: "live_baseline",
+    };
+  }
+  if (typeof node.value === "number" && Number.isFinite(node.value)) {
+    return {
+      displayName,
+      formattedCurrentValue: control.format(node.value),
+      sourceKind: "number",
+    };
+  }
+  throw new PlannerRuntimeError(
+    "scenario_binding_unavailable",
+    `${control.label} cannot be applied because its configured destination is not a numeric scalar or live_baseline source.`,
+    422,
+  );
+}
+
+function resolveDraftDestinations(
+  root: YamlNode,
+  persistence: ScenarioPersistence,
+  control: ControlDefinition,
+): ScenarioDraftDestination[] {
+  if (persistence.kind === "scenario_only") return [];
+  return persistence.targets.map((target, index) =>
+    draftDestination(
+      root,
+      target,
+      control,
+      index,
+      persistence.targets.length,
+    )
+  );
+}
+
 function classifyOverrides(input: ScenarioDraftInput): {
   config: PlannerConfig;
   baseline: ProjectionInputs;
@@ -107,6 +189,17 @@ function classifyOverrides(input: ScenarioDraftInput): {
     "YAML",
     "provided to the scenario draft editor",
   );
+  const document = parseDocument(input.contents, {
+    keepSourceTokens: true,
+    prettyErrors: false,
+  });
+  if (document.errors.length > 0 || !document.contents) {
+    throw new PlannerRuntimeError(
+      "invalid_planner_config",
+      "The planner configuration provided to the scenario draft editor is not valid YAML.",
+      422,
+    );
+  }
   let baseline: ProjectionInputs;
   try {
     baseline = validateProjectionInputs(input.baseline);
@@ -144,7 +237,29 @@ function classifyOverrides(input: ScenarioDraftInput): {
     if (control.kind === "age" && !Number.isInteger(value)) {
       invalidOverride(`${control.label} must be a whole-number age.`);
     }
-    const persistence = control.persistence(config);
+    let persistence = control.persistence(config);
+    let draftDestinations: ScenarioDraftDestination[] = [];
+    if (persistence.kind !== "scenario_only") {
+      try {
+        draftDestinations = resolveDraftDestinations(
+          document.contents,
+          persistence,
+          control,
+        );
+      } catch (error) {
+        if (
+          error instanceof PlannerRuntimeError &&
+          error.code === "scenario_binding_unavailable"
+        ) {
+          persistence = {
+            kind: "scenario_only",
+            reason: error.message,
+          };
+        } else {
+          throw error;
+        }
+      }
+    }
     classified.push({
       control,
       value,
@@ -152,7 +267,9 @@ function classifyOverrides(input: ScenarioDraftInput): {
       review: {
         key,
         label: control.label,
-        formattedBaselineValue: control.format(control.get(baseline)),
+        formattedActiveBaselineValue: control.format(control.get(baseline)),
+        draftDestinations,
+        destinationCount: draftDestinations.length,
         formattedScenarioValue: control.format(value),
         source: sourceFor(control, persistence),
         consequence: consequenceFor(persistence),
@@ -242,9 +359,7 @@ function scalarNode(
   return current;
 }
 
-function serializeNumber(value: number): string {
-  if (Object.is(value, -0)) return "0";
-  const text = String(value);
+function expandScientificNumber(text: string): string {
   if (!/[eE]/.test(text)) return text;
   const match = text.match(/^(-?)(\d+)(?:\.(\d+))?[eE]([+-]?\d+)$/);
   if (!match) return text;
@@ -258,6 +373,32 @@ function serializeNumber(value: number): string {
     return `${sign}${digits}${"0".repeat(decimalPosition - digits.length)}`;
   }
   return `${sign}${digits.slice(0, decimalPosition)}.${digits.slice(decimalPosition)}`;
+}
+
+function trimFixedNumber(text: string): string {
+  if (!text.includes(".")) return text;
+  const trimmed = text.replace(/0+$/, "").replace(/\.$/, "");
+  return trimmed === "-0" ? "0" : trimmed;
+}
+
+export function canonicalPlannerNumber(value: number): string {
+  if (!Number.isFinite(value)) {
+    throw new PlannerRuntimeError(
+      "invalid_scenario_override",
+      "Scenario configuration values must be finite numbers.",
+      422,
+    );
+  }
+  if (Object.is(value, -0) || value === 0) return "0";
+
+  const tolerance = Number.EPSILON * Math.abs(value) * 4;
+  for (let decimalPlaces = 0; decimalPlaces <= 100; decimalPlaces += 1) {
+    const fixed = value.toFixed(decimalPlaces);
+    if (Math.abs(Number(fixed) - value) <= tolerance) {
+      return trimFixedNumber(expandScientificNumber(fixed));
+    }
+  }
+  return trimFixedNumber(expandScientificNumber(String(value)));
 }
 
 type TextEdit = {
@@ -296,7 +437,7 @@ function patchContents(
       const edit = {
         start,
         end,
-        replacement: serializeNumber(change.value),
+        replacement: canonicalPlannerNumber(change.value),
       };
       const rangeKey = `${start}:${end}`;
       const existing = editsByRange.get(rangeKey);

@@ -32,6 +32,7 @@ export type ScenarioPathSegment =
 
 export type ScenarioConfigTarget = {
   segments: ScenarioPathSegment[];
+  displayName?: string;
 };
 
 export type ConfigBinding = {
@@ -118,6 +119,13 @@ function scalar(...segments: ScenarioPathSegment[]): ScenarioConfigTarget {
   return { segments };
 }
 
+function namedScalar(
+  displayName: string,
+  ...segments: ScenarioPathSegment[]
+): ScenarioConfigTarget {
+  return { segments, displayName };
+}
+
 function configBinding(...targets: ScenarioConfigTarget[]): ConfigBinding {
   return { kind: "config", targets };
 }
@@ -135,6 +143,18 @@ function liveBaselineConversion(
     targets: [target],
     consequence,
   };
+}
+
+function modeMismatch(
+  config: PlannerConfig,
+  expected: "simple" | "advanced",
+  concept: string,
+): ScenarioOnly | null {
+  return config.configurationMode === expected
+    ? null
+    : scenarioOnly(
+        `${concept} cannot be applied because the YAML draft uses ${config.configurationMode} mode while the active baseline uses ${expected} mode. Save and reload the structural mode change first.`,
+      );
 }
 
 function fixed(value: number): (inputs: ProjectionInputs) => number {
@@ -291,6 +311,14 @@ function contributionPhasePersistence(
       const mappedPhase = config.accountMappings[accountId]?.contributionPhases?.find(
         (candidate) => candidate.id === phaseId,
       );
+      const projectionPhase = config.projectionAccounts?.[
+        accountId
+      ]?.contributionPhases.find((candidate) => candidate.id === phaseId);
+      if (mappedPhase && projectionPhase) {
+        return scenarioOnly(
+          "This contribution value is ambiguous because the same account and phase identity appears in both accountMappings and projectionAccounts in the YAML draft.",
+        );
+      }
       if (mappedPhase) {
         configuredValue = mappedPhase[field];
         target = scalar(
@@ -300,20 +328,15 @@ function contributionPhasePersistence(
           { itemId: phaseId },
           field,
         );
-      } else {
-        const projectionPhase = config.projectionAccounts?.[
-          accountId
-        ]?.contributionPhases.find((candidate) => candidate.id === phaseId);
-        if (projectionPhase) {
-          configuredValue = projectionPhase[field];
-          target = scalar(
-            "projectionAccounts",
-            accountId,
-            "contributionPhases",
-            { itemId: phaseId },
-            field,
-          );
-        }
+      } else if (projectionPhase) {
+        configuredValue = projectionPhase[field];
+        target = scalar(
+          "projectionAccounts",
+          accountId,
+          "contributionPhases",
+          { itemId: phaseId },
+          field,
+        );
       }
     }
     if (!target) {
@@ -336,6 +359,12 @@ function reservePhasePersistence(
   field: "monthlyAmountToday" | "indexingRate",
 ): ScenarioPersistenceResolver {
   return (config) => {
+    const mismatch = modeMismatch(
+      config,
+      "simple",
+      "This reserve-building value",
+    );
+    if (mismatch) return mismatch;
     const phase = config.savingsPolicy?.reserveBuilding.phases.find(
       (candidate) => candidate.id === phaseId,
     );
@@ -362,45 +391,176 @@ const returnAssumptionFields: Record<AccountType, string> = {
   non_registered: "nonRegisteredReturn",
 };
 
+const returnLabels: Record<AccountType, string> = {
+  cash: "Cash return",
+  tfsa: "TFSA return",
+  rrsp_rrif: "RRSP / RRIF return",
+  non_registered: "Non-registered return",
+};
+
+function plannerAccountTypeMatches(
+  plannerType: string,
+  accountType: AccountType,
+): boolean {
+  return plannerType === accountType ||
+    (plannerType === "rrsp" && accountType === "rrsp_rrif");
+}
+
 function returnPersistence(
   baseline: ProjectionInputs,
   accountType: AccountType,
 ): ScenarioPersistenceResolver {
-  const accountIds = baseline.accounts
-    .filter((account) => account.type === accountType)
-    .map((account) => account.id);
   return (config) => {
-    const targets: ScenarioConfigTarget[] = [];
-    let usesAssumption = false;
-    for (const accountId of accountIds) {
-      const projectionAccount = config.projectionAccounts?.[accountId];
-      if (projectionAccount) {
-        targets.push(scalar("projectionAccounts", accountId, "annualReturn"));
+    const mismatch = modeMismatch(
+      config,
+      baseline.savingsPolicy.mode,
+      `The ${returnLabels[accountType].toLowerCase()} assumption`,
+    );
+    if (mismatch) return mismatch;
+
+    const targets: ScenarioConfigTarget[] = [
+      namedScalar(
+        `${returnLabels[accountType]} default assumption`,
+        "assumptions",
+        returnAssumptionFields[accountType],
+      ),
+    ];
+    let overrideIndex = 0;
+    for (const [accountId, mapping] of Object.entries(config.accountMappings)) {
+      if (
+        !mapping.include ||
+        !plannerAccountTypeMatches(mapping.type, accountType) ||
+        mapping.annualReturn === undefined
+      ) {
         continue;
       }
-      const mapping = config.accountMappings[accountId];
-      if (mapping?.annualReturn !== undefined) {
-        targets.push(scalar("accountMappings", accountId, "annualReturn"));
-      } else {
-        usesAssumption = true;
-      }
-    }
-    if (usesAssumption) {
+      overrideIndex += 1;
       targets.push(
-        scalar("assumptions", returnAssumptionFields[accountType]),
+        namedScalar(
+          `${returnLabels[accountType]} account override ${overrideIndex}`,
+          "accountMappings",
+          accountId,
+          "annualReturn",
+        ),
       );
     }
-    const uniqueTargets = targets.filter(
-      (target, index) =>
-        targets.findIndex(
-          (candidate) => JSON.stringify(candidate) === JSON.stringify(target),
-        ) === index,
+    for (const [accountId, account] of Object.entries(
+      config.projectionAccounts ?? {},
+    )) {
+      if (!plannerAccountTypeMatches(account.type, accountType)) continue;
+      overrideIndex += 1;
+      targets.push(
+        namedScalar(
+          `${returnLabels[accountType]} account override ${overrideIndex}`,
+          "projectionAccounts",
+          accountId,
+          "annualReturn",
+        ),
+      );
+    }
+    return configBinding(...targets);
+  };
+}
+
+function reserveTargetPersistence(
+  baselineMode: "simple" | "advanced",
+  field: "target" | "indexing",
+): ScenarioPersistenceResolver {
+  return (config) => {
+    const mismatch = modeMismatch(
+      config,
+      baselineMode,
+      "The reserve target assumption",
     );
-    return uniqueTargets.length > 0
-      ? configBinding(...uniqueTargets)
-      : scenarioOnly(
-          "This return assumption has no deterministic configured account or type-level destination.",
+    if (mismatch) return mismatch;
+    if (baselineMode === "simple") {
+      if (!config.savingsPolicy?.reserveBuilding) {
+        return scenarioOnly(
+          "The reserve target cannot be applied because savingsPolicy.reserveBuilding is missing from the YAML draft.",
         );
+      }
+      return configBinding(
+        scalar(
+          "savingsPolicy",
+          "reserveBuilding",
+          field === "target" ? "targetToday" : "indexingRate",
+        ),
+      );
+    }
+    if (!config.surplusAllocation) {
+      return scenarioOnly(
+        "The reserve target cannot be applied because surplusAllocation is missing from the YAML draft.",
+      );
+    }
+    return configBinding(
+      scalar(
+        "surplusAllocation",
+        field === "target" ? "targetCashReserveToday" : "reserveIndexingRate",
+      ),
+    );
+  };
+}
+
+function operatingCashPersistence(
+  field: "targetToday" | "indexingRate",
+): ScenarioPersistenceResolver {
+  return (config) => {
+    const mismatch = modeMismatch(
+      config,
+      "simple",
+      "The operating-cash target",
+    );
+    if (mismatch) return mismatch;
+    if (!config.savingsPolicy?.operatingCash) {
+      return scenarioOnly(
+        "The operating-cash target cannot be applied because savingsPolicy.operatingCash is not configured in the YAML draft.",
+      );
+    }
+    return configBinding(
+      scalar("savingsPolicy", "operatingCash", field),
+    );
+  };
+}
+
+function registeredRoomPersistence(
+  baselineMode: "simple" | "advanced",
+  account: "tfsa" | "rrsp",
+): ScenarioPersistenceResolver {
+  return (config) => {
+    const label = account === "tfsa" ? "Starting TFSA room" : "Starting RRSP room";
+    const mismatch = modeMismatch(config, baselineMode, label);
+    if (mismatch) return mismatch;
+    if (baselineMode === "simple") {
+      const room = account === "tfsa"
+        ? config.registeredRoom?.tfsa
+        : config.registeredRoom?.rrsp;
+      if (!room) {
+        return scenarioOnly(
+          `${label} cannot be applied because the corresponding registeredRoom block is missing from the YAML draft.`,
+        );
+      }
+      return configBinding(
+        scalar("registeredRoom", account, "availableAtStart"),
+      );
+    }
+    const startingRoom = account === "tfsa"
+      ? config.registeredAccountRoom?.tfsa.startingAvailableRoom
+      : config.registeredAccountRoom?.rrsp.startingAvailableDeductionRoom;
+    if (startingRoom?.source !== "configured_amount") {
+      return scenarioOnly(
+        `${label} is not editable because the YAML draft does not use a configured_amount source.`,
+      );
+    }
+    return configBinding(
+      scalar(
+        "registeredAccountRoom",
+        account,
+        account === "tfsa"
+          ? "startingAvailableRoom"
+          : "startingAvailableDeductionRoom",
+        "amount",
+      ),
+    );
   };
 }
 
@@ -426,13 +586,10 @@ export function buildControls(baseline: ProjectionInputs): ControlDefinition[] {
       set: (inputs, value) => {
         inputs.surplusAllocation.targetCashReserveToday = value;
       },
-      persistence: simplePolicy
-        ? () => configBinding(
-            scalar("savingsPolicy", "reserveBuilding", "targetToday"),
-          )
-        : () => configBinding(
-            scalar("surplusAllocation", "targetCashReserveToday"),
-          ),
+      persistence: reserveTargetPersistence(
+        simplePolicy ? "simple" : "advanced",
+        "target",
+      ),
     },
     {
       key: simplePolicy
@@ -451,13 +608,10 @@ export function buildControls(baseline: ProjectionInputs): ControlDefinition[] {
       set: (inputs, value) => {
         inputs.surplusAllocation.reserveIndexingRate = value;
       },
-      persistence: simplePolicy
-        ? () => configBinding(
-            scalar("savingsPolicy", "reserveBuilding", "indexingRate"),
-          )
-        : () => configBinding(
-            scalar("surplusAllocation", "reserveIndexingRate"),
-          ),
+      persistence: reserveTargetPersistence(
+        simplePolicy ? "simple" : "advanced",
+        "indexing",
+      ),
     },
     {
       key: "cppStartAge",
@@ -588,9 +742,7 @@ export function buildControls(baseline: ProjectionInputs): ControlDefinition[] {
             inputs.savingsPolicy.operatingCashTarget.targetToday = value;
           }
         },
-        persistence: () => configBinding(
-          scalar("savingsPolicy", "operatingCash", "targetToday"),
-        ),
+        persistence: operatingCashPersistence("targetToday"),
       },
       {
         key: "savingsPolicy.operatingCash.indexingRate",
@@ -613,9 +765,7 @@ export function buildControls(baseline: ProjectionInputs): ControlDefinition[] {
             inputs.savingsPolicy.operatingCashTarget.indexingRate = value;
           }
         },
-        persistence: () => configBinding(
-          scalar("savingsPolicy", "operatingCash", "indexingRate"),
-        ),
+        persistence: operatingCashPersistence("indexingRate"),
       },
     );
   }
@@ -646,24 +796,10 @@ export function buildControls(baseline: ProjectionInputs): ControlDefinition[] {
         set: (inputs, value) => {
           inputs.registeredAccountRoom!.tfsa.startingAvailableRoom.amount = value;
         },
-        persistence: simpleRoom
-          ? () => configBinding(
-              scalar("registeredRoom", "tfsa", "availableAtStart"),
-            )
-          : (config) =>
-              config.registeredAccountRoom?.tfsa.startingAvailableRoom.source ===
-              "configured_amount"
-                ? configBinding(
-                    scalar(
-                      "registeredAccountRoom",
-                      "tfsa",
-                      "startingAvailableRoom",
-                      "amount",
-                    ),
-                  )
-                : scenarioOnly(
-                    "Starting TFSA room is not configured as an editable configured_amount source.",
-                  ),
+        persistence: registeredRoomPersistence(
+          simpleRoom ? "simple" : "advanced",
+          "tfsa",
+        ),
       },
       {
         key: simpleRoom
@@ -690,24 +826,10 @@ export function buildControls(baseline: ProjectionInputs): ControlDefinition[] {
           inputs.registeredAccountRoom!.rrsp.startingAvailableDeductionRoom.amount =
             value;
         },
-        persistence: simpleRoom
-          ? () => configBinding(
-              scalar("registeredRoom", "rrsp", "availableAtStart"),
-            )
-          : (config) =>
-              config.registeredAccountRoom?.rrsp.startingAvailableDeductionRoom
-                .source === "configured_amount"
-                ? configBinding(
-                    scalar(
-                      "registeredAccountRoom",
-                      "rrsp",
-                      "startingAvailableDeductionRoom",
-                      "amount",
-                    ),
-                  )
-                : scenarioOnly(
-                    "Starting RRSP room is not configured as an editable configured_amount source.",
-                  ),
+        persistence: registeredRoomPersistence(
+          simpleRoom ? "simple" : "advanced",
+          "rrsp",
+        ),
       },
     );
   }
@@ -925,12 +1047,6 @@ export function buildControls(baseline: ProjectionInputs): ControlDefinition[] {
     }
   }
 
-  const typeLabels: Record<AccountType, string> = {
-    cash: "Cash return",
-    tfsa: "TFSA return",
-    rrsp_rrif: "RRSP / RRIF return",
-    non_registered: "Non-registered return",
-  };
   const seenTypes = new Set<AccountType>();
   for (const account of baseline.accounts) {
     if (seenTypes.has(account.type)) continue;
@@ -938,7 +1054,7 @@ export function buildControls(baseline: ProjectionInputs): ControlDefinition[] {
     controls.push({
       key: `return.${account.type}`,
       sourceKey: `accounts.${account.id}.annualReturn`,
-      label: typeLabels[account.type],
+      label: returnLabels[account.type],
       kind: "percentage",
       min: fixed(-0.5),
       max: fixed(0.5),
