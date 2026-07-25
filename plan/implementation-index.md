@@ -12,18 +12,18 @@ Public tracking must remain generic and must not contain private financial value
 - Open implementation pull request: [#20 Apply scenario overrides to the YAML config draft](https://github.com/danielnguyen/lunchmoney-retirement-planner/pull/20)
 - Pull request state: Open draft
 - Active capability: Explicit scenario-to-config bindings
-- Status: Ready for independent review
+- Status: Ready for independent re-review
 - Implementation branch: `agent/scenario-config-bindings`
-- Latest validated implementation head: `9a374513c7869704a6fe3a3740a52dbadd0fc74b`
-- Synthetic validation: Passed — 356 synthetic tests including explicit persistence classification, source labels, simple/advanced source-range YAML patching, live-source confirmation, shared dirty-draft state, save/reset/conflict/blocking transitions, runtime safeguards, and export privacy; typecheck, lint, production build, Docker image build, Docker Compose validation, standalone scenario/config API smoke test, and `git diff --check` passed
+- Latest validated implementation head: `399bcbdec30caef2b2ee440007ceeded362edb31`
+- Synthetic validation: Passed — 387 synthetic tests including canonical numeric patching, draft-aware simple/advanced structural classification, actual YAML before-values, multi-destination review, stale-summary transitions, explicit persistence classification, live-source confirmation, runtime safeguards, and export privacy; typecheck, lint, production build, Docker image build, Docker Compose validation, standalone scenario/config API smoke test, and `git diff --check` passed
 - Last completed capability: Precise scenario inputs and editable local YAML configuration
 - Last completed pull request: [#19 Add editable planner config and precise scenario inputs](https://github.com/danielnguyen/lunchmoney-retirement-planner/pull/19)
 - Last maintenance pull request: [#18 Correct TFSA annual-limit forecasting](https://github.com/danielnguyen/lunchmoney-retirement-planner/pull/18)
 - Last completed synthetic validation: Passed — 283 tests plus focused configuration, baseline, projection, presentation, explanation, controls, one-cent reconciliation, JSON anonymization, and rectangular real/nominal CSV privacy coverage; typecheck, lint, production build, Docker image build, Docker Compose validation, and `git diff --check` passed
 - Last completed private migration: Passed — the operating-cash policy was updated and validated locally without publishing private values
 - Last completed private smoke test: Not run for the operating-cash capability
-- Remaining step: independently review draft pull request #20
-- Next action: review the explicit scenario-to-config draft workflow; applying remains separate from saving configuration
+- Remaining step: independently re-review draft pull request #20
+- Next action: re-review the corrected explicit scenario-to-config draft workflow; applying remains separate from saving configuration
 
 ## Planned implementation sequence
 
