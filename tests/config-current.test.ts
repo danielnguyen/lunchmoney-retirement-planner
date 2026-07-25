@@ -1,13 +1,15 @@
-import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { mkdtemp, readFile, readdir, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { GET, POST, PUT } from "@/app/api/v1/config/current/route";
 import {
   plannerConfigVersion,
+  nodeConfigFileOperations,
   readCurrentPlannerConfig,
   saveCurrentPlannerConfig,
   validateCurrentPlannerConfig,
+  type ConfigFileOperations,
 } from "@/src/config/current";
 import { loadPlannerConfig } from "@/src/config/loader";
 
@@ -41,6 +43,10 @@ describe.sequential("current planner config API", () => {
     }
     await rm(temporaryDirectory, { recursive: true, force: true });
   });
+
+  async function temporaryArtifacts(): Promise<string[]> {
+    return (await readdir(temporaryDirectory)).filter((name) => name.endsWith(".tmp"));
+  }
 
   it("loads raw YAML with a safe filename, write capability, and content version", async () => {
     const response = await GET();
@@ -144,6 +150,7 @@ describe.sequential("current planner config API", () => {
     expect(await readFile(`${configPath}.bak`, "utf8")).toBe(validYaml);
     expect(result.version).toBe(plannerConfigVersion(submitted));
     await expect(loadPlannerConfig(configPath)).resolves.toBeDefined();
+    expect(await temporaryArtifacts()).toEqual([]);
   });
 
   it("saves valid YAML through PUT when explicitly enabled", async () => {
@@ -177,18 +184,21 @@ describe.sequential("current planner config API", () => {
     ],
   ])("does not alter the file for %s", async (_label, candidate, message) => {
     process.env.PLANNER_CONFIG_WRITE_ENABLED = "true";
+    await writeFile(`${configPath}.bak`, "existing backup", "utf8");
     const contents = typeof candidate === "function" ? candidate() : candidate;
     await expect(
       saveCurrentPlannerConfig(contents, plannerConfigVersion(validYaml)),
     ).rejects.toThrow(message);
     expect(await readFile(configPath, "utf8")).toBe(validYaml);
-    await expect(readFile(`${configPath}.bak`, "utf8")).rejects.toThrow();
+    expect(await readFile(`${configPath}.bak`, "utf8")).toBe("existing backup");
+    expect(await temporaryArtifacts()).toEqual([]);
   });
 
-  it("returns 409 and preserves unsaved text when the expected version is stale", async () => {
+  it("returns 409 with both active config and backup unchanged for a stale expected version", async () => {
     process.env.PLANNER_CONFIG_WRITE_ENABLED = "true";
     const external = `${validYaml}\n# external synthetic edit\n`;
     await writeFile(configPath, external, "utf8");
+    await writeFile(`${configPath}.bak`, "existing backup", "utf8");
     const response = await PUT(
       new Request("http://localhost/api/v1/config/current", {
         method: "PUT",
@@ -203,6 +213,77 @@ describe.sequential("current planner config API", () => {
     expect(response.status).toBe(409);
     expect(await response.json()).toMatchObject({ error: "planner_config_conflict" });
     expect(await readFile(configPath, "utf8")).toBe(external);
+    expect(await readFile(`${configPath}.bak`, "utf8")).toBe("existing backup");
+    expect(await temporaryArtifacts()).toEqual([]);
+  });
+
+  it("detects an edit after preparation without changing the existing backup", async () => {
+    process.env.PLANNER_CONFIG_WRITE_ENABLED = "true";
+    const external = `${validYaml}\n# deterministic concurrent edit\n`;
+    await writeFile(`${configPath}.bak`, "existing backup", "utf8");
+
+    await expect(saveCurrentPlannerConfig(
+      `${validYaml}\n# editor edit\n`,
+      plannerConfigVersion(validYaml),
+      {
+        beforeFinalVersionCheck: async () => {
+          await writeFile(configPath, external, "utf8");
+        },
+      },
+    )).rejects.toMatchObject({
+      code: "planner_config_conflict",
+      status: 409,
+    });
+
+    expect(await readFile(configPath, "utf8")).toBe(external);
+    expect(await readFile(`${configPath}.bak`, "utf8")).toBe("existing backup");
+    expect(await temporaryArtifacts()).toEqual([]);
+  });
+
+  it("leaves the active config and backup unchanged when backup preparation fails", async () => {
+    process.env.PLANNER_CONFIG_WRITE_ENABLED = "true";
+    await writeFile(`${configPath}.bak`, "existing backup", "utf8");
+    const fileOperations: ConfigFileOperations = {
+      ...nodeConfigFileOperations,
+      writeExclusive: async (path, contents, mode) => {
+        if (path.includes("planner.local.yaml.bak.") && path.endsWith(".tmp")) {
+          throw new Error("synthetic backup write failure");
+        }
+        await nodeConfigFileOperations.writeExclusive(path, contents, mode);
+      },
+    };
+
+    await expect(saveCurrentPlannerConfig(
+      `${validYaml}\n# editor edit\n`,
+      plannerConfigVersion(validYaml),
+      { fileOperations },
+    )).rejects.toMatchObject({ code: "planner_config_backup_failed" });
+
+    expect(await readFile(configPath, "utf8")).toBe(validYaml);
+    expect(await readFile(`${configPath}.bak`, "utf8")).toBe("existing backup");
+    expect(await temporaryArtifacts()).toEqual([]);
+  });
+
+  it("keeps the active config recoverable when its final replacement fails", async () => {
+    process.env.PLANNER_CONFIG_WRITE_ENABLED = "true";
+    await writeFile(`${configPath}.bak`, "existing backup", "utf8");
+    const fileOperations: ConfigFileOperations = {
+      ...nodeConfigFileOperations,
+      rename: async (from, to) => {
+        if (to === configPath) throw new Error("synthetic active rename failure");
+        await nodeConfigFileOperations.rename(from, to);
+      },
+    };
+
+    await expect(saveCurrentPlannerConfig(
+      `${validYaml}\n# editor edit\n`,
+      plannerConfigVersion(validYaml),
+      { fileOperations },
+    )).rejects.toMatchObject({ code: "planner_config_save_failed" });
+
+    expect(await readFile(configPath, "utf8")).toBe(validYaml);
+    expect(await readFile(`${configPath}.bak`, "utf8")).toBe(validYaml);
+    expect(await temporaryArtifacts()).toEqual([]);
   });
 
   it("rejects arbitrary target-path fields and never modifies either file", async () => {

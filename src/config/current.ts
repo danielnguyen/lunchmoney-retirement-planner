@@ -7,6 +7,35 @@ import {
 } from "@/src/config/loader";
 import { PlannerRuntimeError } from "@/src/runtime/errors";
 
+export type ConfigFileOperations = {
+  readUtf8: (path: string) => Promise<string>;
+  writeExclusive: (path: string, contents: string, mode: number) => Promise<void>;
+  rename: (from: string, to: string) => Promise<void>;
+  statMode: (path: string) => Promise<number>;
+  unlinkIfPresent: (path: string) => Promise<void>;
+};
+
+export const nodeConfigFileOperations: ConfigFileOperations = {
+  readUtf8: (path) => readFile(path, "utf8"),
+  writeExclusive: async (path, contents, mode) => {
+    await writeFile(path, contents, {
+      encoding: "utf8",
+      flag: "wx",
+      mode,
+    });
+  },
+  rename,
+  statMode: async (path) => (await stat(path)).mode & 0o777,
+  unlinkIfPresent: async (path) => {
+    await unlink(path).catch(() => undefined);
+  },
+};
+
+export type ConfigSaveOptions = {
+  fileOperations?: ConfigFileOperations;
+  beforeFinalVersionCheck?: () => Promise<void>;
+};
+
 export type CurrentPlannerConfig = {
   contents: string;
   displayPath: string;
@@ -35,9 +64,12 @@ function activeYamlPath(): string {
   return path;
 }
 
-async function readActiveContents(path: string): Promise<string> {
+async function readActiveContents(
+  path: string,
+  fileOperations = nodeConfigFileOperations,
+): Promise<string> {
   try {
-    return await readFile(path, "utf8");
+    return await fileOperations.readUtf8(path);
   } catch {
     throw new PlannerRuntimeError(
       "planner_config_missing",
@@ -62,23 +94,26 @@ export function validateCurrentPlannerConfig(contents: string): void {
   parseAndValidatePlannerConfig(contents, "YAML", "provided to the editor");
 }
 
-async function atomicWrite(path: string, contents: string, mode: number): Promise<void> {
+async function prepareAtomicWrite(
+  path: string,
+  contents: string,
+  mode: number,
+  fileOperations: ConfigFileOperations,
+): Promise<string> {
   const temporaryPath = join(dirname(path), `.${basename(path)}.${randomUUID()}.tmp`);
   try {
-    await writeFile(temporaryPath, contents, {
-      encoding: "utf8",
-      flag: "wx",
-      mode,
-    });
-    await rename(temporaryPath, path);
-  } finally {
-    await unlink(temporaryPath).catch(() => undefined);
+    await fileOperations.writeExclusive(temporaryPath, contents, mode);
+    return temporaryPath;
+  } catch (error) {
+    await fileOperations.unlinkIfPresent(temporaryPath);
+    throw error;
   }
 }
 
 export async function saveCurrentPlannerConfig(
   contents: string,
   expectedVersion: string,
+  options: ConfigSaveOptions = {},
 ): Promise<{ version: string }> {
   if (!plannerConfigWriteEnabled()) {
     throw new PlannerRuntimeError(
@@ -89,8 +124,9 @@ export async function saveCurrentPlannerConfig(
   }
 
   validateCurrentPlannerConfig(contents);
+  const fileOperations = options.fileOperations ?? nodeConfigFileOperations;
   const path = activeYamlPath();
-  const existingContents = await readActiveContents(path);
+  const existingContents = await readActiveContents(path, fileOperations);
   if (plannerConfigVersion(existingContents) !== expectedVersion) {
     throw new PlannerRuntimeError(
       "planner_config_conflict",
@@ -99,22 +135,79 @@ export async function saveCurrentPlannerConfig(
     );
   }
 
-  const existingStat = await stat(path);
   const backupPath = `${path}.bak`;
-  const existingMode = existingStat.mode & 0o777;
-  await atomicWrite(backupPath, existingContents, existingMode);
+  const existingMode = await fileOperations.statMode(path);
+  let preparedConfigPath: string | undefined;
+  let preparedBackupPath: string | undefined;
 
-  // Re-read immediately before the replace so an edit during validation or
-  // backup creation is not silently overwritten.
-  const latestContents = await readActiveContents(path);
-  if (plannerConfigVersion(latestContents) !== expectedVersion) {
-    throw new PlannerRuntimeError(
-      "planner_config_conflict",
-      "The planner configuration changed on disk. Revert changes to load the latest contents before saving again.",
-      409,
-    );
+  try {
+    try {
+      preparedConfigPath = await prepareAtomicWrite(
+        path,
+        contents,
+        existingMode,
+        fileOperations,
+      );
+    } catch {
+      throw new PlannerRuntimeError(
+        "planner_config_save_failed",
+        "The planner configuration could not be prepared for saving. The active file and backup were not changed.",
+        500,
+      );
+    }
+    try {
+      preparedBackupPath = await prepareAtomicWrite(
+        backupPath,
+        existingContents,
+        existingMode,
+        fileOperations,
+      );
+    } catch {
+      throw new PlannerRuntimeError(
+        "planner_config_backup_failed",
+        "The planner configuration backup could not be prepared. The active file and backup were not changed.",
+        500,
+      );
+    }
+
+    await options.beforeFinalVersionCheck?.();
+    const latestContents = await readActiveContents(path, fileOperations);
+    if (plannerConfigVersion(latestContents) !== expectedVersion) {
+      throw new PlannerRuntimeError(
+        "planner_config_conflict",
+        "The planner configuration changed on disk. Revert changes to load the latest contents before saving again.",
+        409,
+      );
+    }
+
+    try {
+      await fileOperations.rename(preparedBackupPath, backupPath);
+      preparedBackupPath = undefined;
+    } catch {
+      throw new PlannerRuntimeError(
+        "planner_config_backup_failed",
+        "The planner configuration backup could not be replaced. The active file was not changed.",
+        500,
+      );
+    }
+
+    try {
+      await fileOperations.rename(preparedConfigPath, path);
+      preparedConfigPath = undefined;
+    } catch {
+      throw new PlannerRuntimeError(
+        "planner_config_save_failed",
+        "The backup contains the previous configuration, but the active file replacement failed. Restore from the backup if recovery is needed.",
+        500,
+      );
+    }
+    return { version: plannerConfigVersion(contents) };
+  } finally {
+    if (preparedConfigPath) {
+      await fileOperations.unlinkIfPresent(preparedConfigPath);
+    }
+    if (preparedBackupPath) {
+      await fileOperations.unlinkIfPresent(preparedBackupPath);
+    }
   }
-
-  await atomicWrite(path, contents, existingMode);
-  return { version: plannerConfigVersion(contents) };
 }

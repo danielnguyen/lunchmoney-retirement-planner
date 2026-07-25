@@ -185,7 +185,7 @@ describe("simple savings dashboard controls", () => {
     expect(refreshBody).toContain("setOverrides({})");
   });
 
-  it("reloads the saved config baseline before clearing temporary overrides", async () => {
+  it("clears stale scenario and projection state for every post-save reload outcome", async () => {
     const dashboard = await readFile(
       "components/planner-dashboard.tsx",
       "utf8",
@@ -196,12 +196,13 @@ describe("simple savings dashboard controls", () => {
       dashboard.indexOf("}, [refreshGeneration])", reloadStart),
     );
     expect(reloadBody).toContain('fetch("/api/v1/baseline/current"');
-    expect(reloadBody.indexOf("if (!response.ok)")).toBeLessThan(
+    expect(reloadBody.indexOf("await response.json()")).toBeLessThan(
       reloadBody.indexOf("setOverrides({})"),
     );
-    expect(reloadBody.indexOf("setBaselineResult")).toBeLessThan(
-      reloadBody.indexOf("setOverrides({})"),
-    );
+    expect(reloadBody).toContain("setProjectionResult(null)");
+    expect(reloadBody).toContain("if (!response.ok)");
+    expect(reloadBody).toContain("error: body as BlockingError");
+    expect(reloadBody).toContain("baseline: current");
   });
 
   it("overrides residence value, appreciation, mortgage rate, and entered payment through shared inputs", () => {

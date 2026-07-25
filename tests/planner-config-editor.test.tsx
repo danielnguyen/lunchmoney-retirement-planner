@@ -120,7 +120,7 @@ describe("planner config editor", () => {
   });
 
   it("updates the version, reloads the baseline, and reports a saved state", async () => {
-    const onSaved = vi.fn().mockResolvedValue(undefined);
+    const onSaved = vi.fn().mockResolvedValue({ ok: true });
     const fetchMock = vi.fn()
       .mockResolvedValueOnce(jsonResponse(currentConfig()))
       .mockResolvedValueOnce(jsonResponse({ valid: true }))

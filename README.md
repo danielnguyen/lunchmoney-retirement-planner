@@ -47,9 +47,9 @@ Saving is disabled by default. To enable the explicit **Save config** action for
 PLANNER_CONFIG_WRITE_ENABLED=true
 ```
 
-A save validates first, checks that the file version still matches the version loaded by the editor, writes the submitted YAML atomically, and replaces `planner.local.yaml.bak` with the previous contents. Comments and formatting are preserved. If an external edit changes the file first, the API returns a conflict and the editor keeps the unsaved text; use **Revert changes** to load the newer version before saving again.
+A save validates first, prepares complete temporary config and backup files, then checks the active file version again immediately before either replacement. A detected conflict returns 409, cleans up both temporary files, and changes neither the active file nor its existing backup. After that final check succeeds, the prior active text replaces `planner.local.yaml.bak` before the submitted YAML atomically replaces the active file. If backup replacement fails, the active file is not replaced; if active replacement subsequently fails, the backup retains the prior active text for recovery. Comments and formatting are preserved. Use **Revert changes** to load an externally edited version before saving again.
 
-After a successful save, the dashboard reloads the active baseline and projection and clears temporary scenario overrides. Scenario controls remain intentionally independent: they are never copied into YAML and are not persisted by this workflow.
+After a successful save, the dashboard reloads the active baseline and projection and clears temporary scenario overrides. If live baseline derivation fails after the file save, the old projection is removed, the dashboard enters its blocking state, and the config drawer stays open so the YAML can be repaired. Scenario controls remain intentionally independent: they are never copied into YAML and are not persisted by this workflow.
 
 ### Mapping Lunch Money records
 
@@ -200,7 +200,7 @@ Advanced compatibility retains explicit `projectionAccounts`, `registeredAccount
 
 ## Refresh and reset behavior
 
-The baseline endpoint fetches Lunch Money again on every request. The dashboard’s refresh action rebuilds the baseline and clears all browser overrides. Resetting a field or using Reset all restores values from the most recently refreshed baseline, never compiled constants.
+The baseline endpoint fetches Lunch Money again on every request. The dashboard’s refresh action rebuilds the baseline and clears all browser overrides. Resetting a field or using Reset all restores values from the most recently refreshed baseline, never compiled constants. Non-age numeric controls retain character-by-character draft text locally: only complete, finite, in-range values update projection inputs, and percentage points convert to decimal domain rates only at that commit boundary. Empty, transitional, invalid, and out-of-range drafts leave the current scenario value unchanged, expose accessible validation feedback, and restore that value on blur when still invalid.
 
 ## Calculation explanations
 

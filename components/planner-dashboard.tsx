@@ -171,6 +171,33 @@ export function controlDomainValue(control: ControlDefinition, value: number): n
   return control.kind === "percentage" ? value / 100 : value;
 }
 
+type NumericDraftResult =
+  | { status: "valid"; value: number }
+  | { status: "invalid"; message: string };
+
+const COMPLETE_DECIMAL = /^[+-]?(?:\d+|\d*\.\d+)$/;
+
+export function evaluateNumericDraft(
+  draft: string,
+  minimum: number,
+  maximum: number,
+): NumericDraftResult {
+  if (!COMPLETE_DECIMAL.test(draft)) {
+    return { status: "invalid", message: "Enter a valid number." };
+  }
+  const value = Number(draft);
+  if (!Number.isFinite(value)) {
+    return { status: "invalid", message: "Enter a valid number." };
+  }
+  if (value < minimum || value > maximum) {
+    return {
+      status: "invalid",
+      message: `Enter a value from ${minimum} to ${maximum}.`,
+    };
+  }
+  return { status: "valid", value };
+}
+
 function fixed(value: number): (inputs: ProjectionInputs) => number {
   return () => value;
 }
@@ -792,6 +819,116 @@ function sourceLabel(baseline: CurrentBaseline, key: string): string {
   return baseline.provenance[key]?.sourceType.replaceAll("_", " ") ?? "live baseline";
 }
 
+export function NumericScenarioControl({
+  control,
+  activeValue,
+  minimum,
+  maximum,
+  inputId,
+  synchronizationVersion,
+  onCommit,
+}: {
+  control: ControlDefinition;
+  activeValue: number;
+  minimum: number;
+  maximum: number;
+  inputId: string;
+  synchronizationVersion: number;
+  onCommit: (value: number) => void;
+}) {
+  const activeInputValue = controlInputValue(control, activeValue);
+  const inputMinimum = controlInputValue(control, minimum);
+  const inputMaximum = controlInputValue(control, maximum);
+  const [draftState, setDraftState] = useState(() => ({
+    draft: String(activeInputValue),
+    validationMessage: "",
+    pendingCommit: null as number | null,
+    observedActiveValue: activeValue,
+    observedControl: control,
+    observedSynchronizationVersion: synchronizationVersion,
+  }));
+
+  let resolvedDraftState = draftState;
+  const explicitSynchronization =
+    draftState.observedSynchronizationVersion !== synchronizationVersion ||
+    draftState.observedControl !== control;
+  if (
+    explicitSynchronization ||
+    !Object.is(draftState.observedActiveValue, activeValue)
+  ) {
+    const ownCommitArrived =
+      !explicitSynchronization &&
+      draftState.pendingCommit !== null &&
+      Object.is(draftState.pendingCommit, activeValue);
+    resolvedDraftState = {
+      draft: ownCommitArrived ? draftState.draft : String(activeInputValue),
+      validationMessage: ownCommitArrived ? draftState.validationMessage : "",
+      pendingCommit: null,
+      observedActiveValue: activeValue,
+      observedControl: control,
+      observedSynchronizationVersion: synchronizationVersion,
+    };
+    setDraftState(resolvedDraftState);
+  }
+
+  const { draft, validationMessage } = resolvedDraftState;
+
+  const validationId = `${inputId}-validation`;
+
+  function updateDraft(nextDraft: string) {
+    const result = evaluateNumericDraft(nextDraft, inputMinimum, inputMaximum);
+    if (result.status === "invalid") {
+      setDraftState((current) => ({
+        ...current,
+        draft: nextDraft,
+        validationMessage: result.message,
+      }));
+      return;
+    }
+    const domainValue = controlDomainValue(control, result.value);
+    setDraftState((current) => ({
+      ...current,
+      draft: nextDraft,
+      validationMessage: "",
+      pendingCommit: domainValue,
+    }));
+    onCommit(domainValue);
+  }
+
+  function resolveDraftOnBlur() {
+    const result = evaluateNumericDraft(draft, inputMinimum, inputMaximum);
+    if (result.status === "valid") return;
+    setDraftState((current) => ({
+      ...current,
+      draft: String(activeInputValue),
+      validationMessage: "",
+      pendingCommit: null,
+    }));
+  }
+
+  return (
+    <>
+      <input
+        id={inputId}
+        type="number"
+        min={inputMinimum}
+        max={inputMaximum}
+        step={control.step}
+        value={draft}
+        aria-invalid={validationMessage ? "true" : undefined}
+        aria-describedby={validationMessage ? validationId : undefined}
+        onChange={(event) => updateDraft(event.target.value)}
+        onBlur={resolveDraftOnBlur}
+      />
+      {validationMessage ? (
+        <small className="control-validation" id={validationId} aria-live="polite">
+          {validationMessage}
+        </small>
+      ) : null}
+    </>
+  );
+}
+
 export function ScenarioControlsPanel({
   baseline,
   inputs,
@@ -805,11 +942,18 @@ export function ScenarioControlsPanel({
   overrides: Overrides;
   setOverrides: React.Dispatch<React.SetStateAction<Overrides>>;
 }) {
+  const [synchronizationVersion, setSynchronizationVersion] = useState(0);
+
+  function resetAll() {
+    setOverrides({});
+    setSynchronizationVersion((current) => current + 1);
+  }
+
   return (
     <>
       <div className="section-heading">
         <div><span className="section-kicker">Scenario</span><h2>Calculator controls</h2></div>
-        <button className="text-button" onClick={() => setOverrides({})}>Reset all</button>
+        <button className="text-button" onClick={resetAll}>Reset all</button>
       </div>
       <p className="panel-copy">Reset restores this refreshed live baseline. Refresh clears every temporary override.</p>
       <div className="control-list">
@@ -821,24 +965,49 @@ export function ScenarioControlsPanel({
           return (
             <div className={`control ${overridden ? "is-overridden" : ""}`} key={control.key}>
               <div className="control-head"><label htmlFor={inputId}>{control.label}</label><output>{control.format(currentValue)}</output></div>
-              <input
-                id={inputId}
-                type={control.kind === "age" ? "range" : "number"}
-                min={controlInputValue(control, control.min(inputs))}
-                max={controlInputValue(control, control.max(inputs))}
-                step={control.step}
-                value={controlInputValue(control, currentValue)}
-                onChange={(event) => setOverrides((current) => ({
-                  ...current,
-                  [control.key]: controlDomainValue(
-                    control,
-                    Number(event.target.value),
-                  ),
-                }))}
-              />
+              {control.kind === "age" ? (
+                <input
+                  id={inputId}
+                  type="range"
+                  min={control.min(inputs)}
+                  max={control.max(inputs)}
+                  step={control.step}
+                  value={currentValue}
+                  onChange={(event) => setOverrides((current) => ({
+                    ...current,
+                    [control.key]: Number(event.target.value),
+                  }))}
+                />
+              ) : (
+                <NumericScenarioControl
+                  control={control}
+                  activeValue={currentValue}
+                  minimum={control.min(inputs)}
+                  maximum={control.max(inputs)}
+                  inputId={inputId}
+                  synchronizationVersion={synchronizationVersion}
+                  onCommit={(value) => setOverrides((current) => ({
+                    ...current,
+                    [control.key]: value,
+                  }))}
+                />
+              )}
               <div className="control-meta">
                 <span>{sourceLabel(baseline, control.sourceKey)}</span>
-                <button className="text-button" disabled={!overridden} onClick={() => setOverrides((current) => { const next = { ...current }; delete next[control.key]; return next; })}>Reset to {control.format(baselineValue)}</button>
+                <button
+                  className="text-button"
+                  disabled={!overridden}
+                  onClick={() => {
+                    setOverrides((current) => {
+                      const next = { ...current };
+                      delete next[control.key];
+                      return next;
+                    });
+                    setSynchronizationVersion((current) => current + 1);
+                  }}
+                >
+                  Reset to {control.format(baselineValue)}
+                </button>
               </div>
             </div>
           );
@@ -1029,6 +1198,10 @@ type PlannerConfigDocument = {
   version: string;
 };
 
+export type ConfigReloadResult =
+  | { ok: true }
+  | { ok: false; message: string };
+
 async function configErrorMessage(
   response: Response,
   fallback: string,
@@ -1044,7 +1217,7 @@ async function configErrorMessage(
 export function PlannerConfigEditor({
   onSaved,
 }: {
-  onSaved: () => Promise<void>;
+  onSaved: () => Promise<ConfigReloadResult>;
 }) {
   const [configDocument, setConfigDocument] = useState<PlannerConfigDocument | null>(null);
   const [contents, setContents] = useState("");
@@ -1153,15 +1326,20 @@ export function PlannerConfigEditor({
         version: saved.version,
       } : current);
       setMessage("Configuration saved. Reloading the active baseline…");
+      let reloadResult: ConfigReloadResult;
       try {
-        await onSaved();
+        reloadResult = await onSaved();
+      } catch {
+        reloadResult = {
+          ok: false,
+          message: "Configuration saved, but the active baseline could not be loaded. Fix the configuration and save again.",
+        };
+      }
+      if (reloadResult.ok) {
         setMessage("Configuration saved and the active baseline was reloaded.");
-      } catch (reloadError) {
-        setError(
-          reloadError instanceof Error
-            ? `Configuration saved, but the active baseline could not be reloaded: ${reloadError.message}`
-            : "Configuration saved, but the active baseline could not be reloaded.",
-        );
+      } else {
+        setMessage("Configuration saved to disk.");
+        setError(reloadResult.message);
       }
     } catch {
       setError("The planner configuration could not be saved.");
@@ -1236,7 +1414,7 @@ export function PlannerConfigDrawer({
 }: {
   opener: HTMLButtonElement | null;
   onClose: () => void;
-  onSaved: () => Promise<void>;
+  onSaved: () => Promise<ConfigReloadResult>;
 }) {
   return (
     <RightSideDrawer
@@ -1466,21 +1644,42 @@ export function PlannerDashboard() {
   const projectionError = currentProjectionResult?.error ?? "";
   const projecting = Boolean(inputs) && currentProjectionResult === null;
 
-  const reloadBaselineAfterConfigSave = useCallback(async () => {
-    const response = await fetch("/api/v1/baseline/current", { cache: "no-store" });
-    const body = (await response.json()) as CurrentBaseline | BlockingError;
-    if (!response.ok) {
-      throw new Error((body as BlockingError).message || "The active baseline could not be loaded.");
+  const reloadBaselineAfterConfigSave = useCallback(async (): Promise<ConfigReloadResult> => {
+    let response: Response;
+    let body: CurrentBaseline | BlockingError;
+    try {
+      response = await fetch("/api/v1/baseline/current", { cache: "no-store" });
+      body = (await response.json()) as CurrentBaseline | BlockingError;
+    } catch {
+      response = new Response(null, { status: 500 });
+      body = {
+        error: "baseline_load_failed",
+        message: "The active baseline could not be loaded.",
+      };
     }
-    const current = body as CurrentBaseline;
-    setBaselineResult({ generation: refreshGeneration, baseline: current });
-    setAllocationYear(Number(current.projectionInputs.startDate.slice(0, 4)) + 20);
+
     setOverrides({});
     setProjectionResult(null);
     setExportStatus("");
     setActiveExplanation(null);
     setScenarioControls(null);
     setLunchMoneyMappings(null);
+
+    if (!response.ok) {
+      setBaselineResult({
+        generation: refreshGeneration,
+        error: body as BlockingError,
+      });
+      return {
+        ok: false,
+        message: "Configuration saved, but the active baseline could not be loaded. Fix the configuration and save again.",
+      };
+    }
+
+    const current = body as CurrentBaseline;
+    setBaselineResult({ generation: refreshGeneration, baseline: current });
+    setAllocationYear(Number(current.projectionInputs.startDate.slice(0, 4)) + 20);
+    return { ok: true };
   }, [refreshGeneration]);
 
   async function download(endpoint: string, filename: string) {
@@ -1600,6 +1799,7 @@ export function PlannerDashboard() {
       : null;
 
   return (
+    <>
     <main>
       <header className="hero">
         <div>
@@ -2450,6 +2650,7 @@ export function PlannerDashboard() {
           onClose={closeLunchMoneyMappings}
         />
       ) : null}
+    </main>
       {plannerConfig ? (
         <PlannerConfigDrawer
           opener={plannerConfig.opener}
@@ -2457,6 +2658,6 @@ export function PlannerDashboard() {
           onSaved={reloadBaselineAfterConfigSave}
         />
       ) : null}
-    </main>
+    </>
   );
 }
