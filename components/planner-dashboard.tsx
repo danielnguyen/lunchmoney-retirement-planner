@@ -49,10 +49,37 @@ import {
   projectionJsonFilename,
 } from "@/src/domain/projection/filenames";
 import type {
-  AccountType,
   ProjectionInputs,
   ProjectionResult,
 } from "@/src/domain/projection/types";
+import {
+  buildControls,
+  controlDomainValue,
+  controlInputValue,
+  evaluateNumericDraft,
+  humanScenarioSourceLabel,
+  materializeInputs,
+  type ControlDefinition,
+  type Overrides,
+} from "@/src/domain/scenario/controls";
+import type {
+  AppliedScenarioChange,
+  ScenarioApplyResult,
+  ScenarioPreview,
+  SkippedScenarioChange,
+} from "@/src/config/scenario-draft";
+
+export {
+  buildControls,
+  controlDomainValue,
+  controlInputValue,
+  evaluateNumericDraft,
+  materializeInputs,
+} from "@/src/domain/scenario/controls";
+export type {
+  ControlDefinition,
+  Overrides,
+} from "@/src/domain/scenario/controls";
 
 const currency = new Intl.NumberFormat("en-CA", {
   style: "currency",
@@ -136,8 +163,6 @@ export function AnnualXAxis({
   );
 }
 
-export type Overrides = Record<string, number>;
-
 type BlockingError = {
   error: string;
   message: string;
@@ -149,664 +174,6 @@ type BlockingError = {
   unmappedAccounts?: CurrentBaseline["unmappedAccounts"];
   unmappedCategories?: CurrentBaseline["unmappedCategories"];
 };
-
-export type ControlDefinition = {
-  key: string;
-  sourceKey: string;
-  label: string;
-  kind: "age" | "currency" | "percentage" | "number";
-  min: (inputs: ProjectionInputs) => number;
-  max: (inputs: ProjectionInputs) => number;
-  step: number;
-  format: (value: number) => string;
-  get: (inputs: ProjectionInputs) => number;
-  set: (inputs: ProjectionInputs, value: number) => void;
-};
-
-export function controlInputValue(control: ControlDefinition, value: number): number {
-  return control.kind === "percentage" ? value * 100 : value;
-}
-
-export function controlDomainValue(control: ControlDefinition, value: number): number {
-  return control.kind === "percentage" ? value / 100 : value;
-}
-
-type NumericDraftResult =
-  | { status: "valid"; value: number }
-  | { status: "invalid"; message: string };
-
-const COMPLETE_DECIMAL = /^[+-]?(?:\d+|\d*\.\d+)$/;
-
-export function evaluateNumericDraft(
-  draft: string,
-  minimum: number,
-  maximum: number,
-): NumericDraftResult {
-  if (!COMPLETE_DECIMAL.test(draft)) {
-    return { status: "invalid", message: "Enter a valid number." };
-  }
-  const value = Number(draft);
-  if (!Number.isFinite(value)) {
-    return { status: "invalid", message: "Enter a valid number." };
-  }
-  if (value < minimum || value > maximum) {
-    return {
-      status: "invalid",
-      message: `Enter a value from ${minimum} to ${maximum}.`,
-    };
-  }
-  return { status: "valid", value };
-}
-
-function fixed(value: number): (inputs: ProjectionInputs) => number {
-  return () => value;
-}
-
-function monthlyPaymentEquivalent(
-  amount: number,
-  frequency: "monthly" | "semimonthly" | "biweekly" | "weekly",
-): number {
-  if (frequency === "monthly") return amount;
-  if (frequency === "semimonthly") return amount * 2;
-  if (frequency === "biweekly") return (amount * 26) / 12;
-  return (amount * 52) / 12;
-}
-
-export function buildControls(baseline: ProjectionInputs): ControlDefinition[] {
-  const simplePolicy = baseline.savingsPolicy.mode === "simple";
-  const controls: ControlDefinition[] = [
-    {
-      key: simplePolicy
-        ? "savingsPolicy.reserveBuilding.targetToday"
-        : "surplusAllocation.targetCashReserveToday",
-      sourceKey: simplePolicy
-        ? "savingsPolicy.reserveBuilding.targetToday"
-        : "surplusAllocation.targetCashReserveToday",
-      label: "Target cash reserve today",
-      kind: "currency",
-      min: fixed(0),
-      max: fixed(
-        Math.max(
-          250000,
-          baseline.surplusAllocation.targetCashReserveToday * 3,
-        ),
-      ),
-      step: 0.01,
-      format: currency.format,
-      get: (inputs) =>
-        inputs.surplusAllocation.targetCashReserveToday,
-      set: (inputs, value) => {
-        inputs.surplusAllocation.targetCashReserveToday = value;
-      },
-    },
-    {
-      key: simplePolicy
-        ? "savingsPolicy.reserveBuilding.indexingRate"
-        : "surplusAllocation.reserveIndexingRate",
-      sourceKey: simplePolicy
-        ? "savingsPolicy.reserveBuilding.indexingRate"
-        : "surplusAllocation.reserveIndexingRate",
-      label: "Reserve indexing rate",
-      kind: "percentage",
-      min: fixed(-0.2),
-      max: fixed(0.5),
-      step: 0.01,
-      format: percent.format,
-      get: (inputs) => inputs.surplusAllocation.reserveIndexingRate,
-      set: (inputs, value) => {
-        inputs.surplusAllocation.reserveIndexingRate = value;
-      },
-    },
-    {
-      key: "cppStartAge",
-      sourceKey: "person.cpp.startAge",
-      label: "CPP start age",
-      kind: "age",
-      min: fixed(60),
-      max: fixed(70),
-      step: 1,
-      format: String,
-      get: (inputs) => inputs.person.cpp.startAge,
-      set: (inputs, value) => {
-        inputs.person.cpp.startAge = value;
-      },
-    },
-    {
-      key: "oasStartAge",
-      sourceKey: "person.oas.startAge",
-      label: "OAS start age",
-      kind: "age",
-      min: fixed(65),
-      max: fixed(70),
-      step: 1,
-      format: String,
-      get: (inputs) => inputs.person.oas.startAge,
-      set: (inputs, value) => {
-        inputs.person.oas.startAge = value;
-      },
-    },
-    {
-      key: "monthlyEssentialSpendingToday",
-      sourceKey: "monthlyEssentialSpendingToday",
-      label: "Essential monthly spending",
-      kind: "currency",
-      min: fixed(0),
-      max: fixed(Math.max(20000, baseline.monthlyEssentialSpendingToday * 3)),
-      step: 0.01,
-      format: currency.format,
-      get: (inputs) => inputs.monthlyEssentialSpendingToday,
-      set: (inputs, value) => {
-        inputs.monthlyEssentialSpendingToday = value;
-      },
-    },
-    {
-      key: "monthlyDiscretionarySpendingToday",
-      sourceKey: "monthlyDiscretionarySpendingToday",
-      label: "Discretionary monthly spending",
-      kind: "currency",
-      min: fixed(0),
-      max: fixed(Math.max(10000, baseline.monthlyDiscretionarySpendingToday * 3)),
-      step: 0.01,
-      format: currency.format,
-      get: (inputs) => inputs.monthlyDiscretionarySpendingToday,
-      set: (inputs, value) => {
-        inputs.monthlyDiscretionarySpendingToday = value;
-      },
-    },
-    {
-      key: "annualInflation",
-      sourceKey: "annualInflation",
-      label: "Inflation",
-      kind: "percentage",
-      min: fixed(0),
-      max: fixed(0.1),
-      step: 0.01,
-      format: percent.format,
-      get: (inputs) => inputs.annualInflation,
-      set: (inputs, value) => {
-        inputs.annualInflation = value;
-      },
-    },
-    {
-      key: "endAge",
-      sourceKey: "endAge",
-      label: "Projection end age",
-      kind: "age",
-      min: (inputs) => inputs.person.retirementAge,
-      max: fixed(120),
-      step: 1,
-      format: String,
-      get: (inputs) => inputs.endAge,
-      set: (inputs, value) => {
-        inputs.endAge = value;
-      },
-    },
-  ];
-
-  if (
-    baseline.savingsPolicy.mode === "simple" &&
-    baseline.savingsPolicy.operatingCashTarget
-  ) {
-    controls.unshift(
-      {
-        key: "savingsPolicy.operatingCash.targetToday",
-        sourceKey: "savingsPolicy.operatingCash.targetToday",
-        label: "Operating cash target today",
-        kind: "currency",
-        min: fixed(0),
-        max: fixed(
-          Math.max(
-            100000,
-            baseline.savingsPolicy.operatingCashTarget.targetToday * 3,
-          ),
-        ),
-        step: 0.01,
-        format: currency.format,
-        get: (inputs) =>
-          inputs.savingsPolicy.mode === "simple"
-            ? inputs.savingsPolicy.operatingCashTarget?.targetToday ?? 0
-            : 0,
-        set: (inputs, value) => {
-          if (
-            inputs.savingsPolicy.mode === "simple" &&
-            inputs.savingsPolicy.operatingCashTarget
-          ) {
-            inputs.savingsPolicy.operatingCashTarget.targetToday = value;
-          }
-        },
-      },
-      {
-        key: "savingsPolicy.operatingCash.indexingRate",
-        sourceKey: "savingsPolicy.operatingCash.indexingRate",
-        label: "Operating cash indexing rate",
-        kind: "percentage",
-        min: fixed(-0.2),
-        max: fixed(0.5),
-        step: 0.01,
-        format: percent.format,
-        get: (inputs) =>
-          inputs.savingsPolicy.mode === "simple"
-            ? inputs.savingsPolicy.operatingCashTarget?.indexingRate ?? 0
-            : 0,
-        set: (inputs, value) => {
-          if (
-            inputs.savingsPolicy.mode === "simple" &&
-            inputs.savingsPolicy.operatingCashTarget
-          ) {
-            inputs.savingsPolicy.operatingCashTarget.indexingRate = value;
-          }
-        },
-      },
-    );
-  }
-
-  if (baseline.registeredAccountRoom) {
-    const simpleRoom = baseline.savingsPolicy.mode === "simple";
-    controls.unshift(
-      {
-        key: simpleRoom
-          ? "registeredRoom.tfsa.availableAtStart"
-          : "registeredAccountRoom.tfsa.startingAvailableRoom.amount",
-        sourceKey:
-          simpleRoom
-            ? "registeredRoom.tfsa.availableAtStart"
-            : "registeredAccountRoom.tfsa.startingAvailableRoom.amount",
-        label: "Starting TFSA room",
-        kind: "currency",
-        min: fixed(0),
-        max: fixed(
-          Math.max(
-            250000,
-            baseline.registeredAccountRoom.tfsa.startingAvailableRoom.amount *
-              3,
-          ),
-        ),
-        step: 0.01,
-        format: currency.format,
-        get: (inputs) =>
-          inputs.registeredAccountRoom!.tfsa.startingAvailableRoom.amount,
-        set: (inputs, value) => {
-          inputs.registeredAccountRoom!.tfsa.startingAvailableRoom.amount =
-            value;
-        },
-      },
-      {
-        key:
-          simpleRoom
-            ? "registeredRoom.rrsp.availableAtStart"
-            : "registeredAccountRoom.rrsp.startingAvailableDeductionRoom.amount",
-        sourceKey:
-          simpleRoom
-            ? "registeredRoom.rrsp.availableAtStart"
-            : "registeredAccountRoom.rrsp.startingAvailableDeductionRoom.amount",
-        label: "Starting RRSP deduction room",
-        kind: "currency",
-        min: fixed(0),
-        max: fixed(
-          Math.max(
-            250000,
-            baseline.registeredAccountRoom.rrsp
-              .startingAvailableDeductionRoom.amount * 3,
-          ),
-        ),
-        step: 0.01,
-        format: currency.format,
-        get: (inputs) =>
-          inputs.registeredAccountRoom!.rrsp
-            .startingAvailableDeductionRoom.amount,
-        set: (inputs, value) => {
-          inputs.registeredAccountRoom!.rrsp.startingAvailableDeductionRoom.amount =
-            value;
-        },
-      },
-    );
-  }
-
-  for (const phase of baseline.person.employmentIncomePhases) {
-    controls.push(
-      {
-        key: `employmentPhase.${phase.id}.annualNetCashToday`,
-        sourceKey: `person.employmentIncomePhases.${phase.id}.annualNetCashToday`,
-        label: `${phase.label} annual net cash`,
-        kind: "currency",
-        min: fixed(0),
-        max: fixed(Math.max(250000, phase.annualNetCashToday * 3)),
-        step: 0.01,
-        format: currency.format,
-        get: (inputs) =>
-          inputs.person.employmentIncomePhases.find((item) => item.id === phase.id)!
-            .annualNetCashToday,
-        set: (inputs, value) => {
-          inputs.person.employmentIncomePhases.find(
-            (item) => item.id === phase.id,
-          )!.annualNetCashToday = value;
-        },
-      },
-      {
-        key: `employmentPhase.${phase.id}.annualGrowth`,
-        sourceKey: `person.employmentIncomePhases.${phase.id}.annualGrowth`,
-        label: `${phase.label} annual income growth`,
-        kind: "percentage",
-        min: fixed(-0.2),
-        max: fixed(0.5),
-        step: 0.01,
-        format: percent.format,
-        get: (inputs) =>
-          inputs.person.employmentIncomePhases.find((item) => item.id === phase.id)!
-            .annualGrowth,
-        set: (inputs, value) => {
-          inputs.person.employmentIncomePhases.find(
-            (item) => item.id === phase.id,
-          )!.annualGrowth = value;
-        },
-      },
-    );
-    if (phase.rrspRoomGeneration) {
-      for (const [
-        field,
-        label,
-      ] of [
-        [
-          "annualEligibleEarnedIncomeToday",
-          "annual RRSP-eligible earned income",
-        ],
-        ["annualPensionAdjustmentToday", "annual pension adjustment"],
-        ["annualOtherRoomReductionToday", "annual other room reduction"],
-      ] as const) {
-        controls.push({
-          key: `employmentPhase.${phase.id}.rrspRoomGeneration.${field}`,
-          sourceKey: `person.employmentIncomePhases.${phase.id}.rrspRoomGeneration.${field}`,
-          label: `${phase.label} ${label}`,
-          kind: "currency",
-          min: fixed(0),
-          max: fixed(
-            Math.max(250000, phase.rrspRoomGeneration[field] * 3),
-          ),
-          step: 0.01,
-          format: currency.format,
-          get: (inputs) =>
-            inputs.person.employmentIncomePhases.find(
-              (item) => item.id === phase.id,
-            )!.rrspRoomGeneration![field],
-          set: (inputs, value) => {
-            inputs.person.employmentIncomePhases.find(
-              (item) => item.id === phase.id,
-            )!.rrspRoomGeneration![field] = value;
-          },
-        });
-      }
-    }
-  }
-
-  for (const account of baseline.accounts) {
-    if (!["tfsa", "rrsp_rrif", "non_registered"].includes(account.type)) continue;
-    for (const phase of account.contributionPhases) {
-      const resolvedSimplePolicy =
-        baseline.savingsPolicy.mode === "simple"
-          ? baseline.savingsPolicy
-          : null;
-      const planLabel =
-        resolvedSimplePolicy?.personalTfsaAccountId === account.id
-          ? "Personal saving"
-          : resolvedSimplePolicy?.workplaceRrspAccountId === account.id
-            ? "Workplace RRSP saving"
-            : account.label;
-      controls.push(
-        {
-          key: `contributionPhase.${account.id}.${phase.id}.monthlyAmountToday`,
-          sourceKey: `accounts.${account.id}.contributionPhases.${phase.id}.monthlyAmountToday`,
-          label: `${planLabel} · ${phase.label} monthly amount`,
-          kind: "currency",
-          min: fixed(0),
-          max: fixed(Math.max(5000, phase.monthlyAmountToday * 3)),
-          step: 0.01,
-          format: currency.format,
-          get: (inputs) =>
-            inputs.accounts
-              .find((item) => item.id === account.id)!
-              .contributionPhases.find((item) => item.id === phase.id)!.monthlyAmountToday,
-          set: (inputs, value) => {
-            inputs.accounts
-              .find((item) => item.id === account.id)!
-              .contributionPhases.find(
-                (item) => item.id === phase.id,
-              )!.monthlyAmountToday = value;
-          },
-        },
-        {
-          key: `contributionPhase.${account.id}.${phase.id}.indexingRate`,
-          sourceKey: `accounts.${account.id}.contributionPhases.${phase.id}.indexingRate`,
-          label: `${planLabel} · ${phase.label} indexing`,
-          kind: "percentage",
-          min: fixed(-0.2),
-          max: fixed(0.5),
-          step: 0.01,
-          format: percent.format,
-          get: (inputs) =>
-            inputs.accounts
-              .find((item) => item.id === account.id)!
-              .contributionPhases.find((item) => item.id === phase.id)!.indexingRate,
-          set: (inputs, value) => {
-            inputs.accounts
-              .find((item) => item.id === account.id)!
-              .contributionPhases.find((item) => item.id === phase.id)!.indexingRate =
-              value;
-          },
-        },
-      );
-    }
-  }
-
-  if (baseline.savingsPolicy.mode === "simple") {
-    for (const phase of baseline.savingsPolicy
-      .reserveBuildingPhases) {
-      controls.push(
-        {
-          key: `reserveBuildingPhase.${phase.id}.monthlyAmountToday`,
-          sourceKey: `savingsPolicy.reserveBuilding.phases.${phase.id}.monthlyAmountToday`,
-          label: `Reserve building · ${phase.label} monthly amount`,
-          kind: "currency",
-          min: fixed(0),
-          max: fixed(Math.max(5000, phase.monthlyAmountToday * 3)),
-          step: 0.01,
-          format: currency.format,
-          get: (inputs) =>
-            inputs.savingsPolicy.mode === "simple"
-              ? inputs.savingsPolicy.reserveBuildingPhases.find(
-                  (item) => item.id === phase.id,
-                )!.monthlyAmountToday
-              : 0,
-          set: (inputs, value) => {
-            if (inputs.savingsPolicy.mode === "simple") {
-              inputs.savingsPolicy.reserveBuildingPhases.find(
-                (item) => item.id === phase.id,
-              )!.monthlyAmountToday = value;
-            }
-          },
-        },
-        {
-          key: `reserveBuildingPhase.${phase.id}.indexingRate`,
-          sourceKey: `savingsPolicy.reserveBuilding.phases.${phase.id}.indexingRate`,
-          label: `Reserve building · ${phase.label} indexing`,
-          kind: "percentage",
-          min: fixed(-0.2),
-          max: fixed(0.5),
-          step: 0.01,
-          format: percent.format,
-          get: (inputs) =>
-            inputs.savingsPolicy.mode === "simple"
-              ? inputs.savingsPolicy.reserveBuildingPhases.find(
-                  (item) => item.id === phase.id,
-                )!.indexingRate
-              : 0,
-          set: (inputs, value) => {
-            if (inputs.savingsPolicy.mode === "simple") {
-              inputs.savingsPolicy.reserveBuildingPhases.find(
-                (item) => item.id === phase.id,
-              )!.indexingRate = value;
-            }
-          },
-        },
-      );
-    }
-  }
-
-  const typeLabels: Record<AccountType, string> = {
-    cash: "Cash return",
-    tfsa: "TFSA return",
-    rrsp_rrif: "RRSP / RRIF return",
-    non_registered: "Non-registered return",
-  };
-  const seenTypes = new Set<AccountType>();
-  for (const account of baseline.accounts) {
-    if (seenTypes.has(account.type)) continue;
-    seenTypes.add(account.type);
-    controls.push({
-      key: `return.${account.type}`,
-      sourceKey: `accounts.${account.id}.annualReturn`,
-      label: typeLabels[account.type],
-      kind: "percentage",
-      min: fixed(-0.5),
-      max: fixed(0.5),
-      step: 0.01,
-      format: percent.format,
-      get: (inputs) => inputs.accounts.find((item) => item.type === account.type)!.annualReturn,
-      set: (inputs, value) => {
-        for (const item of inputs.accounts) {
-          if (item.type === account.type) item.annualReturn = value;
-        }
-      },
-    });
-  }
-  const residence = baseline.nonFinancialAssets.find(
-    (asset) => asset.type === "primary_residence",
-  );
-  if (residence) {
-    const residenceSourcePrefix =
-      residence.origin === "lunchmoney"
-        ? `nonFinancialAssets.${residence.id}`
-        : "nonFinancialAssets.primaryResidence";
-    controls.unshift(
-      {
-        key: "primaryResidence.currentValue",
-        sourceKey: `${residenceSourcePrefix}.openingValue`,
-        label: "Primary residence value",
-        kind: "currency",
-        min: fixed(0),
-        max: fixed(Math.max(2_000_000, residence.openingValue * 3)),
-        step: 0.01,
-        format: currency.format,
-        get: (inputs) =>
-          inputs.nonFinancialAssets.find(
-            (asset) => asset.id === residence.id,
-          )!.openingValue,
-        set: (inputs, value) => {
-          inputs.nonFinancialAssets.find(
-            (asset) => asset.id === residence.id,
-          )!.openingValue = value;
-        },
-      },
-      {
-        key: "primaryResidence.annualAppreciation",
-        sourceKey: `${residenceSourcePrefix}.annualAppreciation`,
-        label: "Residence annual appreciation",
-        kind: "percentage",
-        min: fixed(-0.2),
-        max: fixed(0.5),
-        step: 0.01,
-        format: percent.format,
-        get: (inputs) =>
-          inputs.nonFinancialAssets.find(
-            (asset) => asset.id === residence.id,
-          )!.annualAppreciation,
-        set: (inputs, value) => {
-          inputs.nonFinancialAssets.find(
-            (asset) => asset.id === residence.id,
-          )!.annualAppreciation = value;
-        },
-      },
-    );
-  }
-  for (const liability of baseline.liabilities) {
-    if (liability.treatment.mode !== "amortizing") continue;
-    const baselineTreatment = liability.treatment;
-    controls.unshift(
-      {
-        key: `liability.${liability.id}.annualInterestRate`,
-        sourceKey: `liabilities.${liability.id}.treatment.annualInterestRate`,
-        label: `${liability.label} annual interest rate`,
-        kind: "percentage",
-        min: fixed(0),
-        max: fixed(0.5),
-        step: 0.01,
-        format: percent.format,
-        get: (inputs) => {
-          const treatment = inputs.liabilities.find(
-            (item) => item.id === liability.id,
-          )!.treatment;
-          return treatment.mode === "amortizing"
-            ? treatment.annualInterestRate
-            : 0;
-        },
-        set: (inputs, value) => {
-          const treatment = inputs.liabilities.find(
-            (item) => item.id === liability.id,
-          )!.treatment;
-          if (treatment.mode === "amortizing") {
-            treatment.annualInterestRate = value;
-          }
-        },
-      },
-      {
-        key: `liability.${liability.id}.regularPayment.amount`,
-        sourceKey: `liabilities.${liability.id}.treatment.regularPaymentAmount`,
-        label: `${liability.label} regular payment`,
-        kind: "currency",
-        min: fixed(0.01),
-        max: fixed(
-          Math.max(20_000, baselineTreatment.regularPayment.amount * 3),
-        ),
-        step: 0.01,
-        format: exactCurrency.format,
-        get: (inputs) => {
-          const treatment = inputs.liabilities.find(
-            (item) => item.id === liability.id,
-          )!.treatment;
-          return treatment.mode === "amortizing"
-            ? treatment.regularPayment.amount
-            : 0;
-        },
-        set: (inputs, value) => {
-          const treatment = inputs.liabilities.find(
-            (item) => item.id === liability.id,
-          )!.treatment;
-          if (treatment.mode === "amortizing") {
-            treatment.regularPayment.amount = value;
-            treatment.regularPayment.monthlyEquivalent =
-              monthlyPaymentEquivalent(
-                value,
-                treatment.regularPayment.frequency,
-              );
-          }
-        },
-      },
-    );
-  }
-  return controls;
-}
-
-export function materializeInputs(
-  baseline: ProjectionInputs,
-  controls: ControlDefinition[],
-  overrides: Overrides,
-): ProjectionInputs {
-  const inputs = structuredClone(baseline);
-  for (const control of controls) {
-    const override = overrides[control.key];
-    if (override !== undefined) control.set(inputs, override);
-  }
-  return inputs;
-}
 
 function compactCurrency(value: number): string {
   const absolute = Math.abs(value);
@@ -935,12 +302,16 @@ export function ScenarioControlsPanel({
   controls,
   overrides,
   setOverrides,
+  onApplyScenario,
+  applyingScenario = false,
 }: {
   baseline: CurrentBaseline;
   inputs: ProjectionInputs;
   controls: ControlDefinition[];
   overrides: Overrides;
   setOverrides: React.Dispatch<React.SetStateAction<Overrides>>;
+  onApplyScenario?: () => void;
+  applyingScenario?: boolean;
 }) {
   const [synchronizationVersion, setSynchronizationVersion] = useState(0);
 
@@ -962,9 +333,18 @@ export function ScenarioControlsPanel({
           const currentValue = control.get(inputs);
           const overridden = overrides[control.key] !== undefined;
           const inputId = `drawer-${control.key}`;
+          const source = humanScenarioSourceLabel(
+            baseline.provenance[control.sourceKey],
+            control,
+          );
           return (
             <div className={`control ${overridden ? "is-overridden" : ""}`} key={control.key}>
-              <div className="control-head"><label htmlFor={inputId}>{control.label}</label><output>{control.format(currentValue)}</output></div>
+              <div className="control-head">
+                <label htmlFor={inputId}>{control.label}</label>
+                <output>
+                  {overridden ? "Scenario: " : ""}{control.format(currentValue)}
+                </output>
+              </div>
               {control.kind === "age" ? (
                 <input
                   id={inputId}
@@ -993,7 +373,10 @@ export function ScenarioControlsPanel({
                 />
               )}
               <div className="control-meta">
-                <span>{sourceLabel(baseline, control.sourceKey)}</span>
+                <span>
+                  {overridden ? `Baseline: ${control.format(baselineValue)} · ` : ""}
+                  {source}
+                </span>
                 <button
                   className="text-button"
                   disabled={!overridden}
@@ -1012,6 +395,24 @@ export function ScenarioControlsPanel({
             </div>
           );
         })}
+      </div>
+      <div className="scenario-apply-actions">
+        <p>
+          Applies supported temporary overrides to the YAML draft for review.
+          Nothing is written until you press Save config.
+        </p>
+        <button
+          type="button"
+          className="button"
+          disabled={
+            applyingScenario ||
+            Object.keys(overrides).length === 0 ||
+            !onApplyScenario
+          }
+          onClick={onApplyScenario}
+        >
+          {applyingScenario ? "Reviewing scenario…" : "Apply scenario to config"}
+        </button>
       </div>
     </>
   );
@@ -1191,7 +592,7 @@ export function LunchMoneyMappingsDrawer({
   );
 }
 
-type PlannerConfigDocument = {
+export type PlannerConfigDocument = {
   contents: string;
   displayPath: string;
   writeEnabled: boolean;
@@ -1201,6 +602,35 @@ type PlannerConfigDocument = {
 export type ConfigReloadResult =
   | { ok: true }
   | { ok: false; message: string };
+
+export type PlannerConfigDraftState = {
+  document: PlannerConfigDocument | null;
+  contents: string;
+  revision: number;
+  loading: boolean;
+  busy: boolean;
+  validation: "idle" | "valid" | "invalid";
+  message: string;
+  error: string;
+  appliedSummary: Pick<
+    ScenarioApplyResult,
+    "appliedChanges" | "skippedChanges"
+  > & { appliedRevision: number } | null;
+};
+
+function initialPlannerConfigDraft(): PlannerConfigDraftState {
+  return {
+    document: null,
+    contents: "",
+    revision: 0,
+    loading: false,
+    busy: false,
+    validation: "idle",
+    message: "",
+    error: "",
+    appliedSummary: null,
+  };
+}
 
 async function configErrorMessage(
   response: Response,
@@ -1214,118 +644,193 @@ async function configErrorMessage(
   }
 }
 
-export function PlannerConfigEditor({
-  onSaved,
+function ChangeList({
+  changes,
 }: {
-  onSaved: () => Promise<ConfigReloadResult>;
+  changes: Array<AppliedScenarioChange | SkippedScenarioChange>;
 }) {
-  const [configDocument, setConfigDocument] = useState<PlannerConfigDocument | null>(null);
-  const [contents, setContents] = useState("");
-  const [loading, setLoading] = useState(true);
-  const [busy, setBusy] = useState(false);
-  const [validation, setValidation] = useState<"idle" | "valid" | "invalid">("idle");
-  const [message, setMessage] = useState("");
-  const [error, setError] = useState("");
+  return (
+    <ul>
+      {changes.map((change) => (
+        <li key={`${change.kind}-${change.key}`}>
+          <strong>{change.label}</strong>
+          <span>Active baseline: {change.formattedActiveBaselineValue}</span>
+          {change.draftDestinations.map((destination) => (
+            <span key={destination.displayName}>
+              {destination.sourceKind === "live_baseline"
+                ? "Current YAML source"
+                : "Current YAML draft"}
+              {change.destinationCount > 1 ? ` — ${destination.displayName}` : ""}:
+              {" "}{destination.formattedCurrentValue}
+            </span>
+          ))}
+          <span>Scenario: {change.formattedScenarioValue}</span>
+          {change.destinationCount > 1 ? (
+            <span>{change.destinationCount} YAML destinations</span>
+          ) : null}
+          {change.kind === "scenario_only" ||
+          change.kind === "live_baseline_kept" ? (
+            <span>{change.consequence}</span>
+          ) : null}
+          <small>{change.source}</small>
+        </li>
+      ))}
+    </ul>
+  );
+}
 
-  const loadLatest = useCallback(async () => {
-    setLoading(true);
-    setMessage("");
-    setError("");
-    try {
-      const response = await fetch("/api/v1/config/current", { cache: "no-store" });
-      if (!response.ok) {
-        throw new Error(await configErrorMessage(response, "The planner configuration could not be loaded."));
-      }
-      const current = (await response.json()) as PlannerConfigDocument;
-      setConfigDocument(current);
-      setContents(current.contents);
-      setValidation("idle");
-    } catch (loadError) {
-      setError(loadError instanceof Error ? loadError.message : "The planner configuration could not be loaded.");
-    } finally {
-      setLoading(false);
-    }
-  }, []);
+export function AppliedScenarioSummary({
+  summary,
+  stale,
+}: {
+  summary: NonNullable<PlannerConfigDraftState["appliedSummary"]>;
+  stale: boolean;
+}) {
+  const direct = summary.appliedChanges.filter(
+    (change) => change.kind === "config",
+  );
+  const replaced = summary.appliedChanges.filter(
+    (change) => change.kind === "live_baseline_conversion",
+  );
+  const keptLive = summary.skippedChanges.filter(
+    (change) => change.kind === "live_baseline_kept",
+  );
+  const scenarioOnly = summary.skippedChanges.filter(
+    (change) => change.kind === "scenario_only",
+  );
+  return (
+    <section className="scenario-change-summary" aria-labelledby="scenario-change-summary-title">
+      <h3 id="scenario-change-summary-title">Last scenario application</h3>
+      <p>Applied to YAML draft only—review these changes and press Save config separately.</p>
+      {stale ? (
+        <p className="scenario-summary-stale" role="status">
+          The YAML draft has been edited since this scenario was applied. Review the YAML as the source of truth.
+        </p>
+      ) : null}
+      {direct.length > 0 ? (
+        <div>
+          <h4>Applied config changes</h4>
+          <ChangeList changes={direct} />
+        </div>
+      ) : null}
+      {replaced.length > 0 ? (
+        <div>
+          <h4>Replaced live-derived values</h4>
+          <ChangeList changes={replaced} />
+        </div>
+      ) : null}
+      {keptLive.length > 0 ? (
+        <div>
+          <h4>Kept live</h4>
+          <ChangeList changes={keptLive} />
+        </div>
+      ) : null}
+      {scenarioOnly.length > 0 ? (
+        <div>
+          <h4>Scenario-only values not applied</h4>
+          <ChangeList changes={scenarioOnly} />
+        </div>
+      ) : null}
+      {summary.appliedChanges.length === 0 ? (
+        <p><strong>No YAML values changed.</strong> All overrides remain temporary.</p>
+      ) : null}
+    </section>
+  );
+}
 
-  useEffect(() => {
-    let active = true;
-    void fetch("/api/v1/config/current", { cache: "no-store" })
-      .then(async (response) => {
-        if (!response.ok) {
-          throw new Error(await configErrorMessage(response, "The planner configuration could not be loaded."));
-        }
-        const current = (await response.json()) as PlannerConfigDocument;
-        if (!active) return;
-        setConfigDocument(current);
-        setContents(current.contents);
-        setValidation("idle");
-      })
-      .catch((loadError: unknown) => {
-        if (!active) return;
-        setError(loadError instanceof Error ? loadError.message : "The planner configuration could not be loaded.");
-      })
-      .finally(() => {
-        if (active) setLoading(false);
-      });
-    return () => {
-      active = false;
-    };
-  }, []);
-
+export function PlannerConfigEditor({
+  draft,
+  setDraft,
+  onSaved,
+  onRevert,
+}: {
+  draft: PlannerConfigDraftState;
+  setDraft: React.Dispatch<React.SetStateAction<PlannerConfigDraftState>>;
+  onSaved: () => Promise<ConfigReloadResult>;
+  onRevert: () => Promise<void>;
+}) {
   async function validate(): Promise<boolean> {
-    setBusy(true);
-    setMessage("");
-    setError("");
+    setDraft((current) => ({
+      ...current,
+      busy: true,
+      message: "",
+      error: "",
+    }));
     try {
       const response = await fetch("/api/v1/config/current", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ contents }),
+        body: JSON.stringify({ contents: draft.contents }),
       });
       if (!response.ok) {
-        setValidation("invalid");
-        setError(await configErrorMessage(response, "The YAML is not a valid planner configuration."));
+        const error = await configErrorMessage(
+          response,
+          "The YAML is not a valid planner configuration.",
+        );
+        setDraft((current) => ({
+          ...current,
+          validation: "invalid",
+          error,
+        }));
         return false;
       }
-      setValidation("valid");
-      setMessage("Configuration is valid. No file was changed.");
+      setDraft((current) => ({
+        ...current,
+        validation: "valid",
+        message: "Configuration is valid. No file was changed.",
+      }));
       return true;
     } catch {
-      setValidation("invalid");
-      setError("The configuration could not be validated.");
+      setDraft((current) => ({
+        ...current,
+        validation: "invalid",
+        error: "The configuration could not be validated.",
+      }));
       return false;
     } finally {
-      setBusy(false);
+      setDraft((current) => ({ ...current, busy: false }));
     }
   }
 
   async function save() {
-    if (!configDocument?.writeEnabled) return;
+    if (!draft.document?.writeEnabled) return;
     if (!(await validate())) return;
 
-    setBusy(true);
-    setMessage("");
-    setError("");
+    setDraft((current) => ({
+      ...current,
+      busy: true,
+      message: "",
+      error: "",
+    }));
     try {
       const response = await fetch("/api/v1/config/current", {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          contents,
-          expectedVersion: configDocument.version,
+          contents: draft.contents,
+          expectedVersion: draft.document.version,
         }),
       });
       if (!response.ok) {
-        setError(await configErrorMessage(response, "The planner configuration could not be saved."));
+        const error = await configErrorMessage(
+          response,
+          "The planner configuration could not be saved.",
+        );
+        setDraft((current) => ({ ...current, error }));
         return;
       }
       const saved = (await response.json()) as { version: string };
-      setConfigDocument((current) => current ? {
+      setDraft((current) => ({
         ...current,
-        contents,
-        version: saved.version,
-      } : current);
-      setMessage("Configuration saved. Reloading the active baseline…");
+        document: current.document
+          ? {
+              ...current.document,
+              contents: current.contents,
+              version: saved.version,
+            }
+          : current.document,
+        message: "Configuration saved. Reloading the active baseline…",
+      }));
       let reloadResult: ConfigReloadResult;
       try {
         reloadResult = await onSaved();
@@ -1336,41 +841,66 @@ export function PlannerConfigEditor({
         };
       }
       if (reloadResult.ok) {
-        setMessage("Configuration saved and the active baseline was reloaded.");
+        setDraft((current) => ({
+          ...current,
+          appliedSummary: null,
+          message: "Configuration saved and the active baseline was reloaded.",
+        }));
       } else {
-        setMessage("Configuration saved to disk.");
-        setError(reloadResult.message);
+        setDraft((current) => ({
+          ...current,
+          message: "Configuration saved to disk.",
+          error: reloadResult.message,
+        }));
       }
     } catch {
-      setError("The planner configuration could not be saved.");
+      setDraft((current) => ({
+        ...current,
+        error: "The planner configuration could not be saved.",
+      }));
     } finally {
-      setBusy(false);
+      setDraft((current) => ({ ...current, busy: false }));
     }
   }
 
-  const dirty = configDocument !== null && contents !== configDocument.contents;
-  const validationLabel = validation === "valid"
+  const dirty =
+    draft.document !== null && draft.contents !== draft.document.contents;
+  const validationLabel = draft.validation === "valid"
     ? "Valid configuration"
-    : validation === "invalid"
+    : draft.validation === "invalid"
       ? "Validation failed"
       : "Not yet validated";
 
-  if (loading) return <p className="panel-copy" aria-live="polite">Loading planner configuration…</p>;
-  if (!configDocument) return <p className="config-message error" role="alert">{error}</p>;
+  if (draft.loading) {
+    return (
+      <p className="panel-copy" aria-live="polite">
+        Loading planner configuration…
+      </p>
+    );
+  }
+  if (!draft.document) {
+    return <p className="config-message error" role="alert">{draft.error}</p>;
+  }
 
   return (
     <section className="config-editor" aria-label="Active planner configuration editor">
       <div className="config-editor-meta">
-        <div><span>Active file</span><strong>{configDocument.displayPath}</strong></div>
+        <div><span>Active file</span><strong>{draft.document.displayPath}</strong></div>
         <div><span>Editor state</span><strong>{dirty ? "Unsaved changes" : "Matches disk"}</strong></div>
         <div><span>Validation</span><strong>{validationLabel}</strong></div>
       </div>
       <p className="panel-copy">
-        Scenario controls remain temporary and are not applied to this YAML.
+        Scenario controls remain temporary until explicitly applied to this draft and saved.
       </p>
-      {!configDocument.writeEnabled ? (
+      {draft.appliedSummary ? (
+        <AppliedScenarioSummary
+          summary={draft.appliedSummary}
+          stale={draft.revision !== draft.appliedSummary.appliedRevision}
+        />
+      ) : null}
+      {!draft.document.writeEnabled ? (
         <p className="config-write-disabled">
-          Saving is disabled. Validation and viewing remain available. Set
+          Saving is disabled. Validation and scenario draft application remain available. Set
           {" "}<code>PLANNER_CONFIG_WRITE_ENABLED=true</code> and restart the application to enable saving.
         </p>
       ) : (
@@ -1380,26 +910,31 @@ export function PlannerConfigEditor({
       <textarea
         id="planner-config-yaml"
         className="config-editor-textarea"
-        value={contents}
+        value={draft.contents}
         onChange={(event) => {
-          setContents(event.target.value);
-          setValidation("idle");
-          setMessage("");
-          setError("");
+          const contents = event.target.value;
+          setDraft((current) => ({
+            ...current,
+            contents,
+            revision: current.revision + 1,
+            validation: "idle",
+            message: "",
+            error: "",
+          }));
         }}
         spellCheck={false}
         rows={30}
       />
-      {message ? <p className="config-message success" role="status">{message}</p> : null}
-      {error ? <p className="config-message error" role="alert">{error}</p> : null}
+      {draft.message ? <p className="config-message success" role="status">{draft.message}</p> : null}
+      {draft.error ? <p className="config-message error" role="alert">{draft.error}</p> : null}
       <div className="config-editor-actions">
-        <button type="button" className="button secondary" disabled={busy} onClick={() => void validate()}>
+        <button type="button" className="button secondary" disabled={draft.busy} onClick={() => void validate()}>
           Validate
         </button>
-        <button type="button" className="button secondary" disabled={busy} onClick={() => void loadLatest()}>
+        <button type="button" className="button secondary" disabled={draft.busy} onClick={() => void onRevert()}>
           Revert changes
         </button>
-        <button type="button" className="button" disabled={busy || !configDocument.writeEnabled} onClick={() => void save()}>
+        <button type="button" className="button" disabled={draft.busy || !draft.document.writeEnabled} onClick={() => void save()}>
           Save config
         </button>
       </div>
@@ -1410,11 +945,17 @@ export function PlannerConfigEditor({
 export function PlannerConfigDrawer({
   opener,
   onClose,
+  draft,
+  setDraft,
   onSaved,
+  onRevert,
 }: {
   opener: HTMLButtonElement | null;
   onClose: () => void;
+  draft: PlannerConfigDraftState;
+  setDraft: React.Dispatch<React.SetStateAction<PlannerConfigDraftState>>;
   onSaved: () => Promise<ConfigReloadResult>;
+  onRevert: () => Promise<void>;
 }) {
   return (
     <RightSideDrawer
@@ -1427,8 +968,109 @@ export function PlannerConfigDrawer({
       opener={opener}
       onClose={onClose}
     >
-      <PlannerConfigEditor onSaved={onSaved} />
+      <PlannerConfigEditor
+        draft={draft}
+        setDraft={setDraft}
+        onSaved={onSaved}
+        onRevert={onRevert}
+      />
     </RightSideDrawer>
+  );
+}
+
+export function LiveBaselineConfirmationDialog({
+  conversions,
+  busy,
+  onCancel,
+  onKeep,
+  onReplace,
+}: {
+  conversions: ScenarioPreview["liveBaselineConversions"];
+  busy: boolean;
+  onCancel: () => void;
+  onKeep: () => void;
+  onReplace: () => void;
+}) {
+  const dialogRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    const dialog = dialogRef.current;
+    if (!dialog) return;
+    focusableDrawerElements(dialog)[0]?.focus();
+    function onKeyDown(event: KeyboardEvent) {
+      if (event.key === "Escape") {
+        event.preventDefault();
+        if (!busy) onCancel();
+        return;
+      }
+      if (event.key !== "Tab") return;
+      const elements = focusableDrawerElements(dialog!);
+      if (elements.length === 0) {
+        event.preventDefault();
+        return;
+      }
+      const first = elements[0]!;
+      const last = elements.at(-1)!;
+      if (event.shiftKey && document.activeElement === first) {
+        event.preventDefault();
+        last.focus();
+      } else if (!event.shiftKey && document.activeElement === last) {
+        event.preventDefault();
+        first.focus();
+      }
+    }
+    document.addEventListener("keydown", onKeyDown);
+    return () => document.removeEventListener("keydown", onKeyDown);
+  }, [busy, onCancel]);
+
+  return (
+    <div className="scenario-confirmation-overlay no-print">
+      <div
+        className="scenario-confirmation-dialog"
+        ref={dialogRef}
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="scenario-confirmation-title"
+        aria-describedby="scenario-confirmation-description"
+      >
+        <span className="section-kicker">Source conversion</span>
+        <h2 id="scenario-confirmation-title">Replace live-derived values?</h2>
+        <p id="scenario-confirmation-description">
+          These fields currently use <code>live_baseline</code>. Replacing them
+          writes fixed numbers into the YAML draft, so future Lunch Money
+          changes will no longer update them automatically.
+        </p>
+        <div className="scenario-conversion-list">
+          {conversions.map((conversion) => (
+            <article key={conversion.key}>
+              <h3>{conversion.label}</h3>
+              {conversion.draftDestinations.map((destination) => (
+                <p key={destination.displayName}>
+                  Current YAML source
+                  {conversion.destinationCount > 1
+                    ? ` — ${destination.displayName}`
+                    : ""}: <code>{destination.formattedCurrentValue}</code>
+                </p>
+              ))}
+              <p>Resolved baseline: {conversion.formattedActiveBaselineValue}</p>
+              <p>Fixed scenario value: <strong>{conversion.formattedScenarioValue}</strong></p>
+              <small>{conversion.consequence}</small>
+            </article>
+          ))}
+        </div>
+        <div className="scenario-confirmation-actions">
+          <button type="button" className="button secondary" disabled={busy} onClick={onCancel}>
+            Cancel
+          </button>
+          <button type="button" className="button secondary" disabled={busy} onClick={onKeep}>
+            Keep live baseline
+          </button>
+          <button type="button" className="button" disabled={busy} onClick={onReplace}>
+            Replace with fixed values
+          </button>
+        </div>
+      </div>
+    </div>
   );
 }
 
@@ -1548,6 +1190,75 @@ export function PlannerDashboard() {
   const [plannerConfig, setPlannerConfig] = useState<{
     opener: HTMLButtonElement;
   } | null>(null);
+  const [configDraft, setConfigDraft] = useState<PlannerConfigDraftState>(
+    initialPlannerConfigDraft,
+  );
+  const [scenarioPreview, setScenarioPreview] = useState<{
+    preview: ScenarioPreview;
+    opener: HTMLButtonElement;
+  } | null>(null);
+  const [scenarioApplyBusy, setScenarioApplyBusy] = useState(false);
+
+  const loadPlannerConfigDraft = useCallback(
+    async (clearAppliedSummary: boolean): Promise<PlannerConfigDraftState | null> => {
+      setConfigDraft((current) => ({
+        ...current,
+        loading: true,
+        message: "",
+        error: "",
+      }));
+      try {
+        const response = await fetch("/api/v1/config/current", {
+          cache: "no-store",
+        });
+        if (!response.ok) {
+          throw new Error(
+            await configErrorMessage(
+              response,
+              "The planner configuration could not be loaded.",
+            ),
+          );
+        }
+        const document = (await response.json()) as PlannerConfigDocument;
+        const next: PlannerConfigDraftState = {
+          document,
+          contents: document.contents,
+          revision: configDraft.revision + 1,
+          loading: false,
+          busy: false,
+          validation: "idle",
+          message: "",
+          error: "",
+          appliedSummary: clearAppliedSummary ? null : configDraft.appliedSummary,
+        };
+        setConfigDraft(next);
+        return next;
+      } catch (error) {
+        setConfigDraft((current) => ({
+          ...current,
+          loading: false,
+          error: error instanceof Error
+            ? error.message
+            : "The planner configuration could not be loaded.",
+        }));
+        return null;
+      }
+    },
+    [configDraft.appliedSummary, configDraft.revision],
+  );
+
+  const openPlannerConfig = useCallback(
+    (opener: HTMLButtonElement) => {
+      setActiveExplanation(null);
+      setScenarioControls(null);
+      setLunchMoneyMappings(null);
+      setPlannerConfig({ opener });
+      if (!configDraft.document && !configDraft.loading) {
+        void loadPlannerConfigDraft(false);
+      }
+    },
+    [configDraft.document, configDraft.loading, loadPlannerConfigDraft],
+  );
 
   const openExplanation = useCallback(
     (target: ExplanationTarget, opener: HTMLButtonElement) => {
@@ -1682,6 +1393,153 @@ export function PlannerDashboard() {
     return { ok: true };
   }, [refreshGeneration]);
 
+  async function ensurePlannerConfigDraft(): Promise<PlannerConfigDraftState | null> {
+    if (configDraft.document) return configDraft;
+    return loadPlannerConfigDraft(false);
+  }
+
+  async function applyScenarioSelection(
+    opener: HTMLButtonElement,
+    liveBaselineAction: "keep" | "replace",
+    loadedDraft?: PlannerConfigDraftState,
+  ) {
+    if (!baseline) return;
+    const activeDraft = loadedDraft ?? await ensurePlannerConfigDraft();
+    if (!activeDraft?.document) {
+      setScenarioPreview(null);
+      setScenarioControls(null);
+      setPlannerConfig({ opener });
+      return;
+    }
+    setScenarioApplyBusy(true);
+    try {
+      const response = await fetch(
+        "/api/v1/config/current/scenario-draft",
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            contents: activeDraft.contents,
+            expectedVersion: activeDraft.document.version,
+            baseline: baseline.projectionInputs,
+            overrides,
+            action: "apply",
+            liveBaselineAction,
+          }),
+        },
+      );
+      if (!response.ok) {
+        const error = await configErrorMessage(
+          response,
+          "The scenario could not be applied to the YAML draft.",
+        );
+        setConfigDraft((current) => ({
+          ...current,
+          validation: response.status === 422 ? "invalid" : current.validation,
+          message: "",
+          error,
+        }));
+        setScenarioPreview(null);
+        setScenarioControls(null);
+        setPlannerConfig({ opener });
+        return;
+      }
+      const result = (await response.json()) as ScenarioApplyResult;
+      setConfigDraft((current) => {
+        const revision = current.revision + 1;
+        return {
+          ...current,
+          contents: result.contents,
+          revision,
+          validation: "valid",
+          message: result.appliedChanges.length > 0
+            ? "Scenario values were applied to the YAML draft. Nothing has been saved."
+            : "No YAML values changed. Scenario overrides remain temporary.",
+          error: "",
+          appliedSummary: {
+            appliedChanges: result.appliedChanges,
+            skippedChanges: result.skippedChanges,
+            appliedRevision: revision,
+          },
+        };
+      });
+      setScenarioPreview(null);
+      setScenarioControls(null);
+      setPlannerConfig({ opener });
+    } catch {
+      setConfigDraft((current) => ({
+        ...current,
+        message: "",
+        error: "The scenario could not be applied to the YAML draft.",
+      }));
+      setScenarioPreview(null);
+      setScenarioControls(null);
+      setPlannerConfig({ opener });
+    } finally {
+      setScenarioApplyBusy(false);
+    }
+  }
+
+  async function previewScenarioToConfig(opener: HTMLButtonElement) {
+    if (!baseline || Object.keys(overrides).length === 0) return;
+    setScenarioApplyBusy(true);
+    const activeDraft = await ensurePlannerConfigDraft();
+    if (!activeDraft?.document) {
+      setScenarioApplyBusy(false);
+      setScenarioControls(null);
+      setPlannerConfig({ opener });
+      return;
+    }
+    try {
+      const response = await fetch(
+        "/api/v1/config/current/scenario-draft",
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            contents: activeDraft.contents,
+            expectedVersion: activeDraft.document.version,
+            baseline: baseline.projectionInputs,
+            overrides,
+            action: "preview",
+          }),
+        },
+      );
+      if (!response.ok) {
+        const error = await configErrorMessage(
+          response,
+          "The scenario could not be reviewed against the YAML draft.",
+        );
+        setConfigDraft((current) => ({
+          ...current,
+          validation: response.status === 422 ? "invalid" : current.validation,
+          message: "",
+          error,
+        }));
+        setScenarioControls(null);
+        setPlannerConfig({ opener });
+        return;
+      }
+      const preview = (await response.json()) as ScenarioPreview;
+      if (preview.liveBaselineConversions.length > 0) {
+        setScenarioControls(null);
+        setScenarioPreview({ preview, opener });
+        return;
+      }
+      await applyScenarioSelection(opener, "keep", activeDraft);
+    } catch {
+      setConfigDraft((current) => ({
+        ...current,
+        message: "",
+        error: "The scenario could not be reviewed against the YAML draft.",
+      }));
+      setScenarioControls(null);
+      setPlannerConfig({ opener });
+    } finally {
+      setScenarioApplyBusy(false);
+    }
+  }
+
   async function download(endpoint: string, filename: string) {
     if (!baseline || !inputs) return;
     setExportStatus("Preparing export…");
@@ -1721,14 +1579,19 @@ export function PlannerDashboard() {
       <BlockingState
         error={loadError}
         onRefresh={() => void refresh()}
-        onOpenConfig={(opener) => setPlannerConfig({ opener })}
+        onOpenConfig={openPlannerConfig}
         configOpen={plannerConfig !== null}
       />
       {plannerConfig ? (
         <PlannerConfigDrawer
           opener={plannerConfig.opener}
           onClose={closePlannerConfig}
+          draft={configDraft}
+          setDraft={setConfigDraft}
           onSaved={reloadBaselineAfterConfigSave}
+          onRevert={async () => {
+            await loadPlannerConfigDraft(true);
+          }}
         />
       ) : null}
     </>
@@ -1815,12 +1678,7 @@ export function PlannerDashboard() {
             className="button secondary"
             aria-expanded={plannerConfig !== null}
             aria-controls="planner-config-drawer"
-            onClick={(event) => {
-              setActiveExplanation(null);
-              setScenarioControls(null);
-              setLunchMoneyMappings(null);
-              setPlannerConfig({ opener: event.currentTarget });
-            }}
+            onClick={(event) => openPlannerConfig(event.currentTarget)}
           >
             Planner config
           </button>
@@ -2640,6 +2498,10 @@ export function PlannerDashboard() {
             controls={controls}
             overrides={overrides}
             setOverrides={setOverrides}
+            applyingScenario={scenarioApplyBusy}
+            onApplyScenario={() => {
+              void previewScenarioToConfig(scenarioControls.opener);
+            }}
           />
         </ScenarioControlsDrawer>
       ) : null}
@@ -2655,7 +2517,28 @@ export function PlannerDashboard() {
         <PlannerConfigDrawer
           opener={plannerConfig.opener}
           onClose={closePlannerConfig}
+          draft={configDraft}
+          setDraft={setConfigDraft}
           onSaved={reloadBaselineAfterConfigSave}
+          onRevert={async () => {
+            await loadPlannerConfigDraft(true);
+          }}
+        />
+      ) : null}
+      {scenarioPreview ? (
+        <LiveBaselineConfirmationDialog
+          conversions={scenarioPreview.preview.liveBaselineConversions}
+          busy={scenarioApplyBusy}
+          onCancel={() => {
+            setScenarioPreview(null);
+            setScenarioControls({ opener: scenarioPreview.opener });
+          }}
+          onKeep={() => {
+            void applyScenarioSelection(scenarioPreview.opener, "keep");
+          }}
+          onReplace={() => {
+            void applyScenarioSelection(scenarioPreview.opener, "replace");
+          }}
         />
       ) : null}
     </>

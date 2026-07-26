@@ -49,7 +49,23 @@ PLANNER_CONFIG_WRITE_ENABLED=true
 
 A save validates first, prepares complete temporary config and backup files, then checks the active file version again immediately before either replacement. A detected conflict returns 409, cleans up both temporary files, and changes neither the active file nor its existing backup. After that final check succeeds, the prior active text replaces `planner.local.yaml.bak` before the submitted YAML atomically replaces the active file. If backup replacement fails, the active file is not replaced; if active replacement subsequently fails, the backup retains the prior active text for recovery. Comments and formatting are preserved. Use **Revert changes** to load an externally edited version before saving again.
 
-After a successful save, the dashboard reloads the active baseline and projection and clears temporary scenario overrides. If live baseline derivation fails after the file save, the old projection is removed, the dashboard enters its blocking state, and the config drawer stays open so the YAML can be repaired. Scenario controls remain intentionally independent: they are never copied into YAML and are not persisted by this workflow.
+After a successful save, the dashboard reloads the active baseline and projection and clears temporary scenario overrides. If live baseline derivation fails after the file save, the old projection is removed, the dashboard enters its blocking state, and the config drawer stays open so the YAML can be repaired.
+
+### Applying a scenario to the YAML draft
+
+Scenario controls still change only the current browser projection. Each control shows its temporary scenario value, its refreshed baseline value, and a human-readable source such as `planner.local.yaml`, a Canadian reference, or a live Lunch Money baseline.
+
+**Apply scenario to config** is a deliberate draft operation. It validates the current YAML editor text, previews every active override against an explicit application-owned persistence classification, and patches supported scalar values into that in-browser draft. It never calls the save endpoint and remains available when config writes are disabled. **Save config** is still the only disk-write action.
+
+The draft operation preserves comments, key order, quoted mapping keys, unrelated whitespace, and existing unsaved manual edits. Numeric replacements are canonical decimal text: ordinary percentage-point input such as `5.8` becomes `0.058` in YAML without binary floating-point tails, while meaningful precision and currency cents remain intact. Closing and reopening the config drawer retains the draft; **Revert changes** intentionally replaces it with the latest file from disk.
+
+Preview and apply resolve every destination against the YAML draft's current mode and structure, not merely the loaded baseline. A missing optional block, changed phase/account/liability identity, incompatible configured source, or simple/advanced mode mismatch is shown as scenario-only with a reason instead of failing later during an otherwise predictable patch. The review separates the active resolved baseline, each scalar's actual current YAML value or `live_baseline` source, and the proposed scenario value. Multi-scalar assumptions list every application-owned destination separately. After application, the summary is labelled as the last scenario application; if the YAML is then edited manually, a notice identifies the draft itself as the source of truth. Another successful application refreshes that summary, while Revert or a successful save/reload clears it.
+
+Direct bindings cover exact scalar assumptions whose destination is unambiguous in the active simple or advanced configuration: projection and benefit ages; inflation and account returns; operating and reserve targets/indexing; configured TFSA/RRSP starting room; employment amounts, growth, and RRSP-room inputs; personal, workplace, and reserve-building contribution phases; configured residence value/appreciation; and liability rates/payments. Phase, account, and liability destinations resolve through stable configured IDs or roles, never browser-supplied YAML paths or display order.
+
+If an employment or contribution value currently uses `live_baseline` in the YAML draft, applying opens one accessible review dialog. The dialog shows the sentinel, the active resolved baseline, and the proposed fixed value. **Cancel** changes nothing. **Keep live baseline** applies ordinary values but leaves live-derived fields and their scenario overrides temporary. **Replace with fixed values** changes those YAML scalars to fixed numbers and warns that future Lunch Money changes will no longer update them automatically.
+
+Absolute essential/discretionary spending remains scenario-only because YAML controls lifestyle through spending-phase multipliers rather than a fixed imported baseline. An imported Lunch Money residence balance is also scenario-only; only its configured appreciation assumption is directly bindable. Any other value without one deterministic destination is skipped with a reason rather than written to a generic override block.
 
 ### Mapping Lunch Money records
 
@@ -227,6 +243,7 @@ GET  /api/v1/baseline/current
 GET  /api/v1/config/current
 POST /api/v1/config/current
 PUT  /api/v1/config/current
+POST /api/v1/config/current/scenario-draft
 POST /api/v1/projections
 POST /api/v1/exports/projection
 POST /api/v1/exports/projection-csv
@@ -239,6 +256,8 @@ POST /api/v1/exports/projection-csv
 `GET /api/v1/baseline/current` returns schema `1.8` projection inputs, simple/advanced mode, role/compiler, phase, benefit, financial-account, imported non-financial-asset, liability, savings-policy, registered-room, and waterfall provenance; derived values; cash-flow and debt-payment audit evidence; warnings; and mapping details.
 
 The current-config API is dynamic and uncached. `GET` returns only the active YAML text, a display-safe filename, write capability, and a content hash. `POST` validates submitted YAML without saving. `PUT` is available only when `PLANNER_CONFIG_WRITE_ENABLED=true`; it accepts YAML and the expected content hash, never a browser-supplied path.
+
+`POST /api/v1/config/current/scenario-draft` is also dynamic and uncached. It compares the supplied content version with the active file, validates the supplied YAML and resolved projection baseline, rejects unknown/out-of-range overrides and unexpected request fields, and derives all editable scalar destinations from the shared server-owned control inventory. Preview returns direct, live-conversion, and scenario-only classifications without changing its input. Apply returns patched YAML text only; it does not read a caller-selected path or write any file.
 
 Projection requests use this shape:
 

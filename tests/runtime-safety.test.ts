@@ -41,6 +41,21 @@ describe("runtime safety regressions", () => {
     expect(route).toContain('"Cache-Control": "no-store"');
   });
 
+  it("keeps scenario draft generation dynamic, pathless, and separate from config writes", async () => {
+    const route = await readFile(
+      "app/api/v1/config/current/scenario-draft/route.ts",
+      "utf8",
+    );
+    const service = await readFile("src/config/scenario-draft.ts", "utf8");
+
+    expect(route).toContain('export const dynamic = "force-dynamic"');
+    expect(route).toContain('export const runtime = "nodejs"');
+    expect(route).toContain('"Cache-Control": "no-store"');
+    expect(route).not.toMatch(/saveCurrentPlannerConfig|writeFile|rename|caller.*path/i);
+    expect(service).not.toMatch(/node:fs|writeFile|rename|plannerConfigPath/);
+    expect(route).not.toMatch(/targetPath|yamlPath|filesystemPath/);
+  });
+
   it("contains no Lunch Money mutation call", async () => {
     const service = await readFile("src/integrations/lunchmoney/read-service.ts", "utf8");
     expect(service).not.toMatch(/\.create\(|\.update\(|\.delete\(|\.split\(|\.group\(|triggerFetch/);
