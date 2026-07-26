@@ -9,21 +9,22 @@ Public tracking must remain generic and must not contain private financial value
 - Open roadmap planning pull request: None
 - Planning branch: None
 - Planning status: None
-- Open implementation pull request: [#20 Apply scenario overrides to the YAML config draft](https://github.com/danielnguyen/lunchmoney-retirement-planner/pull/20)
+- Open implementation pull request: None
+- Open maintenance pull request: [#21 Fix aggregate bridge reconciliation rounding](https://github.com/danielnguyen/lunchmoney-retirement-planner/pull/21)
 - Pull request state: Open draft
-- Active capability: Explicit scenario-to-config bindings
-- Status: Ready for independent re-review
-- Implementation branch: `agent/scenario-config-bindings`
-- Latest validated implementation head: `e81551a0fe1cf241e9fe3a3745f938eea87a573a`
-- Synthetic validation: Passed — 387 synthetic tests including canonical numeric patching, draft-aware simple/advanced structural classification, actual YAML before-values, multi-destination review, stale-summary transitions, explicit persistence classification, live-source confirmation, runtime safeguards, and export privacy; typecheck, lint, production build, Docker image build, Docker Compose validation, standalone scenario/config API smoke test, and `git diff --check` passed
-- Last completed capability: Precise scenario inputs and editable local YAML configuration
-- Last completed pull request: [#19 Add editable planner config and precise scenario inputs](https://github.com/danielnguyen/lunchmoney-retirement-planner/pull/19)
+- Active correction: Aggregate bridge reconciliation rounding
+- Status: Awaiting hosted validation and independent review
+- Implementation branch: `agent/fix-bridge-reconciliation-rounding`
+- Latest implementation head: `616374b6a171db2bd3fb17ce5c57492ddd010aa4`
+- Synthetic validation: Pending — hosted CI and Docker workflows are the validation gate for the connector-authored branch
+- Last completed capability: Explicit scenario-to-config bindings
+- Last completed pull request: [#20 Apply scenario overrides to the YAML config draft](https://github.com/danielnguyen/lunchmoney-retirement-planner/pull/20)
 - Last maintenance pull request: [#18 Correct TFSA annual-limit forecasting](https://github.com/danielnguyen/lunchmoney-retirement-planner/pull/18)
-- Last completed synthetic validation: Passed — 283 tests plus focused configuration, baseline, projection, presentation, explanation, controls, one-cent reconciliation, JSON anonymization, and rectangular real/nominal CSV privacy coverage; typecheck, lint, production build, Docker image build, Docker Compose validation, and `git diff --check` passed
+- Last completed synthetic validation: Passed — 387 synthetic tests plus typecheck, lint, production build, Docker image build, Docker Compose validation, standalone scenario/config API smoke testing, and `git diff --check`
 - Last completed private migration: Passed — the operating-cash policy was updated and validated locally without publishing private values
 - Last completed private smoke test: Not run for the operating-cash capability
-- Remaining step: independently re-review draft pull request #20
-- Next action: re-review the corrected explicit scenario-to-config draft workflow; applying remains separate from saving configuration
+- Remaining step: validate and independently review draft pull request #21
+- Next action: verify aggregate bridge reconciliation remains one-cent strict while avoiding component-rounding false positives
 
 ## Planned implementation sequence
 
@@ -74,6 +75,4 @@ Planning order is project-management shorthand only. Production names must descr
 
 ## New-conversation handoff
 
-> Read `AGENTS.md`, `plan/roadmap.md`, and `plan/implementation-index.md`. Independently review draft PR #20 for explicit scenario-to-config bindings using synthetic data only. Applying supported overrides updates only the in-browser YAML draft; saving remains a separate action.
-
-Repository and pull-request state are authoritative if they conflict with this index; correct stale tracking before implementation.
+> Read `AGENTS.md`, `plan/roadmap.md`, and `plan/implementation-index.md`. Independently review draft PR #21 for aggregate bridge reconciliation rounding using synthetic data only. The correction must preserve the one-cent integrity threshold while preventing component-wise rounding from manufacturing false multi-cent bridge differences.
