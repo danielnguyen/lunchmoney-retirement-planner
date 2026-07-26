@@ -10,21 +10,22 @@ Public tracking must remain generic and must not contain private financial value
 - Planning branch: None
 - Planning status: None
 - Open implementation pull request: None
-- Open maintenance pull request: [#21 Fix aggregate bridge reconciliation rounding](https://github.com/danielnguyen/lunchmoney-retirement-planner/pull/21)
+- Open maintenance pull request: [#22 Unify scenario controls and YAML configuration](https://github.com/danielnguyen/lunchmoney-retirement-planner/pull/22)
 - Pull request state: Open draft
-- Active correction: Aggregate bridge reconciliation rounding
+- Active maintenance: Unified scenario and planner-configuration drawer
 - Status: Ready for independent review
-- Implementation branch: `agent/fix-bridge-reconciliation-rounding`
-- Latest validated implementation head: `e8541a6986b201d06b1fbe8612bd136a712d0d50`
-- Synthetic validation: Passed — 390 synthetic tests including aggregate-versus-component cent rounding, genuine discrepancy retention, and a long repeated mortgage-payment schedule; typecheck, lint, production build, and hosted Docker image build passed
+- Implementation branch: `agent/unify-scenario-config-drawer`
+- Latest validated implementation head: `99fb5000dc71ea1f735f2341beef40637f638acd`
+- Synthetic validation: Passed — 395 synthetic tests, including 45 focused configuration-drawer, state-preservation, blocking-repair, accessibility, percentage-input, and runtime-safety cases; typecheck, lint, production build, Docker Compose validation, hosted CI, hosted Docker image build, and `git diff --check` passed. The local Docker image build was unavailable because this environment cannot access the Docker daemon.
+- Latest merged `main`: `c09858813e2b597bb22aa6f37970bc4b21e18440`
 - Last completed capability: Explicit scenario-to-config bindings
 - Last completed pull request: [#20 Apply scenario overrides to the YAML config draft](https://github.com/danielnguyen/lunchmoney-retirement-planner/pull/20)
-- Last maintenance pull request: [#18 Correct TFSA annual-limit forecasting](https://github.com/danielnguyen/lunchmoney-retirement-planner/pull/18)
-- Last completed synthetic validation: Passed — 387 synthetic tests plus typecheck, lint, production build, Docker image build, Docker Compose validation, standalone scenario/config API smoke testing, and `git diff --check`
+- Last maintenance pull request: [#21 Fix aggregate bridge reconciliation rounding](https://github.com/danielnguyen/lunchmoney-retirement-planner/pull/21)
+- Last completed synthetic validation: Passed — 390 synthetic tests including aggregate-versus-component cent rounding, genuine discrepancy retention, and a long repeated mortgage-payment schedule; typecheck, lint, production build, and hosted Docker image build passed
 - Last completed private migration: Passed — the operating-cash policy was updated and validated locally without publishing private values
 - Last completed private smoke test: Not run for the operating-cash capability
-- Remaining step: independently review draft pull request #21
-- Next action: confirm the aggregate reconciliation correction preserves the one-cent integrity threshold without component-rounding false positives
+- Remaining step: independently review draft pull request #22
+- Next action: verify the unified drawer preserves guided controls, unsaved YAML, blocking repair, and separate Apply versus Save actions
 
 ## Planned implementation sequence
 
@@ -75,4 +76,4 @@ Planning order is project-management shorthand only. Production names must descr
 
 ## New-conversation handoff
 
-> Read `AGENTS.md`, `plan/roadmap.md`, and `plan/implementation-index.md`. Independently review draft PR #21 for aggregate bridge reconciliation rounding using synthetic data only. The correction must preserve the one-cent integrity threshold while preventing component-wise rounding from manufacturing false multi-cent bridge differences.
+> Read `AGENTS.md`, `plan/roadmap.md`, and `plan/implementation-index.md`. Independently review draft PR #22 for the unified scenario-controls and YAML configuration drawer using synthetic data only. Confirm that one drawer preserves temporary overrides and unsaved YAML while scenario application and explicit saving remain separate actions.
