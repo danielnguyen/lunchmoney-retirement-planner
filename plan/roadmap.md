@@ -18,8 +18,8 @@ Public planning material, examples, and tests must remain synthetic and must not
 | 4 | Net worth, real estate, and debt amortization | Completed | [PR #11](https://github.com/danielnguyen/lunchmoney-retirement-planner/pull/11) |
 | 5 | Employment-income today-dollar semantics correction | Completed | [PR #14](https://github.com/danielnguyen/lunchmoney-retirement-planner/pull/14) |
 | 6 | Operating-cash target and automatic excess sweep | Completed | [PR #15](https://github.com/danielnguyen/lunchmoney-retirement-planner/pull/15) |
-| 7 | General spending phases | **Next** | — |
-| 8 | Retirement funding requirement and terminal balance | Planned | — |
+| 7 | General spending phases | Completed | [PR #16](https://github.com/danielnguyen/lunchmoney-retirement-planner/pull/16) |
+| 8 | Retirement funding requirement and terminal balance | **Next** | — |
 | 9 | RRIF minimum withdrawals and Canadian retirement taxes | Planned | — |
 | 10 | Deterministic return paths and sequence-risk scenarios | Planned | — |
 | 11 | Structured housing transitions | Planned | — |
@@ -145,7 +145,7 @@ Separate the amount intentionally retained for normal operating cash from the em
 - Synthetic tests cover overlapping cash roles, exact target crossings, partial months, insufficient cash, registered-room exhaustion, taxable overflow, and retain-versus-sweep policies.
 - Existing configurations that retain unplanned cash preserve that behaviour through an explicit compatibility value rather than a silent default.
 
-## Next capability: General spending phases
+## Completed capability: General spending phases
 
 ### Goal
 
@@ -215,7 +215,7 @@ This capability does not add:
 - Synthetic tests cover boundary months, gaps, overlaps, independent multipliers, global inflation, partial years, compatibility, privacy, and reconciliation.
 - No personal transition is inferred automatically.
 
-## Planned capability: Retirement funding requirement and terminal balance
+## Next capability: Retirement funding requirement and terminal balance
 
 ### Goal
 

@@ -8,6 +8,7 @@ import {
   buildControls,
   evaluateNumericDraft,
   materializeInputs,
+  scenarioInputDraftText,
   ScenarioControlsPanel,
   type Overrides,
 } from "@/components/planner-dashboard";
@@ -16,10 +17,18 @@ import { projectionFixture } from "./fixtures/projection";
 
 afterEach(cleanup);
 
-function ScenarioInputHarness() {
-  const [projectionInputs, setProjectionInputs] = useState(() =>
-    structuredClone(projectionFixture),
-  );
+function ScenarioInputHarness({
+  initialInflation = projectionFixture.annualInflation,
+  refreshedInflation = 0.03,
+}: {
+  initialInflation?: number;
+  refreshedInflation?: number;
+} = {}) {
+  const [projectionInputs, setProjectionInputs] = useState(() => {
+    const initial = structuredClone(projectionFixture);
+    initial.annualInflation = initialInflation;
+    return initial;
+  });
   const controls = useMemo(() => buildControls(projectionInputs), [projectionInputs]);
   const [overrides, setOverrides] = useState<Overrides>({});
   const inputs = useMemo(
@@ -64,7 +73,7 @@ function ScenarioInputHarness() {
         onClick={() => {
           const refreshed = structuredClone(projectionFixture);
           refreshed.monthlyEssentialSpendingToday = 4100.45;
-          refreshed.annualInflation = 0.03;
+          refreshed.annualInflation = refreshedInflation;
           setProjectionInputs(refreshed);
           setOverrides({});
         }}
@@ -156,11 +165,35 @@ describe("precise scenario input semantics", () => {
     render(<ScenarioInputHarness />);
     const inflation = screen.getByLabelText("Inflation");
 
-    typeByCharacters(inflation, "5.25");
+    typeByCharacters(inflation, "5.257");
 
-    expect(inflation).toHaveValue(5.25);
-    expect(screen.getByTestId("active-inflation")).toHaveTextContent("0.0525");
+    expect(inflation).toHaveValue(5.257);
+    expect(screen.getByTestId("active-inflation")).toHaveTextContent("0.05257");
     expect(inflation).toHaveAttribute("step", "0.01");
+  });
+
+  it("cleans percentage-point display text without changing domain precision", () => {
+    const inflationControl = buildControls(structuredClone(projectionFixture)).find(
+      (control) => control.key === "annualInflation",
+    )!;
+
+    expect(scenarioInputDraftText(inflationControl, 0.056)).toBe("5.6");
+    expect(scenarioInputDraftText(inflationControl, 0.058)).toBe("5.8");
+    expect(scenarioInputDraftText(inflationControl, 0.05257)).toBe("5.257");
+    expect(scenarioInputDraftText(inflationControl, 0.02)).toBe("2");
+
+    render(<ScenarioInputHarness initialInflation={0.056} refreshedInflation={0.058} />);
+    const inflation = screen.getByLabelText("Inflation");
+    expect(inflation).toHaveValue(5.6);
+    expect(inflation).not.toHaveValue(5.6000000000000005);
+
+    fireEvent.change(inflation, { target: { value: "5.257" } });
+    fireEvent.click(inflation.closest(".control")!.querySelector("button")!);
+    expect(inflation).toHaveValue(5.6);
+
+    fireEvent.click(screen.getByRole("button", { name: "Install refreshed baseline" }));
+    expect(screen.getByLabelText("Inflation")).toHaveValue(5.8);
+    expect(screen.getByTestId("active-inflation")).toHaveTextContent("0.058");
   });
 
   it("does not corrupt the committed override during a transitional trailing decimal", () => {

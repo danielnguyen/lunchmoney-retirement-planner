@@ -69,4 +69,28 @@ describe("runtime safety regressions", () => {
     expect(dashboard).toMatch(/>Export CSV<\/button>/);
     expect(`${dashboard}\n${routes}`).not.toMatch(/share-safe|anonymized/i);
   });
+
+  it("uses one configuration drawer without an obsolete planner-config runtime tree", async () => {
+    const dashboard = await readFile("components/planner-dashboard.tsx", "utf8");
+    const css = await readFile("app/globals.css", "utf8");
+    const normalHeaderStart = dashboard.lastIndexOf(
+      '<div className="hero-actions no-print">',
+    );
+    const normalHeader = dashboard.slice(
+      normalHeaderStart,
+      dashboard.indexOf("</div>", normalHeaderStart),
+    );
+
+    expect(dashboard).toContain('type PlannerDrawerView = "controls" | "yaml"');
+    expect(dashboard).toContain("const [plannerDrawer, setPlannerDrawer]");
+    expect(dashboard).not.toContain("const [scenarioControls");
+    expect(dashboard).not.toContain("const [plannerConfig");
+    expect(dashboard).not.toContain("PlannerConfigDrawer");
+    expect(dashboard.match(/<PlannerConfigEditor/g)).toHaveLength(1);
+    expect(dashboard).not.toContain('variant="planner-config"');
+    expect(dashboard).not.toContain('aria-controls="planner-config-drawer"');
+    expect(css).not.toMatch(/\.planner-config-(?:overlay|drawer|drawer-content)/);
+    expect(normalHeader).toContain("Scenario controls");
+    expect(normalHeader).not.toContain("Planner config");
+  });
 });

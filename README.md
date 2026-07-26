@@ -39,7 +39,9 @@ Open `http://localhost:3000`.
 
 ### Editing planner YAML in the dashboard
 
-Open **Planner config** to view the active YAML in a local editor drawer. **Validate** parses the editor text and runs the complete planner configuration validator without changing the file. **Revert changes** always reloads the latest contents from disk, including edits made outside the dashboard.
+**Scenario controls** is the dashboard's single planner-configuration entry point. It opens the guided temporary controls by default. Select **Edit YAML** in that same drawer to load and review the advanced persistent configuration, then use **Back to scenario controls** to return without discarding either the YAML draft or temporary scenario overrides. Switching views never validates, reverts, applies, or saves automatically.
+
+In the YAML view, **Validate** parses the editor text and runs the complete planner configuration validator without changing the file. **Revert changes** always reloads the latest contents from disk, including edits made outside the dashboard. If the live baseline cannot be built, **Repair planner config** opens this same drawer directly in YAML view; the guided controls remain unavailable until repair and baseline reload succeed.
 
 Saving is disabled by default. To enable the explicit **Save config** action for local development, set this in `.env` and restart the application:
 
@@ -49,7 +51,7 @@ PLANNER_CONFIG_WRITE_ENABLED=true
 
 A save validates first, prepares complete temporary config and backup files, then checks the active file version again immediately before either replacement. A detected conflict returns 409, cleans up both temporary files, and changes neither the active file nor its existing backup. After that final check succeeds, the prior active text replaces `planner.local.yaml.bak` before the submitted YAML atomically replaces the active file. If backup replacement fails, the active file is not replaced; if active replacement subsequently fails, the backup retains the prior active text for recovery. Comments and formatting are preserved. Use **Revert changes** to load an externally edited version before saving again.
 
-After a successful save, the dashboard reloads the active baseline and projection and clears temporary scenario overrides. If live baseline derivation fails after the file save, the old projection is removed, the dashboard enters its blocking state, and the config drawer stays open so the YAML can be repaired.
+After a successful save, the dashboard reloads the active baseline and projection and clears temporary scenario overrides. If live baseline derivation fails after the file save, the old projection is removed, the dashboard enters its blocking state, and the unified configuration drawer stays open in YAML view so the configuration can be repaired.
 
 ### Applying a scenario to the YAML draft
 
@@ -57,7 +59,7 @@ Scenario controls still change only the current browser projection. Each control
 
 **Apply scenario to config** is a deliberate draft operation. It validates the current YAML editor text, previews every active override against an explicit application-owned persistence classification, and patches supported scalar values into that in-browser draft. It never calls the save endpoint and remains available when config writes are disabled. **Save config** is still the only disk-write action.
 
-The draft operation preserves comments, key order, quoted mapping keys, unrelated whitespace, and existing unsaved manual edits. Numeric replacements are canonical decimal text: ordinary percentage-point input such as `5.8` becomes `0.058` in YAML without binary floating-point tails, while meaningful precision and currency cents remain intact. Closing and reopening the config drawer retains the draft; **Revert changes** intentionally replaces it with the latest file from disk.
+The draft operation preserves comments, key order, quoted mapping keys, unrelated whitespace, and existing unsaved manual edits. Numeric replacements are canonical decimal text: ordinary percentage-point input such as `5.8` becomes `0.058` in YAML without binary floating-point tails, while meaningful precision and currency cents remain intact. The guided percentage inputs likewise remove meaningless display tails without changing their numeric domain values. View switching and closing and reopening the drawer retain the YAML draft and temporary scenario state; **Revert changes** intentionally replaces only the YAML draft with the latest file from disk.
 
 Preview and apply resolve every destination against the YAML draft's current mode and structure, not merely the loaded baseline. A missing optional block, changed phase/account/liability identity, incompatible configured source, or simple/advanced mode mismatch is shown as scenario-only with a reason instead of failing later during an otherwise predictable patch. The review separates the active resolved baseline, each scalar's actual current YAML value or `live_baseline` source, and the proposed scenario value. Multi-scalar assumptions list every application-owned destination separately. After application, the summary is labelled as the last scenario application; if the YAML is then edited manually, a notice identifies the draft itself as the source of truth. Another successful application refreshes that summary, while Revert or a successful save/reload clears it.
 
