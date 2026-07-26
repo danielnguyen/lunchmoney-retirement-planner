@@ -13,18 +13,18 @@ Public tracking must remain generic and must not contain private financial value
 - Open maintenance pull request: [#21 Fix aggregate bridge reconciliation rounding](https://github.com/danielnguyen/lunchmoney-retirement-planner/pull/21)
 - Pull request state: Open draft
 - Active correction: Aggregate bridge reconciliation rounding
-- Status: Awaiting hosted validation and independent review
+- Status: Ready for independent review
 - Implementation branch: `agent/fix-bridge-reconciliation-rounding`
-- Latest implementation head: `616374b6a171db2bd3fb17ce5c57492ddd010aa4`
-- Synthetic validation: Pending — hosted CI and Docker workflows are the validation gate for the connector-authored branch
+- Latest validated implementation head: `e8541a6986b201d06b1fbe8612bd136a712d0d50`
+- Synthetic validation: Passed — 390 synthetic tests including aggregate-versus-component cent rounding, genuine discrepancy retention, and a long repeated mortgage-payment schedule; typecheck, lint, production build, and hosted Docker image build passed
 - Last completed capability: Explicit scenario-to-config bindings
 - Last completed pull request: [#20 Apply scenario overrides to the YAML config draft](https://github.com/danielnguyen/lunchmoney-retirement-planner/pull/20)
 - Last maintenance pull request: [#18 Correct TFSA annual-limit forecasting](https://github.com/danielnguyen/lunchmoney-retirement-planner/pull/18)
 - Last completed synthetic validation: Passed — 387 synthetic tests plus typecheck, lint, production build, Docker image build, Docker Compose validation, standalone scenario/config API smoke testing, and `git diff --check`
 - Last completed private migration: Passed — the operating-cash policy was updated and validated locally without publishing private values
 - Last completed private smoke test: Not run for the operating-cash capability
-- Remaining step: validate and independently review draft pull request #21
-- Next action: verify aggregate bridge reconciliation remains one-cent strict while avoiding component-rounding false positives
+- Remaining step: independently review draft pull request #21
+- Next action: confirm the aggregate reconciliation correction preserves the one-cent integrity threshold without component-rounding false positives
 
 ## Planned implementation sequence
 
