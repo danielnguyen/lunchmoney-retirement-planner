@@ -16,7 +16,7 @@ Public tracking must remain generic and must not contain private financial value
 - Status: Ready for independent review
 - Implementation branch: `agent/unify-scenario-config-drawer`
 - Validated implementation commit: `99fb5000dc71ea1f735f2341beef40637f638acd`
-- Synthetic validation: Passed — 395 synthetic tests, including 45 focused configuration-drawer, state-preservation, blocking-repair, accessibility, percentage-input, and runtime-safety cases; typecheck, lint, production build, Docker Compose validation, hosted CI, hosted Docker image build, and `git diff --check` passed. The local Docker image build was unavailable because this environment cannot access the Docker daemon.
+- Synthetic validation: Passed — 395 synthetic tests, including 45 focused configuration-drawer, state-preservation, blocking-repair, accessibility, percentage-input, and runtime-safety cases; typecheck, lint, production build, local Docker image build, Docker Compose validation, hosted CI, hosted Docker image build, and `git diff --check` passed.
 - Latest merged `main`: `c09858813e2b597bb22aa6f37970bc4b21e18440`
 - Last completed capability: Explicit scenario-to-config bindings
 - Last completed pull request: [#20 Apply scenario overrides to the YAML config draft](https://github.com/danielnguyen/lunchmoney-retirement-planner/pull/20)
