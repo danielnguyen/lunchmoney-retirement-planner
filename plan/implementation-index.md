@@ -15,7 +15,7 @@ Public tracking must remain generic and must not contain private financial value
 - Active maintenance: Unified scenario and planner-configuration drawer
 - Status: Ready for independent review
 - Implementation branch: `agent/unify-scenario-config-drawer`
-- Latest validated implementation head: `99fb5000dc71ea1f735f2341beef40637f638acd`
+- Validated implementation commit: `99fb5000dc71ea1f735f2341beef40637f638acd`
 - Synthetic validation: Passed — 395 synthetic tests, including 45 focused configuration-drawer, state-preservation, blocking-repair, accessibility, percentage-input, and runtime-safety cases; typecheck, lint, production build, Docker Compose validation, hosted CI, hosted Docker image build, and `git diff --check` passed. The local Docker image build was unavailable because this environment cannot access the Docker daemon.
 - Latest merged `main`: `c09858813e2b597bb22aa6f37970bc4b21e18440`
 - Last completed capability: Explicit scenario-to-config bindings
@@ -63,7 +63,7 @@ Public tracking must remain generic and must not contain private financial value
 
 ## Tracking transitions
 
-When work begins, record the branch, pull-request link, current status, latest validated implementation head, validation state, remaining private step, and next action.
+When work begins, record the branch, pull-request link, current status, validated implementation commit, validation state, remaining private step, and next action. The current pull-request head is determined from GitHub rather than duplicated here.
 
 When a capability merges:
 
