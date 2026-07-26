@@ -192,6 +192,46 @@ afterEach(() => {
 });
 
 describe("scenario-to-config dashboard workflow", () => {
+  it("preserves temporary overrides and unsaved YAML across view switches without side effects", async () => {
+    const fetchMock = installBaseFetch(() => {
+      throw new Error("View switching must not call scenario application.");
+    }, { writeEnabled: false });
+    render(<PlannerDashboard />);
+    await waitForDashboard();
+
+    fireEvent.click(screen.getByRole("button", { name: "Scenario controls" }));
+    fireEvent.change(await screen.findByLabelText("Inflation"), {
+      target: { value: "2.5" },
+    });
+    const overlay = screen.getByTestId("scenario-controls-overlay");
+    fireEvent.click(screen.getByRole("button", { name: "Edit YAML" }));
+    const editor = await screen.findByLabelText("Planner YAML");
+    fireEvent.change(editor, {
+      target: {
+        value: "annualInflation: 0.03\n# unsaved advanced draft\n",
+      },
+    });
+
+    fireEvent.click(screen.getByRole("button", { name: "Back to scenario controls" }));
+    expect(screen.getByTestId("scenario-controls-overlay")).toBe(overlay);
+    expect(screen.getByLabelText("Inflation")).toHaveValue(2.5);
+    fireEvent.click(screen.getByRole("button", { name: "Edit YAML" }));
+    expect(screen.getByLabelText("Planner YAML")).toHaveValue(
+      "annualInflation: 0.03\n# unsaved advanced draft\n",
+    );
+    expect(screen.getByText("Saving is disabled.", { exact: false })).toBeInTheDocument();
+    expect(fetchMock.mock.calls.some(([input]) =>
+      requestUrl(input) === "/api/v1/config/current/scenario-draft"
+    )).toBe(false);
+    expect(fetchMock.mock.calls.some(([input, init]) =>
+      requestUrl(input) === "/api/v1/config/current" &&
+      (init?.method === "POST" || init?.method === "PUT")
+    )).toBe(false);
+
+    fireEvent.click(screen.getByRole("button", { name: "Refresh Lunch Money" }));
+    expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
+  });
+
   it("patches the existing dirty draft, never saves, and preserves it across drawer closes", async () => {
     const requestBodies: Record<string, unknown>[] = [];
     const fetchMock = installBaseFetch((body) => {
@@ -206,22 +246,26 @@ describe("scenario-to-config dashboard workflow", () => {
     render(<PlannerDashboard />);
     await waitForDashboard();
 
-    fireEvent.click(screen.getByRole("button", { name: "Planner config" }));
+    fireEvent.click(screen.getByRole("button", { name: "Scenario controls" }));
+    fireEvent.click(screen.getByRole("button", { name: "Edit YAML" }));
     const editor = await screen.findByLabelText("Planner YAML");
     fireEvent.change(editor, {
       target: {
         value: "annualInflation: 0.03\nannualNetCashToday: live_baseline\n# manual edit\n",
       },
     });
-    fireEvent.click(screen.getByRole("button", { name: "Close planner config" }));
+    fireEvent.click(screen.getByRole("button", { name: "Close planner configuration" }));
 
     await overrideInflation();
+    const unifiedOverlay = screen.getByTestId("scenario-controls-overlay");
     fireEvent.change(screen.getByLabelText("Essential monthly spending"), {
       target: { value: "3300.25" },
     });
     fireEvent.click(screen.getByRole("button", { name: "Apply scenario to config" }));
 
-    expect(await screen.findByRole("dialog", { name: "Planner config" })).toBeInTheDocument();
+    expect(await screen.findByRole("dialog", { name: "Planner YAML configuration" })).toBeInTheDocument();
+    expect(screen.getByTestId("scenario-controls-overlay")).toBe(unifiedOverlay);
+    expect(screen.queryByTestId("planner-config-overlay")).not.toBeInTheDocument();
     expect(screen.getByLabelText("Planner YAML")).toHaveValue(
       "annualInflation: 0.025\nannualNetCashToday: live_baseline\n# manual edit\n\n# scenario patch\n",
     );
@@ -251,8 +295,9 @@ describe("scenario-to-config dashboard workflow", () => {
     expect(screen.getByText("Saving is disabled.", { exact: false })).toBeInTheDocument();
     expect(fetchMock.mock.calls.some(([, init]) => init?.method === "PUT")).toBe(false);
 
-    fireEvent.click(screen.getByRole("button", { name: "Close planner config" }));
-    fireEvent.click(screen.getByRole("button", { name: "Planner config" }));
+    fireEvent.click(screen.getByRole("button", { name: "Close planner configuration" }));
+    fireEvent.click(screen.getByRole("button", { name: "Scenario controls" }));
+    fireEvent.click(screen.getByRole("button", { name: "Edit YAML" }));
     expect((await screen.findByLabelText("Planner YAML") as HTMLTextAreaElement).value)
       .toContain("# manual edit");
     expect(screen.getByText("Applied config changes")).toBeInTheDocument();
@@ -266,7 +311,7 @@ describe("scenario-to-config dashboard workflow", () => {
       "The YAML draft has been edited since this scenario was applied. Review the YAML as the source of truth.",
     )).toBeInTheDocument();
 
-    fireEvent.click(screen.getByRole("button", { name: "Close planner config" }));
+    fireEvent.click(screen.getByRole("button", { name: "Close planner configuration" }));
     fireEvent.click(screen.getByRole("button", { name: "Scenario controls" }));
     fireEvent.click(await screen.findByRole("button", { name: "Apply scenario to config" }));
     expect(await screen.findByText("Last scenario application")).toBeInTheDocument();
@@ -321,7 +366,7 @@ describe("scenario-to-config dashboard workflow", () => {
 
     fireEvent.click(screen.getByRole("button", { name: "Apply scenario to config" }));
     fireEvent.click(await screen.findByRole("button", { name: "Keep live baseline" }));
-    expect(await screen.findByRole("dialog", { name: "Planner config" })).toBeInTheDocument();
+    expect(await screen.findByRole("dialog", { name: "Planner YAML configuration" })).toBeInTheDocument();
     expect(screen.getByText("Kept live")).toBeInTheDocument();
     expect(screen.getAllByText("No YAML values changed.", { exact: false })).toHaveLength(2);
     expect(applyCalls).toBe(1);
@@ -356,17 +401,18 @@ describe("scenario-to-config dashboard workflow", () => {
     expect(await screen.findByText("Replaced live-derived values")).toBeInTheDocument();
     expect((screen.getByLabelText("Planner YAML") as HTMLTextAreaElement).value)
       .toContain("85000");
-    fireEvent.click(screen.getByRole("button", { name: "Close planner config" }));
+    fireEvent.click(screen.getByRole("button", { name: "Close planner configuration" }));
     fireEvent.click(screen.getByRole("button", { name: "Scenario controls" }));
     expect(await screen.findByLabelText("Current income annual net cash")).toHaveValue(85000);
     expect(screen.getByText("Scenario: $85,000.00")).toBeInTheDocument();
 
-    fireEvent.click(screen.getByRole("button", { name: "Close scenario controls" }));
-    fireEvent.click(screen.getByRole("button", { name: "Planner config" }));
+    fireEvent.click(screen.getByRole("button", { name: "Close planner configuration" }));
+    fireEvent.click(screen.getByRole("button", { name: "Scenario controls" }));
+    fireEvent.click(screen.getByRole("button", { name: "Edit YAML" }));
     fireEvent.click(await screen.findByRole("button", { name: "Save config" }));
     expect(await screen.findByText("Configuration saved and the active baseline was reloaded.")).toBeInTheDocument();
     expect(screen.queryByText("Replaced live-derived values")).not.toBeInTheDocument();
-    fireEvent.click(screen.getByRole("button", { name: "Close planner config" }));
+    fireEvent.click(screen.getByRole("button", { name: "Close planner configuration" }));
     fireEvent.click(screen.getByRole("button", { name: "Scenario controls" }));
     expect(await screen.findByLabelText("Current income annual net cash")).toHaveValue(84000);
     expect(screen.getByRole("button", { name: "Apply scenario to config" })).toBeDisabled();
@@ -408,7 +454,7 @@ describe("scenario-to-config dashboard workflow", () => {
     expect(screen.getByText(
       "The YAML draft has been edited since this scenario was applied. Review the YAML as the source of truth.",
     )).toBeInTheDocument();
-    fireEvent.click(screen.getByRole("button", { name: "Close planner config" }));
+    fireEvent.click(screen.getByRole("button", { name: "Close planner configuration" }));
     fireEvent.click(screen.getByRole("button", { name: "Scenario controls" }));
     expect(await screen.findByLabelText("Inflation")).toHaveValue(2.5);
   });
@@ -458,19 +504,22 @@ describe("scenario-to-config dashboard workflow", () => {
     render(<PlannerDashboard />);
     await waitForDashboard();
 
-    fireEvent.click(screen.getByRole("button", { name: "Planner config" }));
+    fireEvent.click(screen.getByRole("button", { name: "Scenario controls" }));
+    fireEvent.click(screen.getByRole("button", { name: "Edit YAML" }));
     fireEvent.change(await screen.findByLabelText("Planner YAML"), {
       target: { value: "annualInflation: [\n# keep this draft\n" },
     });
-    fireEvent.click(screen.getByRole("button", { name: "Close planner config" }));
+    fireEvent.click(screen.getByRole("button", { name: "Close planner configuration" }));
     await overrideInflation();
+    const unifiedOverlay = screen.getByTestId("scenario-controls-overlay");
     fireEvent.click(screen.getByRole("button", { name: "Apply scenario to config" }));
 
     expect(await screen.findByText("Synthetic YAML is malformed.")).toBeInTheDocument();
+    expect(screen.getByTestId("scenario-controls-overlay")).toBe(unifiedOverlay);
     expect(screen.getByLabelText("Planner YAML")).toHaveValue(
       "annualInflation: [\n# keep this draft\n",
     );
-    fireEvent.click(screen.getByRole("button", { name: "Close planner config" }));
+    fireEvent.click(screen.getByRole("button", { name: "Close planner configuration" }));
     fireEvent.click(screen.getByRole("button", { name: "Scenario controls" }));
     expect(await screen.findByLabelText("Inflation")).toHaveValue(2.5);
   });
@@ -500,7 +549,7 @@ describe("scenario-to-config dashboard workflow", () => {
 
     expect(await screen.findByText("Synthetic mapping repair required.")).toBeInTheDocument();
     expect(screen.queryByLabelText("Projection summary")).not.toBeInTheDocument();
-    expect(screen.getByRole("dialog", { name: "Planner config" })).toBeInTheDocument();
+    expect(screen.getByRole("dialog", { name: "Planner YAML configuration" })).toBeInTheDocument();
     expect(screen.getByText("Applied config changes")).toBeInTheDocument();
     expect(screen.getByText(
       "Configuration saved, but the active baseline could not be loaded. Fix the configuration and save again.",

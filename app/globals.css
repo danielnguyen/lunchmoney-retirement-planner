@@ -146,7 +146,7 @@ dl div:last-child { border-bottom: 0; }
 dt { color: var(--muted); font-size: 0.78rem; }
 dd { margin: 0; text-align: right; font-size: 0.78rem; }
 
-.explanation-overlay, .scenario-controls-overlay, .lunch-money-mappings-overlay, .planner-config-overlay { position: fixed; z-index: 100; inset: 0; display: flex; justify-content: flex-end; background: rgba(2, 8, 16, 0.7); backdrop-filter: blur(3px); }
+.explanation-overlay, .scenario-controls-overlay, .lunch-money-mappings-overlay { position: fixed; z-index: 100; inset: 0; display: flex; justify-content: flex-end; background: rgba(2, 8, 16, 0.7); backdrop-filter: blur(3px); }
 .scenario-confirmation-overlay { position: fixed; z-index: 200; inset: 0; display: grid; place-items: center; padding: 20px; background: rgba(2, 8, 16, 0.82); backdrop-filter: blur(4px); }
 .scenario-confirmation-dialog { width: min(680px, 94vw); max-height: 90vh; overflow-y: auto; padding: 24px; border: 1px solid #3b526d; border-radius: 18px; color: var(--text); background: #091626; box-shadow: 0 24px 70px rgba(0, 0, 0, 0.55); }
 .scenario-confirmation-dialog h2 { margin: 6px 0 10px; }
@@ -157,14 +157,16 @@ dd { margin: 0; text-align: right; font-size: 0.78rem; }
 .scenario-conversion-list small { color: var(--muted); line-height: 1.45; }
 .scenario-confirmation-actions { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 10px; }
 .explanation-drawer { width: min(720px, 92vw); height: 100%; border-left: 1px solid #354b66; color: var(--text); background: #091626; box-shadow: -24px 0 64px rgba(0, 0, 0, 0.45); overflow: hidden; }
-.scenario-controls-drawer, .lunch-money-mappings-drawer { width: min(440px, 92vw); height: 100%; border-left: 1px solid #354b66; color: var(--text); background: #091626; box-shadow: -24px 0 64px rgba(0, 0, 0, 0.45); overflow: hidden; }
-.planner-config-drawer { width: min(760px, 94vw); height: 100%; border-left: 1px solid #354b66; color: var(--text); background: #091626; box-shadow: -24px 0 64px rgba(0, 0, 0, 0.45); overflow: hidden; }
-.explanation-drawer-header, .scenario-controls-drawer-header, .lunch-money-mappings-drawer-header, .planner-config-drawer-header { display: flex; align-items: flex-start; justify-content: space-between; gap: 20px; padding: 22px 24px 18px; border-bottom: 1px solid var(--border); background: #0d1a2b; }
-.explanation-drawer-header h2, .scenario-controls-drawer-header h2, .lunch-money-mappings-drawer-header h2, .planner-config-drawer-header h2 { margin: 5px 0 0; font-size: 1.35rem; }
+.scenario-controls-drawer { display: flex; width: min(760px, 94vw); height: 100%; flex-direction: column; border-left: 1px solid #354b66; color: var(--text); background: #091626; box-shadow: -24px 0 64px rgba(0, 0, 0, 0.45); overflow: hidden; }
+.lunch-money-mappings-drawer { display: flex; width: min(440px, 92vw); height: 100%; flex-direction: column; border-left: 1px solid #354b66; color: var(--text); background: #091626; box-shadow: -24px 0 64px rgba(0, 0, 0, 0.45); overflow: hidden; }
+.explanation-drawer-header, .scenario-controls-drawer-header, .lunch-money-mappings-drawer-header { display: flex; align-items: flex-start; justify-content: space-between; gap: 20px; padding: 22px 24px 18px; border-bottom: 1px solid var(--border); background: #0d1a2b; }
+.explanation-drawer-header h2, .scenario-controls-drawer-header h2, .lunch-money-mappings-drawer-header h2 { margin: 5px 0 0; font-size: 1.35rem; }
+.drawer-header-actions { display: flex; flex-shrink: 0; align-items: center; gap: 10px; }
+.drawer-view-switch { min-height: 38px; padding: 8px 12px; white-space: nowrap; }
 .drawer-close { display: grid; width: 38px; height: 38px; flex-shrink: 0; place-items: center; border: 1px solid var(--border); border-radius: 11px; padding: 0; color: var(--text); background: var(--panel-soft); font-size: 1.5rem; line-height: 1; }
 .drawer-close:hover, .drawer-close:focus-visible { border-color: var(--accent); outline: 2px solid rgba(112, 214, 178, 0.2); outline-offset: 2px; }
 .explanation-drawer-content { height: calc(100% - 84px); padding: 22px 24px 36px; overflow-y: auto; overscroll-behavior: contain; }
-.scenario-controls-drawer-content, .lunch-money-mappings-drawer-content, .planner-config-drawer-content { height: calc(100% - 84px); padding: 22px 24px 36px; overflow-y: auto; overscroll-behavior: contain; }
+.scenario-controls-drawer-content, .lunch-money-mappings-drawer-content { min-height: 0; flex: 1; padding: 22px 24px 36px; overflow-y: auto; overscroll-behavior: contain; }
 .mapping-reference-section + .mapping-reference-section { margin-top: 28px; }
 .mapping-reference-section h3 { margin: 0 0 12px; font-size: 1rem; }
 .mapping-reference-list { display: grid; gap: 10px; }
@@ -265,9 +267,11 @@ dd { margin: 0; text-align: right; font-size: 0.78rem; }
   .explainable-heading { align-items: flex-start; }
   .explainable-heading:not(.compact) { flex-direction: column; }
   .explanation-drawer { width: 100vw; border-left: 0; }
-  .scenario-controls-drawer, .lunch-money-mappings-drawer, .planner-config-drawer { width: 100vw; border-left: 0; }
-  .explanation-drawer-header, .scenario-controls-drawer-header, .lunch-money-mappings-drawer-header, .planner-config-drawer-header { padding: 18px; }
-  .explanation-drawer-content, .scenario-controls-drawer-content, .lunch-money-mappings-drawer-content, .planner-config-drawer-content { padding: 18px 18px 30px; }
+  .scenario-controls-drawer, .lunch-money-mappings-drawer { width: 100vw; border-left: 0; }
+  .explanation-drawer-header, .scenario-controls-drawer-header, .lunch-money-mappings-drawer-header { padding: 18px; }
+  .scenario-controls-drawer-header { gap: 12px; }
+  .drawer-header-actions { flex-direction: column; align-items: flex-end; }
+  .explanation-drawer-content, .scenario-controls-drawer-content, .lunch-money-mappings-drawer-content { padding: 18px 18px 30px; }
   .config-editor-meta { grid-template-columns: 1fr; }
   .calculation-step { grid-template-columns: 22px minmax(0, 1fr) auto; }
   .calculation-step .source-badge { grid-column: 2 / -1; }
@@ -282,7 +286,7 @@ dd { margin: 0; text-align: right; font-size: 0.78rem; }
   :root { color-scheme: light; }
   body { color: #111; background: #fff; }
   main { width: 100%; padding: 0; }
-  .no-print, .info-tooltip-wrap, .explain-control, .explanation-overlay, .scenario-controls-overlay, .lunch-money-mappings-overlay, .planner-config-overlay { display: none !important; }
+  .no-print, .info-tooltip-wrap, .explain-control, .explanation-overlay, .scenario-controls-overlay, .lunch-money-mappings-overlay { display: none !important; }
   .hero h1 { font-size: 34px; }
   .hero p, .metric-card small, .section-kicker, .pill, .milestone, .observation p, dt { color: #555; }
   .metric-card, .report-card { break-inside: avoid; box-shadow: none; border-color: #bbb; background: #fff; color: #111; }

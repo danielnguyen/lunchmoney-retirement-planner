@@ -203,11 +203,11 @@ export function NumericScenarioControl({
   synchronizationVersion: number;
   onCommit: (value: number) => void;
 }) {
-  const activeInputValue = controlInputValue(control, activeValue);
   const inputMinimum = controlInputValue(control, minimum);
   const inputMaximum = controlInputValue(control, maximum);
+  const activeDraftText = scenarioInputDraftText(control, activeValue);
   const [draftState, setDraftState] = useState(() => ({
-    draft: String(activeInputValue),
+    draft: activeDraftText,
     validationMessage: "",
     pendingCommit: null as number | null,
     observedActiveValue: activeValue,
@@ -228,7 +228,7 @@ export function NumericScenarioControl({
       draftState.pendingCommit !== null &&
       Object.is(draftState.pendingCommit, activeValue);
     resolvedDraftState = {
-      draft: ownCommitArrived ? draftState.draft : String(activeInputValue),
+      draft: ownCommitArrived ? draftState.draft : activeDraftText,
       validationMessage: ownCommitArrived ? draftState.validationMessage : "",
       pendingCommit: null,
       observedActiveValue: activeValue,
@@ -267,7 +267,7 @@ export function NumericScenarioControl({
     if (result.status === "valid") return;
     setDraftState((current) => ({
       ...current,
-      draft: String(activeInputValue),
+      draft: activeDraftText,
       validationMessage: "",
       pendingCommit: null,
     }));
@@ -294,6 +294,19 @@ export function NumericScenarioControl({
       ) : null}
     </>
   );
+}
+
+export function scenarioInputDraftText(
+  control: ControlDefinition,
+  domainValue: number,
+): string {
+  const inputValue = controlInputValue(control, domainValue);
+  if (control.kind !== "percentage") return String(inputValue);
+
+  // Multiplying a decimal rate into percentage points can expose an
+  // insignificant binary floating-point tail. Fifteen significant digits
+  // retain ordinary planner precision while producing stable input text.
+  return String(Number(inputValue.toPrecision(15)));
 }
 
 export function ScenarioControlsPanel({
@@ -430,19 +443,23 @@ function RightSideDrawer({
   titleId,
   title,
   kicker,
+  dialogLabel,
   closeLabel,
   opener,
   onClose,
+  headerAction,
   children,
 }: {
-  variant: "scenario-controls" | "lunch-money-mappings" | "planner-config";
+  variant: "scenario-controls" | "lunch-money-mappings";
   drawerId: string;
   titleId: string;
   title: string;
   kicker: string;
+  dialogLabel?: string;
   closeLabel: string;
   opener: HTMLButtonElement | null;
   onClose: () => void;
+  headerAction?: ReactNode;
   children: ReactNode;
 }) {
   const dialogRef = useRef<HTMLElement>(null);
@@ -499,16 +516,20 @@ function RightSideDrawer({
         ref={dialogRef}
         role="dialog"
         aria-modal="true"
-        aria-labelledby={titleId}
+        aria-label={dialogLabel}
+        aria-labelledby={dialogLabel ? undefined : titleId}
       >
         <header className={`${variant}-drawer-header`}>
           <div>
             <span className="section-kicker">{kicker}</span>
             <h2 id={titleId}>{title}</h2>
           </div>
-          <button type="button" className="drawer-close" aria-label={closeLabel} onClick={onClose}>
-            ×
-          </button>
+          <div className="drawer-header-actions">
+            <button type="button" className="drawer-close" aria-label={closeLabel} onClick={onClose}>
+              ×
+            </button>
+            {headerAction}
+          </div>
         </header>
         <div className={`${variant}-drawer-content`}>{children}</div>
       </aside>
@@ -516,25 +537,46 @@ function RightSideDrawer({
   );
 }
 
-export function ScenarioControlsDrawer({
+export type PlannerDrawerView = "controls" | "yaml";
+
+export function PlannerConfigurationDrawer({
+  view,
+  controlsAvailable,
+  onViewChange,
   opener,
   onClose,
   children,
 }: {
+  view: PlannerDrawerView;
+  controlsAvailable: boolean;
+  onViewChange: (view: PlannerDrawerView) => void;
   opener: HTMLButtonElement | null;
   onClose: () => void;
   children: ReactNode;
 }) {
+  const showingControls = view === "controls";
   return (
     <RightSideDrawer
       variant="scenario-controls"
       drawerId="scenario-controls-drawer"
       titleId="scenario-controls-title"
-      title="Scenario controls"
-      kicker="Scenario"
-      closeLabel="Close scenario controls"
+      title={showingControls ? "Scenario controls" : "Planner YAML"}
+      kicker={showingControls ? "Scenario" : "Advanced configuration"}
+      dialogLabel={showingControls ? undefined : "Planner YAML configuration"}
+      closeLabel="Close planner configuration"
       opener={opener}
       onClose={onClose}
+      headerAction={
+        controlsAvailable ? (
+          <button
+            type="button"
+            className="button secondary drawer-view-switch"
+            onClick={() => onViewChange(showingControls ? "yaml" : "controls")}
+          >
+            {showingControls ? "Edit YAML" : "Back to scenario controls"}
+          </button>
+        ) : null
+      }
     >
       {children}
     </RightSideDrawer>
@@ -942,42 +984,6 @@ export function PlannerConfigEditor({
   );
 }
 
-export function PlannerConfigDrawer({
-  opener,
-  onClose,
-  draft,
-  setDraft,
-  onSaved,
-  onRevert,
-}: {
-  opener: HTMLButtonElement | null;
-  onClose: () => void;
-  draft: PlannerConfigDraftState;
-  setDraft: React.Dispatch<React.SetStateAction<PlannerConfigDraftState>>;
-  onSaved: () => Promise<ConfigReloadResult>;
-  onRevert: () => Promise<void>;
-}) {
-  return (
-    <RightSideDrawer
-      variant="planner-config"
-      drawerId="planner-config-drawer"
-      titleId="planner-config-title"
-      title="Planner config"
-      kicker="Local YAML"
-      closeLabel="Close planner config"
-      opener={opener}
-      onClose={onClose}
-    >
-      <PlannerConfigEditor
-        draft={draft}
-        setDraft={setDraft}
-        onSaved={onSaved}
-        onRevert={onRevert}
-      />
-    </RightSideDrawer>
-  );
-}
-
 export function LiveBaselineConfirmationDialog({
   conversions,
   busy,
@@ -1111,11 +1117,11 @@ function BlockingState({
           <button
             type="button"
             className="button secondary"
-            aria-controls="planner-config-drawer"
+            aria-controls="scenario-controls-drawer"
             aria-expanded={configOpen}
             onClick={(event) => onOpenConfig(event.currentTarget)}
           >
-            Planner config
+            Repair planner config
           </button>
           <button className="button" onClick={onRefresh}>Try again</button>
         </div>
@@ -1181,13 +1187,11 @@ export function PlannerDashboard() {
     target: ExplanationTarget;
     opener: HTMLButtonElement;
   } | null>(null);
-  const [scenarioControls, setScenarioControls] = useState<{
+  const [plannerDrawer, setPlannerDrawer] = useState<{
     opener: HTMLButtonElement;
+    view: PlannerDrawerView;
   } | null>(null);
   const [lunchMoneyMappings, setLunchMoneyMappings] = useState<{
-    opener: HTMLButtonElement;
-  } | null>(null);
-  const [plannerConfig, setPlannerConfig] = useState<{
     opener: HTMLButtonElement;
   } | null>(null);
   const [configDraft, setConfigDraft] = useState<PlannerConfigDraftState>(
@@ -1247,13 +1251,16 @@ export function PlannerDashboard() {
     [configDraft.appliedSummary, configDraft.revision],
   );
 
-  const openPlannerConfig = useCallback(
-    (opener: HTMLButtonElement) => {
+  const openPlannerDrawer = useCallback(
+    (opener: HTMLButtonElement, view: PlannerDrawerView) => {
       setActiveExplanation(null);
-      setScenarioControls(null);
       setLunchMoneyMappings(null);
-      setPlannerConfig({ opener });
-      if (!configDraft.document && !configDraft.loading) {
+      setPlannerDrawer({ opener, view });
+      if (
+        view === "yaml" &&
+        !configDraft.document &&
+        !configDraft.loading
+      ) {
         void loadPlannerConfigDraft(false);
       }
     },
@@ -1262,29 +1269,40 @@ export function PlannerDashboard() {
 
   const openExplanation = useCallback(
     (target: ExplanationTarget, opener: HTMLButtonElement) => {
-      setScenarioControls(null);
+      setPlannerDrawer(null);
       setLunchMoneyMappings(null);
-      setPlannerConfig(null);
       setActiveExplanation({ target, opener });
     },
     [],
   );
   const closeExplanation = useCallback(() => setActiveExplanation(null), []);
-  const closeScenarioControls = useCallback(() => setScenarioControls(null), []);
+  const closePlannerDrawer = useCallback(() => setPlannerDrawer(null), []);
   const closeLunchMoneyMappings = useCallback(
     () => setLunchMoneyMappings(null),
     [],
   );
-  const closePlannerConfig = useCallback(() => setPlannerConfig(null), []);
+
+  const changePlannerDrawerView = useCallback(
+    (view: PlannerDrawerView) => {
+      setPlannerDrawer((current) => current ? { ...current, view } : null);
+      if (
+        view === "yaml" &&
+        !configDraft.document &&
+        !configDraft.loading
+      ) {
+        void loadPlannerConfigDraft(false);
+      }
+    },
+    [configDraft.document, configDraft.loading, loadPlannerConfigDraft],
+  );
 
   const refresh = useCallback(() => {
     setRefreshGeneration((current) => current + 1);
     setOverrides({});
     setExportStatus("");
     setActiveExplanation(null);
-    setScenarioControls(null);
+    setPlannerDrawer(null);
     setLunchMoneyMappings(null);
-    setPlannerConfig(null);
   }, []);
 
   useEffect(() => {
@@ -1373,7 +1391,6 @@ export function PlannerDashboard() {
     setProjectionResult(null);
     setExportStatus("");
     setActiveExplanation(null);
-    setScenarioControls(null);
     setLunchMoneyMappings(null);
 
     if (!response.ok) {
@@ -1407,8 +1424,7 @@ export function PlannerDashboard() {
     const activeDraft = loadedDraft ?? await ensurePlannerConfigDraft();
     if (!activeDraft?.document) {
       setScenarioPreview(null);
-      setScenarioControls(null);
-      setPlannerConfig({ opener });
+      setPlannerDrawer({ opener, view: "yaml" });
       return;
     }
     setScenarioApplyBusy(true);
@@ -1440,8 +1456,7 @@ export function PlannerDashboard() {
           error,
         }));
         setScenarioPreview(null);
-        setScenarioControls(null);
-        setPlannerConfig({ opener });
+        setPlannerDrawer({ opener, view: "yaml" });
         return;
       }
       const result = (await response.json()) as ScenarioApplyResult;
@@ -1464,8 +1479,7 @@ export function PlannerDashboard() {
         };
       });
       setScenarioPreview(null);
-      setScenarioControls(null);
-      setPlannerConfig({ opener });
+      setPlannerDrawer({ opener, view: "yaml" });
     } catch {
       setConfigDraft((current) => ({
         ...current,
@@ -1473,8 +1487,7 @@ export function PlannerDashboard() {
         error: "The scenario could not be applied to the YAML draft.",
       }));
       setScenarioPreview(null);
-      setScenarioControls(null);
-      setPlannerConfig({ opener });
+      setPlannerDrawer({ opener, view: "yaml" });
     } finally {
       setScenarioApplyBusy(false);
     }
@@ -1486,8 +1499,7 @@ export function PlannerDashboard() {
     const activeDraft = await ensurePlannerConfigDraft();
     if (!activeDraft?.document) {
       setScenarioApplyBusy(false);
-      setScenarioControls(null);
-      setPlannerConfig({ opener });
+      setPlannerDrawer({ opener, view: "yaml" });
       return;
     }
     try {
@@ -1516,13 +1528,12 @@ export function PlannerDashboard() {
           message: "",
           error,
         }));
-        setScenarioControls(null);
-        setPlannerConfig({ opener });
+        setPlannerDrawer({ opener, view: "yaml" });
         return;
       }
       const preview = (await response.json()) as ScenarioPreview;
       if (preview.liveBaselineConversions.length > 0) {
-        setScenarioControls(null);
+        setPlannerDrawer(null);
         setScenarioPreview({ preview, opener });
         return;
       }
@@ -1533,8 +1544,7 @@ export function PlannerDashboard() {
         message: "",
         error: "The scenario could not be reviewed against the YAML draft.",
       }));
-      setScenarioControls(null);
-      setPlannerConfig({ opener });
+      setPlannerDrawer({ opener, view: "yaml" });
     } finally {
       setScenarioApplyBusy(false);
     }
@@ -1563,6 +1573,17 @@ export function PlannerDashboard() {
     }
   }
 
+  const plannerConfigEditor = (
+    <PlannerConfigEditor
+      draft={configDraft}
+      setDraft={setConfigDraft}
+      onSaved={reloadBaselineAfterConfigSave}
+      onRevert={async () => {
+        await loadPlannerConfigDraft(true);
+      }}
+    />
+  );
+
   if (loading) {
     return (
       <main>
@@ -1579,20 +1600,19 @@ export function PlannerDashboard() {
       <BlockingState
         error={loadError}
         onRefresh={() => void refresh()}
-        onOpenConfig={openPlannerConfig}
-        configOpen={plannerConfig !== null}
+        onOpenConfig={(opener) => openPlannerDrawer(opener, "yaml")}
+        configOpen={plannerDrawer !== null}
       />
-      {plannerConfig ? (
-        <PlannerConfigDrawer
-          opener={plannerConfig.opener}
-          onClose={closePlannerConfig}
-          draft={configDraft}
-          setDraft={setConfigDraft}
-          onSaved={reloadBaselineAfterConfigSave}
-          onRevert={async () => {
-            await loadPlannerConfigDraft(true);
-          }}
-        />
+      {plannerDrawer ? (
+        <PlannerConfigurationDrawer
+          view="yaml"
+          controlsAvailable={false}
+          onViewChange={changePlannerDrawerView}
+          opener={plannerDrawer.opener}
+          onClose={closePlannerDrawer}
+        >
+          {plannerConfigEditor}
+        </PlannerConfigurationDrawer>
       ) : null}
     </>
   );
@@ -1676,11 +1696,11 @@ export function PlannerDashboard() {
           <button
             type="button"
             className="button secondary"
-            aria-expanded={plannerConfig !== null}
-            aria-controls="planner-config-drawer"
-            onClick={(event) => openPlannerConfig(event.currentTarget)}
+            aria-expanded={plannerDrawer !== null}
+            aria-controls="scenario-controls-drawer"
+            onClick={(event) => openPlannerDrawer(event.currentTarget, "controls")}
           >
-            Planner config
+            Scenario controls
           </button>
           <button
             type="button"
@@ -1689,26 +1709,11 @@ export function PlannerDashboard() {
             aria-controls="lunch-money-mappings-drawer"
             onClick={(event) => {
               setActiveExplanation(null);
-              setScenarioControls(null);
-              setPlannerConfig(null);
+              setPlannerDrawer(null);
               setLunchMoneyMappings({ opener: event.currentTarget });
             }}
           >
             Lunch Money mappings
-          </button>
-          <button
-            type="button"
-            className="button secondary"
-            aria-expanded={scenarioControls !== null}
-            aria-controls="scenario-controls-drawer"
-            onClick={(event) => {
-              setActiveExplanation(null);
-              setLunchMoneyMappings(null);
-              setPlannerConfig(null);
-              setScenarioControls({ opener: event.currentTarget });
-            }}
-          >
-            Scenario controls
           </button>
           <button className="button secondary" onClick={() => window.print()}>Print</button>
           <button
@@ -2487,23 +2492,30 @@ export function PlannerDashboard() {
           onClose={closeExplanation}
         />
       ) : null}
-      {scenarioControls ? (
-        <ScenarioControlsDrawer
-          opener={scenarioControls.opener}
-          onClose={closeScenarioControls}
+      {plannerDrawer ? (
+        <PlannerConfigurationDrawer
+          view={plannerDrawer.view}
+          controlsAvailable
+          onViewChange={changePlannerDrawerView}
+          opener={plannerDrawer.opener}
+          onClose={closePlannerDrawer}
         >
-          <ScenarioControlsPanel
-            baseline={baseline}
-            inputs={inputs}
-            controls={controls}
-            overrides={overrides}
-            setOverrides={setOverrides}
-            applyingScenario={scenarioApplyBusy}
-            onApplyScenario={() => {
-              void previewScenarioToConfig(scenarioControls.opener);
-            }}
-          />
-        </ScenarioControlsDrawer>
+          {plannerDrawer.view === "controls" ? (
+            <ScenarioControlsPanel
+              baseline={baseline}
+              inputs={inputs}
+              controls={controls}
+              overrides={overrides}
+              setOverrides={setOverrides}
+              applyingScenario={scenarioApplyBusy}
+              onApplyScenario={() => {
+                void previewScenarioToConfig(plannerDrawer.opener);
+              }}
+            />
+          ) : (
+            plannerConfigEditor
+          )}
+        </PlannerConfigurationDrawer>
       ) : null}
       {lunchMoneyMappings ? (
         <LunchMoneyMappingsDrawer
@@ -2513,25 +2525,16 @@ export function PlannerDashboard() {
         />
       ) : null}
     </main>
-      {plannerConfig ? (
-        <PlannerConfigDrawer
-          opener={plannerConfig.opener}
-          onClose={closePlannerConfig}
-          draft={configDraft}
-          setDraft={setConfigDraft}
-          onSaved={reloadBaselineAfterConfigSave}
-          onRevert={async () => {
-            await loadPlannerConfigDraft(true);
-          }}
-        />
-      ) : null}
       {scenarioPreview ? (
         <LiveBaselineConfirmationDialog
           conversions={scenarioPreview.preview.liveBaselineConversions}
           busy={scenarioApplyBusy}
           onCancel={() => {
             setScenarioPreview(null);
-            setScenarioControls({ opener: scenarioPreview.opener });
+            setPlannerDrawer({
+              opener: scenarioPreview.opener,
+              view: "controls",
+            });
           }}
           onKeep={() => {
             void applyScenarioSelection(scenarioPreview.opener, "keep");

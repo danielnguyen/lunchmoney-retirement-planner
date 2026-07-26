@@ -52,6 +52,70 @@ afterEach(() => {
 });
 
 describe("dashboard config-save baseline transitions", () => {
+  it("opens blocking repair in the unified YAML drawer and reloads the dashboard", async () => {
+    const blockingError = {
+      error: "configuration_required",
+      message: "Synthetic planner configuration needs repair.",
+      connection: { status: "connected", message: "Synthetic connection" },
+      unmappedAccounts: [],
+      unmappedCategories: [],
+    };
+    let baselineRequests = 0;
+    const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = requestUrl(input);
+      if (url === "/api/v1/baseline/current") {
+        baselineRequests += 1;
+        return baselineRequests === 1
+          ? jsonResponse(blockingError, 422)
+          : jsonResponse(structuredClone(currentBaselineFixture));
+      }
+      if (url === "/api/v1/projections") {
+        const payload = JSON.parse(init?.body as string) as { inputs: ProjectionInputs };
+        return jsonResponse(calculateProjection(payload.inputs));
+      }
+      if (url === "/api/v1/config/current" && !init?.method) {
+        return jsonResponse({
+          contents: "currentAge: 38\n",
+          displayPath: "planner.local.yaml",
+          writeEnabled: true,
+          version: "sha256:loaded",
+        });
+      }
+      if (url === "/api/v1/config/current" && init?.method === "POST") {
+        return jsonResponse({ valid: true });
+      }
+      if (url === "/api/v1/config/current" && init?.method === "PUT") {
+        return jsonResponse({ version: "sha256:repaired" });
+      }
+      throw new Error(`Unexpected request: ${url}`);
+    });
+    vi.stubGlobal("fetch", fetchMock);
+    render(<PlannerDashboard />);
+
+    expect(await screen.findByText("Live baseline required.")).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Planner config" })).not.toBeInTheDocument();
+    const repair = screen.getByRole("button", { name: "Repair planner config" });
+    expect(repair).toHaveAttribute("aria-controls", "scenario-controls-drawer");
+    fireEvent.click(repair);
+
+    const dialog = await screen.findByRole("dialog", { name: "Planner YAML configuration" });
+    expect(dialog).toHaveAttribute("id", "scenario-controls-drawer");
+    expect(screen.queryByRole("button", { name: "Back to scenario controls" })).not.toBeInTheDocument();
+    fireEvent.change(screen.getByLabelText("Planner YAML"), {
+      target: { value: "currentAge: 39\n" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Save config" }));
+
+    expect(await screen.findByLabelText("Projection summary")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Scenario controls" })).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Planner config" })).not.toBeInTheDocument();
+    expect(screen.getByRole("dialog", { name: "Planner YAML configuration" })).toHaveAttribute(
+      "id",
+      "scenario-controls-drawer",
+    );
+    expect(screen.getByRole("button", { name: "Back to scenario controls" })).toBeInTheDocument();
+  });
+
   it("clears overrides and stale projection before regenerating from a reloaded baseline", async () => {
     const initialBaseline = structuredClone(currentBaselineFixture);
     const refreshedBaseline = structuredClone(currentBaselineFixture);
@@ -99,9 +163,10 @@ describe("dashboard config-save baseline transitions", () => {
     await waitFor(() => {
       expect(projectionInputs.at(-1)?.monthlyEssentialSpendingToday).toBe(4321.67);
     });
-    fireEvent.click(screen.getByRole("button", { name: "Close scenario controls" }));
+    fireEvent.click(screen.getByRole("button", { name: "Close planner configuration" }));
 
-    fireEvent.click(screen.getByRole("button", { name: "Planner config" }));
+    fireEvent.click(screen.getByRole("button", { name: "Scenario controls" }));
+    fireEvent.click(screen.getByRole("button", { name: "Edit YAML" }));
     const editor = await screen.findByLabelText("Planner YAML");
     fireEvent.change(editor, { target: { value: "currentAge: 39\n" } });
     fireEvent.click(screen.getByRole("button", { name: "Save config" }));
@@ -112,7 +177,7 @@ describe("dashboard config-save baseline transitions", () => {
     });
     expect(screen.queryByLabelText("Projection summary")).not.toBeInTheDocument();
     expect(screen.getByText("Recalculating…")).toBeInTheDocument();
-    expect(screen.getByRole("dialog", { name: "Planner config" })).toBeInTheDocument();
+    expect(screen.getByRole("dialog", { name: "Planner YAML configuration" })).toBeInTheDocument();
 
     await act(async () => {
       pendingProjection.resolve(
@@ -183,8 +248,9 @@ describe("dashboard config-save baseline transitions", () => {
     fireEvent.change(await screen.findByLabelText("Essential monthly spending"), {
       target: { value: "4321.67" },
     });
-    fireEvent.click(screen.getByRole("button", { name: "Close scenario controls" }));
-    fireEvent.click(screen.getByRole("button", { name: "Planner config" }));
+    fireEvent.click(screen.getByRole("button", { name: "Close planner configuration" }));
+    fireEvent.click(screen.getByRole("button", { name: "Scenario controls" }));
+    fireEvent.click(screen.getByRole("button", { name: "Edit YAML" }));
     const editor = await screen.findByLabelText("Planner YAML");
     fireEvent.change(editor, { target: { value: "currentAge: 39\n" } });
     fireEvent.click(screen.getByRole("button", { name: "Save config" }));
@@ -192,7 +258,12 @@ describe("dashboard config-save baseline transitions", () => {
     expect(await screen.findByText("Live baseline required.")).toBeInTheDocument();
     expect(screen.getByText("Synthetic mappings need correction.")).toBeInTheDocument();
     expect(screen.queryByLabelText("Projection summary")).not.toBeInTheDocument();
-    expect(screen.getByRole("dialog", { name: "Planner config" })).toBeInTheDocument();
+    expect(screen.getByRole("dialog", { name: "Planner YAML configuration" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Repair planner config" })).toHaveAttribute(
+      "aria-controls",
+      "scenario-controls-drawer",
+    );
+    expect(screen.queryByRole("button", { name: "Back to scenario controls" })).not.toBeInTheDocument();
     expect(screen.getByLabelText("Planner YAML")).toHaveValue("currentAge: 39\n");
     expect(screen.getByRole("status")).toHaveTextContent("Configuration saved to disk.");
     expect(screen.getByText(
