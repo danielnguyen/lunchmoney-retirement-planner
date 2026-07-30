@@ -93,6 +93,51 @@ function retirementFixture(): ProjectionInputs {
   return input;
 }
 
+function underfundedRetirementMortgageFixture(
+  openingFinancialAssets = 1300,
+): ProjectionInputs {
+  const input = retirementFixture();
+  input.monthlyEssentialSpendingToday = 0;
+  input.accounts[0]!.openingBalance = openingFinancialAssets;
+  input.nonFinancialAssets = [
+    {
+      id: "synthetic:underfunded-home",
+      label: "Synthetic underfunded residence",
+      origin: "lunchmoney",
+      type: "primary_residence",
+      openingValue: 500_000,
+      valueAsOf: input.startDate,
+      annualAppreciation: 0,
+      availableForWithdrawals: false,
+    },
+  ];
+  input.liabilities = [
+    {
+      id: "synthetic:underfunded-mortgage",
+      label: "Synthetic underfunded mortgage",
+      origin: "lunchmoney",
+      openingBalance: 2400,
+      balanceAsOf: input.startDate,
+      role: "primary_mortgage",
+      treatment: {
+        mode: "amortizing",
+        annualInterestRate: 0,
+        interestRateConvention: "effective_annual",
+        regularPayment: {
+          amount: 100,
+          frequency: "monthly",
+          monthlyEquivalent: 100,
+        },
+        scheduleStartDate: input.startDate,
+        lumpSumPayments: [],
+      },
+      historicalPaymentHandling: "already_excluded_or_transfer",
+      historicalMonthlyAverage: 0,
+    },
+  ];
+  return input;
+}
+
 describe("retirement funding requirement", () => {
   it("finds the exact cumulative cash need at the lowest passing cent", () => {
     const result = calculateProjection(retirementFixture());
@@ -339,6 +384,54 @@ describe("retirement funding requirement", () => {
     expect(result.retirementRequirement.bindingConstraint).toBe(
       "liability_overlap",
     );
+  });
+
+  it("derives a liability-overlap requirement when the projected path cannot finish the mortgage", () => {
+    const result = calculateProjection(
+      underfundedRetirementMortgageFixture(),
+    );
+
+    expect(result.summary.financialAssetsAtRetirementToday).toBe(100);
+    expect(result.retirementRequirement.status).toBe("available");
+    expect(result.retirementRequirement.requiredFinancialAssetsToday).toBe(
+      1200,
+    );
+    expect(result.retirementRequirement.fundingMarginToday).toBe(-1100);
+    expect(result.retirementRequirement.bindingConstraint).toBe(
+      "liability_overlap",
+    );
+    expect(result.retirementRequirement.solver.acceptedCandidateCents).toBe(
+      120_000,
+    );
+    expect(result.retirementRequirement.solver.acceptedCandidatePassed).toBe(
+      true,
+    );
+    expect(result.retirementRequirement.solver.oneCentBelowFailed).toBe(true);
+    expect(
+      result.retirementSnapshot.real.balances.totalLiabilities,
+    ).toBe(1200);
+    expect(result.annual.at(-1)!.real.balances.totalLiabilities).toBe(1100);
+    expect(
+      result.annual.at(-1)!.real.outflows.liabilityCashPayment,
+    ).toBe(100);
+    expect(
+      result.retirementSnapshot.real.balances.totalLiabilities -
+        result.annual.at(-1)!.real.balances.totalLiabilities,
+    ).toBe(100);
+    expect(
+      result.liabilityPayoffDates["synthetic:underfunded-mortgage"],
+    ).toBeNull();
+    expect(result.observations).toContainEqual(
+      expect.objectContaining({
+        code: "projected_retirement_liability_shortfall",
+      }),
+    );
+  });
+
+  it("still blocks when a required liability payment is unfunded before retirement", () => {
+    expect(() =>
+      calculateProjection(underfundedRetirementMortgageFixture(1100)),
+    ).toThrow("Required liability payment could not be funded");
   });
 
   it("uses benefits that begin after retirement through the shared monthly engine", () => {

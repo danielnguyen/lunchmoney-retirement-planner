@@ -1325,6 +1325,11 @@ type SimulationOutcome = {
   candidateEvaluation: RetirementCandidateEvaluation | null;
 };
 
+function restoreMap<K, V>(target: Map<K, V>, source: ReadonlyMap<K, V>): void {
+  target.clear();
+  for (const [key, value] of source) target.set(key, value);
+}
+
 function simulateProjection(
   rawInputs: ProjectionInputs,
   options: RetirementSimulationOptions = {},
@@ -1436,6 +1441,11 @@ function simulateProjection(
     : 0;
   let retirementUnmetRequiredOutflow = 0;
   let retirementUnmetSpending = 0;
+  let projectedRetirementLiabilityShortfall: {
+    calendarMonth: string;
+    calendarYear: number;
+    age: number;
+  } | null = null;
   const nominalSurplusThroughRetirement = emptySurplusTotals();
   const realSurplusThroughRetirement = emptySurplusTotals();
   const nominalSavingsThroughRetirement = emptySavingsTotals();
@@ -1576,7 +1586,7 @@ function simulateProjection(
   }
 
   const firstSimulationMonth = continuation ? retirementMonth + 1 : 1;
-  for (
+  projectionMonths: for (
     let month = firstSimulationMonth;
     month <= totalMonths;
     month += 1
@@ -1589,6 +1599,18 @@ function simulateProjection(
     const calendarYear = startYear + Math.floor(calendarMonthIndex / MONTHS_PER_YEAR);
     const calendarMonth = (calendarMonthIndex % MONTHS_PER_YEAR) + 1;
     const monthlyFlow = emptyView();
+    const ordinaryRetirementMonthOpening =
+      !evaluationOnly && month > retirementMonth
+        ? {
+            balances: new Map(balances),
+            nonFinancialAssetValues: new Map(nonFinancialAssetValues),
+            liabilityBalances: new Map(liabilityBalances),
+            tfsaRoom,
+            rrspRoom,
+            tfsaWithdrawalsByYear: new Map(tfsaWithdrawalsByYear),
+            rrspGenerationByYear: new Map(rrspGenerationByYear),
+          }
+        : null;
     if (inputs.registeredAccountRoom) {
       const tfsaLedger = monthlyFlow.registeredAccountRoom.tfsa;
       const rrspLedger = monthlyFlow.registeredAccountRoom.rrsp;
@@ -2082,6 +2104,79 @@ function simulateProjection(
 
     let availableCurrentMonthCash =
       income.total + unassignedEventInflows;
+    const availableNetWithdrawalCash = inputs.accounts.reduce(
+      (total, account) => {
+        const balance = balances.get(account.id) ?? 0;
+        return (
+          total +
+          (account.type === "rrsp_rrif"
+            ? balance * (1 - inputs.tax.effectiveTaxRate)
+            : balance)
+        );
+      },
+      0,
+    );
+    const anticipatedRequiredLiabilityShortfall = Math.max(
+      0,
+      requiredLiabilityCashPayment -
+        availableCurrentMonthCash -
+        availableNetWithdrawalCash,
+    );
+    if (anticipatedRequiredLiabilityShortfall > 0.005) {
+      if (month <= retirementMonth) {
+        throw new Error(
+          `Required liability payment could not be funded for ${calendarMonthKey}`,
+        );
+      }
+      retirementUnmetRequiredOutflow +=
+        anticipatedRequiredLiabilityShortfall;
+      if (evaluationOnly) break projectionMonths;
+      if (!ordinaryRetirementMonthOpening) {
+        throw new Error(
+          "The projected retirement month opening state was not captured",
+        );
+      }
+      restoreMap(balances, ordinaryRetirementMonthOpening.balances);
+      restoreMap(
+        nonFinancialAssetValues,
+        ordinaryRetirementMonthOpening.nonFinancialAssetValues,
+      );
+      restoreMap(
+        liabilityBalances,
+        ordinaryRetirementMonthOpening.liabilityBalances,
+      );
+      tfsaRoom = ordinaryRetirementMonthOpening.tfsaRoom;
+      rrspRoom = ordinaryRetirementMonthOpening.rrspRoom;
+      restoreMap(
+        tfsaWithdrawalsByYear,
+        ordinaryRetirementMonthOpening.tfsaWithdrawalsByYear,
+      );
+      restoreMap(
+        rrspGenerationByYear,
+        ordinaryRetirementMonthOpening.rrspGenerationByYear,
+      );
+      projectedRetirementLiabilityShortfall = {
+        calendarMonth: calendarMonthKey,
+        calendarYear,
+        age: workingAge,
+      };
+      const lastCompletedMonth = month - 1;
+      if (lastCompletedMonth > previousSnapshotMonth) {
+        const lastCompletedCalendarMonthIndex =
+          startMonth - 1 + lastCompletedMonth - 1;
+        const lastCompletedCalendarYear =
+          startYear +
+          Math.floor(
+            lastCompletedCalendarMonthIndex / MONTHS_PER_YEAR,
+          );
+        snapshot(
+          lastCompletedMonth,
+          previousSnapshotMonth,
+          lastCompletedCalendarYear,
+        );
+      }
+      break projectionMonths;
+    }
     const liabilityPaymentFromCurrentCash = Math.min(
       availableCurrentMonthCash,
       requiredLiabilityCashPayment,
@@ -2093,13 +2188,9 @@ function simulateProjection(
           liabilityPaymentFromCurrentCash,
       );
     if (remainingRequiredLiabilityPayment > 0.005) {
-      monthlyFlow.outflows.unmetRequiredOutflow =
-        remainingRequiredLiabilityPayment;
-      if (!options.candidateBalancesToday || month <= retirementMonth) {
-        throw new Error(
-          `Required liability payment could not be funded for ${calendarMonthKey}`,
-        );
-      }
+      throw new Error(
+        `Required liability payment could not be funded for ${calendarMonthKey}`,
+      );
     }
 
     for (const demand of liabilityPaymentDemands) {
@@ -2883,6 +2974,14 @@ function simulateProjection(
     message: `OAS begins at age ${inputs.person.oas.startAge}.`,
     age: inputs.person.oas.startAge,
   });
+  if (projectedRetirementLiabilityShortfall) {
+    observations.push({
+      code: "projected_retirement_liability_shortfall",
+      message: `The projected path stops before ${projectedRetirementLiabilityShortfall.calendarMonth} because the next required liability payment cannot be fully funded. The derived retirement requirement remains available from the exact retirement boundary.`,
+      calendarYear: projectedRetirementLiabilityShortfall.calendarYear,
+      age: round(projectedRetirementLiabilityShortfall.age),
+    });
+  }
   observations.push({
     code: "portfolio_duration",
     message:
