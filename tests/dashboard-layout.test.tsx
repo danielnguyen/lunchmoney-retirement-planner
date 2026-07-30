@@ -204,6 +204,39 @@ describe("unified planner configuration drawer", () => {
     expect(liabilitiesChart).toContain('title="Liabilities and home equity"');
   });
 
+  it("renders projection completion independently from the derived requirement", async () => {
+    const dashboard = await readFile(
+      "components/planner-dashboard.tsx",
+      "utf8",
+    );
+    const completionCard = dashboard.slice(
+      dashboard.indexOf("<span>Projection completion</span>"),
+      dashboard.indexOf(
+        "</article>",
+        dashboard.indexOf("<span>Projection completion</span>"),
+      ),
+    );
+    const durationCard = dashboard.slice(
+      dashboard.indexOf('target="financial-assets-duration"'),
+      dashboard.indexOf(
+        "</article>",
+        dashboard.indexOf('target="financial-assets-duration"'),
+      ),
+    );
+
+    expect(completionCard).toContain(
+      'projection.projectionCompletion.status === "complete"',
+    );
+    expect(completionCard).toContain("Projected path stopped early");
+    expect(completionCard).toContain("completedThroughDate");
+    expect(completionCard).toContain("stoppedBeforeMonth");
+    expect(durationCard).toContain("Not established");
+    expect(durationCard).toContain("last completed balance");
+    expect(dashboard).toContain(
+      "projection.retirementRequirement.status === \"available\"",
+    );
+  });
+
   it("opens guided controls by default and exposes one stable ARIA contract", () => {
     render(<ScenarioHarness />);
     const opener = screen.getByRole("button", { name: "Scenario controls" });

@@ -350,7 +350,10 @@ function commonAssumptions(context: ExplanationContext) {
 }
 
 function period(context: ExplanationContext): string {
-  return `${context.inputs.startDate} to ${context.projection.annual.at(-1)?.calendarYear ?? "unavailable"}`;
+  const completion = context.projection.projectionCompletion;
+  return `${context.inputs.startDate} to ${completion.completedThroughDate}${
+    completion.status === "complete" ? "" : " (projection stopped early)"
+  }`;
 }
 
 function modeLabel(context: ExplanationContext): string {
@@ -622,15 +625,15 @@ function goalDocument(context: ExplanationContext): ExplanationDocument {
   );
   return {
     id: "retirement-goal",
-    title: "Goal",
+    title: "Owner goal marker",
     plainLanguage:
-      "The financial-asset target used to compare the projected retirement snapshot with the amount you want available.",
+      "Your configured round-number financial-asset marker. It is retained for personal comparison and is not used to solve the derived retirement requirement.",
     displayedResult: {
-      label: "Retirement goal",
+      label: "Owner goal marker",
       value: currency.format(displayed),
       dollarMode: "real",
     },
-    formula: "Active retirement-goal input",
+    formula: "Active owner-goal input (not a solver input)",
     steps: [
       ...(goalEvidence.sourceType === "override"
         ? [{
@@ -660,33 +663,33 @@ function goalDocument(context: ExplanationContext): ExplanationDocument {
 }
 
 function goalGapDocument(context: ExplanationContext): ExplanationDocument {
-  const assets = context.projection.summary.financialAssetsAtRetirementToday;
+  const projected =
+    context.projection.retirementRequirement.projectedFinancialAssetsToday;
   const goal = context.projection.summary.retirementGoalToday;
-  const calculated = round(assets - goal);
-  const displayed = context.projection.summary.goalGapToday;
+  const displayed =
+    context.projection.retirementRequirement.ownerGoalDifferenceToday;
+  const calculated = round(projected - goal);
   return {
     id: "goal-gap",
-    title: "Goal gap",
+    title: "Owner-goal difference",
     plainLanguage:
-      displayed >= 0
-        ? "Projected financial assets at retirement are above the retirement goal by this amount."
-        : "Projected financial assets at retirement are below the retirement goal by this amount.",
+      "This comparison shows projected retirement financial assets minus your owner-configured marker. It remains separate from the derived funding margin or shortfall.",
     displayedResult: {
-      label: "Goal gap",
+      label: "Owner-goal difference",
       value: currency.format(displayed),
       dollarMode: "real",
     },
-    formula: "Retirement funding assets − retirement goal = goal gap",
+    formula: "Projected at retirement − owner goal marker",
     steps: [
       {
-        label: "Retirement funding assets",
-        value: exactCurrency.format(assets),
-        rawValue: assets,
+        label: "Projected at retirement",
+        value: exactCurrency.format(projected),
+        rawValue: projected,
         operation: "input",
         sourceType: "projection",
       },
       {
-        label: "Retirement goal",
+        label: "Owner goal marker",
         value: exactCurrency.format(goal),
         rawValue: goal,
         operation: "subtract",
@@ -698,7 +701,7 @@ function goalGapDocument(context: ExplanationContext): ExplanationDocument {
         ),
       },
       {
-        label: "Goal gap",
+        label: "Owner-goal difference",
         value: exactCurrency.format(calculated),
         rawValue: calculated,
         operation: "result",
@@ -708,18 +711,252 @@ function goalGapDocument(context: ExplanationContext): ExplanationDocument {
     dataSections: [],
     assumptions: [],
     caveats: [
-      "A positive gap is above the goal; a negative gap is below it.",
-      "Both values are expressed in today’s dollars and include financial assets only.",
+      "The owner goal is not used to derive the requirement.",
+      "Use the funding margin or shortfall for the independent requirement comparison.",
     ],
     reconciliation: matched(calculated, displayed),
   };
 }
 
+function retirementRequirementDocument(
+  context: ExplanationContext,
+): ExplanationDocument {
+  const requirement = context.projection.retirementRequirement;
+  const baselineSourceDescription =
+    requirement.minimumEndingBalanceBaselineSource ===
+    "explicit_configuration"
+      ? "Explicit planner configuration"
+      : "Compatibility normalization because the YAML omits retirementRequirement";
+  const activeSourceDescription =
+    requirement.minimumEndingBalanceActiveValueSource === "scenario_override"
+      ? "Temporary scenario override"
+      : baselineSourceDescription;
+  const sourceCaveat =
+    requirement.minimumEndingBalanceActiveValueSource === "scenario_override"
+      ? requirement.minimumEndingBalanceBaselineSource ===
+        "compatibility_default"
+        ? "The active terminal minimum is a temporary scenario override. The underlying YAML still omits retirementRequirement and normalizes to zero when the override is removed."
+        : "The active terminal minimum is a temporary scenario override of an explicitly configured baseline value."
+      : requirement.minimumEndingBalanceBaselineSource ===
+          "compatibility_default"
+        ? "The zero-dollar terminal minimum is a visible backward-compatibility normalization, not an owner-configured value; configure retirementRequirement explicitly."
+        : "The terminal minimum is explicitly configured.";
+  if (
+    requirement.status !== "available" ||
+    requirement.requiredFinancialAssetsToday === null
+  ) {
+    return {
+      id: "retirement-requirement",
+      title: "Required at retirement",
+      plainLanguage:
+        "The derived requirement is unavailable for this scenario.",
+      steps: [
+        {
+          label: "Active minimum ending financial assets",
+          value: exactCurrency.format(
+            requirement.minimumEndingFinancialAssetsToday,
+          ),
+          rawValue: requirement.minimumEndingFinancialAssetsToday,
+          operation: "input",
+          sourceType:
+            requirement.minimumEndingBalanceActiveValueSource ===
+            "scenario_override"
+              ? "override"
+              : "configuration",
+          sourceDescription: activeSourceDescription,
+        },
+      ],
+      dataSections: [],
+      assumptions: [
+        {
+          label: "Underlying YAML source",
+          value: baselineSourceDescription,
+          sourceType: "configuration",
+        },
+      ],
+      caveats: [
+        "Residence value and home equity are never used as retirement-funding assets.",
+        sourceCaveat,
+      ],
+      unavailableEvidence: [requirement.reason ?? "No requirement is available."],
+    };
+  }
+  return {
+    id: "retirement-requirement",
+    title: "Required at retirement",
+    plainLanguage:
+      "The lowest exact-cent retirement-boundary financial-assets amount that funds the configured retirement scenario through the terminal age.",
+    displayedResult: {
+      label: "Required financial assets at retirement",
+      value: currency.format(requirement.requiredFinancialAssetsToday),
+      dollarMode: "real",
+    },
+    formula:
+      "Lowest passing cent using the ordinary monthly spending, benefits, liabilities, returns, withdrawals, tax compatibility, and surplus rules",
+    steps: [
+      {
+        label: "Terminal age",
+        value: String(requirement.terminalAge),
+        operation: "input",
+        sourceType: "configuration",
+      },
+      {
+        label: "Minimum ending financial assets",
+        value: exactCurrency.format(
+          requirement.minimumEndingFinancialAssetsToday,
+        ),
+        rawValue: requirement.minimumEndingFinancialAssetsToday,
+        operation: "input",
+        sourceType:
+          requirement.minimumEndingBalanceActiveValueSource ===
+          "scenario_override"
+            ? "override"
+            : "configuration",
+        sourceDescription: activeSourceDescription,
+      },
+      {
+        label: "Lowest passing retirement amount",
+        value: exactCurrency.format(
+          requirement.requiredFinancialAssetsToday,
+        ),
+        rawValue: requirement.requiredFinancialAssetsToday,
+        operation: "result",
+        sourceType: "projection",
+      },
+    ],
+    dataSections: [
+      {
+        title: "Retirement-boundary account composition",
+        description:
+          "Each tested total is distributed by the exact projected financial-account weights. Residence equity and liabilities are excluded.",
+        columns: [
+          { key: "account", label: "Account" },
+          { key: "type", label: "Type" },
+          { key: "weight", label: "Projected weight" },
+          { key: "required", label: "Required allocation" },
+        ],
+        rows: requirement.composition.map((entry) => ({
+          account:
+            context.inputs.accounts.find(
+              (account) => account.id === entry.accountId,
+            )?.label ?? "Financial account",
+          type: entry.accountType,
+          weight: percent.format(entry.weight),
+          required: entry.requiredBalanceToday ?? 0,
+        })),
+      },
+    ],
+    assumptions: [
+      {
+        label: "Underlying YAML source",
+        value: baselineSourceDescription,
+        sourceType: "configuration",
+      },
+      {
+        label: "Tax model",
+        value: "Flat retirement-tax compatibility model",
+        sourceType: "configuration",
+      },
+      {
+        label: "Binding constraint",
+        value: requirement.bindingConstraint.replaceAll("_", " "),
+        sourceType: "projection",
+      },
+    ],
+    caveats: [
+      "Provisional — calculated using the current flat retirement-tax compatibility assumption.",
+      "Progressive Canadian retirement taxes and RRIF minimum withdrawals are not yet modelled.",
+      "Residence value, home equity, and other non-financial assets cannot satisfy this requirement.",
+      sourceCaveat,
+    ],
+  };
+}
+
+function retirementFundingMarginDocument(
+  context: ExplanationContext,
+): ExplanationDocument {
+  const requirement = context.projection.retirementRequirement;
+  if (
+    requirement.requiredFinancialAssetsToday === null ||
+    requirement.fundingMarginToday === null
+  ) {
+    return {
+      id: "retirement-funding-margin",
+      title: "Margin or shortfall",
+      plainLanguage:
+        "A funding comparison is unavailable because the requirement could not be calculated.",
+      steps: [],
+      dataSections: [],
+      assumptions: [],
+      caveats: [],
+      unavailableEvidence: [requirement.reason ?? "No requirement is available."],
+    };
+  }
+  const calculated = round(
+    requirement.projectedFinancialAssetsToday -
+      requirement.requiredFinancialAssetsToday,
+  );
+  return {
+    id: "retirement-funding-margin",
+    title: "Margin or shortfall",
+    plainLanguage:
+      requirement.fundingMarginToday >= 0
+        ? "Projected retirement financial assets exceed the derived requirement by this margin."
+        : "Projected retirement financial assets fall below the derived requirement by this shortfall.",
+    displayedResult: {
+      label:
+        requirement.fundingMarginToday >= 0
+          ? "Funding margin"
+          : "Funding shortfall",
+      value: currency.format(Math.abs(requirement.fundingMarginToday)),
+      dollarMode: "real",
+    },
+    formula: "Projected at retirement − required at retirement",
+    steps: [
+      {
+        label: "Projected at retirement",
+        value: exactCurrency.format(
+          requirement.projectedFinancialAssetsToday,
+        ),
+        rawValue: requirement.projectedFinancialAssetsToday,
+        operation: "input",
+        sourceType: "projection",
+      },
+      {
+        label: "Required at retirement",
+        value: exactCurrency.format(
+          requirement.requiredFinancialAssetsToday,
+        ),
+        rawValue: requirement.requiredFinancialAssetsToday,
+        operation: "subtract",
+        sourceType: "projection",
+      },
+      {
+        label: "Funding margin or shortfall",
+        value: exactCurrency.format(calculated),
+        rawValue: calculated,
+        operation: "result",
+        sourceType: "projection",
+      },
+    ],
+    dataSections: [],
+    assumptions: [],
+    caveats: [
+      "The result is stated by label as a margin or shortfall and does not rely on colour alone.",
+    ],
+    reconciliation: matched(calculated, requirement.fundingMarginToday),
+  };
+}
+
 function durationDocument(context: ExplanationContext): ExplanationDocument {
   const depletionAge = context.projection.summary.financialAssetsDepletionAge;
-  const displayed = depletionAge === null
-    ? `Past age ${context.inputs.endAge}`
-    : `To age ${depletionAge}`;
+  const completion = context.projection.projectionCompletion;
+  const incomplete = completion.status !== "complete";
+  const displayed = incomplete
+    ? `Stopped at age ${completion.completedThroughAge}`
+    : depletionAge === null
+      ? `Past age ${context.inputs.endAge}`
+      : `To age ${depletionAge}`;
   const unmetSpending = context.projection.annual.some(
     (point) =>
       point.real.outflows.unmetSpending > 0 || point.nominal.outflows.unmetSpending > 0,
@@ -728,7 +965,9 @@ function durationDocument(context: ExplanationContext): ExplanationDocument {
     id: "financial-assets-duration",
     title: "Financial assets duration",
     plainLanguage:
-      depletionAge === null
+      incomplete
+        ? `The projected path stopped after ${completion.completedThroughDate}, at age ${completion.completedThroughAge}, before an unfunded required liability payment. Its remaining balance is a last-completed value, not a terminal-age result.`
+        : depletionAge === null
         ? `Financial assets remain above zero through the configured projection end age of ${context.inputs.endAge}.`
         : `Financial assets first reach zero near age ${depletionAge} in this scenario.`,
     displayedResult: {
@@ -758,9 +997,17 @@ function durationDocument(context: ExplanationContext): ExplanationDocument {
         sourceType: "projection",
       },
       {
-        label: "Ending financial assets",
-        value: exactCurrency.format(context.projection.summary.endingFinancialAssetsToday),
-        rawValue: context.projection.summary.endingFinancialAssetsToday,
+        label: incomplete
+          ? "Last completed financial assets"
+          : "Terminal financial assets",
+        value: exactCurrency.format(
+          incomplete
+            ? completion.lastCompletedFinancialAssetsToday
+            : context.projection.summary.endingFinancialAssetsToday ?? 0,
+        ),
+        rawValue: incomplete
+          ? completion.lastCompletedFinancialAssetsToday
+          : context.projection.summary.endingFinancialAssetsToday ?? 0,
         operation: "result",
         sourceType: "projection",
       },
@@ -774,7 +1021,9 @@ function durationDocument(context: ExplanationContext): ExplanationDocument {
     dataSections: [],
     assumptions: commonAssumptions(context),
     caveats: [
-      "Past age means the model did not observe depletion before the configured end age; it does not mean assets last forever.",
+      incomplete
+        ? "No terminal-age duration conclusion is available because the projected path stopped early; the independently derived retirement requirement remains available when its solver succeeds."
+        : "Past age means the model did not observe depletion before the configured end age; it does not mean assets last forever.",
       ...longIncomeWarnings(context),
       "Deterministic results are not a guarantee and do not model market-sequence uncertainty.",
     ],
@@ -1148,7 +1397,7 @@ function baselineMetricDocument(
 function chartCaveats(context: ExplanationContext): string[] {
   return [
     `The active chart view is ${modeLabel(context)}.`,
-    "The first and final rows may be partial calendar years because the projection starts in the live data-through month and ends at the configured age.",
+    "The first and final rows may be partial periods because the projection starts in the live data-through month, ends at the configured age, or stops before an unfunded required liability payment.",
     "The chart and this table consume the same annual projection result.",
   ];
 }
@@ -2944,7 +3193,10 @@ function registeredAccountRoomDocument(
         ? `Every TFSA shares one TFSA room pool and every RRSP/RRIF shares one RRSP deduction-room pool. ${preview.workplacePriority}; ${preview.workplaceOverflow}. ${preview.personalOrder}; personal cash never uses the workplace RRSP. Only explicit plans are invested unless the explicit sweep policy applies. ${preview.unplannedCash}.`
         : "Every TFSA account shares one TFSA room pool and every RRSP/RRIF account shares one RRSP deduction-room pool. Planned routes run in configured order before additional surplus savings.",
     displayedResult: {
-      label: "Closing registered room at projection end",
+      label:
+        context.projection.projectionCompletion.status === "complete"
+          ? "Closing registered room at projection end"
+          : "Closing registered room at last completed date",
       value: `${exactCurrency.format(last?.registeredAccountRoom.tfsa.closingRoom ?? 0)} TFSA · ${exactCurrency.format(last?.registeredAccountRoom.rrsp.closingRoom ?? 0)} RRSP`,
       period: "Nominal regulatory dollars",
     },
@@ -3426,7 +3678,11 @@ function registeredAccountRoomDocument(
           Object.entries(
             point[context.displayMode].accountContributionDetails,
           ).map(([accountId, detail]) => ({
-            period: annualPeriodLabel(context.inputs, point.calendarYear),
+            period: annualPeriodLabel(
+              context.inputs,
+              point.calendarYear,
+              point.period,
+            ),
             account:
               context.inputs.accounts.find(
                 (account) => account.id === accountId,
@@ -3748,7 +4004,11 @@ function totalNetWorthDocument(
         rows: context.projection.annual.map((point) => {
           const annualBalances = point[context.displayMode].balances;
           return {
-            period: annualPeriodLabel(context.inputs, point.calendarYear),
+            period: annualPeriodLabel(
+              context.inputs,
+              point.calendarYear,
+              point.period,
+            ),
             financialAssets: annualBalances.financialAssets,
             nonFinancialAssets: annualBalances.totalNonFinancialAssets,
             totalAssets: annualBalances.totalAssets,
@@ -3834,7 +4094,11 @@ function liabilityScheduleDocument(
       const schedule =
         point[context.displayMode].liabilitySchedules[liability.id];
       return {
-        period: annualPeriodLabel(context.inputs, point.calendarYear),
+        period: annualPeriodLabel(
+          context.inputs,
+          point.calendarYear,
+          point.period,
+        ),
         liability: liability.label,
         openingPrincipal: schedule?.openingBalance ?? 0,
         interest: schedule?.interest ?? 0,
@@ -3854,11 +4118,13 @@ function liabilityScheduleDocument(
   );
   const displayedClosing =
     finalView?.balances.totalLiabilities ?? 0;
-  const liabilityFundingComplete = context.projection.annual.every(
-    (point) =>
-      point.nominal.outflows.unmetRequiredOutflow <= 0.01 &&
-      point.real.outflows.unmetRequiredOutflow <= 0.01,
-  );
+  const liabilityFundingComplete =
+    context.projection.projectionCompletion.status === "complete" &&
+    context.projection.annual.every(
+      (point) =>
+        point.nominal.outflows.unmetRequiredOutflow <= 0.01 &&
+        point.real.outflows.unmetRequiredOutflow <= 0.01,
+    );
   const historicalHandlingLabel = (
     handling: (typeof liabilities)[number]["historicalPaymentHandling"],
   ): string => {
@@ -3997,7 +4263,10 @@ function liabilityScheduleDocument(
         ? "No liability schedule is active in this projection."
         : "Each required liability payment is funded before ordinary spending or cash-funded saving, then split between interest and principal. Principal reduces both cash and the liability; payments stop automatically when the balance reaches zero.",
     displayedResult: {
-      label: "Ending liabilities",
+      label:
+        context.projection.projectionCompletion.status === "complete"
+          ? "Terminal liabilities"
+          : "Liabilities at last completed date",
       value: currency.format(displayedClosing),
       dollarMode: context.displayMode,
       period: period(context),
@@ -4011,7 +4280,10 @@ function liabilityScheduleDocument(
               label: "Required liability payment funding",
               value: liabilityFundingComplete
                 ? "All required liability payments in the projection were fully funded"
-                : "At least one required liability payment in the projection was not fully funded",
+                : context.projection.projectionCompletion.status ===
+                    "stopped_unfunded_liability"
+                  ? `The projected path stopped before ${context.projection.projectionCompletion.stoppedBeforeMonth} because the next required liability payment could not be fully funded`
+                  : "At least one required liability payment in the projection was not fully funded",
               sourceType: "projection" as const,
             },
           ]
@@ -4084,6 +4356,8 @@ export function buildExplanation(
 ): ExplanationDocument {
   if (target === "starting-financial-assets") return startingFinancialAssetsDocument(context);
   if (target === "assets-at-retirement") return assetsAtRetirementDocument(context);
+  if (target === "retirement-requirement") return retirementRequirementDocument(context);
+  if (target === "retirement-funding-margin") return retirementFundingMarginDocument(context);
   if (target === "retirement-goal") return goalDocument(context);
   if (target === "goal-gap") return goalGapDocument(context);
   if (target === "financial-assets-duration") return durationDocument(context);

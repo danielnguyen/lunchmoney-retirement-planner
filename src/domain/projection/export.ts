@@ -117,7 +117,7 @@ export type ShareSafeDerivedBaseline = {
 };
 
 export type ProjectionSnapshot = {
-  schemaVersion: "9.0";
+  schemaVersion: "10.0";
   generatedAt: string;
   exportMetadata: {
     transformation: "typed_allowlist_and_automatic_anonymization";
@@ -314,6 +314,7 @@ const SAFE_PROVENANCE_FIELDS = new Set([
   "cppMonthlyAmountAt65",
   "oasMonthlyAmountAt65",
   "retirementGoalToday",
+  "retirementRequirement.minimumEndingFinancialAssetsToday",
   "annualInflation",
   "effectiveTaxRate",
   "oasRecoveryThresholdToday",
@@ -430,6 +431,8 @@ const SAFE_OBSERVATION_CODES = new Set([
   "cpp_start",
   "oas_start",
   "portfolio_duration",
+  "projected_retirement_liability_shortfall",
+  "retirement_requirement_scenario_override",
 ]);
 
 const SOURCE_TYPES = new Set<BaselineSourceType>([
@@ -967,6 +970,12 @@ function safeProjectionInputs(
       };
     }),
     retirementGoalToday: inputs.retirementGoalToday,
+    retirementRequirement: {
+      minimumEndingFinancialAssetsToday:
+        inputs.retirementRequirement.minimumEndingFinancialAssetsToday,
+      baselineSource: inputs.retirementRequirement.baselineSource,
+      activeValueSource: inputs.retirementRequirement.activeValueSource,
+    },
     tax: {
       effectiveTaxRate: inputs.tax.effectiveTaxRate,
       oasRecoveryThresholdToday: inputs.tax.oasRecoveryThresholdToday,
@@ -1359,6 +1368,12 @@ function safeObservationMessage(
   if (code === "cpp_start" && age !== undefined) return `CPP begins at age ${age}.`;
   if (code === "oas_start" && age !== undefined) return `OAS begins at age ${age}.`;
   if (code === "portfolio_duration") return "Financial-asset duration observation.";
+  if (code === "projected_retirement_liability_shortfall") {
+    return "The projected path stopped before an unfunded post-retirement liability payment.";
+  }
+  if (code === "retirement_requirement_scenario_override") {
+    return "The active minimum terminal balance is a temporary scenario override.";
+  }
   return `Projection observation ${index + 1}`;
 }
 
@@ -1367,7 +1382,7 @@ function safeProjectionResult(
   context: ShareSafeContext,
 ): ProjectionResult {
   return {
-    schemaVersion: "9.0",
+    schemaVersion: "10.0",
     inputs: safeProjectionInputs(projection.inputs, context),
     summary: {
       retirementYear: projection.summary.retirementYear,
@@ -1388,6 +1403,18 @@ function safeProjectionResult(
       endingNetWorthToday: projection.summary.endingNetWorthToday,
       mortgagePayoffDate: projection.summary.mortgagePayoffDate,
       mortgagePayoffAge: projection.summary.mortgagePayoffAge,
+    },
+    projectionCompletion: {
+      ...projection.projectionCompletion,
+    },
+    retirementRequirement: {
+      ...projection.retirementRequirement,
+      composition: projection.retirementRequirement.composition.map(
+        (entry) => ({
+          ...entry,
+          accountId: requiredAccountAlias(entry.accountId, context).key,
+        }),
+      ),
     },
     retirementSnapshot: {
       calendarDate: projection.retirementSnapshot.calendarDate,
@@ -1622,6 +1649,7 @@ function safeProjectionResult(
       calendarYear: point.calendarYear,
       age: point.age,
       phase: point.phase,
+      period: { ...point.period },
       nominal: safeProjectionView(point.nominal, context),
       real: safeProjectionView(point.real, context),
       milestones: point.milestones.map((milestone, index) =>
@@ -2620,7 +2648,7 @@ export function createProjectionSnapshot(
   const dataThrough = safeDateLike(baseline.dataThrough, projection.inputs.startDate);
   const safeGeneratedAt = requireIsoTimestamp(generatedAt);
   return {
-    schemaVersion: "9.0",
+    schemaVersion: "10.0",
     generatedAt: safeGeneratedAt,
     exportMetadata: {
       transformation: "typed_allowlist_and_automatic_anonymization",
@@ -2748,6 +2776,39 @@ export function projectionSnapshotToCsv(
     "age",
     "phase",
     "dollarMode",
+    "annual_period_status",
+    "annual_period_start_date",
+    "annual_period_end_date",
+    "projection_completion_status",
+    "planned_terminal_age",
+    "completed_through_date",
+    "completed_through_age",
+    "stopped_before_month",
+    "projection_completion_reason",
+    "last_completed_financial_assets_today",
+    "last_completed_net_worth_today",
+    "terminal_ending_financial_assets_today",
+    "terminal_ending_net_worth_today",
+    "retirement_requirement_status",
+    "projected_retirement_assets_today",
+    "required_retirement_assets_today",
+    "retirement_funding_margin_today",
+    "retirement_terminal_age",
+    "minimum_ending_financial_assets_today",
+    "minimum_ending_balance_baseline_source",
+    "minimum_ending_balance_active_value_source",
+    "owner_goal_marker_today",
+    "owner_goal_difference_today",
+    "retirement_requirement_binding_constraint",
+    "retirement_requirement_tax_model",
+    "retirement_requirement_provisional_tax",
+    "retirement_requirement_composition_mode",
+    ...accountAliases.map(
+      (account) => `retirement_requirement_weight_${account.key}`,
+    ),
+    ...accountAliases.map(
+      (account) => `retirement_requirement_amount_${account.key}`,
+    ),
     "employmentPhase",
     "employmentNetCash",
     "cppIncome",
@@ -2903,11 +2964,61 @@ export function projectionSnapshotToCsv(
   const rows = snapshot.projection.annual.map((point) => {
     const view = point[mode];
     return [
-      annualPeriodLabel(snapshot.projection.inputs, point.calendarYear),
+      annualPeriodLabel(
+        snapshot.projection.inputs,
+        point.calendarYear,
+        point.period,
+      ),
       point.calendarYear,
       point.age,
       point.phase,
       mode,
+      point.period.status,
+      point.period.startDate,
+      point.period.endDate,
+      snapshot.projection.projectionCompletion.status,
+      snapshot.projection.projectionCompletion.plannedTerminalAge,
+      snapshot.projection.projectionCompletion.completedThroughDate,
+      snapshot.projection.projectionCompletion.completedThroughAge,
+      snapshot.projection.projectionCompletion.stoppedBeforeMonth ?? "",
+      snapshot.projection.projectionCompletion.reason ?? "",
+      snapshot.projection.projectionCompletion
+        .lastCompletedFinancialAssetsToday,
+      snapshot.projection.projectionCompletion.lastCompletedNetWorthToday,
+      snapshot.projection.summary.endingFinancialAssetsToday ?? "",
+      snapshot.projection.summary.endingNetWorthToday ?? "",
+      snapshot.projection.retirementRequirement.status,
+      snapshot.projection.retirementRequirement
+        .projectedFinancialAssetsToday,
+      snapshot.projection.retirementRequirement
+        .requiredFinancialAssetsToday ?? "",
+      snapshot.projection.retirementRequirement.fundingMarginToday ?? "",
+      snapshot.projection.retirementRequirement.terminalAge,
+      snapshot.projection.retirementRequirement
+        .minimumEndingFinancialAssetsToday,
+      snapshot.projection.retirementRequirement
+        .minimumEndingBalanceBaselineSource,
+      snapshot.projection.retirementRequirement
+        .minimumEndingBalanceActiveValueSource,
+      snapshot.projection.retirementRequirement.ownerGoalToday,
+      snapshot.projection.retirementRequirement
+        .ownerGoalDifferenceToday ?? "",
+      snapshot.projection.retirementRequirement.bindingConstraint,
+      snapshot.projection.retirementRequirement.taxModel,
+      snapshot.projection.retirementRequirement.provisionalTax ? 1 : 0,
+      snapshot.projection.retirementRequirement.compositionMode,
+      ...accountAliases.map(
+        (account) =>
+          snapshot.projection.retirementRequirement.composition.find(
+            (entry) => entry.accountId === account.key,
+          )?.weight ?? "",
+      ),
+      ...accountAliases.map(
+        (account) =>
+          snapshot.projection.retirementRequirement.composition.find(
+            (entry) => entry.accountId === account.key,
+          )?.requiredBalanceToday ?? "",
+      ),
       point.employmentPhaseLabels.length === 1
         ? point.employmentPhaseLabels[0]!
         : point.employmentPhaseLabels.length === 0

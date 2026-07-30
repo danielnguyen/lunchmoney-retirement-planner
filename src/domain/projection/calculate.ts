@@ -3,8 +3,8 @@ import type {
   AnnualProjection,
   AssetAllocation,
   BalanceBreakdown,
-  ContributionBreakdown,
   AccountContributionDetail,
+  ContributionBreakdown,
   ContributionPhase,
   EmploymentIncomePhase,
   FinancialAccountInput,
@@ -16,6 +16,7 @@ import type {
   NetWorthBridge,
   NonFinancialAssetInput,
   OutflowBreakdown,
+  ProjectionCompletion,
   ProjectionInputs,
   ProjectionObservation,
   ProjectionResult,
@@ -30,6 +31,10 @@ import type {
   WithdrawalBreakdown,
 } from "./types";
 import { validateProjectionInputs } from "./types";
+import {
+  solveRetirementRequirement,
+  type RetirementCandidateEvaluation,
+} from "./retirement-requirement";
 import {
   cppClaimRules,
   oasClaimRules,
@@ -1283,8 +1288,57 @@ function milestoneLabels(inputs: ProjectionInputs, previousMonth: number, month:
   return checks.filter(([target]) => previousAge < target && age >= target).map(([, label]) => label);
 }
 
-export function calculateProjection(rawInputs: ProjectionInputs): ProjectionResult {
+type CoreProjectionResult = Omit<
+  ProjectionResult,
+  "retirementRequirement"
+>;
+
+type RetirementSimulationOptions = {
+  candidateBalancesToday?: ReadonlyMap<string, number>;
+  continuation?: RetirementContinuationState;
+};
+
+type RawRetirementState = {
+  accountBalances: Map<string, number>;
+  financialAssetsToday: number;
+  totalLiabilitiesToday: number;
+  inflationFactor: number;
+};
+
+type RetirementContinuationState = {
+  retirementState: RawRetirementState;
+  nonFinancialAssetValues: Map<string, number>;
+  liabilityBalances: Map<string, number>;
+  liabilityPayoffDates: Record<string, string | null>;
+  tfsaRoom: number;
+  rrspRoom: number;
+  tfsaWithdrawalsByYear: Map<number, number>;
+  rrspGenerationByYear: Map<
+    number,
+    { eligible: number; pensionAdjustment: number; otherReduction: number }
+  >;
+};
+
+type SimulationOutcome = {
+  result: CoreProjectionResult | null;
+  retirementState: RawRetirementState;
+  retirementContinuation: RetirementContinuationState;
+  candidateEvaluation: RetirementCandidateEvaluation | null;
+};
+
+function restoreMap<K, V>(target: Map<K, V>, source: ReadonlyMap<K, V>): void {
+  target.clear();
+  for (const [key, value] of source) target.set(key, value);
+}
+
+function simulateProjection(
+  rawInputs: ProjectionInputs,
+  options: RetirementSimulationOptions = {},
+): SimulationOutcome {
   const inputs = validateProjectionInputs(rawInputs);
+  // Solver candidates execute the same monthly financial engine, but they do
+  // not build presentation snapshots or bridges that cannot affect pass/fail.
+  const evaluationOnly = options.candidateBalancesToday !== undefined;
   const benefits = governmentBenefitSummary(inputs);
   const startYear = Number(inputs.startDate.slice(0, 4));
   const startMonth = Number(inputs.startDate.slice(5, 7));
@@ -1292,26 +1346,40 @@ export function calculateProjection(rawInputs: ProjectionInputs): ProjectionResu
   const retirementMonth = Math.round(
     (inputs.person.retirementAge - inputs.person.currentAge) * MONTHS_PER_YEAR,
   );
-  const balances = new Map(inputs.accounts.map((account) => [account.id, account.openingBalance]));
-  const nonFinancialAssetValues = new Map(
-    inputs.nonFinancialAssets.map((asset) => [
-      asset.id,
-      asset.openingValue,
+  const continuation = options.continuation;
+  const balances = new Map(
+    inputs.accounts.map((account) => [
+      account.id,
+      continuation && options.candidateBalancesToday
+        ? (options.candidateBalancesToday.get(account.id) ?? 0) *
+          continuation.retirementState.inflationFactor
+        : account.openingBalance,
     ]),
   );
-  const liabilityBalances = new Map(
-    inputs.liabilities.map((liability) => [
-      liability.id,
-      liability.openingBalance,
-    ]),
-  );
-  const liabilityPayoffDates: Record<string, string | null> =
-    Object.fromEntries(
-      inputs.liabilities.map((liability) => [
-        liability.id,
-        liability.openingBalance === 0 ? inputs.startDate : null,
-      ]),
-    );
+  const nonFinancialAssetValues = continuation
+    ? new Map(continuation.nonFinancialAssetValues)
+    : new Map(
+        inputs.nonFinancialAssets.map((asset) => [
+          asset.id,
+          asset.openingValue,
+        ]),
+      );
+  const liabilityBalances = continuation
+    ? new Map(continuation.liabilityBalances)
+    : new Map(
+        inputs.liabilities.map((liability) => [
+          liability.id,
+          liability.openingBalance,
+        ]),
+      );
+  const liabilityPayoffDates: Record<string, string | null> = continuation
+    ? { ...continuation.liabilityPayoffDates }
+    : Object.fromEntries(
+        inputs.liabilities.map((liability) => [
+          liability.id,
+          liability.openingBalance === 0 ? inputs.startDate : null,
+        ]),
+      );
   const reserveAccounts = inputs.surplusAllocation.reserveAccountIds.map(
     (accountId) =>
       inputs.accounts.find((account) => account.id === accountId)!,
@@ -1360,6 +1428,25 @@ export function calculateProjection(rawInputs: ProjectionInputs): ProjectionResu
   let financialAssetsDepletionAge: number | null = null;
   let previousSnapshotMonth = 0;
   let retirementSnapshot: RetirementSnapshot | undefined;
+  let rawRetirementState: RawRetirementState | undefined = continuation
+    ? {
+        ...continuation.retirementState,
+        accountBalances: new Map(continuation.retirementState.accountBalances),
+      }
+    : undefined;
+  let retirementContinuation: RetirementContinuationState | undefined =
+    continuation;
+  let terminalFinancialAssetsToday = continuation
+    ? balanceSheet(inputs.accounts, balances).financialAssets /
+      continuation.retirementState.inflationFactor
+    : 0;
+  let retirementUnmetRequiredOutflow = 0;
+  let retirementUnmetSpending = 0;
+  let projectedRetirementLiabilityShortfall: {
+    calendarMonth: string;
+    calendarYear: number;
+    age: number;
+  } | null = null;
   const nominalSurplusThroughRetirement = emptySurplusTotals();
   const realSurplusThroughRetirement = emptySurplusTotals();
   const nominalSavingsThroughRetirement = emptySavingsTotals();
@@ -1370,17 +1457,23 @@ export function calculateProjection(rawInputs: ProjectionInputs): ProjectionResu
   let reserveBalanceAtRetirementReal = 0;
   let destinationBalanceAtRetirementNominal = 0;
   let destinationBalanceAtRetirementReal = 0;
-  let tfsaRoom =
-    inputs.registeredAccountRoom?.tfsa.startingAvailableRoom.amount ?? 0;
-  let rrspRoom =
-    inputs.registeredAccountRoom?.rrsp.startingAvailableDeductionRoom.amount ??
-    0;
-  const tfsaWithdrawalsByYear = new Map<number, number>();
-  const rrspGenerationByYear = new Map<
-    number,
-    { eligible: number; pensionAdjustment: number; otherReduction: number }
-  >();
-  if (inputs.registeredAccountRoom) {
+  let tfsaRoom = continuation
+    ? continuation.tfsaRoom
+    : inputs.registeredAccountRoom?.tfsa.startingAvailableRoom.amount ?? 0;
+  let rrspRoom = continuation
+    ? continuation.rrspRoom
+    : inputs.registeredAccountRoom?.rrsp.startingAvailableDeductionRoom
+        .amount ?? 0;
+  const tfsaWithdrawalsByYear = continuation
+    ? new Map(continuation.tfsaWithdrawalsByYear)
+    : new Map<number, number>();
+  const rrspGenerationByYear = continuation
+    ? new Map(continuation.rrspGenerationByYear)
+    : new Map<
+        number,
+        { eligible: number; pensionAdjustment: number; otherReduction: number }
+      >();
+  if (inputs.registeredAccountRoom && !continuation) {
     const preStart =
       inputs.registeredAccountRoom.rrsp.newRoom
         .startYearBeforeProjectionMonth;
@@ -1471,10 +1564,39 @@ export function calculateProjection(rawInputs: ProjectionInputs): ProjectionResu
       assertRegisteredRoomReconciled(nominal, `${calendarYear} nominal`);
       assertRegisteredRoomReconciled(real, `${calendarYear} real`);
     }
+    const periodStartMonthIndex = startMonth - 1 + previousMonth;
+    const periodStartYear =
+      startYear + Math.floor(periodStartMonthIndex / MONTHS_PER_YEAR);
+    const periodStartMonth =
+      (periodStartMonthIndex % MONTHS_PER_YEAR) + 1;
+    const periodEndMonthIndex = startMonth - 1 + month - 1;
+    const periodEndYear =
+      startYear + Math.floor(periodEndMonthIndex / MONTHS_PER_YEAR);
+    const periodEndMonth =
+      (periodEndMonthIndex % MONTHS_PER_YEAR) + 1;
+    const periodStartDate =
+      previousMonth === 0
+        ? inputs.startDate
+        : `${periodStartYear}-${String(periodStartMonth).padStart(2, "0")}-01`;
+    const periodEndDate = lastDayOfMonth(
+      periodEndYear,
+      periodEndMonth,
+    );
     annual.push({
       calendarYear,
       age: round(age),
       phase: age < inputs.person.retirementAge ? "accumulation" : "retirement",
+      period: {
+        startDate: periodStartDate,
+        endDate: periodEndDate,
+        status:
+          periodStartYear === periodEndYear &&
+          periodStartMonth === 1 &&
+          periodEndMonth === MONTHS_PER_YEAR &&
+          periodStartDate.endsWith("-01")
+            ? "complete_calendar_year"
+            : "partial_period",
+      },
       nominal,
       real,
       milestones: milestoneLabels(inputs, previousMonth, month),
@@ -1493,7 +1615,12 @@ export function calculateProjection(rawInputs: ProjectionInputs): ProjectionResu
     previousSnapshotMonth = month;
   }
 
-  for (let month = 1; month <= totalMonths; month += 1) {
+  const firstSimulationMonth = continuation ? retirementMonth + 1 : 1;
+  projectionMonths: for (
+    let month = firstSimulationMonth;
+    month <= totalMonths;
+    month += 1
+  ) {
     const previousFactor = indexedFactor(inputs.annualInflation, month - 1);
     const factor = indexedFactor(inputs.annualInflation, month);
     const workingAge = inputs.person.currentAge + (month - 1) / MONTHS_PER_YEAR;
@@ -1502,6 +1629,18 @@ export function calculateProjection(rawInputs: ProjectionInputs): ProjectionResu
     const calendarYear = startYear + Math.floor(calendarMonthIndex / MONTHS_PER_YEAR);
     const calendarMonth = (calendarMonthIndex % MONTHS_PER_YEAR) + 1;
     const monthlyFlow = emptyView();
+    const ordinaryRetirementMonthOpening =
+      !evaluationOnly && month > retirementMonth
+        ? {
+            balances: new Map(balances),
+            nonFinancialAssetValues: new Map(nonFinancialAssetValues),
+            liabilityBalances: new Map(liabilityBalances),
+            tfsaRoom,
+            rrspRoom,
+            tfsaWithdrawalsByYear: new Map(tfsaWithdrawalsByYear),
+            rrspGenerationByYear: new Map(rrspGenerationByYear),
+          }
+        : null;
     if (inputs.registeredAccountRoom) {
       const tfsaLedger = monthlyFlow.registeredAccountRoom.tfsa;
       const rrspLedger = monthlyFlow.registeredAccountRoom.rrsp;
@@ -1995,6 +2134,79 @@ export function calculateProjection(rawInputs: ProjectionInputs): ProjectionResu
 
     let availableCurrentMonthCash =
       income.total + unassignedEventInflows;
+    const availableNetWithdrawalCash = inputs.accounts.reduce(
+      (total, account) => {
+        const balance = balances.get(account.id) ?? 0;
+        return (
+          total +
+          (account.type === "rrsp_rrif"
+            ? balance * (1 - inputs.tax.effectiveTaxRate)
+            : balance)
+        );
+      },
+      0,
+    );
+    const anticipatedRequiredLiabilityShortfall = Math.max(
+      0,
+      requiredLiabilityCashPayment -
+        availableCurrentMonthCash -
+        availableNetWithdrawalCash,
+    );
+    if (anticipatedRequiredLiabilityShortfall > 0.005) {
+      if (month <= retirementMonth) {
+        throw new Error(
+          `Required liability payment could not be funded for ${calendarMonthKey}`,
+        );
+      }
+      retirementUnmetRequiredOutflow +=
+        anticipatedRequiredLiabilityShortfall;
+      if (evaluationOnly) break projectionMonths;
+      if (!ordinaryRetirementMonthOpening) {
+        throw new Error(
+          "The projected retirement month opening state was not captured",
+        );
+      }
+      restoreMap(balances, ordinaryRetirementMonthOpening.balances);
+      restoreMap(
+        nonFinancialAssetValues,
+        ordinaryRetirementMonthOpening.nonFinancialAssetValues,
+      );
+      restoreMap(
+        liabilityBalances,
+        ordinaryRetirementMonthOpening.liabilityBalances,
+      );
+      tfsaRoom = ordinaryRetirementMonthOpening.tfsaRoom;
+      rrspRoom = ordinaryRetirementMonthOpening.rrspRoom;
+      restoreMap(
+        tfsaWithdrawalsByYear,
+        ordinaryRetirementMonthOpening.tfsaWithdrawalsByYear,
+      );
+      restoreMap(
+        rrspGenerationByYear,
+        ordinaryRetirementMonthOpening.rrspGenerationByYear,
+      );
+      projectedRetirementLiabilityShortfall = {
+        calendarMonth: calendarMonthKey,
+        calendarYear,
+        age: workingAge,
+      };
+      const lastCompletedMonth = month - 1;
+      if (lastCompletedMonth > previousSnapshotMonth) {
+        const lastCompletedCalendarMonthIndex =
+          startMonth - 1 + lastCompletedMonth - 1;
+        const lastCompletedCalendarYear =
+          startYear +
+          Math.floor(
+            lastCompletedCalendarMonthIndex / MONTHS_PER_YEAR,
+          );
+        snapshot(
+          lastCompletedMonth,
+          previousSnapshotMonth,
+          lastCompletedCalendarYear,
+        );
+      }
+      break projectionMonths;
+    }
     const liabilityPaymentFromCurrentCash = Math.min(
       availableCurrentMonthCash,
       requiredLiabilityCashPayment,
@@ -2006,8 +2218,6 @@ export function calculateProjection(rawInputs: ProjectionInputs): ProjectionResu
           liabilityPaymentFromCurrentCash,
       );
     if (remainingRequiredLiabilityPayment > 0.005) {
-      monthlyFlow.outflows.unmetRequiredOutflow =
-        remainingRequiredLiabilityPayment;
       throw new Error(
         `Required liability payment could not be funded for ${calendarMonthKey}`,
       );
@@ -2441,6 +2651,11 @@ export function calculateProjection(rawInputs: ProjectionInputs): ProjectionResu
       monthlyFlow.outflows.contributions +
       monthlyFlow.outflows.unmetRequiredOutflow +
       monthlyFlow.outflows.unmetSpending;
+    if (month > retirementMonth) {
+      retirementUnmetRequiredOutflow +=
+        monthlyFlow.outflows.unmetRequiredOutflow;
+      retirementUnmetSpending += monthlyFlow.outflows.unmetSpending;
+    }
     monthlyFlow.registeredAccountRoom.tfsa.closingRoom = tfsaRoom;
     monthlyFlow.registeredAccountRoom.rrsp.closingRoom = rrspRoom;
 
@@ -2454,9 +2669,11 @@ export function calculateProjection(rawInputs: ProjectionInputs): ProjectionResu
       inputs.savingsPolicy,
     );
 
-    addMonthlyFlow(annualNominalFlow, monthlyFlow, 1);
-    addMonthlyFlow(annualRealFlow, monthlyFlow, factor);
-    if (month <= retirementMonth) {
+    if (!evaluationOnly) {
+      addMonthlyFlow(annualNominalFlow, monthlyFlow, 1);
+      addMonthlyFlow(annualRealFlow, monthlyFlow, factor);
+    }
+    if (!evaluationOnly && month <= retirementMonth) {
       addSurplusTotals(nominalSurplusThroughRetirement, monthlyFlow, 1);
       addSurplusTotals(realSurplusThroughRetirement, monthlyFlow, factor);
       addSavingsTotals(nominalSavingsThroughRetirement, monthlyFlow, 1);
@@ -2559,99 +2776,166 @@ export function calculateProjection(rawInputs: ProjectionInputs): ProjectionResu
         inputs.liabilities,
         liabilityBalances,
       );
-      const retirementRealMonthlyFlow = emptyView();
-      addMonthlyFlow(retirementRealMonthlyFlow, monthlyFlow, factor);
-      retirementSnapshot = {
-        calendarDate: lastDayOfMonth(calendarYear, calendarMonth),
-        age: round(inputs.person.retirementAge),
-        flowPeriod: {
-          kind: "final_working_month",
-          calendarMonth: `${calendarYear}-${String(calendarMonth).padStart(2, "0")}`,
-        },
-        nominal: snapshotView(
-          monthlyFlow,
-          inputs.accounts,
-          balances,
-          inputs.nonFinancialAssets,
-          nonFinancialAssetValues,
-          inputs.liabilities,
-          liabilityBalances,
-          1,
-        ),
-        real: snapshotView(
-          retirementRealMonthlyFlow,
-          inputs.accounts,
-          balances,
-          inputs.nonFinancialAssets,
-          nonFinancialAssetValues,
-          inputs.liabilities,
-          liabilityBalances,
-          factor,
-          monthlyFlow.liabilitySchedules,
-        ),
+      rawRetirementState = {
+        accountBalances: new Map(balances),
+        financialAssetsToday:
+          rawRetirementBalanceSheet.financialAssets / factor,
+        totalLiabilitiesToday:
+          rawRetirementBalanceSheet.totalLiabilities / factor,
+        inflationFactor: factor,
       };
-      assertSurplusReconciled(
-        retirementSnapshot.nominal,
-        "retirement snapshot nominal",
-      );
-      assertSurplusReconciled(
-        retirementSnapshot.real,
-        "retirement snapshot real",
-      );
-      assertSavingsPolicyReconciled(
-        retirementSnapshot.nominal,
-        "retirement snapshot nominal",
-        inputs.savingsPolicy,
-      );
-      assertBalanceSheetReconciled(
-        retirementSnapshot.nominal,
-        "retirement snapshot nominal",
-      );
-      assertBalanceSheetReconciled(
-        retirementSnapshot.real,
-        "retirement snapshot real",
-      );
-      assertLiabilitySchedulesReconciled(
-        retirementSnapshot.nominal,
-        "retirement snapshot nominal",
-      );
-      assertLiabilitySchedulesReconciled(
-        retirementSnapshot.real,
-        "retirement snapshot real",
-      );
-      assertSavingsPolicyReconciled(
-        retirementSnapshot.real,
-        "retirement snapshot real",
-        inputs.savingsPolicy,
-      );
-      reserveTargetAtRetirementNominal =
-        monthlyFlow.surplusAllocation.reserveTarget;
-      reserveTargetAtRetirementReal =
-        reserveTargetAtRetirementNominal / factor;
-      reserveBalanceAtRetirementNominal = reserveAccounts.reduce(
-        (total, account) => total + (balances.get(account.id) ?? 0),
-        0,
-      );
-      reserveBalanceAtRetirementReal =
-        reserveBalanceAtRetirementNominal / factor;
-      if (destinationAccount) {
-        destinationBalanceAtRetirementNominal =
-          balances.get(destinationAccount.id) ?? 0;
-        destinationBalanceAtRetirementReal =
-          destinationBalanceAtRetirementNominal / factor;
+      retirementContinuation = {
+        retirementState: rawRetirementState,
+        nonFinancialAssetValues: new Map(nonFinancialAssetValues),
+        liabilityBalances: new Map(liabilityBalances),
+        liabilityPayoffDates: { ...liabilityPayoffDates },
+        tfsaRoom,
+        rrspRoom,
+        tfsaWithdrawalsByYear: new Map(tfsaWithdrawalsByYear),
+        rrspGenerationByYear: new Map(rrspGenerationByYear),
+      };
+      if (!evaluationOnly) {
+        const retirementRealMonthlyFlow = emptyView();
+        addMonthlyFlow(retirementRealMonthlyFlow, monthlyFlow, factor);
+        retirementSnapshot = {
+          calendarDate: lastDayOfMonth(calendarYear, calendarMonth),
+          age: round(inputs.person.retirementAge),
+          flowPeriod: {
+            kind: "final_working_month",
+            calendarMonth: `${calendarYear}-${String(calendarMonth).padStart(2, "0")}`,
+          },
+          nominal: snapshotView(
+            monthlyFlow,
+            inputs.accounts,
+            balances,
+            inputs.nonFinancialAssets,
+            nonFinancialAssetValues,
+            inputs.liabilities,
+            liabilityBalances,
+            1,
+          ),
+          real: snapshotView(
+            retirementRealMonthlyFlow,
+            inputs.accounts,
+            balances,
+            inputs.nonFinancialAssets,
+            nonFinancialAssetValues,
+            inputs.liabilities,
+            liabilityBalances,
+            factor,
+            monthlyFlow.liabilitySchedules,
+          ),
+        };
+        assertSurplusReconciled(
+          retirementSnapshot.nominal,
+          "retirement snapshot nominal",
+        );
+        assertSurplusReconciled(
+          retirementSnapshot.real,
+          "retirement snapshot real",
+        );
+        assertSavingsPolicyReconciled(
+          retirementSnapshot.nominal,
+          "retirement snapshot nominal",
+          inputs.savingsPolicy,
+        );
+        assertBalanceSheetReconciled(
+          retirementSnapshot.nominal,
+          "retirement snapshot nominal",
+        );
+        assertBalanceSheetReconciled(
+          retirementSnapshot.real,
+          "retirement snapshot real",
+        );
+        assertLiabilitySchedulesReconciled(
+          retirementSnapshot.nominal,
+          "retirement snapshot nominal",
+        );
+        assertLiabilitySchedulesReconciled(
+          retirementSnapshot.real,
+          "retirement snapshot real",
+        );
+        assertSavingsPolicyReconciled(
+          retirementSnapshot.real,
+          "retirement snapshot real",
+          inputs.savingsPolicy,
+        );
+        reserveTargetAtRetirementNominal =
+          monthlyFlow.surplusAllocation.reserveTarget;
+        reserveTargetAtRetirementReal =
+          reserveTargetAtRetirementNominal / factor;
+        reserveBalanceAtRetirementNominal = reserveAccounts.reduce(
+          (total, account) => total + (balances.get(account.id) ?? 0),
+          0,
+        );
+        reserveBalanceAtRetirementReal =
+          reserveBalanceAtRetirementNominal / factor;
+        if (destinationAccount) {
+          destinationBalanceAtRetirementNominal =
+            balances.get(destinationAccount.id) ?? 0;
+          destinationBalanceAtRetirementReal =
+            destinationBalanceAtRetirementNominal / factor;
+        }
+        nominalBridge.endingFinancialAssets =
+          rawRetirementBalanceSheet.financialAssets;
+        realBridge.endingFinancialAssets =
+          rawRetirementBalanceSheet.financialAssets / factor;
+        nominalNetWorthBridge.endingNetWorth =
+          rawRetirementBalanceSheet.totalNetWorth;
+        realNetWorthBridge.endingNetWorth =
+          rawRetirementBalanceSheet.totalNetWorth / factor;
       }
-      nominalBridge.endingFinancialAssets =
-        rawRetirementBalanceSheet.financialAssets;
-      realBridge.endingFinancialAssets =
-        rawRetirementBalanceSheet.financialAssets / factor;
-      nominalNetWorthBridge.endingNetWorth =
-        rawRetirementBalanceSheet.totalNetWorth;
-      realNetWorthBridge.endingNetWorth =
-        rawRetirementBalanceSheet.totalNetWorth / factor;
     }
-    if (calendarMonth === MONTHS_PER_YEAR || month === totalMonths) {
+    if (
+      !evaluationOnly &&
+      (calendarMonth === MONTHS_PER_YEAR || month === totalMonths)
+    ) {
       snapshot(month, previousSnapshotMonth, calendarYear);
     }
+    if (month === retirementMonth && options.candidateBalancesToday) {
+      for (const account of inputs.accounts) {
+        balances.set(
+          account.id,
+          (options.candidateBalancesToday.get(account.id) ?? 0) * factor,
+        );
+      }
+    }
+    if (month === totalMonths) {
+      terminalFinancialAssetsToday =
+        balanceSheet(inputs.accounts, balances).financialAssets / factor;
+    }
+  }
+
+  if (!rawRetirementState) {
+    throw new Error("The raw retirement state could not be captured");
+  }
+  if (!retirementContinuation) {
+    throw new Error("The retirement continuation state could not be captured");
+  }
+  if (evaluationOnly) {
+    const terminalMinimum =
+      inputs.retirementRequirement.minimumEndingFinancialAssetsToday;
+    const candidateEvaluation = {
+      passes:
+        retirementUnmetRequiredOutflow <= 0.000001 &&
+        retirementUnmetSpending <= 0.000001 &&
+        terminalFinancialAssetsToday + 0.000001 >= terminalMinimum,
+      terminalFinancialAssetsToday,
+      failure:
+        retirementUnmetRequiredOutflow > 0.000001
+          ? ("unmet_required_outflow" as const)
+          : retirementUnmetSpending > 0.000001
+            ? ("unmet_spending" as const)
+            : terminalFinancialAssetsToday + 0.000001 < terminalMinimum
+              ? ("terminal_balance" as const)
+              : null,
+    };
+    return {
+      result: null,
+      retirementState: rawRetirementState,
+      retirementContinuation,
+      candidateEvaluation,
+    };
   }
 
   if (!retirementSnapshot) {
@@ -2684,6 +2968,32 @@ export function calculateProjection(rawInputs: ProjectionInputs): ProjectionResu
   }
 
   const ending = annual.at(-1)!;
+  const projectionCompletionEvidence = {
+    plannedTerminalAge: inputs.endAge,
+    completedThroughDate: ending.period.endDate,
+    completedThroughAge: ending.age,
+    lastCompletedFinancialAssetsToday: round(
+      ending.real.balances.financialAssets,
+    ),
+    lastCompletedNetWorthToday: round(
+      ending.real.balances.totalNetWorth,
+    ),
+  };
+  const projectionCompletion: ProjectionCompletion =
+    projectedRetirementLiabilityShortfall
+      ? {
+          ...projectionCompletionEvidence,
+          status: "stopped_unfunded_liability",
+          stoppedBeforeMonth:
+            projectedRetirementLiabilityShortfall.calendarMonth,
+          reason: `The projected path stopped before ${projectedRetirementLiabilityShortfall.calendarMonth} because the required liability payment could not be fully funded.`,
+        }
+      : {
+          ...projectionCompletionEvidence,
+          status: "complete",
+          stoppedBeforeMonth: null,
+          reason: null,
+        };
   const assetsAtRetirement = retirementSnapshot.real.balances.financialAssets;
   const retirementYear = Number(retirementSnapshot.calendarDate.slice(0, 4));
   const mortgage = inputs.liabilities.find(
@@ -2720,17 +3030,33 @@ export function calculateProjection(rawInputs: ProjectionInputs): ProjectionResu
     message: `OAS begins at age ${inputs.person.oas.startAge}.`,
     age: inputs.person.oas.startAge,
   });
+  if (projectedRetirementLiabilityShortfall) {
+    observations.push({
+      code: "projected_retirement_liability_shortfall",
+      message: `The projected path stops before ${projectedRetirementLiabilityShortfall.calendarMonth} because the next required liability payment cannot be fully funded. The derived retirement requirement remains available from the exact retirement boundary.`,
+      calendarYear: projectedRetirementLiabilityShortfall.calendarYear,
+      age: round(projectedRetirementLiabilityShortfall.age),
+    });
+  }
   observations.push({
     code: "portfolio_duration",
     message:
-      financialAssetsDepletionAge === null
+      projectionCompletion.status !== "complete"
+        ? financialAssetsDepletionAge === null
+          ? `The projected path completed through ${projectionCompletion.completedThroughDate} at age ${projectionCompletion.completedThroughAge} before an unfunded liability payment stopped it; financial assets had not reached zero, so duration through age ${inputs.endAge} is not established.`
+          : `Financial assets reached zero near age ${round(financialAssetsDepletionAge)} before the projected path stopped at an unfunded liability payment.`
+        : financialAssetsDepletionAge === null
         ? `Financial assets remain above zero through age ${inputs.endAge}.`
         : `Financial assets reach zero near age ${round(financialAssetsDepletionAge)}.`,
-    age: financialAssetsDepletionAge ?? inputs.endAge,
+    age:
+      financialAssetsDepletionAge ??
+      (projectionCompletion.status === "complete"
+        ? inputs.endAge
+        : projectionCompletion.completedThroughAge),
   });
 
-  return {
-    schemaVersion: "9.0",
+  const result: CoreProjectionResult = {
+    schemaVersion: "10.0",
     inputs,
     summary: {
       retirementYear,
@@ -2752,13 +3078,18 @@ export function calculateProjection(rawInputs: ProjectionInputs): ProjectionResu
       goalGapToday: round(assetsAtRetirement - inputs.retirementGoalToday),
       financialAssetsDepletionAge:
         financialAssetsDepletionAge === null ? null : round(financialAssetsDepletionAge),
-      endingFinancialAssetsToday: round(ending.real.balances.financialAssets),
-      endingNetWorthToday: round(
-        ending.real.balances.totalNetWorth,
-      ),
+      endingFinancialAssetsToday:
+        projectionCompletion.status === "complete"
+          ? projectionCompletion.lastCompletedFinancialAssetsToday
+          : null,
+      endingNetWorthToday:
+        projectionCompletion.status === "complete"
+          ? projectionCompletion.lastCompletedNetWorthToday
+          : null,
       mortgagePayoffDate,
       mortgagePayoffAge,
     },
+    projectionCompletion,
     retirementSnapshot,
     financialAssetsBridge: {
       nominal: nominalBridge,
@@ -2885,5 +3216,96 @@ export function calculateProjection(rawInputs: ProjectionInputs): ProjectionResu
     },
     annual,
     observations,
+  };
+  return {
+    result,
+    retirementState: rawRetirementState,
+    retirementContinuation,
+    candidateEvaluation: null,
+  };
+}
+
+export function calculateProjection(
+  rawInputs: ProjectionInputs,
+): ProjectionResult {
+  const ordinary = simulateProjection(rawInputs);
+  if (!ordinary.result) {
+    throw new Error("The ordinary projection result was not captured");
+  }
+  const result = ordinary.result;
+  const inputs = result.inputs;
+  const retirementAccounts = inputs.accounts.map((account) => ({
+    accountId: account.id,
+    accountType: account.type,
+    projectedBalanceToday:
+      (ordinary.retirementState.accountBalances.get(account.id) ?? 0) /
+      ordinary.retirementState.inflationFactor,
+  }));
+  const initialUpperBoundToday = Math.max(
+    0.01,
+    ordinary.retirementState.financialAssetsToday,
+    inputs.retirementRequirement.minimumEndingFinancialAssetsToday,
+    (inputs.monthlyEssentialSpendingToday +
+      inputs.monthlyDiscretionarySpendingToday) *
+      12,
+  );
+  const retirementRequirement = solveRetirementRequirement({
+    projectedFinancialAssetsToday:
+      ordinary.retirementState.financialAssetsToday,
+    ownerGoalToday: inputs.retirementGoalToday,
+    terminalAge: inputs.endAge,
+    minimumEndingFinancialAssetsToday:
+      inputs.retirementRequirement.minimumEndingFinancialAssetsToday,
+    minimumEndingBalanceBaselineSource:
+      inputs.retirementRequirement.baselineSource,
+    minimumEndingBalanceActiveValueSource:
+      inputs.retirementRequirement.activeValueSource,
+    accounts: retirementAccounts,
+    initialUpperBoundToday,
+    hasRetirementLiabilityOverlap:
+      ordinary.retirementState.totalLiabilitiesToday > 0.005,
+    evaluate: (candidateBalancesToday) => {
+      const candidate = simulateProjection(inputs, {
+        candidateBalancesToday,
+        continuation: ordinary.retirementContinuation,
+      }).candidateEvaluation;
+      if (!candidate) {
+        throw new Error("Retirement candidate evaluation was not captured");
+      }
+      return candidate;
+    },
+  });
+  result.observations.push({
+    code: "retirement_requirement_tax_compatibility",
+    message:
+      "The retirement funding requirement is provisional under the current flat retirement-tax compatibility assumption.",
+    age: inputs.person.retirementAge,
+  });
+  if (
+    inputs.retirementRequirement.activeValueSource ===
+      "compatibility_default"
+  ) {
+    result.observations.push({
+      code: "retirement_requirement_compatibility_default",
+      message:
+        "The minimum terminal financial-assets balance uses a backward-compatible zero-dollar default because retirementRequirement is not explicitly configured.",
+      age: inputs.endAge,
+    });
+  } else if (
+    inputs.retirementRequirement.activeValueSource === "scenario_override"
+  ) {
+    result.observations.push({
+      code: "retirement_requirement_scenario_override",
+      message:
+        inputs.retirementRequirement.baselineSource ===
+        "compatibility_default"
+          ? "The active minimum terminal financial-assets balance is a temporary scenario override. The underlying YAML still omits retirementRequirement and normalizes to zero when the override is removed."
+          : "The active minimum terminal financial-assets balance is a temporary scenario override of an explicitly configured baseline value.",
+      age: inputs.endAge,
+    });
+  }
+  return {
+    ...result,
+    retirementRequirement,
   };
 }

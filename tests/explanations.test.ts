@@ -411,12 +411,103 @@ describe("calculation explanations", () => {
     expect(sum).toBe(document.reconciliation?.displayedValue);
   });
 
-  it("reconciles goal gap as assets at retirement minus goal", () => {
+  it("keeps the owner-goal difference separate from the funding margin", () => {
     const document = buildExplanation("goal-gap", context());
-    const [assets, goal, result] = document.steps.map((step) => step.rawValue!);
+    const [projected, goal, result] = document.steps.map(
+      (step) => step.rawValue!,
+    );
 
-    expect(Math.round((assets - goal) * 100) / 100).toBe(result);
+    expect(Math.round((projected - goal) * 100) / 100).toBe(result);
     expect(document.reconciliation?.matched).toBe(true);
+  });
+
+  it("explains the solver, composition, terminal source, exclusions, and provisional tax status", () => {
+    const value = context();
+    const requirement = buildExplanation("retirement-requirement", value);
+    const margin = buildExplanation("retirement-funding-margin", value);
+
+    expect(requirement.formula).toContain("Lowest passing cent");
+    expect(
+      section(requirement, "Retirement-boundary account composition").rows,
+    ).toHaveLength(value.inputs.accounts.length);
+    expect(requirement.caveats.join(" ")).toContain("Provisional");
+    expect(requirement.caveats.join(" ")).toContain("RRIF minimum");
+    expect(requirement.caveats.join(" ")).toContain("Residence value");
+    expect(
+      requirement.steps.find(
+        (step) => step.label === "Minimum ending financial assets",
+      )?.sourceDescription,
+    ).toContain("Explicit planner configuration");
+    expect(margin.formula).toBe(
+      "Projected at retirement − required at retirement",
+    );
+    expect(margin.reconciliation?.matched).toBe(true);
+  });
+
+  it("describes compatibility terminal normalization as non-owner-configured", () => {
+    const value = context((draft) => {
+      draft.inputs.retirementRequirement.baselineSource =
+        "compatibility_default";
+      draft.inputs.retirementRequirement.activeValueSource =
+        "compatibility_default";
+      draft.baseline.projectionInputs.retirementRequirement.baselineSource =
+        "compatibility_default";
+      draft.baseline.projectionInputs.retirementRequirement.activeValueSource =
+        "compatibility_default";
+      draft.projection = calculateProjection(draft.inputs);
+    });
+    const document = buildExplanation("retirement-requirement", value);
+
+    expect(document.caveats.join(" ")).toContain(
+      "not an owner-configured value",
+    );
+    expect(
+      document.steps.find(
+        (step) => step.label === "Minimum ending financial assets",
+      )?.sourceDescription,
+    ).toContain("Compatibility normalization");
+  });
+
+  it("describes an active terminal scenario override without calling it a zero default", () => {
+    const value = context((draft) => {
+      draft.inputs.retirementRequirement = {
+        minimumEndingFinancialAssetsToday: 12_345.67,
+        baselineSource: "compatibility_default",
+        activeValueSource: "scenario_override",
+      };
+      draft.baseline.projectionInputs.retirementRequirement = {
+        minimumEndingFinancialAssetsToday: 0,
+        baselineSource: "compatibility_default",
+        activeValueSource: "compatibility_default",
+      };
+      draft.overrides = {
+        "retirementRequirement.minimumEndingFinancialAssetsToday":
+          12_345.67,
+      };
+      draft.projection = calculateProjection(draft.inputs);
+    });
+    const document = buildExplanation("retirement-requirement", value);
+    const minimum = document.steps.find(
+      (step) => step.label === "Minimum ending financial assets",
+    );
+
+    expect(minimum).toMatchObject({
+      rawValue: 12_345.67,
+      sourceType: "override",
+      sourceDescription: "Temporary scenario override",
+    });
+    expect(document.assumptions).toContainEqual(
+      expect.objectContaining({
+        label: "Underlying YAML source",
+        value: expect.stringContaining("YAML omits retirementRequirement"),
+      }),
+    );
+    expect(document.caveats.join(" ")).toContain(
+      "underlying YAML still omits retirementRequirement",
+    );
+    expect(document.caveats.join(" ")).not.toContain(
+      "zero-dollar terminal minimum",
+    );
   });
 
   it("explains both depletion and no-depletion duration outcomes", () => {
@@ -441,6 +532,68 @@ describe("calculation explanations", () => {
     ).toBe("Yes");
   });
 
+  it("describes an early-stopped projection from the shared completion state", () => {
+    const value = context();
+    const final = value.projection.annual.at(-1)!;
+    value.projection.summary.financialAssetsDepletionAge = null;
+    value.projection.summary.endingFinancialAssetsToday = null;
+    value.projection.summary.endingNetWorthToday = null;
+    value.projection.projectionCompletion = {
+      status: "stopped_unfunded_liability",
+      plannedTerminalAge: value.inputs.endAge,
+      completedThroughDate: final.period.endDate,
+      completedThroughAge: final.age,
+      stoppedBeforeMonth: "synthetic-next-month",
+      reason:
+        "The projected path stopped before a synthetic month because a required liability payment could not be fully funded.",
+      lastCompletedFinancialAssetsToday:
+        final.real.balances.financialAssets,
+      lastCompletedNetWorthToday: final.real.balances.totalNetWorth,
+    };
+
+    const duration = buildExplanation(
+      "financial-assets-duration",
+      value,
+    );
+    const liabilityValue = balanceSheetContext("real");
+    const liabilityFinal = liabilityValue.projection.annual.at(-1)!;
+    liabilityValue.projection.projectionCompletion = {
+      status: "stopped_unfunded_liability",
+      plannedTerminalAge: liabilityValue.inputs.endAge,
+      completedThroughDate: liabilityFinal.period.endDate,
+      completedThroughAge: liabilityFinal.age,
+      stoppedBeforeMonth: "synthetic-next-month",
+      reason:
+        "The projected path stopped before a synthetic month because a required liability payment could not be fully funded.",
+      lastCompletedFinancialAssetsToday:
+        liabilityFinal.real.balances.financialAssets,
+      lastCompletedNetWorthToday:
+        liabilityFinal.real.balances.totalNetWorth,
+    };
+    const liability = buildExplanation(
+      "liability-schedule",
+      liabilityValue,
+    );
+
+    expect(duration.displayedResult?.value).toBe(`Stopped at age ${final.age}`);
+    expect(duration.plainLanguage).toContain("stopped");
+    expect(duration.plainLanguage).toContain("last-completed value");
+    expect(duration.plainLanguage).not.toContain("remain above zero through");
+    expect(
+      duration.steps.find(
+        (step) => step.label === "Last completed financial assets",
+      )?.rawValue,
+    ).toBe(final.real.balances.financialAssets);
+    expect(liability.displayedResult?.label).toBe(
+      "Liabilities at last completed date",
+    );
+    expect(
+      liability.steps.find(
+        (step) => step.label === "Required liability payment funding",
+      )?.value,
+    ).toContain("stopped before synthetic-next-month");
+  });
+
   it("uses the exact plotted chart dataset in real and nominal explanations", () => {
     const real = context();
     const nominal = context((draft) => {
@@ -463,7 +616,9 @@ describe("calculation explanations", () => {
     expect(realRows[1]?.essential).not.toBe(nominalRows[1]?.essential);
     expect(realDocument.displayedResult?.value).toBe("Today’s dollars");
     expect(nominalDocument.displayedResult?.value).toBe("Future dollars");
-    expect(realRows[0]?.periodLabel).toBe("2026 (Jul–Dec)");
+    expect(realRows[0]?.periodLabel).toBe(
+      "2026 (Jul–Dec) · partial period",
+    );
   });
 
   it("distinguishes the live spending baseline, lifestyle multipliers, and inflation", () => {

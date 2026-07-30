@@ -5,6 +5,8 @@ import type { ProjectionInputs, ProjectionResult } from "@/src/domain/projection
 export const explanationTargets = [
   "starting-financial-assets",
   "assets-at-retirement",
+  "retirement-requirement",
+  "retirement-funding-margin",
   "retirement-goal",
   "goal-gap",
   "financial-assets-duration",

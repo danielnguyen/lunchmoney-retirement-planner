@@ -182,7 +182,7 @@ export type LunchMoneyMappings = {
 };
 
 export type CurrentBaseline = {
-  schemaVersion: "1.9";
+  schemaVersion: "2.0";
   connection: ConnectionStatus;
   projectionInputs: ProjectionInputs;
   provenance: Record<string, BaselineValue<unknown>>;

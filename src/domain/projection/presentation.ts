@@ -66,7 +66,24 @@ export function monthlyInvestmentContributions(inputs: ProjectionInputs): number
   );
 }
 
-export function annualPeriodLabel(inputs: ProjectionInputs, calendarYear: number): string {
+export function annualPeriodLabel(
+  inputs: ProjectionInputs,
+  calendarYear: number,
+  period?: AnnualProjection["period"],
+): string {
+  if (period) {
+    const periodStartMonth = Number(period.startDate.slice(5, 7));
+    const periodEndMonth = Number(period.endDate.slice(5, 7));
+    const monthRange =
+      periodStartMonth === 1 && periodEndMonth === 12
+        ? ""
+        : periodStartMonth === periodEndMonth
+          ? ` (${MONTH_LABELS[periodStartMonth - 1]})`
+          : ` (${MONTH_LABELS[periodStartMonth - 1]}–${MONTH_LABELS[periodEndMonth - 1]})`;
+    const partialLabel =
+      period.status === "partial_period" ? " · partial period" : "";
+    return `${calendarYear}${monthRange}${partialLabel}`;
+  }
   const startYear = Number(inputs.startDate.slice(0, 4));
   const startMonth = Number(inputs.startDate.slice(5, 7));
   const totalMonths = Math.round((inputs.endAge - inputs.person.currentAge) * 12);
@@ -756,7 +773,11 @@ export function buildAnnualChartData(
     const view = point[mode];
     return {
       year: point.calendarYear,
-      periodLabel: annualPeriodLabel(inputs, point.calendarYear),
+      periodLabel: annualPeriodLabel(
+        inputs,
+        point.calendarYear,
+        point.period,
+      ),
       age: point.age,
       essential: view.outflows.essential,
       discretionary: view.outflows.discretionary,
@@ -933,7 +954,11 @@ export function buildAnnualLedgerData(
   return projection.annual.map((point) => {
     const view = point[mode];
     return {
-      periodLabel: annualPeriodLabel(inputs, point.calendarYear),
+      periodLabel: annualPeriodLabel(
+        inputs,
+        point.calendarYear,
+        point.period,
+      ),
       year: point.calendarYear,
       age: point.age,
       income: view.income.total,

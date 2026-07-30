@@ -5,10 +5,14 @@ export const explanationTooltips: Record<ExplanationTarget, string> = {
     "The included cash and investment balances imported at the start of the projection. Debt is not counted as a financial asset.",
   "assets-at-retirement":
     "Projected cash and investment balances at the end of the final working month, immediately before the first fully retired month, in today’s dollars.",
+  "retirement-requirement":
+    "The lowest retirement-boundary financial-assets amount that funds the configured retirement cash flows and minimum terminal balance through the terminal age.",
+  "retirement-funding-margin":
+    "Projected retirement financial assets minus the independently derived retirement requirement. The label states whether the result is a margin or shortfall.",
   "retirement-goal":
-    "The financial-asset target used for the retirement comparison. Real property is outside this goal.",
+    "Your configured round-number marker. It remains separate from the mathematically derived retirement requirement.",
   "goal-gap":
-    "Assets at retirement minus the retirement goal. A positive value is above the goal; a negative value is below it.",
+    "Projected retirement financial assets minus your owner goal marker; this remains separate from the derived funding margin.",
   "financial-assets-duration":
     "How long projected cash and investment balances remain above zero in this deterministic scenario.",
   "annual-spending":

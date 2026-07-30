@@ -24,6 +24,10 @@ const configFixture: PlannerConfig = {
   cppMonthlyAmountAt65: 1200,
   oasMonthlyAmountAt65: 700,
   retirementGoal: 900000,
+  retirementRequirement: {
+    minimumEndingFinancialAssetsToday: 0,
+    source: "explicit_configuration",
+  },
   transactionTrailingMonths: 12,
   accountMappings: {
     "manual:1": { include: true, type: "cash", withdrawalPriority: 1 },
@@ -306,6 +310,19 @@ describe("live baseline derivation", () => {
         source: "compatibility_default",
       },
     ]);
+    expect(baseline.projectionInputs.retirementRequirement).toEqual({
+      minimumEndingFinancialAssetsToday: 0,
+      baselineSource: "explicit_configuration",
+      activeValueSource: "explicit_configuration",
+    });
+    expect(
+      baseline.provenance[
+        "retirementRequirement.minimumEndingFinancialAssetsToday"
+      ],
+    ).toMatchObject({
+      value: 0,
+      sourceDescription: expect.stringContaining("Explicit configured"),
+    });
     expect(
       baseline.provenance[
         "spendingPhases.compatibility-full-projection.source"
@@ -324,9 +341,48 @@ describe("live baseline derivation", () => {
       }),
     ]);
     expect(baseline.recordsAnalyzed.transactions).toBe(8);
-    expect(baseline.schemaVersion).toBe("1.9");
+    expect(baseline.schemaVersion).toBe("2.0");
     expect(baseline.warnings).toContainEqual(
       expect.objectContaining({ code: "long_live_baseline_income" }),
+    );
+  });
+
+  it("carries visible terminal-balance compatibility provenance into resolved inputs", () => {
+    const config = structuredClone(configFixture);
+    config.retirementRequirement = {
+      minimumEndingFinancialAssetsToday: 0,
+      source: "compatibility_default",
+    };
+
+    const baseline = deriveCurrentBaseline(
+      config,
+      lunchMoneyData(),
+      window,
+      "2026-07-14T12:00:00.000Z",
+    );
+
+    expect(
+      baseline.projectionInputs.retirementRequirement.baselineSource,
+    ).toBe(
+      "compatibility_default",
+    );
+    expect(
+      baseline.projectionInputs.retirementRequirement.activeValueSource,
+    ).toBe(
+      "compatibility_default",
+    );
+    expect(
+      baseline.provenance[
+        "retirementRequirement.minimumEndingFinancialAssetsToday"
+      ]?.sourceDescription,
+    ).toContain("Backward-compatible");
+    expect(
+      calculateProjection(baseline.projectionInputs).observations,
+    ).toContainEqual(
+      expect.objectContaining({
+        code: "retirement_requirement_compatibility_default",
+        message: expect.stringContaining("backward-compatible"),
+      }),
     );
   });
 
@@ -416,7 +472,7 @@ describe("live baseline derivation", () => {
       "2026-07-14T12:00:00.000Z",
     );
 
-    expect(baseline.schemaVersion).toBe("1.9");
+    expect(baseline.schemaVersion).toBe("2.0");
     expect(baseline.lunchMoneyMappings.accounts).toEqual([
       {
         mappingId: "manual:1",
@@ -476,7 +532,7 @@ describe("live baseline derivation", () => {
       "2026-07-14T12:00:00.000Z",
     );
 
-    expect(baseline.schemaVersion).toBe("1.9");
+    expect(baseline.schemaVersion).toBe("2.0");
     expect(
       baseline.projectionInputs.registeredAccountRoom?.tfsa
         .startingAvailableRoom.amount,
@@ -696,7 +752,7 @@ describe("live baseline derivation", () => {
       "2026-07-14T12:00:00.000Z",
     );
 
-    expect(baseline.schemaVersion).toBe("1.9");
+    expect(baseline.schemaVersion).toBe("2.0");
     expect(baseline.projectionInputs.nonFinancialAssets).toEqual([
       expect.objectContaining({
         id: "manual:4",

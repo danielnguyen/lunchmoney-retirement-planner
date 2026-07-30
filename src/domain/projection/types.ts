@@ -273,6 +273,20 @@ export type TaxAssumptions = {
   oasRecoveryRate: number;
 };
 
+export type RetirementRequirementBaselineSource =
+  | "explicit_configuration"
+  | "compatibility_default";
+
+export type RetirementRequirementActiveValueSource =
+  | RetirementRequirementBaselineSource
+  | "scenario_override";
+
+export type RetirementRequirementInput = {
+  minimumEndingFinancialAssetsToday: number;
+  baselineSource: RetirementRequirementBaselineSource;
+  activeValueSource: RetirementRequirementActiveValueSource;
+};
+
 export type ProjectionInputs = {
   startDate: string;
   endAge: number;
@@ -281,6 +295,7 @@ export type ProjectionInputs = {
   monthlyDiscretionarySpendingToday: number;
   spendingPhases: SpendingPhase[];
   retirementGoalToday: number;
+  retirementRequirement: RetirementRequirementInput;
   tax: TaxAssumptions;
   person: PersonInput;
   accounts: FinancialAccountInput[];
@@ -462,6 +477,11 @@ export type AnnualProjection = {
   calendarYear: number;
   age: number;
   phase: "accumulation" | "retirement";
+  period: {
+    startDate: string;
+    endDate: string;
+    status: "complete_calendar_year" | "partial_period";
+  };
   nominal: ProjectionView;
   real: ProjectionView;
   milestones: string[];
@@ -480,10 +500,76 @@ export type ProjectionSummary = {
   retirementGoalToday: number;
   goalGapToday: number;
   financialAssetsDepletionAge: number | null;
-  endingFinancialAssetsToday: number;
-  endingNetWorthToday: number;
+  endingFinancialAssetsToday: number | null;
+  endingNetWorthToday: number | null;
   mortgagePayoffDate: string | null;
   mortgagePayoffAge: number | null;
+};
+
+type ProjectionCompletionEvidence = {
+  plannedTerminalAge: number;
+  completedThroughDate: string;
+  completedThroughAge: number;
+  lastCompletedFinancialAssetsToday: number;
+  lastCompletedNetWorthToday: number;
+};
+
+export type ProjectionCompletion = ProjectionCompletionEvidence &
+  (
+    | {
+        status: "complete";
+        stoppedBeforeMonth: null;
+        reason: null;
+      }
+    | {
+        status: "stopped_unfunded_liability";
+        stoppedBeforeMonth: string;
+        reason: string;
+      }
+  );
+
+export type RetirementRequirementComposition = {
+  accountId: string;
+  accountType: AccountType;
+  projectedBalanceToday: number;
+  weight: number;
+  requiredBalanceToday: number | null;
+};
+
+export type RetirementRequirementBindingConstraint =
+  | "self_funding"
+  | "terminal_balance"
+  | "retirement_cash_flow"
+  | "liability_overlap"
+  | "unavailable_composition"
+  | "infeasible";
+
+export type RetirementRequirementResult = {
+  status: "available" | "unavailable" | "infeasible";
+  projectedFinancialAssetsToday: number;
+  requiredFinancialAssetsToday: number | null;
+  fundingMarginToday: number | null;
+  terminalAge: number;
+  minimumEndingFinancialAssetsToday: number;
+  minimumEndingBalanceBaselineSource: RetirementRequirementBaselineSource;
+  minimumEndingBalanceActiveValueSource: RetirementRequirementActiveValueSource;
+  ownerGoalToday: number;
+  ownerGoalDifferenceToday: number;
+  compositionMode: "projected_retirement_account_weights";
+  composition: RetirementRequirementComposition[];
+  taxModel: "flat_retirement_tax_compatibility";
+  provisionalTax: true;
+  bindingConstraint: RetirementRequirementBindingConstraint;
+  solver: {
+    zeroCandidatePassed: boolean;
+    highestFailingCandidateCents: number | null;
+    acceptedCandidateCents: number | null;
+    acceptedCandidatePassed: boolean;
+    oneCentBelowFailed: boolean | null;
+    upperBoundEvaluations: number;
+    binarySearchIterations: number;
+  };
+  reason: string | null;
 };
 
 export type ProjectionObservation = {
@@ -675,9 +761,11 @@ export type SavingsPolicyCalculationSummary = {
 };
 
 export type ProjectionResult = {
-  schemaVersion: "9.0";
+  schemaVersion: "10.0";
   inputs: ProjectionInputs;
   summary: ProjectionSummary;
+  projectionCompletion: ProjectionCompletion;
+  retirementRequirement: RetirementRequirementResult;
   retirementSnapshot: RetirementSnapshot;
   financialAssetsBridge: {
     nominal: FinancialAssetsBridge;
@@ -863,6 +951,30 @@ export function validateProjectionInputs(value: unknown): ProjectionInputs {
     throw new Error("The final spending phase must cover endAge");
   }
   assertNonNegative("retirementGoalToday", input.retirementGoalToday);
+  if (!input.retirementRequirement || typeof input.retirementRequirement !== "object") {
+    throw new Error("retirementRequirement must be resolved");
+  }
+  assertNonNegative(
+    "retirementRequirement.minimumEndingFinancialAssetsToday",
+    input.retirementRequirement.minimumEndingFinancialAssetsToday,
+  );
+  if (
+    input.retirementRequirement.baselineSource !== "explicit_configuration" &&
+    input.retirementRequirement.baselineSource !== "compatibility_default"
+  ) {
+    throw new Error(
+      "retirementRequirement.baselineSource must identify configuration or compatibility normalization",
+    );
+  }
+  if (
+    input.retirementRequirement.activeValueSource !== "scenario_override" &&
+    input.retirementRequirement.activeValueSource !==
+      input.retirementRequirement.baselineSource
+  ) {
+    throw new Error(
+      "retirementRequirement.activeValueSource must identify the baseline source or a scenario override",
+    );
+  }
   assertNonNegative("annualPensionToday", input.person.annualPensionToday);
   assertNonNegative("CPP monthlyAmountAt65Today", input.person.cpp.monthlyAmountAt65Today);
   assertNonNegative(

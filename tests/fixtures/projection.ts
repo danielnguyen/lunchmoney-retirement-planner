@@ -22,6 +22,11 @@ export const projectionFixture: ProjectionInputs = {
     },
   ],
   retirementGoalToday: 900000,
+  retirementRequirement: {
+    minimumEndingFinancialAssetsToday: 0,
+    baselineSource: "explicit_configuration",
+    activeValueSource: "explicit_configuration",
+  },
   tax: {
     effectiveTaxRate: 0.2,
     oasRecoveryThresholdToday: 90000,
@@ -283,7 +288,7 @@ export const baselineContextFixture: BaselineExportContext = {
 
 export const currentBaselineFixture: CurrentBaseline = {
   ...baselineContextFixture,
-  schemaVersion: "1.9",
+  schemaVersion: "2.0",
   lunchMoneyMappings: {
     accounts: [
       {
