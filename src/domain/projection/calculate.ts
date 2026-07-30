@@ -2551,6 +2551,14 @@ export function calculateProjection(rawInputs: ProjectionInputs): ProjectionResu
       financialAssetsDepletionAge = age;
     }
     if (month === retirementMonth) {
+      const rawRetirementBalanceSheet = balanceSheet(
+        inputs.accounts,
+        balances,
+        inputs.nonFinancialAssets,
+        nonFinancialAssetValues,
+        inputs.liabilities,
+        liabilityBalances,
+      );
       const retirementRealMonthlyFlow = emptyView();
       addMonthlyFlow(retirementRealMonthlyFlow, monthlyFlow, factor);
       retirementSnapshot = {
@@ -2633,12 +2641,13 @@ export function calculateProjection(rawInputs: ProjectionInputs): ProjectionResu
           destinationBalanceAtRetirementNominal / factor;
       }
       nominalBridge.endingFinancialAssets =
-        retirementSnapshot.nominal.balances.financialAssets;
-      realBridge.endingFinancialAssets = retirementSnapshot.real.balances.financialAssets;
+        rawRetirementBalanceSheet.financialAssets;
+      realBridge.endingFinancialAssets =
+        rawRetirementBalanceSheet.financialAssets / factor;
       nominalNetWorthBridge.endingNetWorth =
-        retirementSnapshot.nominal.balances.totalNetWorth;
+        rawRetirementBalanceSheet.totalNetWorth;
       realNetWorthBridge.endingNetWorth =
-        retirementSnapshot.real.balances.totalNetWorth;
+        rawRetirementBalanceSheet.totalNetWorth / factor;
     }
     if (calendarMonth === MONTHS_PER_YEAR || month === totalMonths) {
       snapshot(month, previousSnapshotMonth, calendarYear);

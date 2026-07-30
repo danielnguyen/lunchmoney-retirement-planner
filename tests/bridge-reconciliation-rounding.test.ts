@@ -37,6 +37,225 @@ describe("aggregate monetary reconciliation", () => {
     expect(centDifference([99.98], [100])).toBe(-2);
   });
 
+  it("reconciles retirement bridges from raw balances while keeping snapshots display-rounded", () => {
+    const inputs = structuredClone(projectionFixture);
+    inputs.person.currentAge = 40;
+    inputs.person.retirementAge = 41;
+    inputs.endAge = 42;
+    inputs.annualInflation = 0.12;
+    inputs.monthlyEssentialSpendingToday = 0;
+    inputs.monthlyDiscretionarySpendingToday = 0;
+    inputs.person.employmentIncomePhases = [
+      {
+        id: "synthetic-zero-income",
+        label: "Synthetic zero income",
+        startAge: 40,
+        endAge: 41,
+        annualNetCashToday: 0,
+        annualGrowth: 0,
+      },
+    ];
+    inputs.spendingPhases = [
+      {
+        id: "synthetic-zero-spending",
+        label: "Synthetic zero spending",
+        startAge: 40,
+        endAge: 42,
+        essentialMultiplier: 1,
+        discretionaryMultiplier: 1,
+        source: "explicit_configuration",
+      },
+    ];
+    inputs.accounts = [
+      {
+        id: "synthetic:cash",
+        label: "Synthetic cash",
+        origin: "lunchmoney",
+        type: "cash",
+        openingBalance: 100.004,
+        annualReturn: 0,
+        contributionPhases: [],
+        withdrawalPriority: 1,
+        allocation: { cash: 1, fixedIncome: 0, equity: 0 },
+      },
+      {
+        id: "synthetic:tfsa",
+        label: "Synthetic TFSA",
+        origin: "lunchmoney",
+        type: "tfsa",
+        openingBalance: 100.004,
+        annualReturn: 0,
+        contributionPhases: [],
+        withdrawalPriority: 2,
+        allocation: { cash: 0, fixedIncome: 0, equity: 1 },
+      },
+      {
+        id: "synthetic:rrsp",
+        label: "Synthetic RRSP",
+        origin: "lunchmoney",
+        type: "rrsp_rrif",
+        openingBalance: 100.004,
+        annualReturn: 0,
+        contributionPhases: [],
+        withdrawalPriority: 3,
+        allocation: { cash: 0, fixedIncome: 0, equity: 1 },
+      },
+      {
+        id: "synthetic:taxable",
+        label: "Synthetic taxable account",
+        origin: "lunchmoney",
+        type: "non_registered",
+        openingBalance: 100.004,
+        annualReturn: 0,
+        contributionPhases: [],
+        withdrawalPriority: 4,
+        allocation: { cash: 0, fixedIncome: 0, equity: 1 },
+      },
+    ];
+    inputs.nonFinancialAssets = [
+      {
+        id: "synthetic:residence",
+        label: "Synthetic residence",
+        origin: "projection_configuration",
+        type: "primary_residence",
+        openingValue: 1000.004,
+        valueAsOf: "2026-07-01",
+        annualAppreciation: 0,
+        availableForWithdrawals: false,
+      },
+    ];
+    inputs.liabilities = [];
+    inputs.events = [];
+    inputs.registeredAccountRoom = undefined;
+    inputs.contributionWaterfall = {
+      mode: "fixed_source_compatibility",
+      routes: [],
+      surplusDestinationAccountIds: [],
+    };
+    inputs.surplusAllocation = {
+      reserveAccountIds: ["synthetic:cash"],
+      reserveRefillAccountId: "synthetic:cash",
+      targetCashReserveToday: 0,
+      reserveIndexingRate: 0,
+      excess: { mode: "retain_as_cash" },
+    };
+    inputs.savingsPolicy = { mode: "advanced" };
+
+    const rawFinancialAssets = inputs.accounts.reduce(
+      (total, account) => total + account.openingBalance,
+      0,
+    );
+    const rawNetWorth =
+      rawFinancialAssets + inputs.nonFinancialAssets[0]!.openingValue;
+    const retirementInflationFactor = Math.pow(
+      1 + inputs.annualInflation,
+      inputs.person.retirementAge - inputs.person.currentAge,
+    );
+
+    const result = calculateProjection(inputs);
+    const snapshot = result.retirementSnapshot;
+
+    expect(Object.values(snapshot.nominal.accountBalances)).toEqual([
+      100,
+      100,
+      100,
+      100,
+    ]);
+    expect(snapshot.nominal.nonFinancialAssetValues["synthetic:residence"]).toBe(
+      1000,
+    );
+    expect(snapshot.nominal.balances.financialAssets).toBe(
+      Object.values(snapshot.nominal.accountBalances).reduce(
+        (total, balance) => total + balance,
+        0,
+      ),
+    );
+    expect(snapshot.nominal.balances.totalNetWorth).toBe(
+      snapshot.nominal.balances.financialAssets +
+        snapshot.nominal.balances.totalNonFinancialAssets -
+        snapshot.nominal.balances.totalLiabilities,
+    );
+    expect(
+      Math.abs(
+        centDifference(
+          [rawFinancialAssets],
+          [snapshot.nominal.balances.financialAssets],
+        ),
+      ),
+    ).toBeGreaterThanOrEqual(2);
+
+    expect(result.financialAssetsBridge.nominal.endingFinancialAssets).toBe(
+      rawFinancialAssets,
+    );
+    expect(result.financialAssetsBridge.real.endingFinancialAssets).toBeCloseTo(
+      rawFinancialAssets / retirementInflationFactor,
+      12,
+    );
+    expect(result.netWorthBridge.nominal.endingNetWorth).toBe(rawNetWorth);
+    expect(result.netWorthBridge.real.endingNetWorth).toBeCloseTo(
+      rawNetWorth / retirementInflationFactor,
+      12,
+    );
+
+    for (const bridge of [
+      result.financialAssetsBridge.nominal,
+      result.financialAssetsBridge.real,
+    ]) {
+      expect(
+        Math.abs(
+          centDifference(
+            [
+              bridge.startingFinancialAssets,
+              bridge.employmentNetCash,
+              bridge.publicBenefitsAndPension,
+              bridge.otherInflows,
+              bridge.incomeWithheldContributions,
+              bridge.investmentReturns,
+            ],
+            [
+              bridge.essentialSpending,
+              bridge.discretionarySpending,
+              bridge.liabilityCashPayments,
+              bridge.oneTimeOutflows,
+              bridge.taxes,
+              bridge.endingFinancialAssets,
+            ],
+          ),
+        ),
+      ).toBeLessThanOrEqual(1);
+    }
+    for (const bridge of [
+      result.netWorthBridge.nominal,
+      result.netWorthBridge.real,
+    ]) {
+      expect(
+        Math.abs(
+          centDifference(
+            [
+              bridge.startingFinancialAssets,
+              bridge.startingNonFinancialAssets,
+              bridge.externalNetCashInflows,
+              bridge.incomeWithheldContributions,
+              bridge.investmentReturns,
+              bridge.nonFinancialAssetAppreciation,
+              bridge.liabilityPrincipalReduction,
+            ],
+            [
+              bridge.startingLiabilities,
+              bridge.nonDebtEssentialSpending,
+              bridge.discretionarySpending,
+              bridge.liabilityInterest,
+              bridge.liabilityPrincipalPayments,
+              bridge.taxes,
+              bridge.oneTimeConsumptionOutflows,
+              bridge.endingNetWorth,
+            ],
+          ),
+        ),
+      ).toBeLessThanOrEqual(1);
+    }
+  });
+
   it("reconciles a long synthetic mortgage double-up schedule", () => {
     const inputs = structuredClone(projectionFixture);
     inputs.person.currentAge = 39;
