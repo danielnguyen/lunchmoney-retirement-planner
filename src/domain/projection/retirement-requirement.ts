@@ -29,9 +29,10 @@ type SolverInput = {
   ownerGoalToday: number;
   terminalAge: number;
   minimumEndingFinancialAssetsToday: number;
-  minimumEndingBalanceSource:
-    | "explicit_configuration"
-    | "compatibility_default";
+  minimumEndingBalanceBaselineSource:
+    RetirementRequirementResult["minimumEndingBalanceBaselineSource"];
+  minimumEndingBalanceActiveValueSource:
+    RetirementRequirementResult["minimumEndingBalanceActiveValueSource"];
   accounts: RetirementCompositionAccount[];
   initialUpperBoundToday: number;
   hasRetirementLiabilityOverlap: boolean;
@@ -142,7 +143,10 @@ export function solveRetirementRequirement(
     terminalAge: input.terminalAge,
     minimumEndingFinancialAssetsToday:
       input.minimumEndingFinancialAssetsToday,
-    minimumEndingBalanceSource: input.minimumEndingBalanceSource,
+    minimumEndingBalanceBaselineSource:
+      input.minimumEndingBalanceBaselineSource,
+    minimumEndingBalanceActiveValueSource:
+      input.minimumEndingBalanceActiveValueSource,
     ownerGoalToday: input.ownerGoalToday,
     compositionMode:
       "projected_retirement_account_weights" as const,

@@ -722,6 +722,25 @@ function retirementRequirementDocument(
   context: ExplanationContext,
 ): ExplanationDocument {
   const requirement = context.projection.retirementRequirement;
+  const baselineSourceDescription =
+    requirement.minimumEndingBalanceBaselineSource ===
+    "explicit_configuration"
+      ? "Explicit planner configuration"
+      : "Compatibility normalization because the YAML omits retirementRequirement";
+  const activeSourceDescription =
+    requirement.minimumEndingBalanceActiveValueSource === "scenario_override"
+      ? "Temporary scenario override"
+      : baselineSourceDescription;
+  const sourceCaveat =
+    requirement.minimumEndingBalanceActiveValueSource === "scenario_override"
+      ? requirement.minimumEndingBalanceBaselineSource ===
+        "compatibility_default"
+        ? "The active terminal minimum is a temporary scenario override. The underlying YAML still omits retirementRequirement and normalizes to zero when the override is removed."
+        : "The active terminal minimum is a temporary scenario override of an explicitly configured baseline value."
+      : requirement.minimumEndingBalanceBaselineSource ===
+          "compatibility_default"
+        ? "The zero-dollar terminal minimum is a visible backward-compatibility normalization, not an owner-configured value; configure retirementRequirement explicitly."
+        : "The terminal minimum is explicitly configured.";
   if (
     requirement.status !== "available" ||
     requirement.requiredFinancialAssetsToday === null
@@ -731,19 +750,37 @@ function retirementRequirementDocument(
       title: "Required at retirement",
       plainLanguage:
         "The derived requirement is unavailable for this scenario.",
-      steps: [],
+      steps: [
+        {
+          label: "Active minimum ending financial assets",
+          value: exactCurrency.format(
+            requirement.minimumEndingFinancialAssetsToday,
+          ),
+          rawValue: requirement.minimumEndingFinancialAssetsToday,
+          operation: "input",
+          sourceType:
+            requirement.minimumEndingBalanceActiveValueSource ===
+            "scenario_override"
+              ? "override"
+              : "configuration",
+          sourceDescription: activeSourceDescription,
+        },
+      ],
       dataSections: [],
-      assumptions: [],
+      assumptions: [
+        {
+          label: "Underlying YAML source",
+          value: baselineSourceDescription,
+          sourceType: "configuration",
+        },
+      ],
       caveats: [
         "Residence value and home equity are never used as retirement-funding assets.",
+        sourceCaveat,
       ],
       unavailableEvidence: [requirement.reason ?? "No requirement is available."],
     };
   }
-  const minimumSource =
-    requirement.minimumEndingBalanceSource === "explicit_configuration"
-      ? "Explicit planner configuration"
-      : "Compatibility normalization because the configuration omits retirementRequirement";
   return {
     id: "retirement-requirement",
     title: "Required at retirement",
@@ -770,8 +807,12 @@ function retirementRequirementDocument(
         ),
         rawValue: requirement.minimumEndingFinancialAssetsToday,
         operation: "input",
-        sourceType: "configuration",
-        sourceDescription: minimumSource,
+        sourceType:
+          requirement.minimumEndingBalanceActiveValueSource ===
+          "scenario_override"
+            ? "override"
+            : "configuration",
+        sourceDescription: activeSourceDescription,
       },
       {
         label: "Lowest passing retirement amount",
@@ -807,6 +848,11 @@ function retirementRequirementDocument(
     ],
     assumptions: [
       {
+        label: "Underlying YAML source",
+        value: baselineSourceDescription,
+        sourceType: "configuration",
+      },
+      {
         label: "Tax model",
         value: "Flat retirement-tax compatibility model",
         sourceType: "configuration",
@@ -821,9 +867,7 @@ function retirementRequirementDocument(
       "Provisional — calculated using the current flat retirement-tax compatibility assumption.",
       "Progressive Canadian retirement taxes and RRIF minimum withdrawals are not yet modelled.",
       "Residence value, home equity, and other non-financial assets cannot satisfy this requirement.",
-      requirement.minimumEndingBalanceSource === "compatibility_default"
-        ? "The zero-dollar terminal minimum is a visible backward-compatibility normalization, not an owner-configured value; configure retirementRequirement explicitly."
-        : "The terminal minimum is explicitly configured.",
+      sourceCaveat,
     ],
   };
 }

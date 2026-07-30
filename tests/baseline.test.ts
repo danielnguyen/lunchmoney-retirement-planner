@@ -312,7 +312,8 @@ describe("live baseline derivation", () => {
     ]);
     expect(baseline.projectionInputs.retirementRequirement).toEqual({
       minimumEndingFinancialAssetsToday: 0,
-      source: "explicit_configuration",
+      baselineSource: "explicit_configuration",
+      activeValueSource: "explicit_configuration",
     });
     expect(
       baseline.provenance[
@@ -360,7 +361,14 @@ describe("live baseline derivation", () => {
       "2026-07-14T12:00:00.000Z",
     );
 
-    expect(baseline.projectionInputs.retirementRequirement.source).toBe(
+    expect(
+      baseline.projectionInputs.retirementRequirement.baselineSource,
+    ).toBe(
+      "compatibility_default",
+    );
+    expect(
+      baseline.projectionInputs.retirementRequirement.activeValueSource,
+    ).toBe(
       "compatibility_default",
     );
     expect(

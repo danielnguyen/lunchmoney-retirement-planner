@@ -3256,7 +3256,10 @@ export function calculateProjection(
     terminalAge: inputs.endAge,
     minimumEndingFinancialAssetsToday:
       inputs.retirementRequirement.minimumEndingFinancialAssetsToday,
-    minimumEndingBalanceSource: inputs.retirementRequirement.source,
+    minimumEndingBalanceBaselineSource:
+      inputs.retirementRequirement.baselineSource,
+    minimumEndingBalanceActiveValueSource:
+      inputs.retirementRequirement.activeValueSource,
     accounts: retirementAccounts,
     initialUpperBoundToday,
     hasRetirementLiabilityOverlap:
@@ -3278,11 +3281,26 @@ export function calculateProjection(
       "The retirement funding requirement is provisional under the current flat retirement-tax compatibility assumption.",
     age: inputs.person.retirementAge,
   });
-  if (inputs.retirementRequirement.source === "compatibility_default") {
+  if (
+    inputs.retirementRequirement.activeValueSource ===
+      "compatibility_default"
+  ) {
     result.observations.push({
       code: "retirement_requirement_compatibility_default",
       message:
         "The minimum terminal financial-assets balance uses a backward-compatible zero-dollar default because retirementRequirement is not explicitly configured.",
+      age: inputs.endAge,
+    });
+  } else if (
+    inputs.retirementRequirement.activeValueSource === "scenario_override"
+  ) {
+    result.observations.push({
+      code: "retirement_requirement_scenario_override",
+      message:
+        inputs.retirementRequirement.baselineSource ===
+        "compatibility_default"
+          ? "The active minimum terminal financial-assets balance is a temporary scenario override. The underlying YAML still omits retirementRequirement and normalizes to zero when the override is removed."
+          : "The active minimum terminal financial-assets balance is a temporary scenario override of an explicitly configured baseline value.",
       age: inputs.endAge,
     });
   }

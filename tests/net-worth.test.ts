@@ -36,7 +36,8 @@ function baseInputs(): ProjectionInputs {
     retirementGoalToday: 100000,
     retirementRequirement: {
       minimumEndingFinancialAssetsToday: 0,
-      source: "explicit_configuration",
+      baselineSource: "explicit_configuration",
+      activeValueSource: "explicit_configuration",
     },
     tax: {
       effectiveTaxRate: 0.2,

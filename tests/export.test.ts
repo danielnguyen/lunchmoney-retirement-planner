@@ -673,6 +673,60 @@ describe("automatically anonymized projection exports", () => {
     expectNoSourceIdentifiersOrCredentials(JSON.stringify(snapshot));
   });
 
+  it("exports terminal-balance baseline and active scenario sources consistently", () => {
+    const fixture = buildExportFixture();
+    const inputs = structuredClone(fixture.inputs);
+    inputs.retirementRequirement = {
+      minimumEndingFinancialAssetsToday: 12_345.67,
+      baselineSource: "compatibility_default",
+      activeValueSource: "scenario_override",
+    };
+    const baseline = structuredClone(fixture.baseline);
+    baseline.projectionInputs.retirementRequirement = {
+      minimumEndingFinancialAssetsToday: 0,
+      baselineSource: "compatibility_default",
+      activeValueSource: "compatibility_default",
+    };
+    const snapshot = createProjectionSnapshot(
+      calculateProjection(inputs),
+      baseline,
+      {
+        "retirementRequirement.minimumEndingFinancialAssetsToday":
+          12_345.67,
+      },
+      "2026-07-14T00:00:00.000Z",
+    );
+
+    expect(snapshot.projection.inputs.retirementRequirement).toEqual({
+      minimumEndingFinancialAssetsToday: 12_345.67,
+      baselineSource: "compatibility_default",
+      activeValueSource: "scenario_override",
+    });
+    expect(snapshot.projection.retirementRequirement).toMatchObject({
+      minimumEndingFinancialAssetsToday: 12_345.67,
+      minimumEndingBalanceBaselineSource: "compatibility_default",
+      minimumEndingBalanceActiveValueSource: "scenario_override",
+    });
+
+    const [headerLine, firstRow] = projectionSnapshotToCsv(
+      snapshot,
+      "real",
+    ).split("\n");
+    const headers = parseCsvLine(headerLine!);
+    const values = parseCsvLine(firstRow!);
+    const row = Object.fromEntries(
+      headers.map((header, index) => [header, values[index]]),
+    );
+    expect(row.minimum_ending_financial_assets_today).toBe("12345.67");
+    expect(row.minimum_ending_balance_baseline_source).toBe(
+      "compatibility_default",
+    );
+    expect(row.minimum_ending_balance_active_value_source).toBe(
+      "scenario_override",
+    );
+    expectNoSourceIdentifiersOrCredentials(JSON.stringify(snapshot));
+  });
+
   it("preserves typed legacy-zero migration warnings", () => {
     const inputs = structuredClone(projectionFixture);
     inputs.person.cpp.monthlyAmountAt65Today = 0;

@@ -273,9 +273,18 @@ export type TaxAssumptions = {
   oasRecoveryRate: number;
 };
 
+export type RetirementRequirementBaselineSource =
+  | "explicit_configuration"
+  | "compatibility_default";
+
+export type RetirementRequirementActiveValueSource =
+  | RetirementRequirementBaselineSource
+  | "scenario_override";
+
 export type RetirementRequirementInput = {
   minimumEndingFinancialAssetsToday: number;
-  source: "explicit_configuration" | "compatibility_default";
+  baselineSource: RetirementRequirementBaselineSource;
+  activeValueSource: RetirementRequirementActiveValueSource;
 };
 
 export type ProjectionInputs = {
@@ -542,9 +551,8 @@ export type RetirementRequirementResult = {
   fundingMarginToday: number | null;
   terminalAge: number;
   minimumEndingFinancialAssetsToday: number;
-  minimumEndingBalanceSource:
-    | "explicit_configuration"
-    | "compatibility_default";
+  minimumEndingBalanceBaselineSource: RetirementRequirementBaselineSource;
+  minimumEndingBalanceActiveValueSource: RetirementRequirementActiveValueSource;
   ownerGoalToday: number;
   ownerGoalDifferenceToday: number;
   compositionMode: "projected_retirement_account_weights";
@@ -951,11 +959,20 @@ export function validateProjectionInputs(value: unknown): ProjectionInputs {
     input.retirementRequirement.minimumEndingFinancialAssetsToday,
   );
   if (
-    input.retirementRequirement.source !== "explicit_configuration" &&
-    input.retirementRequirement.source !== "compatibility_default"
+    input.retirementRequirement.baselineSource !== "explicit_configuration" &&
+    input.retirementRequirement.baselineSource !== "compatibility_default"
   ) {
     throw new Error(
-      "retirementRequirement.source must identify configuration or compatibility normalization",
+      "retirementRequirement.baselineSource must identify configuration or compatibility normalization",
+    );
+  }
+  if (
+    input.retirementRequirement.activeValueSource !== "scenario_override" &&
+    input.retirementRequirement.activeValueSource !==
+      input.retirementRequirement.baselineSource
+  ) {
+    throw new Error(
+      "retirementRequirement.activeValueSource must identify the baseline source or a scenario override",
     );
   }
   assertNonNegative("annualPensionToday", input.person.annualPensionToday);

@@ -31,7 +31,8 @@ function retirementFixture(): ProjectionInputs {
   input.retirementGoalToday = 999_999;
   input.retirementRequirement = {
     minimumEndingFinancialAssetsToday: 0,
-    source: "explicit_configuration",
+    baselineSource: "explicit_configuration",
+    activeValueSource: "explicit_configuration",
   };
   input.tax.effectiveTaxRate = 0;
   input.tax.oasRecoveryThresholdToday = 1_000_000;
@@ -195,6 +196,90 @@ describe("retirement funding requirement", () => {
     expect(
       changedGoal.retirementRequirement.ownerGoalDifferenceToday,
     ).not.toBe(first.retirementRequirement.ownerGoalDifferenceToday);
+    expect(first.retirementRequirement).toMatchObject({
+      minimumEndingBalanceBaselineSource: "explicit_configuration",
+      minimumEndingBalanceActiveValueSource: "explicit_configuration",
+    });
+  });
+
+  it("uses a terminal scenario override without misreporting its compatibility baseline", () => {
+    const input = retirementFixture();
+    input.retirementRequirement = {
+      minimumEndingFinancialAssetsToday: 12_345.67,
+      baselineSource: "compatibility_default",
+      activeValueSource: "scenario_override",
+    };
+
+    const result = calculateProjection(input);
+
+    expect(result.retirementRequirement).toMatchObject({
+      minimumEndingFinancialAssetsToday: 12_345.67,
+      minimumEndingBalanceBaselineSource: "compatibility_default",
+      minimumEndingBalanceActiveValueSource: "scenario_override",
+      requiredFinancialAssetsToday: 13_545.67,
+      bindingConstraint: "terminal_balance",
+    });
+    expect(result.observations).toContainEqual(
+      expect.objectContaining({
+        code: "retirement_requirement_scenario_override",
+        message: expect.stringContaining("temporary scenario override"),
+      }),
+    );
+    expect(
+      result.observations.some(
+        (observation) =>
+          observation.code ===
+            "retirement_requirement_compatibility_default" ||
+          observation.message.includes("uses a backward-compatible zero"),
+      ),
+    ).toBe(false);
+  });
+
+  it("reports the untouched compatibility terminal minimum as zero", () => {
+    const input = retirementFixture();
+    input.retirementRequirement = {
+      minimumEndingFinancialAssetsToday: 0,
+      baselineSource: "compatibility_default",
+      activeValueSource: "compatibility_default",
+    };
+
+    const result = calculateProjection(input);
+
+    expect(result.retirementRequirement).toMatchObject({
+      minimumEndingFinancialAssetsToday: 0,
+      minimumEndingBalanceBaselineSource: "compatibility_default",
+      minimumEndingBalanceActiveValueSource: "compatibility_default",
+    });
+    expect(result.observations).toContainEqual(
+      expect.objectContaining({
+        code: "retirement_requirement_compatibility_default",
+        message: expect.stringContaining("zero-dollar default"),
+      }),
+    );
+  });
+
+  it("distinguishes an explicit baseline from its active terminal scenario override", () => {
+    const input = retirementFixture();
+    input.retirementRequirement = {
+      minimumEndingFinancialAssetsToday: 432.1,
+      baselineSource: "explicit_configuration",
+      activeValueSource: "scenario_override",
+    };
+
+    const result = calculateProjection(input);
+
+    expect(result.retirementRequirement).toMatchObject({
+      minimumEndingFinancialAssetsToday: 432.1,
+      minimumEndingBalanceBaselineSource: "explicit_configuration",
+      minimumEndingBalanceActiveValueSource: "scenario_override",
+      requiredFinancialAssetsToday: 1632.1,
+    });
+    expect(result.observations).toContainEqual(
+      expect.objectContaining({
+        code: "retirement_requirement_scenario_override",
+        message: expect.stringContaining("explicitly configured baseline"),
+      }),
+    );
   });
 
   it("funds one-time retirement outflows through the ordinary event engine", () => {

@@ -464,6 +464,42 @@ describe("scenario draft classification and YAML patching", () => {
     ]);
   });
 
+  it("keeps a guided terminal value scenario-only when the YAML block is omitted", () => {
+    const overrideKey =
+      "retirementRequirement.minimumEndingFinancialAssetsToday";
+    const withoutRequirement = contents.replace(
+      "retirementRequirement:\n  minimumEndingFinancialAssetsToday: 0\n",
+      "",
+    );
+    const preview = previewScenarioDraft({
+      contents: withoutRequirement,
+      baseline: projectionFixture,
+      overrides: { [overrideKey]: 12_345.67 },
+    });
+
+    expect(preview.directChanges).toEqual([]);
+    expect(preview.scenarioOnlyChanges).toEqual([
+      expect.objectContaining({
+        key: overrideKey,
+        consequence: expect.stringContaining("Add retirementRequirement"),
+      }),
+    ]);
+
+    const result = applyScenarioDraft({
+      contents: withoutRequirement,
+      baseline: projectionFixture,
+      overrides: { [overrideKey]: 12_345.67 },
+    });
+    expect(result.contents).toBe(withoutRequirement);
+    expect(result.appliedChanges).toEqual([]);
+    expect(result.skippedChanges).toEqual([
+      expect.objectContaining({
+        key: overrideKey,
+        kind: "scenario_only",
+      }),
+    ]);
+  });
+
   it.each([
     [5.8 / 100, "0.058"],
     [5.6 / 100, "0.056"],
@@ -990,6 +1026,40 @@ describe.sequential("scenario draft API", () => {
 
     expect(response.status).toBe(200);
     expect(body.contents).toContain("  inflation: 0.03");
+    expect(await readFile(configPath, "utf8")).toBe(contents);
+  });
+
+  it("keeps a missing-block terminal override temporary without modifying disk", async () => {
+    const withoutRequirement = contents.replace(
+      "retirementRequirement:\n  minimumEndingFinancialAssetsToday: 0\n",
+      "",
+    );
+    const response = await scenarioDraftRoute(
+      request({
+        contents: withoutRequirement,
+        action: "apply",
+        liveBaselineAction: "keep",
+        overrides: {
+          "retirementRequirement.minimumEndingFinancialAssetsToday":
+            12_345.67,
+        },
+      }),
+    );
+    const body = (await response.json()) as {
+      contents: string;
+      appliedChanges: unknown[];
+      skippedChanges: Array<{ key: string; kind: string }>;
+    };
+
+    expect(response.status).toBe(200);
+    expect(body.contents).toBe(withoutRequirement);
+    expect(body.appliedChanges).toEqual([]);
+    expect(body.skippedChanges).toContainEqual(
+      expect.objectContaining({
+        key: "retirementRequirement.minimumEndingFinancialAssetsToday",
+        kind: "scenario_only",
+      }),
+    );
     expect(await readFile(configPath, "utf8")).toBe(contents);
   });
 

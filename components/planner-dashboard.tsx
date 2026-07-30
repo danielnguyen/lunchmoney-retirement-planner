@@ -52,6 +52,7 @@ import type {
   ProjectionInputs,
   ProjectionResult,
   RetirementRequirementBindingConstraint,
+  RetirementRequirementResult,
 } from "@/src/domain/projection/types";
 import {
   buildControls,
@@ -102,6 +103,24 @@ function requirementBindingLabel(
   if (binding === "retirement_cash_flow") return "Retirement cash flow";
   if (binding === "unavailable_composition") return "Unavailable composition";
   return "No safe passing upper bound";
+}
+
+function requirementSourceLabel(
+  requirement: RetirementRequirementResult,
+): string {
+  if (
+    requirement.minimumEndingBalanceActiveValueSource ===
+    "scenario_override"
+  ) {
+    return requirement.minimumEndingBalanceBaselineSource ===
+      "compatibility_default"
+      ? "Temporary scenario override · YAML baseline: compatibility default (block omitted)"
+      : "Temporary scenario override · YAML baseline: explicit configuration";
+  }
+  return requirement.minimumEndingBalanceBaselineSource ===
+    "compatibility_default"
+    ? "Compatibility default · retirementRequirement omitted from YAML"
+    : "Explicit planner configuration";
 }
 
 const exactCurrency = new Intl.NumberFormat("en-CA", {
@@ -1928,6 +1947,9 @@ export function PlannerDashboard() {
               <strong>Age {projection.retirementRequirement.terminalAge}</strong>
               <small>
                 Minimum ending balance {currency.format(projection.retirementRequirement.minimumEndingFinancialAssetsToday)} · projected account weights · residence equity excluded
+              </small>
+              <small>
+                Source: {requirementSourceLabel(projection.retirementRequirement)}
               </small>
             </article>
             <article className="metric-card" role="status">

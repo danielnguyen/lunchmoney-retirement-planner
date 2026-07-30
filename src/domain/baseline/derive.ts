@@ -2629,7 +2629,12 @@ export function deriveCurrentBaseline(
     monthlyDiscretionarySpendingToday: monthlyDiscretionary,
     spendingPhases,
     retirementGoalToday: config.retirementGoal,
-    retirementRequirement: config.retirementRequirement,
+    retirementRequirement: {
+      minimumEndingFinancialAssetsToday:
+        config.retirementRequirement.minimumEndingFinancialAssetsToday,
+      baselineSource: config.retirementRequirement.source,
+      activeValueSource: config.retirementRequirement.source,
+    },
     tax: {
       effectiveTaxRate: config.assumptions.effectiveTaxRate,
       oasRecoveryThresholdToday: config.assumptions.oasRecoveryThreshold,

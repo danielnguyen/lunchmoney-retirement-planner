@@ -20,13 +20,19 @@ afterEach(cleanup);
 function ScenarioInputHarness({
   initialInflation = projectionFixture.annualInflation,
   refreshedInflation = 0.03,
+  terminalBaselineSource = "explicit_configuration",
 }: {
   initialInflation?: number;
   refreshedInflation?: number;
+  terminalBaselineSource?:
+    | "explicit_configuration"
+    | "compatibility_default";
 } = {}) {
   const [projectionInputs, setProjectionInputs] = useState(() => {
     const initial = structuredClone(projectionFixture);
     initial.annualInflation = initialInflation;
+    initial.retirementRequirement.baselineSource = terminalBaselineSource;
+    initial.retirementRequirement.activeValueSource = terminalBaselineSource;
     return initial;
   });
   const controls = useMemo(() => buildControls(projectionInputs), [projectionInputs]);
@@ -89,6 +95,12 @@ function ScenarioInputHarness({
       </output>
       <output data-testid="active-terminal-balance">
         {inputs.retirementRequirement.minimumEndingFinancialAssetsToday}
+      </output>
+      <output data-testid="terminal-baseline-source">
+        {inputs.retirementRequirement.baselineSource}
+      </output>
+      <output data-testid="terminal-active-source">
+        {inputs.retirementRequirement.activeValueSource}
       </output>
       <output data-testid="override-count">{Object.keys(overrides).length}</output>
     </>
@@ -175,10 +187,56 @@ describe("precise scenario input semantics", () => {
     expect(screen.getByTestId("active-terminal-balance")).toHaveTextContent(
       "12345.67",
     );
+    expect(screen.getByTestId("terminal-baseline-source")).toHaveTextContent(
+      "explicit_configuration",
+    );
+    expect(screen.getByTestId("terminal-active-source")).toHaveTextContent(
+      "scenario_override",
+    );
     fireEvent.click(terminal.closest(".control")!.querySelector("button")!);
     expect(terminal).toHaveValue(0);
     expect(screen.getByTestId("active-terminal-balance")).toHaveTextContent(
       "0",
+    );
+    expect(screen.getByTestId("terminal-active-source")).toHaveTextContent(
+      "explicit_configuration",
+    );
+  });
+
+  it("keeps compatibility baseline provenance while a terminal override is active", () => {
+    render(
+      <ScenarioInputHarness terminalBaselineSource="compatibility_default" />,
+    );
+    const terminal = screen.getByLabelText(
+      "Minimum financial assets at terminal age",
+    );
+
+    expect(screen.getByTestId("active-terminal-balance")).toHaveTextContent(
+      "0",
+    );
+    expect(screen.getByTestId("terminal-baseline-source")).toHaveTextContent(
+      "compatibility_default",
+    );
+    expect(screen.getByTestId("terminal-active-source")).toHaveTextContent(
+      "compatibility_default",
+    );
+
+    typeByCharacters(terminal, "12345.67");
+
+    expect(screen.getByTestId("active-terminal-balance")).toHaveTextContent(
+      "12345.67",
+    );
+    expect(screen.getByTestId("terminal-baseline-source")).toHaveTextContent(
+      "compatibility_default",
+    );
+    expect(screen.getByTestId("terminal-active-source")).toHaveTextContent(
+      "scenario_override",
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: "Reset all" }));
+    expect(terminal).toHaveValue(0);
+    expect(screen.getByTestId("terminal-active-source")).toHaveTextContent(
+      "compatibility_default",
     );
   });
 

@@ -446,8 +446,13 @@ describe("calculation explanations", () => {
 
   it("describes compatibility terminal normalization as non-owner-configured", () => {
     const value = context((draft) => {
-      draft.inputs.retirementRequirement.source = "compatibility_default";
-      draft.baseline.projectionInputs.retirementRequirement.source =
+      draft.inputs.retirementRequirement.baselineSource =
+        "compatibility_default";
+      draft.inputs.retirementRequirement.activeValueSource =
+        "compatibility_default";
+      draft.baseline.projectionInputs.retirementRequirement.baselineSource =
+        "compatibility_default";
+      draft.baseline.projectionInputs.retirementRequirement.activeValueSource =
         "compatibility_default";
       draft.projection = calculateProjection(draft.inputs);
     });
@@ -461,6 +466,48 @@ describe("calculation explanations", () => {
         (step) => step.label === "Minimum ending financial assets",
       )?.sourceDescription,
     ).toContain("Compatibility normalization");
+  });
+
+  it("describes an active terminal scenario override without calling it a zero default", () => {
+    const value = context((draft) => {
+      draft.inputs.retirementRequirement = {
+        minimumEndingFinancialAssetsToday: 12_345.67,
+        baselineSource: "compatibility_default",
+        activeValueSource: "scenario_override",
+      };
+      draft.baseline.projectionInputs.retirementRequirement = {
+        minimumEndingFinancialAssetsToday: 0,
+        baselineSource: "compatibility_default",
+        activeValueSource: "compatibility_default",
+      };
+      draft.overrides = {
+        "retirementRequirement.minimumEndingFinancialAssetsToday":
+          12_345.67,
+      };
+      draft.projection = calculateProjection(draft.inputs);
+    });
+    const document = buildExplanation("retirement-requirement", value);
+    const minimum = document.steps.find(
+      (step) => step.label === "Minimum ending financial assets",
+    );
+
+    expect(minimum).toMatchObject({
+      rawValue: 12_345.67,
+      sourceType: "override",
+      sourceDescription: "Temporary scenario override",
+    });
+    expect(document.assumptions).toContainEqual(
+      expect.objectContaining({
+        label: "Underlying YAML source",
+        value: expect.stringContaining("YAML omits retirementRequirement"),
+      }),
+    );
+    expect(document.caveats.join(" ")).toContain(
+      "underlying YAML still omits retirementRequirement",
+    );
+    expect(document.caveats.join(" ")).not.toContain(
+      "zero-dollar terminal minimum",
+    );
   });
 
   it("explains both depletion and no-depletion duration outcomes", () => {

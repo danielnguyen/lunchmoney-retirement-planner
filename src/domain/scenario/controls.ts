@@ -729,6 +729,7 @@ export function buildControls(baseline: ProjectionInputs): ControlDefinition[] {
       set: (inputs, value) => {
         inputs.retirementRequirement.minimumEndingFinancialAssetsToday =
           value;
+        inputs.retirementRequirement.activeValueSource = "scenario_override";
       },
       persistence: (config) =>
         config.retirementRequirement.source === "explicit_configuration"

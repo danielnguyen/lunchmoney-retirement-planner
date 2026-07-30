@@ -432,6 +432,7 @@ const SAFE_OBSERVATION_CODES = new Set([
   "oas_start",
   "portfolio_duration",
   "projected_retirement_liability_shortfall",
+  "retirement_requirement_scenario_override",
 ]);
 
 const SOURCE_TYPES = new Set<BaselineSourceType>([
@@ -972,7 +973,8 @@ function safeProjectionInputs(
     retirementRequirement: {
       minimumEndingFinancialAssetsToday:
         inputs.retirementRequirement.minimumEndingFinancialAssetsToday,
-      source: inputs.retirementRequirement.source,
+      baselineSource: inputs.retirementRequirement.baselineSource,
+      activeValueSource: inputs.retirementRequirement.activeValueSource,
     },
     tax: {
       effectiveTaxRate: inputs.tax.effectiveTaxRate,
@@ -1368,6 +1370,9 @@ function safeObservationMessage(
   if (code === "portfolio_duration") return "Financial-asset duration observation.";
   if (code === "projected_retirement_liability_shortfall") {
     return "The projected path stopped before an unfunded post-retirement liability payment.";
+  }
+  if (code === "retirement_requirement_scenario_override") {
+    return "The active minimum terminal balance is a temporary scenario override.";
   }
   return `Projection observation ${index + 1}`;
 }
@@ -2790,7 +2795,8 @@ export function projectionSnapshotToCsv(
     "retirement_funding_margin_today",
     "retirement_terminal_age",
     "minimum_ending_financial_assets_today",
-    "minimum_ending_balance_source",
+    "minimum_ending_balance_baseline_source",
+    "minimum_ending_balance_active_value_source",
     "owner_goal_marker_today",
     "owner_goal_difference_today",
     "retirement_requirement_binding_constraint",
@@ -2991,7 +2997,9 @@ export function projectionSnapshotToCsv(
       snapshot.projection.retirementRequirement
         .minimumEndingFinancialAssetsToday,
       snapshot.projection.retirementRequirement
-        .minimumEndingBalanceSource,
+        .minimumEndingBalanceBaselineSource,
+      snapshot.projection.retirementRequirement
+        .minimumEndingBalanceActiveValueSource,
       snapshot.projection.retirementRequirement.ownerGoalToday,
       snapshot.projection.retirementRequirement
         .ownerGoalDifferenceToday ?? "",

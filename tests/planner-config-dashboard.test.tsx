@@ -83,6 +83,54 @@ describe("dashboard config-save baseline transitions", () => {
     ).toBeInTheDocument();
   });
 
+  it("shows the active terminal override separately from its compatibility YAML source", async () => {
+    const baseline = structuredClone(currentBaselineFixture);
+    baseline.projectionInputs.retirementRequirement = {
+      minimumEndingFinancialAssetsToday: 0,
+      baselineSource: "compatibility_default",
+      activeValueSource: "compatibility_default",
+    };
+    const fetchMock = vi.fn(
+      async (input: RequestInfo | URL, init?: RequestInit) => {
+        const url = requestUrl(input);
+        if (url === "/api/v1/baseline/current") {
+          return jsonResponse(structuredClone(baseline));
+        }
+        if (url === "/api/v1/projections") {
+          const request = JSON.parse(String(init?.body)) as {
+            inputs: ProjectionInputs;
+          };
+          return jsonResponse(calculateProjection(request.inputs));
+        }
+        throw new Error(`Unexpected request: ${url}`);
+      },
+    );
+    vi.stubGlobal("fetch", fetchMock);
+
+    render(<PlannerDashboard />);
+
+    expect(
+      await screen.findByText(
+        "Source: Compatibility default · retirementRequirement omitted from YAML",
+      ),
+    ).toBeInTheDocument();
+    fireEvent.click(
+      screen.getByRole("button", { name: "Scenario controls" }),
+    );
+    fireEvent.change(
+      await screen.findByLabelText(
+        "Minimum financial assets at terminal age",
+      ),
+      { target: { value: "12345.67" } },
+    );
+
+    expect(
+      await screen.findByText(
+        "Source: Temporary scenario override · YAML baseline: compatibility default (block omitted)",
+      ),
+    ).toBeInTheDocument();
+  });
+
   it("shows an honest unavailable requirement without a misleading zero", async () => {
     const projection = calculateProjection(
       currentBaselineFixture.projectionInputs,
