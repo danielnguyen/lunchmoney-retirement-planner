@@ -15,8 +15,8 @@ Public tracking must remain generic and must not contain private financial value
 - Active implementation: Retirement funding requirement and terminal balance
 - Status: Ready for independent review
 - Implementation branch: `agent/add-retirement-funding-requirement`
-- Validated implementation commit: `e0d51bea945b58089f6a4b4a2be04a8c4f8fba4e`
-- Synthetic validation: Passed — 422 synthetic tests, including 17 focused solver cases plus configuration, compatibility provenance, exact retirement-boundary composition, terminal criteria, account-type differences, liabilities, benefits, spending phases, deterministic exact-cent proof, unavailable/infeasible outcomes, dashboard, explanation, schema, JSON allowlist, CSV rectangularity, and privacy coverage. Typecheck, lint, production build, local Docker image build, Docker Compose validation, container health, private local smoke validation, and `git diff --check` passed. Hosted CI and Docker image build passed on the final pull-request head.
+- Validated implementation commit: `0ebd02041c3c859d8cb020e7deeecd072ad844e2`
+- Synthetic validation: Passed — 422 synthetic tests, including 17 focused solver cases plus configuration, compatibility provenance, exact retirement-boundary composition and continuation, terminal criteria, account-type differences, liabilities, benefits, spending phases, deterministic exact-cent proof, unavailable/infeasible outcomes, dashboard, explanation, schema, JSON allowlist, CSV rectangularity, and privacy coverage. Typecheck, lint, production build, local Docker image build, Docker Compose validation, container health, private local smoke validation, and `git diff --check` passed. Hosted CI #117 and Docker image build #111 passed on the validated implementation commit.
 - Latest merged `main`: `61a0dc20f879f19c662e237f49858263b8626c80`
 - Last completed capability: Explicit scenario-to-config bindings
 - Last completed pull request: [#20 Apply scenario overrides to the YAML config draft](https://github.com/danielnguyen/lunchmoney-retirement-planner/pull/20)
