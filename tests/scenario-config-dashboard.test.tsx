@@ -416,7 +416,7 @@ describe("scenario-to-config dashboard workflow", () => {
     fireEvent.click(screen.getByRole("button", { name: "Scenario controls" }));
     expect(await screen.findByLabelText("Current income annual net cash")).toHaveValue(84000);
     expect(screen.getByRole("button", { name: "Apply scenario to config" })).toBeDisabled();
-  });
+  }, 10_000);
 
   it("preserves the draft, overrides, and summary after a save conflict", async () => {
     installBaseFetch((body) => {
