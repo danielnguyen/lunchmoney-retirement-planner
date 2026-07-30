@@ -9,23 +9,24 @@ Public tracking must remain generic and must not contain private financial value
 - Open roadmap planning pull request: None
 - Planning branch: None
 - Planning status: None
-- Open implementation pull request: None
-- Open maintenance pull request: [#23 Fix retirement bridge reconciliation against raw balances](https://github.com/danielnguyen/lunchmoney-retirement-planner/pull/23)
+- Open implementation pull request: [#24 Derive retirement funding requirement](https://github.com/danielnguyen/lunchmoney-retirement-planner/pull/24)
+- Open maintenance pull request: None
 - Pull request state: Open draft
-- Active maintenance: Retirement bridge ending precision
+- Active implementation: Retirement funding requirement and terminal balance
 - Status: Ready for independent review
-- Implementation branch: `agent/fix-retirement-bridge-ending-precision`
-- Validated implementation commit: `34db62369beacc3d1a8083519bc2d69c2035ec3a`
-- Synthetic validation: Passed — 396 synthetic tests, including four focused bridge-reconciliation cases covering the raw retirement ending balance, display-rounded snapshot reconstruction, genuine discrepancy detection, and the long mortgage schedule; typecheck, lint, production build, local Docker image build, Docker Compose validation, container health, private local smoke validation, and `git diff --check` passed. `npm ci` was unavailable because the repository has no lockfile. The one-cent integrity threshold remains unchanged, and no projection assumptions, cash flows, or financial calculations changed.
-- Latest merged `main`: `da16e1d75ea48f8d59c41e2c05baeae1e36e41d0`
+- Implementation branch: `agent/add-retirement-funding-requirement`
+- Validated implementation commit: `e0d51bea945b58089f6a4b4a2be04a8c4f8fba4e`
+- Synthetic validation: Passed — 422 synthetic tests, including 17 focused solver cases plus configuration, compatibility provenance, exact retirement-boundary composition, terminal criteria, account-type differences, liabilities, benefits, spending phases, deterministic exact-cent proof, unavailable/infeasible outcomes, dashboard, explanation, schema, JSON allowlist, CSV rectangularity, and privacy coverage. Typecheck, lint, production build, local Docker image build, Docker Compose validation, container health, private local smoke validation, and `git diff --check` passed. Hosted CI and Docker image build passed on the final pull-request head.
+- Latest merged `main`: `61a0dc20f879f19c662e237f49858263b8626c80`
 - Last completed capability: Explicit scenario-to-config bindings
 - Last completed pull request: [#20 Apply scenario overrides to the YAML config draft](https://github.com/danielnguyen/lunchmoney-retirement-planner/pull/20)
-- Last maintenance pull request: [#22 Unify scenario controls and YAML configuration](https://github.com/danielnguyen/lunchmoney-retirement-planner/pull/22)
-- Last completed synthetic validation: Passed — 395 synthetic tests including unified configuration-drawer, state-preservation, blocking-repair, accessibility, percentage-input, and runtime-safety coverage; typecheck, lint, production build, local Docker image build, Docker Compose validation, hosted CI, and hosted Docker image build passed
+- Last completed maintenance correction: Retirement bridge ending precision
+- Last maintenance pull request: [#23 Fix retirement bridge reconciliation against raw balances](https://github.com/danielnguyen/lunchmoney-retirement-planner/pull/23)
+- Last completed synthetic validation: Passed — 396 synthetic tests for the merged retirement bridge ending-precision correction; its one-cent integrity threshold and financial calculations remained unchanged
 - Last completed private migration: Passed — the operating-cash policy was updated and validated locally without publishing private values
-- Last completed private smoke test: Passed for the retirement bridge ending-precision correction without publishing private values
-- Remaining step: independently review draft pull request #23 and verify hosted workflows on its final head
-- Next action: confirm bridge endings reconcile against raw retirement state while the retirement snapshot remains display-rounded
+- Private smoke state: Passed for configuration loading, ordinary projection, retirement-requirement calculation, and dashboard-shell availability without publishing private values
+- Remaining step: independently review draft pull request #24
+- Next action: verify the requirement uses the shared monthly engine, exact retirement-boundary account composition, the lowest passing cent, and a visibly provisional flat-tax result before merge; Canadian retirement taxes and RRIF minimums remain next
 
 ## Planned implementation sequence
 
@@ -38,7 +39,7 @@ Public tracking must remain generic and must not contain private financial value
 | 5 | Employment-income today-dollar semantics correction | Existing employment-income phase model | Completed | [#14](https://github.com/danielnguyen/lunchmoney-retirement-planner/pull/14) |
 | 6 | Operating-cash target and automatic excess sweep | Surplus allocation and contribution waterfall | Completed | [#15](https://github.com/danielnguyen/lunchmoney-retirement-planner/pull/15) |
 | 7 | General spending phases | Corrected income and cash policies | Completed | [#16](https://github.com/danielnguyen/lunchmoney-retirement-planner/pull/16) |
-| 8 | Retirement funding requirement and terminal balance | Spending phases and retirement projection | Planned | — |
+| 8 | Retirement funding requirement and terminal balance | Spending phases and retirement projection | In progress | [#24](https://github.com/danielnguyen/lunchmoney-retirement-planner/pull/24) |
 | 9 | RRIF minimum withdrawals and Canadian retirement taxes | Surplus policy, debt model, spending phases, and requirement contract | Planned | — |
 | 10 | Deterministic return paths and sequence-risk scenarios | Reconciled deterministic projection | Planned | — |
 | 11 | Structured housing transitions | Net-worth, debt, spending, and event models | Planned | — |
@@ -76,4 +77,4 @@ Planning order is project-management shorthand only. Production names must descr
 
 ## New-conversation handoff
 
-> Read `AGENTS.md`, `plan/roadmap.md`, and `plan/implementation-index.md`. Independently review draft PR #23 for the retirement bridge ending-precision correction using synthetic data only. Confirm that bridge endings use raw retirement state, snapshots remain display-rounded, genuine discrepancies still fail at the unchanged one-cent threshold, and no projection assumptions or cash flows changed.
+> Read `AGENTS.md`, `plan/roadmap.md`, and `plan/implementation-index.md`. Independently review draft PR #24 for the retirement funding requirement and terminal balance using synthetic data only. Confirm that it reuses the ordinary monthly engine without recursive solving, preserves projected retirement account composition, excludes residence equity, finds and proves the lowest passing cent, keeps the owner goal separate, and labels the flat-tax result provisional. Canadian retirement taxes and RRIF minimums remain the next capability.
