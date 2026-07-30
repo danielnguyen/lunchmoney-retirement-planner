@@ -431,6 +431,7 @@ const SAFE_OBSERVATION_CODES = new Set([
   "cpp_start",
   "oas_start",
   "portfolio_duration",
+  "projected_retirement_liability_shortfall",
 ]);
 
 const SOURCE_TYPES = new Set<BaselineSourceType>([
@@ -1365,6 +1366,9 @@ function safeObservationMessage(
   if (code === "cpp_start" && age !== undefined) return `CPP begins at age ${age}.`;
   if (code === "oas_start" && age !== undefined) return `OAS begins at age ${age}.`;
   if (code === "portfolio_duration") return "Financial-asset duration observation.";
+  if (code === "projected_retirement_liability_shortfall") {
+    return "The projected path stopped before an unfunded post-retirement liability payment.";
+  }
   return `Projection observation ${index + 1}`;
 }
 
@@ -1394,6 +1398,9 @@ function safeProjectionResult(
       endingNetWorthToday: projection.summary.endingNetWorthToday,
       mortgagePayoffDate: projection.summary.mortgagePayoffDate,
       mortgagePayoffAge: projection.summary.mortgagePayoffAge,
+    },
+    projectionCompletion: {
+      ...projection.projectionCompletion,
     },
     retirementRequirement: {
       ...projection.retirementRequirement,
@@ -1637,6 +1644,7 @@ function safeProjectionResult(
       calendarYear: point.calendarYear,
       age: point.age,
       phase: point.phase,
+      period: { ...point.period },
       nominal: safeProjectionView(point.nominal, context),
       real: safeProjectionView(point.real, context),
       milestones: point.milestones.map((milestone, index) =>
@@ -2763,6 +2771,19 @@ export function projectionSnapshotToCsv(
     "age",
     "phase",
     "dollarMode",
+    "annual_period_status",
+    "annual_period_start_date",
+    "annual_period_end_date",
+    "projection_completion_status",
+    "planned_terminal_age",
+    "completed_through_date",
+    "completed_through_age",
+    "stopped_before_month",
+    "projection_completion_reason",
+    "last_completed_financial_assets_today",
+    "last_completed_net_worth_today",
+    "terminal_ending_financial_assets_today",
+    "terminal_ending_net_worth_today",
     "retirement_requirement_status",
     "projected_retirement_assets_today",
     "required_retirement_assets_today",
@@ -2937,11 +2958,29 @@ export function projectionSnapshotToCsv(
   const rows = snapshot.projection.annual.map((point) => {
     const view = point[mode];
     return [
-      annualPeriodLabel(snapshot.projection.inputs, point.calendarYear),
+      annualPeriodLabel(
+        snapshot.projection.inputs,
+        point.calendarYear,
+        point.period,
+      ),
       point.calendarYear,
       point.age,
       point.phase,
       mode,
+      point.period.status,
+      point.period.startDate,
+      point.period.endDate,
+      snapshot.projection.projectionCompletion.status,
+      snapshot.projection.projectionCompletion.plannedTerminalAge,
+      snapshot.projection.projectionCompletion.completedThroughDate,
+      snapshot.projection.projectionCompletion.completedThroughAge,
+      snapshot.projection.projectionCompletion.stoppedBeforeMonth ?? "",
+      snapshot.projection.projectionCompletion.reason ?? "",
+      snapshot.projection.projectionCompletion
+        .lastCompletedFinancialAssetsToday,
+      snapshot.projection.projectionCompletion.lastCompletedNetWorthToday,
+      snapshot.projection.summary.endingFinancialAssetsToday ?? "",
+      snapshot.projection.summary.endingNetWorthToday ?? "",
       snapshot.projection.retirementRequirement.status,
       snapshot.projection.retirementRequirement
         .projectedFinancialAssetsToday,

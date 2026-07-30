@@ -602,6 +602,12 @@ describe("automatically anonymized projection exports", () => {
     const { inputs, baseline, projection, snapshot } = buildExportFixture();
 
     expect(snapshot.projection.summary).toEqual(projection.summary);
+    expect(snapshot.projection.projectionCompletion).toEqual(
+      projection.projectionCompletion,
+    );
+    expect(snapshot.projection.annual.map((point) => point.period)).toEqual(
+      projection.annual.map((point) => point.period),
+    );
     expect(snapshot.projection.annual.map((point) => point.real.income)).toEqual(
       projection.annual.map((point) => point.real.income),
     );
@@ -954,6 +960,19 @@ describe("automatically anonymized projection exports", () => {
     expect(header).toContain("surplusFundedContributions");
     expect(header).toContain("registered_room_basis");
     expect(header).toEqual(expect.arrayContaining([
+      "annual_period_status",
+      "annual_period_start_date",
+      "annual_period_end_date",
+      "projection_completion_status",
+      "planned_terminal_age",
+      "completed_through_date",
+      "completed_through_age",
+      "stopped_before_month",
+      "projection_completion_reason",
+      "last_completed_financial_assets_today",
+      "last_completed_net_worth_today",
+      "terminal_ending_financial_assets_today",
+      "terminal_ending_net_worth_today",
       "retirement_requirement_status",
       "projected_retirement_assets_today",
       "required_retirement_assets_today",
@@ -978,7 +997,7 @@ describe("automatically anonymized projection exports", () => {
       "oas_eligibility_fraction",
       "oas_age_75_increase_rate",
     ]));
-    expect(parsed[1]![0]).toBe("2026 (Jul–Dec)");
+    expect(parsed[1]![0]).toBe("2026 (Jul–Dec) · partial period");
     expect(parsed[1]![header.indexOf("employmentPhase")]).toBe("Employment phase 1");
     expect(csv).not.toContain("section,key,value");
     expect(csv).not.toContain("metadata,");
@@ -1051,6 +1070,55 @@ describe("automatically anonymized projection exports", () => {
     expect(
       snapshot.projection.annual[0]!.real.contributions,
     ).toHaveProperty("surplusFunded");
+  });
+
+  it("exports stopped projection completion separately from terminal balances", () => {
+    const { baseline, projection } = buildExportFixture();
+    const final = projection.annual.at(-1)!;
+    projection.summary.endingFinancialAssetsToday = null;
+    projection.summary.endingNetWorthToday = null;
+    projection.projectionCompletion = {
+      status: "stopped_unfunded_liability",
+      plannedTerminalAge: projection.inputs.endAge,
+      completedThroughDate: final.period.endDate,
+      completedThroughAge: final.age,
+      stoppedBeforeMonth: "2082-07",
+      reason:
+        "The projected path stopped before 2082-07 because the required liability payment could not be fully funded.",
+      lastCompletedFinancialAssetsToday:
+        final.real.balances.financialAssets,
+      lastCompletedNetWorthToday: final.real.balances.totalNetWorth,
+    };
+
+    const snapshot = createProjectionSnapshot(projection, baseline, {});
+    const rows = projectionSnapshotToCsv(snapshot, "real")
+      .split("\n")
+      .map(parseCsvLine);
+    const header = rows[0]!;
+    const finalRow = rows.at(-1)!;
+
+    expect(snapshot.projection.projectionCompletion).toEqual(
+      projection.projectionCompletion,
+    );
+    expect(snapshot.projection.summary.endingFinancialAssetsToday).toBeNull();
+    expect(snapshot.projection.summary.endingNetWorthToday).toBeNull();
+    expect(
+      finalRow[header.indexOf("projection_completion_status")],
+    ).toBe("stopped_unfunded_liability");
+    expect(finalRow[header.indexOf("completed_through_date")]).toBe(
+      final.period.endDate,
+    );
+    expect(finalRow[header.indexOf("stopped_before_month")]).toBe(
+      "2082-07",
+    );
+    expect(
+      finalRow[header.indexOf("last_completed_financial_assets_today")],
+    ).toBe(String(final.real.balances.financialAssets));
+    expect(
+      finalRow[header.indexOf("terminal_ending_financial_assets_today")],
+    ).toBe("");
+    expect(finalRow).toHaveLength(header.length);
+    expectNoSourceIdentifiersOrCredentials(JSON.stringify(snapshot));
   });
 
   it("produces deterministic aliases across repeated exports of the same input", () => {

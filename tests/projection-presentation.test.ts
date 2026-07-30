@@ -84,6 +84,14 @@ describe("projection presentation metadata", () => {
     );
     expect(chart[0]!.age).toBe(projection.annual[0]!.age);
     expect(chart[0]!.age).toBe(40.5);
+    expect(projection.annual[0]!.period).toEqual({
+      startDate: projectionFixture.startDate,
+      endDate: "2026-12-31",
+      status: "partial_period",
+    });
+    expect(chart[0]!.periodLabel).toBe(
+      "2026 (Jul–Dec) · partial period",
+    );
 
     const retirementYear = Number(
       projection.retirementSnapshot.calendarDate.slice(0, 4),

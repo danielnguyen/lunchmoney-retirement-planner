@@ -350,7 +350,10 @@ function commonAssumptions(context: ExplanationContext) {
 }
 
 function period(context: ExplanationContext): string {
-  return `${context.inputs.startDate} to ${context.projection.annual.at(-1)?.calendarYear ?? "unavailable"}`;
+  const completion = context.projection.projectionCompletion;
+  return `${context.inputs.startDate} to ${completion.completedThroughDate}${
+    completion.status === "complete" ? "" : " (projection stopped early)"
+  }`;
 }
 
 function modeLabel(context: ExplanationContext): string {
@@ -903,9 +906,13 @@ function retirementFundingMarginDocument(
 
 function durationDocument(context: ExplanationContext): ExplanationDocument {
   const depletionAge = context.projection.summary.financialAssetsDepletionAge;
-  const displayed = depletionAge === null
-    ? `Past age ${context.inputs.endAge}`
-    : `To age ${depletionAge}`;
+  const completion = context.projection.projectionCompletion;
+  const incomplete = completion.status !== "complete";
+  const displayed = incomplete
+    ? `Stopped at age ${completion.completedThroughAge}`
+    : depletionAge === null
+      ? `Past age ${context.inputs.endAge}`
+      : `To age ${depletionAge}`;
   const unmetSpending = context.projection.annual.some(
     (point) =>
       point.real.outflows.unmetSpending > 0 || point.nominal.outflows.unmetSpending > 0,
@@ -914,7 +921,9 @@ function durationDocument(context: ExplanationContext): ExplanationDocument {
     id: "financial-assets-duration",
     title: "Financial assets duration",
     plainLanguage:
-      depletionAge === null
+      incomplete
+        ? `The projected path stopped after ${completion.completedThroughDate}, at age ${completion.completedThroughAge}, before an unfunded required liability payment. Its remaining balance is a last-completed value, not a terminal-age result.`
+        : depletionAge === null
         ? `Financial assets remain above zero through the configured projection end age of ${context.inputs.endAge}.`
         : `Financial assets first reach zero near age ${depletionAge} in this scenario.`,
     displayedResult: {
@@ -944,9 +953,17 @@ function durationDocument(context: ExplanationContext): ExplanationDocument {
         sourceType: "projection",
       },
       {
-        label: "Ending financial assets",
-        value: exactCurrency.format(context.projection.summary.endingFinancialAssetsToday),
-        rawValue: context.projection.summary.endingFinancialAssetsToday,
+        label: incomplete
+          ? "Last completed financial assets"
+          : "Terminal financial assets",
+        value: exactCurrency.format(
+          incomplete
+            ? completion.lastCompletedFinancialAssetsToday
+            : context.projection.summary.endingFinancialAssetsToday ?? 0,
+        ),
+        rawValue: incomplete
+          ? completion.lastCompletedFinancialAssetsToday
+          : context.projection.summary.endingFinancialAssetsToday ?? 0,
         operation: "result",
         sourceType: "projection",
       },
@@ -960,7 +977,9 @@ function durationDocument(context: ExplanationContext): ExplanationDocument {
     dataSections: [],
     assumptions: commonAssumptions(context),
     caveats: [
-      "Past age means the model did not observe depletion before the configured end age; it does not mean assets last forever.",
+      incomplete
+        ? "No terminal-age duration conclusion is available because the projected path stopped early; the independently derived retirement requirement remains available when its solver succeeds."
+        : "Past age means the model did not observe depletion before the configured end age; it does not mean assets last forever.",
       ...longIncomeWarnings(context),
       "Deterministic results are not a guarantee and do not model market-sequence uncertainty.",
     ],
@@ -1334,7 +1353,7 @@ function baselineMetricDocument(
 function chartCaveats(context: ExplanationContext): string[] {
   return [
     `The active chart view is ${modeLabel(context)}.`,
-    "The first and final rows may be partial calendar years because the projection starts in the live data-through month and ends at the configured age.",
+    "The first and final rows may be partial periods because the projection starts in the live data-through month, ends at the configured age, or stops before an unfunded required liability payment.",
     "The chart and this table consume the same annual projection result.",
   ];
 }
@@ -3130,7 +3149,10 @@ function registeredAccountRoomDocument(
         ? `Every TFSA shares one TFSA room pool and every RRSP/RRIF shares one RRSP deduction-room pool. ${preview.workplacePriority}; ${preview.workplaceOverflow}. ${preview.personalOrder}; personal cash never uses the workplace RRSP. Only explicit plans are invested unless the explicit sweep policy applies. ${preview.unplannedCash}.`
         : "Every TFSA account shares one TFSA room pool and every RRSP/RRIF account shares one RRSP deduction-room pool. Planned routes run in configured order before additional surplus savings.",
     displayedResult: {
-      label: "Closing registered room at projection end",
+      label:
+        context.projection.projectionCompletion.status === "complete"
+          ? "Closing registered room at projection end"
+          : "Closing registered room at last completed date",
       value: `${exactCurrency.format(last?.registeredAccountRoom.tfsa.closingRoom ?? 0)} TFSA · ${exactCurrency.format(last?.registeredAccountRoom.rrsp.closingRoom ?? 0)} RRSP`,
       period: "Nominal regulatory dollars",
     },
@@ -3612,7 +3634,11 @@ function registeredAccountRoomDocument(
           Object.entries(
             point[context.displayMode].accountContributionDetails,
           ).map(([accountId, detail]) => ({
-            period: annualPeriodLabel(context.inputs, point.calendarYear),
+            period: annualPeriodLabel(
+              context.inputs,
+              point.calendarYear,
+              point.period,
+            ),
             account:
               context.inputs.accounts.find(
                 (account) => account.id === accountId,
@@ -3934,7 +3960,11 @@ function totalNetWorthDocument(
         rows: context.projection.annual.map((point) => {
           const annualBalances = point[context.displayMode].balances;
           return {
-            period: annualPeriodLabel(context.inputs, point.calendarYear),
+            period: annualPeriodLabel(
+              context.inputs,
+              point.calendarYear,
+              point.period,
+            ),
             financialAssets: annualBalances.financialAssets,
             nonFinancialAssets: annualBalances.totalNonFinancialAssets,
             totalAssets: annualBalances.totalAssets,
@@ -4020,7 +4050,11 @@ function liabilityScheduleDocument(
       const schedule =
         point[context.displayMode].liabilitySchedules[liability.id];
       return {
-        period: annualPeriodLabel(context.inputs, point.calendarYear),
+        period: annualPeriodLabel(
+          context.inputs,
+          point.calendarYear,
+          point.period,
+        ),
         liability: liability.label,
         openingPrincipal: schedule?.openingBalance ?? 0,
         interest: schedule?.interest ?? 0,
@@ -4040,11 +4074,13 @@ function liabilityScheduleDocument(
   );
   const displayedClosing =
     finalView?.balances.totalLiabilities ?? 0;
-  const liabilityFundingComplete = context.projection.annual.every(
-    (point) =>
-      point.nominal.outflows.unmetRequiredOutflow <= 0.01 &&
-      point.real.outflows.unmetRequiredOutflow <= 0.01,
-  );
+  const liabilityFundingComplete =
+    context.projection.projectionCompletion.status === "complete" &&
+    context.projection.annual.every(
+      (point) =>
+        point.nominal.outflows.unmetRequiredOutflow <= 0.01 &&
+        point.real.outflows.unmetRequiredOutflow <= 0.01,
+    );
   const historicalHandlingLabel = (
     handling: (typeof liabilities)[number]["historicalPaymentHandling"],
   ): string => {
@@ -4183,7 +4219,10 @@ function liabilityScheduleDocument(
         ? "No liability schedule is active in this projection."
         : "Each required liability payment is funded before ordinary spending or cash-funded saving, then split between interest and principal. Principal reduces both cash and the liability; payments stop automatically when the balance reaches zero.",
     displayedResult: {
-      label: "Ending liabilities",
+      label:
+        context.projection.projectionCompletion.status === "complete"
+          ? "Terminal liabilities"
+          : "Liabilities at last completed date",
       value: currency.format(displayedClosing),
       dollarMode: context.displayMode,
       period: period(context),
@@ -4197,7 +4236,10 @@ function liabilityScheduleDocument(
               label: "Required liability payment funding",
               value: liabilityFundingComplete
                 ? "All required liability payments in the projection were fully funded"
-                : "At least one required liability payment in the projection was not fully funded",
+                : context.projection.projectionCompletion.status ===
+                    "stopped_unfunded_liability"
+                  ? `The projected path stopped before ${context.projection.projectionCompletion.stoppedBeforeMonth} because the next required liability payment could not be fully funded`
+                  : "At least one required liability payment in the projection was not fully funded",
               sourceType: "projection" as const,
             },
           ]

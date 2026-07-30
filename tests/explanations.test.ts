@@ -485,6 +485,68 @@ describe("calculation explanations", () => {
     ).toBe("Yes");
   });
 
+  it("describes an early-stopped projection from the shared completion state", () => {
+    const value = context();
+    const final = value.projection.annual.at(-1)!;
+    value.projection.summary.financialAssetsDepletionAge = null;
+    value.projection.summary.endingFinancialAssetsToday = null;
+    value.projection.summary.endingNetWorthToday = null;
+    value.projection.projectionCompletion = {
+      status: "stopped_unfunded_liability",
+      plannedTerminalAge: value.inputs.endAge,
+      completedThroughDate: final.period.endDate,
+      completedThroughAge: final.age,
+      stoppedBeforeMonth: "synthetic-next-month",
+      reason:
+        "The projected path stopped before a synthetic month because a required liability payment could not be fully funded.",
+      lastCompletedFinancialAssetsToday:
+        final.real.balances.financialAssets,
+      lastCompletedNetWorthToday: final.real.balances.totalNetWorth,
+    };
+
+    const duration = buildExplanation(
+      "financial-assets-duration",
+      value,
+    );
+    const liabilityValue = balanceSheetContext("real");
+    const liabilityFinal = liabilityValue.projection.annual.at(-1)!;
+    liabilityValue.projection.projectionCompletion = {
+      status: "stopped_unfunded_liability",
+      plannedTerminalAge: liabilityValue.inputs.endAge,
+      completedThroughDate: liabilityFinal.period.endDate,
+      completedThroughAge: liabilityFinal.age,
+      stoppedBeforeMonth: "synthetic-next-month",
+      reason:
+        "The projected path stopped before a synthetic month because a required liability payment could not be fully funded.",
+      lastCompletedFinancialAssetsToday:
+        liabilityFinal.real.balances.financialAssets,
+      lastCompletedNetWorthToday:
+        liabilityFinal.real.balances.totalNetWorth,
+    };
+    const liability = buildExplanation(
+      "liability-schedule",
+      liabilityValue,
+    );
+
+    expect(duration.displayedResult?.value).toBe(`Stopped at age ${final.age}`);
+    expect(duration.plainLanguage).toContain("stopped");
+    expect(duration.plainLanguage).toContain("last-completed value");
+    expect(duration.plainLanguage).not.toContain("remain above zero through");
+    expect(
+      duration.steps.find(
+        (step) => step.label === "Last completed financial assets",
+      )?.rawValue,
+    ).toBe(final.real.balances.financialAssets);
+    expect(liability.displayedResult?.label).toBe(
+      "Liabilities at last completed date",
+    );
+    expect(
+      liability.steps.find(
+        (step) => step.label === "Required liability payment funding",
+      )?.value,
+    ).toContain("stopped before synthetic-next-month");
+  });
+
   it("uses the exact plotted chart dataset in real and nominal explanations", () => {
     const real = context();
     const nominal = context((draft) => {
@@ -507,7 +569,9 @@ describe("calculation explanations", () => {
     expect(realRows[1]?.essential).not.toBe(nominalRows[1]?.essential);
     expect(realDocument.displayedResult?.value).toBe("Today’s dollars");
     expect(nominalDocument.displayedResult?.value).toBe("Future dollars");
-    expect(realRows[0]?.periodLabel).toBe("2026 (Jul–Dec)");
+    expect(realRows[0]?.periodLabel).toBe(
+      "2026 (Jul–Dec) · partial period",
+    );
   });
 
   it("distinguishes the live spending baseline, lifestyle multipliers, and inflation", () => {

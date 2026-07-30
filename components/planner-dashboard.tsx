@@ -1937,6 +1937,19 @@ export function PlannerDashboard() {
                 Calculated using the current flat retirement-tax compatibility assumption; progressive Canadian taxes and RRIF minimums are not yet modelled.
               </small>
             </article>
+            <article className="metric-card" role="status">
+              <span>Projection completion</span>
+              <strong>
+                {projection.projectionCompletion.status === "complete"
+                  ? `Complete through age ${projection.projectionCompletion.plannedTerminalAge}`
+                  : "Projected path stopped early"}
+              </strong>
+              <small>
+                {projection.projectionCompletion.status === "complete"
+                  ? `Completed through ${projection.projectionCompletion.completedThroughDate}`
+                  : `Completed through ${projection.projectionCompletion.completedThroughDate} at age ${projection.projectionCompletion.completedThroughAge}; stopped before ${projection.projectionCompletion.stoppedBeforeMonth}`}
+              </small>
+            </article>
             <article className="metric-card">
               <ExplainableHeading
                 compact
@@ -1946,11 +1959,18 @@ export function PlannerDashboard() {
                 onExplain={openExplanation}
               />
               <strong>
-                {projection.summary.financialAssetsDepletionAge === null
+                {projection.projectionCompletion.status !== "complete" &&
+                projection.summary.financialAssetsDepletionAge === null
+                  ? "Not established"
+                  : projection.summary.financialAssetsDepletionAge === null
                   ? `Past age ${inputs.endAge}`
                   : `To age ${projection.summary.financialAssetsDepletionAge}`}
               </strong>
-              <small>Cash and investment accounts</small>
+              <small>
+                {projection.projectionCompletion.status === "complete"
+                  ? "Cash and investment accounts"
+                  : `Projection stopped early; last completed balance is through ${projection.projectionCompletion.completedThroughDate}`}
+              </small>
             </article>
           </section>
 
@@ -2535,7 +2555,15 @@ export function PlannerDashboard() {
               <div>
                 <h3>Assumptions</h3>
                 <dl>
-                  <div><dt>Projection period</dt><dd>{inputs.startDate}–{projection.annual.at(-1)?.calendarYear}</dd></div>
+                  <div>
+                    <dt>Projection period</dt>
+                    <dd>
+                      {inputs.startDate}–{projection.projectionCompletion.completedThroughDate}
+                      {projection.projectionCompletion.status === "complete"
+                        ? ` · complete through age ${projection.projectionCompletion.plannedTerminalAge}`
+                        : ` · stopped early before ${projection.projectionCompletion.stoppedBeforeMonth}`}
+                    </dd>
+                  </div>
                   <div><dt>Inflation</dt><dd>{percent.format(inputs.annualInflation)}</dd></div>
                   <div><dt>Simplified retirement tax rate</dt><dd>{percent.format(inputs.tax.effectiveTaxRate)}</dd></div>
                   <div><dt>Employment tax basis</dt><dd>Net cash; no second tax</dd></div>

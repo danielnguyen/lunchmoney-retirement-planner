@@ -1,5 +1,9 @@
 import { describe, expect, it } from "vitest";
 import { calculateProjection } from "@/src/domain/projection/calculate";
+import {
+  buildAnnualChartData,
+  buildAnnualLedgerData,
+} from "@/src/domain/projection/presentation";
 import { allocateRetirementCandidate } from "@/src/domain/projection/retirement-requirement";
 import type { ProjectionInputs } from "@/src/domain/projection/types";
 import { projectionFixture } from "./fixtures/projection";
@@ -155,6 +159,20 @@ describe("retirement funding requirement", () => {
     expect(result.retirementRequirement.solver.oneCentBelowFailed).toBe(true);
     expect(result.retirementRequirement.bindingConstraint).toBe(
       "retirement_cash_flow",
+    );
+    expect(result.projectionCompletion).toMatchObject({
+      status: "complete",
+      plannedTerminalAge: 66,
+      completedThroughDate: "2027-12-31",
+      completedThroughAge: 66,
+      stoppedBeforeMonth: null,
+      reason: null,
+    });
+    expect(result.summary.endingFinancialAssetsToday).toBe(
+      result.projectionCompletion.lastCompletedFinancialAssetsToday,
+    );
+    expect(result.summary.endingNetWorthToday).toBe(
+      result.projectionCompletion.lastCompletedNetWorthToday,
     );
   });
 
@@ -386,7 +404,7 @@ describe("retirement funding requirement", () => {
     );
   });
 
-  it("derives a liability-overlap requirement when the projected path cannot finish the mortgage", () => {
+  it("preserves an exact-zero last completed balance when the projected path cannot finish the mortgage", () => {
     const result = calculateProjection(
       underfundedRetirementMortgageFixture(),
     );
@@ -426,6 +444,81 @@ describe("retirement funding requirement", () => {
         code: "projected_retirement_liability_shortfall",
       }),
     );
+    expect(result.projectionCompletion.status).toBe(
+      "stopped_unfunded_liability",
+    );
+    expect(
+      result.projectionCompletion.lastCompletedFinancialAssetsToday,
+    ).toBe(0);
+    expect(result.summary.endingFinancialAssetsToday).toBeNull();
+    expect(result.summary.endingNetWorthToday).toBeNull();
+  });
+
+  it("marks a residual-positive liability shortfall as stopped without fabricating terminal results", () => {
+    const result = calculateProjection(
+      underfundedRetirementMortgageFixture(1350),
+    );
+    const final = result.annual.at(-1)!;
+    const chartFinal = buildAnnualChartData(
+      result.inputs,
+      result,
+      "real",
+    ).at(-1)!;
+    const ledgerFinal = buildAnnualLedgerData(
+      result.inputs,
+      result,
+      "real",
+    ).at(-1)!;
+
+    expect(result.summary.financialAssetsAtRetirementToday).toBe(150);
+    expect(result.retirementRequirement).toMatchObject({
+      status: "available",
+      requiredFinancialAssetsToday: 1200,
+      fundingMarginToday: -1050,
+      bindingConstraint: "liability_overlap",
+      solver: {
+        acceptedCandidateCents: 120_000,
+        acceptedCandidatePassed: true,
+        oneCentBelowFailed: true,
+      },
+    });
+    expect(result.projectionCompletion).toEqual({
+      status: "stopped_unfunded_liability",
+      plannedTerminalAge: 66,
+      completedThroughDate: "2027-01-31",
+      completedThroughAge: 65.08,
+      stoppedBeforeMonth: "2027-02",
+      reason:
+        "The projected path stopped before 2027-02 because the required liability payment could not be fully funded.",
+      lastCompletedFinancialAssetsToday: 50,
+      lastCompletedNetWorthToday: 498950,
+    });
+    expect(result.summary.financialAssetsDepletionAge).toBeNull();
+    expect(result.summary.endingFinancialAssetsToday).toBeNull();
+    expect(result.summary.endingNetWorthToday).toBeNull();
+    expect(final.period).toEqual({
+      startDate: "2027-01-01",
+      endDate: "2027-01-31",
+      status: "partial_period",
+    });
+    expect(chartFinal.periodLabel).toBe("2027 (Jan) · partial period");
+    expect(ledgerFinal.periodLabel).toBe("2027 (Jan) · partial period");
+    expect(final.real.accountBalances["synthetic:cash"]).toBe(50);
+    expect(final.real.balances.totalLiabilities).toBe(1100);
+    expect(final.real.outflows.liabilityCashPayment).toBe(100);
+    expect(
+      result.liabilityPayoffDates["synthetic:underfunded-mortgage"],
+    ).toBeNull();
+    expect(
+      result.observations.find(
+        (observation) => observation.code === "portfolio_duration",
+      )?.message,
+    ).toContain("duration through age 66 is not established");
+    expect(
+      result.observations.find(
+        (observation) => observation.code === "portfolio_duration",
+      )?.message,
+    ).not.toContain("remain above zero through age 66");
   });
 
   it("still blocks when a required liability payment is unfunded before retirement", () => {

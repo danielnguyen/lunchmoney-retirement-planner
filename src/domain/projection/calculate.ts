@@ -3,8 +3,8 @@ import type {
   AnnualProjection,
   AssetAllocation,
   BalanceBreakdown,
-  ContributionBreakdown,
   AccountContributionDetail,
+  ContributionBreakdown,
   ContributionPhase,
   EmploymentIncomePhase,
   FinancialAccountInput,
@@ -16,6 +16,7 @@ import type {
   NetWorthBridge,
   NonFinancialAssetInput,
   OutflowBreakdown,
+  ProjectionCompletion,
   ProjectionInputs,
   ProjectionObservation,
   ProjectionResult,
@@ -1563,10 +1564,39 @@ function simulateProjection(
       assertRegisteredRoomReconciled(nominal, `${calendarYear} nominal`);
       assertRegisteredRoomReconciled(real, `${calendarYear} real`);
     }
+    const periodStartMonthIndex = startMonth - 1 + previousMonth;
+    const periodStartYear =
+      startYear + Math.floor(periodStartMonthIndex / MONTHS_PER_YEAR);
+    const periodStartMonth =
+      (periodStartMonthIndex % MONTHS_PER_YEAR) + 1;
+    const periodEndMonthIndex = startMonth - 1 + month - 1;
+    const periodEndYear =
+      startYear + Math.floor(periodEndMonthIndex / MONTHS_PER_YEAR);
+    const periodEndMonth =
+      (periodEndMonthIndex % MONTHS_PER_YEAR) + 1;
+    const periodStartDate =
+      previousMonth === 0
+        ? inputs.startDate
+        : `${periodStartYear}-${String(periodStartMonth).padStart(2, "0")}-01`;
+    const periodEndDate = lastDayOfMonth(
+      periodEndYear,
+      periodEndMonth,
+    );
     annual.push({
       calendarYear,
       age: round(age),
       phase: age < inputs.person.retirementAge ? "accumulation" : "retirement",
+      period: {
+        startDate: periodStartDate,
+        endDate: periodEndDate,
+        status:
+          periodStartYear === periodEndYear &&
+          periodStartMonth === 1 &&
+          periodEndMonth === MONTHS_PER_YEAR &&
+          periodStartDate.endsWith("-01")
+            ? "complete_calendar_year"
+            : "partial_period",
+      },
       nominal,
       real,
       milestones: milestoneLabels(inputs, previousMonth, month),
@@ -2938,6 +2968,32 @@ function simulateProjection(
   }
 
   const ending = annual.at(-1)!;
+  const projectionCompletionEvidence = {
+    plannedTerminalAge: inputs.endAge,
+    completedThroughDate: ending.period.endDate,
+    completedThroughAge: ending.age,
+    lastCompletedFinancialAssetsToday: round(
+      ending.real.balances.financialAssets,
+    ),
+    lastCompletedNetWorthToday: round(
+      ending.real.balances.totalNetWorth,
+    ),
+  };
+  const projectionCompletion: ProjectionCompletion =
+    projectedRetirementLiabilityShortfall
+      ? {
+          ...projectionCompletionEvidence,
+          status: "stopped_unfunded_liability",
+          stoppedBeforeMonth:
+            projectedRetirementLiabilityShortfall.calendarMonth,
+          reason: `The projected path stopped before ${projectedRetirementLiabilityShortfall.calendarMonth} because the required liability payment could not be fully funded.`,
+        }
+      : {
+          ...projectionCompletionEvidence,
+          status: "complete",
+          stoppedBeforeMonth: null,
+          reason: null,
+        };
   const assetsAtRetirement = retirementSnapshot.real.balances.financialAssets;
   const retirementYear = Number(retirementSnapshot.calendarDate.slice(0, 4));
   const mortgage = inputs.liabilities.find(
@@ -2985,10 +3041,18 @@ function simulateProjection(
   observations.push({
     code: "portfolio_duration",
     message:
-      financialAssetsDepletionAge === null
+      projectionCompletion.status !== "complete"
+        ? financialAssetsDepletionAge === null
+          ? `The projected path completed through ${projectionCompletion.completedThroughDate} at age ${projectionCompletion.completedThroughAge} before an unfunded liability payment stopped it; financial assets had not reached zero, so duration through age ${inputs.endAge} is not established.`
+          : `Financial assets reached zero near age ${round(financialAssetsDepletionAge)} before the projected path stopped at an unfunded liability payment.`
+        : financialAssetsDepletionAge === null
         ? `Financial assets remain above zero through age ${inputs.endAge}.`
         : `Financial assets reach zero near age ${round(financialAssetsDepletionAge)}.`,
-    age: financialAssetsDepletionAge ?? inputs.endAge,
+    age:
+      financialAssetsDepletionAge ??
+      (projectionCompletion.status === "complete"
+        ? inputs.endAge
+        : projectionCompletion.completedThroughAge),
   });
 
   const result: CoreProjectionResult = {
@@ -3014,13 +3078,18 @@ function simulateProjection(
       goalGapToday: round(assetsAtRetirement - inputs.retirementGoalToday),
       financialAssetsDepletionAge:
         financialAssetsDepletionAge === null ? null : round(financialAssetsDepletionAge),
-      endingFinancialAssetsToday: round(ending.real.balances.financialAssets),
-      endingNetWorthToday: round(
-        ending.real.balances.totalNetWorth,
-      ),
+      endingFinancialAssetsToday:
+        projectionCompletion.status === "complete"
+          ? projectionCompletion.lastCompletedFinancialAssetsToday
+          : null,
+      endingNetWorthToday:
+        projectionCompletion.status === "complete"
+          ? projectionCompletion.lastCompletedNetWorthToday
+          : null,
       mortgagePayoffDate,
       mortgagePayoffAge,
     },
+    projectionCompletion,
     retirementSnapshot,
     financialAssetsBridge: {
       nominal: nominalBridge,

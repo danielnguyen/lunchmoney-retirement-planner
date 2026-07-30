@@ -468,6 +468,11 @@ export type AnnualProjection = {
   calendarYear: number;
   age: number;
   phase: "accumulation" | "retirement";
+  period: {
+    startDate: string;
+    endDate: string;
+    status: "complete_calendar_year" | "partial_period";
+  };
   nominal: ProjectionView;
   real: ProjectionView;
   milestones: string[];
@@ -486,11 +491,33 @@ export type ProjectionSummary = {
   retirementGoalToday: number;
   goalGapToday: number;
   financialAssetsDepletionAge: number | null;
-  endingFinancialAssetsToday: number;
-  endingNetWorthToday: number;
+  endingFinancialAssetsToday: number | null;
+  endingNetWorthToday: number | null;
   mortgagePayoffDate: string | null;
   mortgagePayoffAge: number | null;
 };
+
+type ProjectionCompletionEvidence = {
+  plannedTerminalAge: number;
+  completedThroughDate: string;
+  completedThroughAge: number;
+  lastCompletedFinancialAssetsToday: number;
+  lastCompletedNetWorthToday: number;
+};
+
+export type ProjectionCompletion = ProjectionCompletionEvidence &
+  (
+    | {
+        status: "complete";
+        stoppedBeforeMonth: null;
+        reason: null;
+      }
+    | {
+        status: "stopped_unfunded_liability";
+        stoppedBeforeMonth: string;
+        reason: string;
+      }
+  );
 
 export type RetirementRequirementComposition = {
   accountId: string;
@@ -729,6 +756,7 @@ export type ProjectionResult = {
   schemaVersion: "10.0";
   inputs: ProjectionInputs;
   summary: ProjectionSummary;
+  projectionCompletion: ProjectionCompletion;
   retirementRequirement: RetirementRequirementResult;
   retirementSnapshot: RetirementSnapshot;
   financialAssetsBridge: {
