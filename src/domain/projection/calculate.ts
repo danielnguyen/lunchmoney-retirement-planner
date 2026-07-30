@@ -1294,6 +1294,7 @@ type CoreProjectionResult = Omit<
 
 type RetirementSimulationOptions = {
   candidateBalancesToday?: ReadonlyMap<string, number>;
+  continuation?: RetirementContinuationState;
 };
 
 type RawRetirementState = {
@@ -1303,9 +1304,24 @@ type RawRetirementState = {
   inflationFactor: number;
 };
 
+type RetirementContinuationState = {
+  retirementState: RawRetirementState;
+  nonFinancialAssetValues: Map<string, number>;
+  liabilityBalances: Map<string, number>;
+  liabilityPayoffDates: Record<string, string | null>;
+  tfsaRoom: number;
+  rrspRoom: number;
+  tfsaWithdrawalsByYear: Map<number, number>;
+  rrspGenerationByYear: Map<
+    number,
+    { eligible: number; pensionAdjustment: number; otherReduction: number }
+  >;
+};
+
 type SimulationOutcome = {
   result: CoreProjectionResult | null;
   retirementState: RawRetirementState;
+  retirementContinuation: RetirementContinuationState;
   candidateEvaluation: RetirementCandidateEvaluation | null;
 };
 
@@ -1324,26 +1340,40 @@ function simulateProjection(
   const retirementMonth = Math.round(
     (inputs.person.retirementAge - inputs.person.currentAge) * MONTHS_PER_YEAR,
   );
-  const balances = new Map(inputs.accounts.map((account) => [account.id, account.openingBalance]));
-  const nonFinancialAssetValues = new Map(
-    inputs.nonFinancialAssets.map((asset) => [
-      asset.id,
-      asset.openingValue,
+  const continuation = options.continuation;
+  const balances = new Map(
+    inputs.accounts.map((account) => [
+      account.id,
+      continuation && options.candidateBalancesToday
+        ? (options.candidateBalancesToday.get(account.id) ?? 0) *
+          continuation.retirementState.inflationFactor
+        : account.openingBalance,
     ]),
   );
-  const liabilityBalances = new Map(
-    inputs.liabilities.map((liability) => [
-      liability.id,
-      liability.openingBalance,
-    ]),
-  );
-  const liabilityPayoffDates: Record<string, string | null> =
-    Object.fromEntries(
-      inputs.liabilities.map((liability) => [
-        liability.id,
-        liability.openingBalance === 0 ? inputs.startDate : null,
-      ]),
-    );
+  const nonFinancialAssetValues = continuation
+    ? new Map(continuation.nonFinancialAssetValues)
+    : new Map(
+        inputs.nonFinancialAssets.map((asset) => [
+          asset.id,
+          asset.openingValue,
+        ]),
+      );
+  const liabilityBalances = continuation
+    ? new Map(continuation.liabilityBalances)
+    : new Map(
+        inputs.liabilities.map((liability) => [
+          liability.id,
+          liability.openingBalance,
+        ]),
+      );
+  const liabilityPayoffDates: Record<string, string | null> = continuation
+    ? { ...continuation.liabilityPayoffDates }
+    : Object.fromEntries(
+        inputs.liabilities.map((liability) => [
+          liability.id,
+          liability.openingBalance === 0 ? inputs.startDate : null,
+        ]),
+      );
   const reserveAccounts = inputs.surplusAllocation.reserveAccountIds.map(
     (accountId) =>
       inputs.accounts.find((account) => account.id === accountId)!,
@@ -1392,8 +1422,18 @@ function simulateProjection(
   let financialAssetsDepletionAge: number | null = null;
   let previousSnapshotMonth = 0;
   let retirementSnapshot: RetirementSnapshot | undefined;
-  let rawRetirementState: RawRetirementState | undefined;
-  let terminalFinancialAssetsToday = 0;
+  let rawRetirementState: RawRetirementState | undefined = continuation
+    ? {
+        ...continuation.retirementState,
+        accountBalances: new Map(continuation.retirementState.accountBalances),
+      }
+    : undefined;
+  let retirementContinuation: RetirementContinuationState | undefined =
+    continuation;
+  let terminalFinancialAssetsToday = continuation
+    ? balanceSheet(inputs.accounts, balances).financialAssets /
+      continuation.retirementState.inflationFactor
+    : 0;
   let retirementUnmetRequiredOutflow = 0;
   let retirementUnmetSpending = 0;
   const nominalSurplusThroughRetirement = emptySurplusTotals();
@@ -1406,17 +1446,23 @@ function simulateProjection(
   let reserveBalanceAtRetirementReal = 0;
   let destinationBalanceAtRetirementNominal = 0;
   let destinationBalanceAtRetirementReal = 0;
-  let tfsaRoom =
-    inputs.registeredAccountRoom?.tfsa.startingAvailableRoom.amount ?? 0;
-  let rrspRoom =
-    inputs.registeredAccountRoom?.rrsp.startingAvailableDeductionRoom.amount ??
-    0;
-  const tfsaWithdrawalsByYear = new Map<number, number>();
-  const rrspGenerationByYear = new Map<
-    number,
-    { eligible: number; pensionAdjustment: number; otherReduction: number }
-  >();
-  if (inputs.registeredAccountRoom) {
+  let tfsaRoom = continuation
+    ? continuation.tfsaRoom
+    : inputs.registeredAccountRoom?.tfsa.startingAvailableRoom.amount ?? 0;
+  let rrspRoom = continuation
+    ? continuation.rrspRoom
+    : inputs.registeredAccountRoom?.rrsp.startingAvailableDeductionRoom
+        .amount ?? 0;
+  const tfsaWithdrawalsByYear = continuation
+    ? new Map(continuation.tfsaWithdrawalsByYear)
+    : new Map<number, number>();
+  const rrspGenerationByYear = continuation
+    ? new Map(continuation.rrspGenerationByYear)
+    : new Map<
+        number,
+        { eligible: number; pensionAdjustment: number; otherReduction: number }
+      >();
+  if (inputs.registeredAccountRoom && !continuation) {
     const preStart =
       inputs.registeredAccountRoom.rrsp.newRoom
         .startYearBeforeProjectionMonth;
@@ -1529,7 +1575,12 @@ function simulateProjection(
     previousSnapshotMonth = month;
   }
 
-  for (let month = 1; month <= totalMonths; month += 1) {
+  const firstSimulationMonth = continuation ? retirementMonth + 1 : 1;
+  for (
+    let month = firstSimulationMonth;
+    month <= totalMonths;
+    month += 1
+  ) {
     const previousFactor = indexedFactor(inputs.annualInflation, month - 1);
     const factor = indexedFactor(inputs.annualInflation, month);
     const workingAge = inputs.person.currentAge + (month - 1) / MONTHS_PER_YEAR;
@@ -2612,6 +2663,16 @@ function simulateProjection(
           rawRetirementBalanceSheet.totalLiabilities / factor,
         inflationFactor: factor,
       };
+      retirementContinuation = {
+        retirementState: rawRetirementState,
+        nonFinancialAssetValues: new Map(nonFinancialAssetValues),
+        liabilityBalances: new Map(liabilityBalances),
+        liabilityPayoffDates: { ...liabilityPayoffDates },
+        tfsaRoom,
+        rrspRoom,
+        tfsaWithdrawalsByYear: new Map(tfsaWithdrawalsByYear),
+        rrspGenerationByYear: new Map(rrspGenerationByYear),
+      };
       if (!evaluationOnly) {
         const retirementRealMonthlyFlow = emptyView();
         addMonthlyFlow(retirementRealMonthlyFlow, monthlyFlow, factor);
@@ -2727,6 +2788,9 @@ function simulateProjection(
   if (!rawRetirementState) {
     throw new Error("The raw retirement state could not be captured");
   }
+  if (!retirementContinuation) {
+    throw new Error("The retirement continuation state could not be captured");
+  }
   if (evaluationOnly) {
     const terminalMinimum =
       inputs.retirementRequirement.minimumEndingFinancialAssetsToday;
@@ -2748,6 +2812,7 @@ function simulateProjection(
     return {
       result: null,
       retirementState: rawRetirementState,
+      retirementContinuation,
       candidateEvaluation,
     };
   }
@@ -2987,6 +3052,7 @@ function simulateProjection(
   return {
     result,
     retirementState: rawRetirementState,
+    retirementContinuation,
     candidateEvaluation: null,
   };
 }
@@ -3030,6 +3096,7 @@ export function calculateProjection(
     evaluate: (candidateBalancesToday) => {
       const candidate = simulateProjection(inputs, {
         candidateBalancesToday,
+        continuation: ordinary.retirementContinuation,
       }).candidateEvaluation;
       if (!candidate) {
         throw new Error("Retirement candidate evaluation was not captured");
