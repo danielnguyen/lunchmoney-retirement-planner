@@ -13,10 +13,10 @@ Public tracking must remain generic and must not contain private financial value
 - Open maintenance pull request: None
 - Pull request state: Open draft
 - Active implementation: Retirement funding requirement and terminal balance
-- Status: Ready for independent review
+- Status: Hosted validation in progress
 - Implementation branch: `agent/add-retirement-funding-requirement`
-- Validated implementation commit: `0ebd02041c3c859d8cb020e7deeecd072ad844e2`
-- Synthetic validation: Passed — 422 synthetic tests, including 17 focused solver cases plus configuration, compatibility provenance, exact retirement-boundary composition and continuation, terminal criteria, account-type differences, liabilities, benefits, spending phases, deterministic exact-cent proof, unavailable/infeasible outcomes, dashboard, explanation, schema, JSON allowlist, CSV rectangularity, and privacy coverage. Typecheck, lint, production build, local Docker image build, Docker Compose validation, container health, private local smoke validation, and `git diff --check` passed. Hosted CI #117 and Docker image build #111 passed on the validated implementation commit.
+- Validated implementation commit: `263c0ced4548f7dcfc1014bdd6a023de6c981a84`
+- Synthetic validation: Passed — 424 synthetic tests, including 19 focused solver cases plus configuration, compatibility provenance, exact retirement-boundary composition and continuation, terminal criteria, account-type differences, liabilities, benefits, spending phases, deterministic exact-cent proof, unavailable/infeasible outcomes, dashboard, explanation, schema, JSON allowlist, CSV rectangularity, and privacy coverage. The focused correction proves that an underfunded post-retirement liability produces an available requirement and shortfall without recording an unpaid payment as paid, while a pre-retirement liability failure remains fail-closed. Typecheck, lint, production build, local Docker image build, Docker Compose validation, container health, private local smoke validation, and `git diff --check` passed. Hosted Docker image build #113 passed; hosted CI #119 is pending on the validated implementation commit.
 - Latest merged `main`: `61a0dc20f879f19c662e237f49858263b8626c80`
 - Last completed capability: Explicit scenario-to-config bindings
 - Last completed pull request: [#20 Apply scenario overrides to the YAML config draft](https://github.com/danielnguyen/lunchmoney-retirement-planner/pull/20)
