@@ -1304,7 +1304,7 @@ type RawRetirementState = {
 };
 
 type SimulationOutcome = {
-  result: CoreProjectionResult;
+  result: CoreProjectionResult | null;
   retirementState: RawRetirementState;
   candidateEvaluation: RetirementCandidateEvaluation | null;
 };
@@ -1314,6 +1314,9 @@ function simulateProjection(
   options: RetirementSimulationOptions = {},
 ): SimulationOutcome {
   const inputs = validateProjectionInputs(rawInputs);
+  // Solver candidates execute the same monthly financial engine, but they do
+  // not build presentation snapshots or bridges that cannot affect pass/fail.
+  const evaluationOnly = options.candidateBalancesToday !== undefined;
   const benefits = governmentBenefitSummary(inputs);
   const startYear = Number(inputs.startDate.slice(0, 4));
   const startMonth = Number(inputs.startDate.slice(5, 7));
@@ -2494,9 +2497,11 @@ function simulateProjection(
       inputs.savingsPolicy,
     );
 
-    addMonthlyFlow(annualNominalFlow, monthlyFlow, 1);
-    addMonthlyFlow(annualRealFlow, monthlyFlow, factor);
-    if (month <= retirementMonth) {
+    if (!evaluationOnly) {
+      addMonthlyFlow(annualNominalFlow, monthlyFlow, 1);
+      addMonthlyFlow(annualRealFlow, monthlyFlow, factor);
+    }
+    if (!evaluationOnly && month <= retirementMonth) {
       addSurplusTotals(nominalSurplusThroughRetirement, monthlyFlow, 1);
       addSurplusTotals(realSurplusThroughRetirement, monthlyFlow, factor);
       addSavingsTotals(nominalSavingsThroughRetirement, monthlyFlow, 1);
@@ -2607,97 +2612,102 @@ function simulateProjection(
           rawRetirementBalanceSheet.totalLiabilities / factor,
         inflationFactor: factor,
       };
-      const retirementRealMonthlyFlow = emptyView();
-      addMonthlyFlow(retirementRealMonthlyFlow, monthlyFlow, factor);
-      retirementSnapshot = {
-        calendarDate: lastDayOfMonth(calendarYear, calendarMonth),
-        age: round(inputs.person.retirementAge),
-        flowPeriod: {
-          kind: "final_working_month",
-          calendarMonth: `${calendarYear}-${String(calendarMonth).padStart(2, "0")}`,
-        },
-        nominal: snapshotView(
-          monthlyFlow,
-          inputs.accounts,
-          balances,
-          inputs.nonFinancialAssets,
-          nonFinancialAssetValues,
-          inputs.liabilities,
-          liabilityBalances,
-          1,
-        ),
-        real: snapshotView(
-          retirementRealMonthlyFlow,
-          inputs.accounts,
-          balances,
-          inputs.nonFinancialAssets,
-          nonFinancialAssetValues,
-          inputs.liabilities,
-          liabilityBalances,
-          factor,
-          monthlyFlow.liabilitySchedules,
-        ),
-      };
-      assertSurplusReconciled(
-        retirementSnapshot.nominal,
-        "retirement snapshot nominal",
-      );
-      assertSurplusReconciled(
-        retirementSnapshot.real,
-        "retirement snapshot real",
-      );
-      assertSavingsPolicyReconciled(
-        retirementSnapshot.nominal,
-        "retirement snapshot nominal",
-        inputs.savingsPolicy,
-      );
-      assertBalanceSheetReconciled(
-        retirementSnapshot.nominal,
-        "retirement snapshot nominal",
-      );
-      assertBalanceSheetReconciled(
-        retirementSnapshot.real,
-        "retirement snapshot real",
-      );
-      assertLiabilitySchedulesReconciled(
-        retirementSnapshot.nominal,
-        "retirement snapshot nominal",
-      );
-      assertLiabilitySchedulesReconciled(
-        retirementSnapshot.real,
-        "retirement snapshot real",
-      );
-      assertSavingsPolicyReconciled(
-        retirementSnapshot.real,
-        "retirement snapshot real",
-        inputs.savingsPolicy,
-      );
-      reserveTargetAtRetirementNominal =
-        monthlyFlow.surplusAllocation.reserveTarget;
-      reserveTargetAtRetirementReal =
-        reserveTargetAtRetirementNominal / factor;
-      reserveBalanceAtRetirementNominal = reserveAccounts.reduce(
-        (total, account) => total + (balances.get(account.id) ?? 0),
-        0,
-      );
-      reserveBalanceAtRetirementReal =
-        reserveBalanceAtRetirementNominal / factor;
-      if (destinationAccount) {
-        destinationBalanceAtRetirementNominal =
-          balances.get(destinationAccount.id) ?? 0;
-        destinationBalanceAtRetirementReal =
-          destinationBalanceAtRetirementNominal / factor;
+      if (!evaluationOnly) {
+        const retirementRealMonthlyFlow = emptyView();
+        addMonthlyFlow(retirementRealMonthlyFlow, monthlyFlow, factor);
+        retirementSnapshot = {
+          calendarDate: lastDayOfMonth(calendarYear, calendarMonth),
+          age: round(inputs.person.retirementAge),
+          flowPeriod: {
+            kind: "final_working_month",
+            calendarMonth: `${calendarYear}-${String(calendarMonth).padStart(2, "0")}`,
+          },
+          nominal: snapshotView(
+            monthlyFlow,
+            inputs.accounts,
+            balances,
+            inputs.nonFinancialAssets,
+            nonFinancialAssetValues,
+            inputs.liabilities,
+            liabilityBalances,
+            1,
+          ),
+          real: snapshotView(
+            retirementRealMonthlyFlow,
+            inputs.accounts,
+            balances,
+            inputs.nonFinancialAssets,
+            nonFinancialAssetValues,
+            inputs.liabilities,
+            liabilityBalances,
+            factor,
+            monthlyFlow.liabilitySchedules,
+          ),
+        };
+        assertSurplusReconciled(
+          retirementSnapshot.nominal,
+          "retirement snapshot nominal",
+        );
+        assertSurplusReconciled(
+          retirementSnapshot.real,
+          "retirement snapshot real",
+        );
+        assertSavingsPolicyReconciled(
+          retirementSnapshot.nominal,
+          "retirement snapshot nominal",
+          inputs.savingsPolicy,
+        );
+        assertBalanceSheetReconciled(
+          retirementSnapshot.nominal,
+          "retirement snapshot nominal",
+        );
+        assertBalanceSheetReconciled(
+          retirementSnapshot.real,
+          "retirement snapshot real",
+        );
+        assertLiabilitySchedulesReconciled(
+          retirementSnapshot.nominal,
+          "retirement snapshot nominal",
+        );
+        assertLiabilitySchedulesReconciled(
+          retirementSnapshot.real,
+          "retirement snapshot real",
+        );
+        assertSavingsPolicyReconciled(
+          retirementSnapshot.real,
+          "retirement snapshot real",
+          inputs.savingsPolicy,
+        );
+        reserveTargetAtRetirementNominal =
+          monthlyFlow.surplusAllocation.reserveTarget;
+        reserveTargetAtRetirementReal =
+          reserveTargetAtRetirementNominal / factor;
+        reserveBalanceAtRetirementNominal = reserveAccounts.reduce(
+          (total, account) => total + (balances.get(account.id) ?? 0),
+          0,
+        );
+        reserveBalanceAtRetirementReal =
+          reserveBalanceAtRetirementNominal / factor;
+        if (destinationAccount) {
+          destinationBalanceAtRetirementNominal =
+            balances.get(destinationAccount.id) ?? 0;
+          destinationBalanceAtRetirementReal =
+            destinationBalanceAtRetirementNominal / factor;
+        }
+        nominalBridge.endingFinancialAssets =
+          rawRetirementBalanceSheet.financialAssets;
+        realBridge.endingFinancialAssets =
+          rawRetirementBalanceSheet.financialAssets / factor;
+        nominalNetWorthBridge.endingNetWorth =
+          rawRetirementBalanceSheet.totalNetWorth;
+        realNetWorthBridge.endingNetWorth =
+          rawRetirementBalanceSheet.totalNetWorth / factor;
       }
-      nominalBridge.endingFinancialAssets =
-        rawRetirementBalanceSheet.financialAssets;
-      realBridge.endingFinancialAssets =
-        rawRetirementBalanceSheet.financialAssets / factor;
-      nominalNetWorthBridge.endingNetWorth =
-        rawRetirementBalanceSheet.totalNetWorth;
-      realNetWorthBridge.endingNetWorth =
-        rawRetirementBalanceSheet.totalNetWorth / factor;
     }
-    if (calendarMonth === MONTHS_PER_YEAR || month === totalMonths) {
+    if (
+      !evaluationOnly &&
+      (calendarMonth === MONTHS_PER_YEAR || month === totalMonths)
+    ) {
       snapshot(month, previousSnapshotMonth, calendarYear);
     }
     if (month === retirementMonth && options.candidateBalancesToday) {
@@ -2712,6 +2722,34 @@ function simulateProjection(
       terminalFinancialAssetsToday =
         balanceSheet(inputs.accounts, balances).financialAssets / factor;
     }
+  }
+
+  if (!rawRetirementState) {
+    throw new Error("The raw retirement state could not be captured");
+  }
+  if (evaluationOnly) {
+    const terminalMinimum =
+      inputs.retirementRequirement.minimumEndingFinancialAssetsToday;
+    const candidateEvaluation = {
+      passes:
+        retirementUnmetRequiredOutflow <= 0.000001 &&
+        retirementUnmetSpending <= 0.000001 &&
+        terminalFinancialAssetsToday + 0.000001 >= terminalMinimum,
+      terminalFinancialAssetsToday,
+      failure:
+        retirementUnmetRequiredOutflow > 0.000001
+          ? ("unmet_required_outflow" as const)
+          : retirementUnmetSpending > 0.000001
+            ? ("unmet_spending" as const)
+            : terminalFinancialAssetsToday + 0.000001 < terminalMinimum
+              ? ("terminal_balance" as const)
+              : null,
+    };
+    return {
+      result: null,
+      retirementState: rawRetirementState,
+      candidateEvaluation,
+    };
   }
 
   if (!retirementSnapshot) {
@@ -2788,10 +2826,6 @@ function simulateProjection(
         : `Financial assets reach zero near age ${round(financialAssetsDepletionAge)}.`,
     age: financialAssetsDepletionAge ?? inputs.endAge,
   });
-
-  if (!rawRetirementState) {
-    throw new Error("The raw retirement state could not be captured");
-  }
 
   const result: CoreProjectionResult = {
     schemaVersion: "10.0",
@@ -2950,33 +2984,22 @@ function simulateProjection(
     annual,
     observations,
   };
-  const terminalMinimum =
-    inputs.retirementRequirement.minimumEndingFinancialAssetsToday;
-  const candidateEvaluation = options.candidateBalancesToday
-    ? {
-        passes:
-          retirementUnmetRequiredOutflow <= 0.000001 &&
-          retirementUnmetSpending <= 0.000001 &&
-          terminalFinancialAssetsToday + 0.000001 >= terminalMinimum,
-        terminalFinancialAssetsToday,
-        failure:
-          retirementUnmetRequiredOutflow > 0.000001
-            ? ("unmet_required_outflow" as const)
-            : retirementUnmetSpending > 0.000001
-              ? ("unmet_spending" as const)
-              : terminalFinancialAssetsToday + 0.000001 < terminalMinimum
-                ? ("terminal_balance" as const)
-                : null,
-      }
-    : null;
-  return { result, retirementState: rawRetirementState, candidateEvaluation };
+  return {
+    result,
+    retirementState: rawRetirementState,
+    candidateEvaluation: null,
+  };
 }
 
 export function calculateProjection(
   rawInputs: ProjectionInputs,
 ): ProjectionResult {
   const ordinary = simulateProjection(rawInputs);
-  const inputs = ordinary.result.inputs;
+  if (!ordinary.result) {
+    throw new Error("The ordinary projection result was not captured");
+  }
+  const result = ordinary.result;
+  const inputs = result.inputs;
   const retirementAccounts = inputs.accounts.map((account) => ({
     accountId: account.id,
     accountType: account.type,
@@ -3014,14 +3037,14 @@ export function calculateProjection(
       return candidate;
     },
   });
-  ordinary.result.observations.push({
+  result.observations.push({
     code: "retirement_requirement_tax_compatibility",
     message:
       "The retirement funding requirement is provisional under the current flat retirement-tax compatibility assumption.",
     age: inputs.person.retirementAge,
   });
   if (inputs.retirementRequirement.source === "compatibility_default") {
-    ordinary.result.observations.push({
+    result.observations.push({
       code: "retirement_requirement_compatibility_default",
       message:
         "The minimum terminal financial-assets balance uses a backward-compatible zero-dollar default because retirementRequirement is not explicitly configured.",
@@ -3029,7 +3052,7 @@ export function calculateProjection(
     });
   }
   return {
-    ...ordinary.result,
+    ...result,
     retirementRequirement,
   };
 }
