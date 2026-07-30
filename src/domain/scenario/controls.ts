@@ -709,6 +709,39 @@ export function buildControls(baseline: ProjectionInputs): ControlDefinition[] {
       },
       persistence: () => configBinding(scalar("projectionEndAge")),
     },
+    {
+      key: "retirementRequirement.minimumEndingFinancialAssetsToday",
+      sourceKey:
+        "retirementRequirement.minimumEndingFinancialAssetsToday",
+      label: "Minimum financial assets at terminal age",
+      kind: "currency",
+      min: fixed(0),
+      max: (inputs) =>
+        Math.max(
+          5_000_000,
+          inputs.retirementRequirement
+            .minimumEndingFinancialAssetsToday * 3,
+        ),
+      step: 0.01,
+      format: currency.format,
+      get: (inputs) =>
+        inputs.retirementRequirement.minimumEndingFinancialAssetsToday,
+      set: (inputs, value) => {
+        inputs.retirementRequirement.minimumEndingFinancialAssetsToday =
+          value;
+      },
+      persistence: (config) =>
+        config.retirementRequirement.source === "explicit_configuration"
+          ? configBinding(
+              scalar(
+                "retirementRequirement",
+                "minimumEndingFinancialAssetsToday",
+              ),
+            )
+          : scenarioOnly(
+              "Add retirementRequirement.minimumEndingFinancialAssetsToday to the YAML draft before applying this compatibility-default value.",
+            ),
+    },
   ];
 
   if (

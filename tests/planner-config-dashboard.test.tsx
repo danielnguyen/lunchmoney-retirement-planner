@@ -52,6 +52,72 @@ afterEach(() => {
 });
 
 describe("dashboard config-save baseline transitions", () => {
+  it("renders projected, required, margin, owner marker, and provisional tax meaning", async () => {
+    const projection = calculateProjection(
+      currentBaselineFixture.projectionInputs,
+    );
+    const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
+      const url = requestUrl(input);
+      if (url === "/api/v1/baseline/current") {
+        return jsonResponse(structuredClone(currentBaselineFixture));
+      }
+      if (url === "/api/v1/projections") return jsonResponse(projection);
+      throw new Error(`Unexpected request: ${url}`);
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    render(<PlannerDashboard />);
+
+    expect(await screen.findByText("Projected at retirement")).toBeInTheDocument();
+    expect(screen.getByText("Required at retirement")).toBeInTheDocument();
+    expect(screen.getByText("Margin or shortfall")).toBeInTheDocument();
+    expect(screen.getByText("Owner goal marker")).toBeInTheDocument();
+    expect(
+      screen.getByText(/Projected funding (margin|shortfall)/),
+    ).toBeInTheDocument();
+    expect(screen.getByText("Requirement basis")).toBeInTheDocument();
+    expect(screen.getByText("Tax status")).toBeInTheDocument();
+    expect(screen.getByText("Provisional")).toBeInTheDocument();
+    expect(
+      screen.getByText(/progressive Canadian taxes and RRIF minimums/),
+    ).toBeInTheDocument();
+  });
+
+  it("shows an honest unavailable requirement without a misleading zero", async () => {
+    const projection = calculateProjection(
+      currentBaselineFixture.projectionInputs,
+    );
+    projection.retirementRequirement = {
+      ...projection.retirementRequirement,
+      status: "unavailable",
+      requiredFinancialAssetsToday: null,
+      fundingMarginToday: null,
+      composition: [],
+      bindingConstraint: "unavailable_composition",
+      reason: "Synthetic projected composition is unavailable.",
+    };
+    const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
+      const url = requestUrl(input);
+      if (url === "/api/v1/baseline/current") {
+        return jsonResponse(structuredClone(currentBaselineFixture));
+      }
+      if (url === "/api/v1/projections") return jsonResponse(projection);
+      throw new Error(`Unexpected request: ${url}`);
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    render(<PlannerDashboard />);
+
+    expect(await screen.findByText("Projected at retirement")).toBeInTheDocument();
+    expect(screen.getAllByText("Unavailable")).toHaveLength(2);
+    expect(
+      screen.getByText("Synthetic projected composition is unavailable."),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByText("No funding comparison is available"),
+    ).toBeInTheDocument();
+  });
+
   it("opens blocking repair in the unified YAML drawer and reloads the dashboard", async () => {
     const blockingError = {
       error: "configuration_required",

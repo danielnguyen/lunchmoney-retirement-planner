@@ -34,6 +34,10 @@ function baseInputs(): ProjectionInputs {
       },
     ],
     retirementGoalToday: 100000,
+    retirementRequirement: {
+      minimumEndingFinancialAssetsToday: 0,
+      source: "explicit_configuration",
+    },
     tax: {
       effectiveTaxRate: 0.2,
       oasRecoveryThresholdToday: 90000,

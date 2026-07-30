@@ -2014,6 +2014,8 @@ export function deriveCurrentBaseline(
     retirementAge: config.retirementAge,
     endAge: config.projectionEndAge,
     retirementGoalToday: config.retirementGoal,
+    "retirementRequirement.minimumEndingFinancialAssetsToday":
+      config.retirementRequirement.minimumEndingFinancialAssetsToday,
     annualInflation: config.assumptions.inflation,
     effectiveTaxRate: config.assumptions.effectiveTaxRate,
     oasRecoveryThresholdToday: config.assumptions.oasRecoveryThreshold,
@@ -2032,6 +2034,14 @@ export function deriveCurrentBaseline(
   for (const [field, value] of Object.entries(localFields)) {
     provenance[field] = localValue(value, `${field} from private planner configuration`, window.endDate);
   }
+  provenance["retirementRequirement.minimumEndingFinancialAssetsToday"] =
+    localValue(
+      config.retirementRequirement.minimumEndingFinancialAssetsToday,
+      config.retirementRequirement.source === "explicit_configuration"
+        ? "Explicit configured minimum terminal financial-assets balance"
+        : "Backward-compatible zero-dollar terminal balance because retirementRequirement is omitted; add the block to configure it explicitly",
+      window.endDate,
+    );
 
   const canonicalBenefits = config.governmentBenefits;
   const cppStartAge = canonicalBenefits?.cpp.startAge ?? config.cppStartAge!;
@@ -2619,6 +2629,7 @@ export function deriveCurrentBaseline(
     monthlyDiscretionarySpendingToday: monthlyDiscretionary,
     spendingPhases,
     retirementGoalToday: config.retirementGoal,
+    retirementRequirement: config.retirementRequirement,
     tax: {
       effectiveTaxRate: config.assumptions.effectiveTaxRate,
       oasRecoveryThresholdToday: config.assumptions.oasRecoveryThreshold,
@@ -2658,7 +2669,7 @@ export function deriveCurrentBaseline(
   });
 
   return {
-    schemaVersion: "1.9",
+    schemaVersion: "2.0",
     connection,
     projectionInputs,
     provenance,

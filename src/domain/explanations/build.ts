@@ -622,15 +622,15 @@ function goalDocument(context: ExplanationContext): ExplanationDocument {
   );
   return {
     id: "retirement-goal",
-    title: "Goal",
+    title: "Owner goal marker",
     plainLanguage:
-      "The financial-asset target used to compare the projected retirement snapshot with the amount you want available.",
+      "Your configured round-number financial-asset marker. It is retained for personal comparison and is not used to solve the derived retirement requirement.",
     displayedResult: {
-      label: "Retirement goal",
+      label: "Owner goal marker",
       value: currency.format(displayed),
       dollarMode: "real",
     },
-    formula: "Active retirement-goal input",
+    formula: "Active owner-goal input (not a solver input)",
     steps: [
       ...(goalEvidence.sourceType === "override"
         ? [{
@@ -660,33 +660,33 @@ function goalDocument(context: ExplanationContext): ExplanationDocument {
 }
 
 function goalGapDocument(context: ExplanationContext): ExplanationDocument {
-  const assets = context.projection.summary.financialAssetsAtRetirementToday;
+  const projected =
+    context.projection.retirementRequirement.projectedFinancialAssetsToday;
   const goal = context.projection.summary.retirementGoalToday;
-  const calculated = round(assets - goal);
-  const displayed = context.projection.summary.goalGapToday;
+  const displayed =
+    context.projection.retirementRequirement.ownerGoalDifferenceToday;
+  const calculated = round(projected - goal);
   return {
     id: "goal-gap",
-    title: "Goal gap",
+    title: "Owner-goal difference",
     plainLanguage:
-      displayed >= 0
-        ? "Projected financial assets at retirement are above the retirement goal by this amount."
-        : "Projected financial assets at retirement are below the retirement goal by this amount.",
+      "This comparison shows projected retirement financial assets minus your owner-configured marker. It remains separate from the derived funding margin or shortfall.",
     displayedResult: {
-      label: "Goal gap",
+      label: "Owner-goal difference",
       value: currency.format(displayed),
       dollarMode: "real",
     },
-    formula: "Retirement funding assets − retirement goal = goal gap",
+    formula: "Projected at retirement − owner goal marker",
     steps: [
       {
-        label: "Retirement funding assets",
-        value: exactCurrency.format(assets),
-        rawValue: assets,
+        label: "Projected at retirement",
+        value: exactCurrency.format(projected),
+        rawValue: projected,
         operation: "input",
         sourceType: "projection",
       },
       {
-        label: "Retirement goal",
+        label: "Owner goal marker",
         value: exactCurrency.format(goal),
         rawValue: goal,
         operation: "subtract",
@@ -698,7 +698,7 @@ function goalGapDocument(context: ExplanationContext): ExplanationDocument {
         ),
       },
       {
-        label: "Goal gap",
+        label: "Owner-goal difference",
         value: exactCurrency.format(calculated),
         rawValue: calculated,
         operation: "result",
@@ -708,10 +708,196 @@ function goalGapDocument(context: ExplanationContext): ExplanationDocument {
     dataSections: [],
     assumptions: [],
     caveats: [
-      "A positive gap is above the goal; a negative gap is below it.",
-      "Both values are expressed in today’s dollars and include financial assets only.",
+      "The owner goal is not used to derive the requirement.",
+      "Use the funding margin or shortfall for the independent requirement comparison.",
     ],
     reconciliation: matched(calculated, displayed),
+  };
+}
+
+function retirementRequirementDocument(
+  context: ExplanationContext,
+): ExplanationDocument {
+  const requirement = context.projection.retirementRequirement;
+  if (
+    requirement.status !== "available" ||
+    requirement.requiredFinancialAssetsToday === null
+  ) {
+    return {
+      id: "retirement-requirement",
+      title: "Required at retirement",
+      plainLanguage:
+        "The derived requirement is unavailable for this scenario.",
+      steps: [],
+      dataSections: [],
+      assumptions: [],
+      caveats: [
+        "Residence value and home equity are never used as retirement-funding assets.",
+      ],
+      unavailableEvidence: [requirement.reason ?? "No requirement is available."],
+    };
+  }
+  const minimumSource =
+    requirement.minimumEndingBalanceSource === "explicit_configuration"
+      ? "Explicit planner configuration"
+      : "Compatibility normalization because the configuration omits retirementRequirement";
+  return {
+    id: "retirement-requirement",
+    title: "Required at retirement",
+    plainLanguage:
+      "The lowest exact-cent retirement-boundary financial-assets amount that funds the configured retirement scenario through the terminal age.",
+    displayedResult: {
+      label: "Required financial assets at retirement",
+      value: currency.format(requirement.requiredFinancialAssetsToday),
+      dollarMode: "real",
+    },
+    formula:
+      "Lowest passing cent using the ordinary monthly spending, benefits, liabilities, returns, withdrawals, tax compatibility, and surplus rules",
+    steps: [
+      {
+        label: "Terminal age",
+        value: String(requirement.terminalAge),
+        operation: "input",
+        sourceType: "configuration",
+      },
+      {
+        label: "Minimum ending financial assets",
+        value: exactCurrency.format(
+          requirement.minimumEndingFinancialAssetsToday,
+        ),
+        rawValue: requirement.minimumEndingFinancialAssetsToday,
+        operation: "input",
+        sourceType: "configuration",
+        sourceDescription: minimumSource,
+      },
+      {
+        label: "Lowest passing retirement amount",
+        value: exactCurrency.format(
+          requirement.requiredFinancialAssetsToday,
+        ),
+        rawValue: requirement.requiredFinancialAssetsToday,
+        operation: "result",
+        sourceType: "projection",
+      },
+    ],
+    dataSections: [
+      {
+        title: "Retirement-boundary account composition",
+        description:
+          "Each tested total is distributed by the exact projected financial-account weights. Residence equity and liabilities are excluded.",
+        columns: [
+          { key: "account", label: "Account" },
+          { key: "type", label: "Type" },
+          { key: "weight", label: "Projected weight" },
+          { key: "required", label: "Required allocation" },
+        ],
+        rows: requirement.composition.map((entry) => ({
+          account:
+            context.inputs.accounts.find(
+              (account) => account.id === entry.accountId,
+            )?.label ?? "Financial account",
+          type: entry.accountType,
+          weight: percent.format(entry.weight),
+          required: entry.requiredBalanceToday ?? 0,
+        })),
+      },
+    ],
+    assumptions: [
+      {
+        label: "Tax model",
+        value: "Flat retirement-tax compatibility model",
+        sourceType: "configuration",
+      },
+      {
+        label: "Binding constraint",
+        value: requirement.bindingConstraint.replaceAll("_", " "),
+        sourceType: "projection",
+      },
+    ],
+    caveats: [
+      "Provisional — calculated using the current flat retirement-tax compatibility assumption.",
+      "Progressive Canadian retirement taxes and RRIF minimum withdrawals are not yet modelled.",
+      "Residence value, home equity, and other non-financial assets cannot satisfy this requirement.",
+      requirement.minimumEndingBalanceSource === "compatibility_default"
+        ? "The zero-dollar terminal minimum is a visible backward-compatibility normalization, not an owner-configured value; configure retirementRequirement explicitly."
+        : "The terminal minimum is explicitly configured.",
+    ],
+  };
+}
+
+function retirementFundingMarginDocument(
+  context: ExplanationContext,
+): ExplanationDocument {
+  const requirement = context.projection.retirementRequirement;
+  if (
+    requirement.requiredFinancialAssetsToday === null ||
+    requirement.fundingMarginToday === null
+  ) {
+    return {
+      id: "retirement-funding-margin",
+      title: "Margin or shortfall",
+      plainLanguage:
+        "A funding comparison is unavailable because the requirement could not be calculated.",
+      steps: [],
+      dataSections: [],
+      assumptions: [],
+      caveats: [],
+      unavailableEvidence: [requirement.reason ?? "No requirement is available."],
+    };
+  }
+  const calculated = round(
+    requirement.projectedFinancialAssetsToday -
+      requirement.requiredFinancialAssetsToday,
+  );
+  return {
+    id: "retirement-funding-margin",
+    title: "Margin or shortfall",
+    plainLanguage:
+      requirement.fundingMarginToday >= 0
+        ? "Projected retirement financial assets exceed the derived requirement by this margin."
+        : "Projected retirement financial assets fall below the derived requirement by this shortfall.",
+    displayedResult: {
+      label:
+        requirement.fundingMarginToday >= 0
+          ? "Funding margin"
+          : "Funding shortfall",
+      value: currency.format(Math.abs(requirement.fundingMarginToday)),
+      dollarMode: "real",
+    },
+    formula: "Projected at retirement − required at retirement",
+    steps: [
+      {
+        label: "Projected at retirement",
+        value: exactCurrency.format(
+          requirement.projectedFinancialAssetsToday,
+        ),
+        rawValue: requirement.projectedFinancialAssetsToday,
+        operation: "input",
+        sourceType: "projection",
+      },
+      {
+        label: "Required at retirement",
+        value: exactCurrency.format(
+          requirement.requiredFinancialAssetsToday,
+        ),
+        rawValue: requirement.requiredFinancialAssetsToday,
+        operation: "subtract",
+        sourceType: "projection",
+      },
+      {
+        label: "Funding margin or shortfall",
+        value: exactCurrency.format(calculated),
+        rawValue: calculated,
+        operation: "result",
+        sourceType: "projection",
+      },
+    ],
+    dataSections: [],
+    assumptions: [],
+    caveats: [
+      "The result is stated by label as a margin or shortfall and does not rely on colour alone.",
+    ],
+    reconciliation: matched(calculated, requirement.fundingMarginToday),
   };
 }
 
@@ -4084,6 +4270,8 @@ export function buildExplanation(
 ): ExplanationDocument {
   if (target === "starting-financial-assets") return startingFinancialAssetsDocument(context);
   if (target === "assets-at-retirement") return assetsAtRetirementDocument(context);
+  if (target === "retirement-requirement") return retirementRequirementDocument(context);
+  if (target === "retirement-funding-margin") return retirementFundingMarginDocument(context);
   if (target === "retirement-goal") return goalDocument(context);
   if (target === "goal-gap") return goalGapDocument(context);
   if (target === "financial-assets-duration") return durationDocument(context);

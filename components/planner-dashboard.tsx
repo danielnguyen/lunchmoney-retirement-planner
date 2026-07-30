@@ -51,6 +51,7 @@ import {
 import type {
   ProjectionInputs,
   ProjectionResult,
+  RetirementRequirementBindingConstraint,
 } from "@/src/domain/projection/types";
 import {
   buildControls,
@@ -91,6 +92,17 @@ const percent = new Intl.NumberFormat("en-CA", {
   style: "percent",
   maximumFractionDigits: 1,
 });
+
+function requirementBindingLabel(
+  binding: RetirementRequirementBindingConstraint,
+): string {
+  if (binding === "self_funding") return "Retirement cash flow self-funds";
+  if (binding === "terminal_balance") return "Minimum terminal balance";
+  if (binding === "liability_overlap") return "Retirement liability overlap";
+  if (binding === "retirement_cash_flow") return "Retirement cash flow";
+  if (binding === "unavailable_composition") return "Unavailable composition";
+  return "No safe passing upper bound";
+}
 
 const exactCurrency = new Intl.NumberFormat("en-CA", {
   style: "currency",
@@ -1794,11 +1806,59 @@ export function PlannerDashboard() {
                 compact
                 headingLevel="span"
                 target="assets-at-retirement"
-                title="Retirement funding assets"
+                title="Projected at retirement"
                 onExplain={openExplanation}
               />
               <strong>{currency.format(projection.summary.financialAssetsAtRetirementToday)}</strong>
-              <small>{projection.summary.retirementDate} · home equity unavailable</small>
+              <small>{projection.summary.retirementDate} · retirement-funding accounts only</small>
+            </article>
+            <article className="metric-card">
+              <ExplainableHeading
+                compact
+                headingLevel="span"
+                target="retirement-requirement"
+                title="Required at retirement"
+                onExplain={openExplanation}
+              />
+              <strong>
+                {projection.retirementRequirement.status === "available" &&
+                projection.retirementRequirement.requiredFinancialAssetsToday !== null
+                  ? currency.format(
+                      projection.retirementRequirement
+                        .requiredFinancialAssetsToday,
+                    )
+                  : "Unavailable"}
+              </strong>
+              <small>
+                {projection.retirementRequirement.status === "available"
+                  ? `Through age ${projection.retirementRequirement.terminalAge} · ${requirementBindingLabel(projection.retirementRequirement.bindingConstraint)}`
+                  : projection.retirementRequirement.reason}
+              </small>
+            </article>
+            <article className="metric-card">
+              <ExplainableHeading
+                compact
+                headingLevel="span"
+                target="retirement-funding-margin"
+                title="Margin or shortfall"
+                onExplain={openExplanation}
+              />
+              <strong>
+                {projection.retirementRequirement.fundingMarginToday === null
+                  ? "Unavailable"
+                  : currency.format(
+                      Math.abs(
+                        projection.retirementRequirement.fundingMarginToday,
+                      ),
+                    )}
+              </strong>
+              <small>
+                {projection.retirementRequirement.fundingMarginToday === null
+                  ? "No funding comparison is available"
+                  : projection.retirementRequirement.fundingMarginToday >= 0
+                    ? "Projected funding margin above requirement"
+                    : "Projected funding shortfall below requirement"}
+              </small>
             </article>
             <article className="metric-card">
               <ExplainableHeading
@@ -1842,22 +1902,40 @@ export function PlannerDashboard() {
                 compact
                 headingLevel="span"
                 target="retirement-goal"
-                title="Goal"
+                title="Owner goal marker"
                 onExplain={openExplanation}
               />
               <strong>{currency.format(projection.summary.retirementGoalToday)}</strong>
-              <small>Financial-asset target</small>
+              <small>Personal round-number marker · not the derived requirement</small>
             </article>
             <article className="metric-card">
               <ExplainableHeading
                 compact
                 headingLevel="span"
                 target="goal-gap"
-                title="Goal gap"
+                title="Owner-goal difference"
                 onExplain={openExplanation}
               />
-              <strong>{currency.format(projection.summary.goalGapToday)}</strong>
-              <small>{projection.summary.goalGapToday >= 0 ? "Above goal" : "Below goal"}</small>
+              <strong>
+                {currency.format(
+                  projection.retirementRequirement.ownerGoalDifferenceToday,
+                )}
+              </strong>
+              <small>Projected retirement assets minus owner marker</small>
+            </article>
+            <article className="metric-card">
+              <span>Requirement basis</span>
+              <strong>Age {projection.retirementRequirement.terminalAge}</strong>
+              <small>
+                Minimum ending balance {currency.format(projection.retirementRequirement.minimumEndingFinancialAssetsToday)} · projected account weights · residence equity excluded
+              </small>
+            </article>
+            <article className="metric-card" role="status">
+              <span>Tax status</span>
+              <strong>Provisional</strong>
+              <small>
+                Calculated using the current flat retirement-tax compatibility assumption; progressive Canadian taxes and RRIF minimums are not yet modelled.
+              </small>
             </article>
             <article className="metric-card">
               <ExplainableHeading

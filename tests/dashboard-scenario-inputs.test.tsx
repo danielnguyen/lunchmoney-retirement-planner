@@ -87,6 +87,9 @@ function ScenarioInputHarness({
       <output data-testid="active-essential">
         {inputs.monthlyEssentialSpendingToday}
       </output>
+      <output data-testid="active-terminal-balance">
+        {inputs.retirementRequirement.minimumEndingFinancialAssetsToday}
+      </output>
       <output data-testid="override-count">{Object.keys(overrides).length}</output>
     </>
   );
@@ -159,6 +162,24 @@ describe("precise scenario input semantics", () => {
     expect(essential).toHaveValue(4321.67);
     expect(screen.getByTestId("active-essential")).toHaveTextContent("4321.67");
     expect(screen.getByTestId("override-count")).toHaveTextContent("1");
+  });
+
+  it("guides a precise terminal-balance override and resets it independently", () => {
+    render(<ScenarioInputHarness />);
+    const terminal = screen.getByLabelText(
+      "Minimum financial assets at terminal age",
+    );
+
+    typeByCharacters(terminal, "12345.67");
+    expect(terminal).toHaveValue(12345.67);
+    expect(screen.getByTestId("active-terminal-balance")).toHaveTextContent(
+      "12345.67",
+    );
+    fireEvent.click(terminal.closest(".control")!.querySelector("button")!);
+    expect(terminal).toHaveValue(0);
+    expect(screen.getByTestId("active-terminal-balance")).toHaveTextContent(
+      "0",
+    );
   });
 
   it("converts percentage points only when a complete valid draft commits", () => {

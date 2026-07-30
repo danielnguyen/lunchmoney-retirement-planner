@@ -56,6 +56,23 @@ describe("runtime safety regressions", () => {
     expect(route).not.toMatch(/targetPath|yamlPath|filesystemPath/);
   });
 
+  it("keeps health metadata synchronized with the public result schemas", async () => {
+    const health = await readFile("app/api/v1/health/route.ts", "utf8");
+    const baselineTypes = await readFile(
+      "src/domain/baseline/types.ts",
+      "utf8",
+    );
+    const projectionTypes = await readFile(
+      "src/domain/projection/types.ts",
+      "utf8",
+    );
+
+    expect(health).toContain('baselineSchemaVersion: "2.0"');
+    expect(health).toContain('projectionSchemaVersion: "10.0"');
+    expect(baselineTypes).toContain('schemaVersion: "2.0"');
+    expect(projectionTypes).toContain('schemaVersion: "10.0"');
+  });
+
   it("contains no Lunch Money mutation call", async () => {
     const service = await readFile("src/integrations/lunchmoney/read-service.ts", "utf8");
     expect(service).not.toMatch(/\.create\(|\.update\(|\.delete\(|\.split\(|\.group\(|triggerFetch/);

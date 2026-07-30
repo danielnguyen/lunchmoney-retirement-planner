@@ -305,6 +305,10 @@ export type PlannerConfig = {
   cppMonthlyAmountAt65?: number;
   oasMonthlyAmountAt65?: number;
   retirementGoal: number;
+  retirementRequirement: {
+    minimumEndingFinancialAssetsToday: number;
+    source: "explicit_configuration" | "compatibility_default";
+  };
   transactionTrailingMonths: number;
   employmentIncomePhases?: EmploymentIncomePhaseConfig[];
   spendingPhases?: SpendingPhaseConfig[];

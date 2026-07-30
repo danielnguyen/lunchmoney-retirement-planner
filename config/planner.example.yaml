@@ -11,6 +11,10 @@ currentAge: 38
 retirementAge: 62
 projectionEndAge: 95
 retirementGoal: 0
+# This terminal minimum is part of the derived retirement requirement. It is
+# separate from retirementGoal, which remains your own comparison marker.
+retirementRequirement:
+  minimumEndingFinancialAssetsToday: 0
 transactionTrailingMonths: 12
 
 # Adjust how the live Lunch Money spending baseline changes over time. These

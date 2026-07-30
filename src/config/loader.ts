@@ -101,6 +101,26 @@ function allocation(value: unknown, field: string): AssetAllocation {
   };
 }
 
+function retirementRequirement(
+  value: unknown,
+): PlannerConfig["retirementRequirement"] {
+  if (value === undefined) {
+    return {
+      minimumEndingFinancialAssetsToday: 0,
+      source: "compatibility_default",
+    };
+  }
+  const item = record(value, "retirementRequirement");
+  return {
+    minimumEndingFinancialAssetsToday: number(
+      item.minimumEndingFinancialAssetsToday,
+      "retirementRequirement.minimumEndingFinancialAssetsToday",
+      { min: 0 },
+    ),
+    source: "explicit_configuration",
+  };
+}
+
 function nonEmptyString(value: unknown, field: string): string {
   if (typeof value !== "string" || value.trim().length === 0) {
     throw new PlannerRuntimeError(
@@ -2424,6 +2444,7 @@ export function validatePlannerConfig(value: unknown): PlannerConfig {
         }
       : { governmentBenefits: governmentBenefits(item.governmentBenefits) }),
     retirementGoal: number(item.retirementGoal, "retirementGoal", { min: 0 }),
+    retirementRequirement: retirementRequirement(item.retirementRequirement),
     transactionTrailingMonths: number(item.transactionTrailingMonths, "transactionTrailingMonths", {
       min: 1,
       max: 60,

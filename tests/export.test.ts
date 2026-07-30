@@ -420,7 +420,7 @@ describe("automatically anonymized projection exports", () => {
       projectionSnapshotToCsv(snapshot, "nominal"),
     ].join("\n");
 
-    expect(snapshot.schemaVersion).toBe("9.0");
+    expect(snapshot.schemaVersion).toBe("10.0");
     expect(exported).not.toContain("lunchMoneyMappings");
     for (const privateMappingValue of [
       "manual:707070",
@@ -439,8 +439,8 @@ describe("automatically anonymized projection exports", () => {
     const { snapshot } = buildExportFixture();
     const serialized = JSON.stringify(snapshot);
 
-    expect(snapshot.schemaVersion).toBe("9.0");
-    expect(snapshot.projection.schemaVersion).toBe("9.0");
+    expect(snapshot.schemaVersion).toBe("10.0");
+    expect(snapshot.projection.schemaVersion).toBe("10.0");
     expect(snapshot.exportMetadata).toEqual({
       transformation: "typed_allowlist_and_automatic_anonymization",
       automaticSanitizationApplied: true,
@@ -623,6 +623,25 @@ describe("automatically anonymized projection exports", () => {
     expect(snapshot.projection.financialAssetsBridge).toEqual(
       projection.financialAssetsBridge,
     );
+    expect(snapshot.projection.retirementRequirement).toMatchObject({
+      status: projection.retirementRequirement.status,
+      projectedFinancialAssetsToday:
+        projection.retirementRequirement.projectedFinancialAssetsToday,
+      requiredFinancialAssetsToday:
+        projection.retirementRequirement.requiredFinancialAssetsToday,
+      fundingMarginToday:
+        projection.retirementRequirement.fundingMarginToday,
+      terminalAge: projection.retirementRequirement.terminalAge,
+      ownerGoalToday: projection.retirementRequirement.ownerGoalToday,
+      taxModel: "flat_retirement_tax_compatibility",
+      provisionalTax: true,
+      compositionMode: "projected_retirement_account_weights",
+    });
+    expect(
+      snapshot.projection.retirementRequirement.composition.map(
+        (entry) => entry.accountId,
+      ),
+    ).toEqual(["cash_1", "rrsp_1"]);
     expect(snapshot.projection.governmentBenefits).toEqual(
       projection.governmentBenefits,
     );
@@ -935,6 +954,21 @@ describe("automatically anonymized projection exports", () => {
     expect(header).toContain("surplusFundedContributions");
     expect(header).toContain("registered_room_basis");
     expect(header).toEqual(expect.arrayContaining([
+      "retirement_requirement_status",
+      "projected_retirement_assets_today",
+      "required_retirement_assets_today",
+      "retirement_funding_margin_today",
+      "retirement_terminal_age",
+      "minimum_ending_financial_assets_today",
+      "owner_goal_marker_today",
+      "retirement_requirement_binding_constraint",
+      "retirement_requirement_tax_model",
+      "retirement_requirement_provisional_tax",
+      "retirement_requirement_composition_mode",
+      "retirement_requirement_weight_cash_1",
+      "retirement_requirement_amount_rrsp_1",
+    ]));
+    expect(header).toEqual(expect.arrayContaining([
       "cpp_base_monthly_at_65_today",
       "cpp_claim_age",
       "cpp_claim_factor",
@@ -1157,7 +1191,7 @@ describe("automatically anonymized projection exports", () => {
     );
     const serialized = JSON.stringify(snapshot);
 
-    expect(snapshot.schemaVersion).toBe("9.0");
+    expect(snapshot.schemaVersion).toBe("10.0");
     expect(snapshot.projection.inputs.accounts.at(-1)).toMatchObject({
       id: "non_registered_1",
       label: "Non-registered account 1",

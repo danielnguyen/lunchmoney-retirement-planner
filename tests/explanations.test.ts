@@ -411,12 +411,56 @@ describe("calculation explanations", () => {
     expect(sum).toBe(document.reconciliation?.displayedValue);
   });
 
-  it("reconciles goal gap as assets at retirement minus goal", () => {
+  it("keeps the owner-goal difference separate from the funding margin", () => {
     const document = buildExplanation("goal-gap", context());
-    const [assets, goal, result] = document.steps.map((step) => step.rawValue!);
+    const [projected, goal, result] = document.steps.map(
+      (step) => step.rawValue!,
+    );
 
-    expect(Math.round((assets - goal) * 100) / 100).toBe(result);
+    expect(Math.round((projected - goal) * 100) / 100).toBe(result);
     expect(document.reconciliation?.matched).toBe(true);
+  });
+
+  it("explains the solver, composition, terminal source, exclusions, and provisional tax status", () => {
+    const value = context();
+    const requirement = buildExplanation("retirement-requirement", value);
+    const margin = buildExplanation("retirement-funding-margin", value);
+
+    expect(requirement.formula).toContain("Lowest passing cent");
+    expect(
+      section(requirement, "Retirement-boundary account composition").rows,
+    ).toHaveLength(value.inputs.accounts.length);
+    expect(requirement.caveats.join(" ")).toContain("Provisional");
+    expect(requirement.caveats.join(" ")).toContain("RRIF minimum");
+    expect(requirement.caveats.join(" ")).toContain("Residence value");
+    expect(
+      requirement.steps.find(
+        (step) => step.label === "Minimum ending financial assets",
+      )?.sourceDescription,
+    ).toContain("Explicit planner configuration");
+    expect(margin.formula).toBe(
+      "Projected at retirement − required at retirement",
+    );
+    expect(margin.reconciliation?.matched).toBe(true);
+  });
+
+  it("describes compatibility terminal normalization as non-owner-configured", () => {
+    const value = context((draft) => {
+      draft.inputs.retirementRequirement.source = "compatibility_default";
+      draft.baseline.projectionInputs.retirementRequirement.source =
+        "compatibility_default";
+      draft.projection = calculateProjection(draft.inputs);
+    });
+    const document = buildExplanation("retirement-requirement", value);
+
+    expect(document.caveats.join(" ")).toContain(
+      "not an owner-configured value",
+    );
+    expect(
+      document.steps.find(
+        (step) => step.label === "Minimum ending financial assets",
+      )?.sourceDescription,
+    ).toContain("Compatibility normalization");
   });
 
   it("explains both depletion and no-depletion duration outcomes", () => {

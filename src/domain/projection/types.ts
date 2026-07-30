@@ -273,6 +273,11 @@ export type TaxAssumptions = {
   oasRecoveryRate: number;
 };
 
+export type RetirementRequirementInput = {
+  minimumEndingFinancialAssetsToday: number;
+  source: "explicit_configuration" | "compatibility_default";
+};
+
 export type ProjectionInputs = {
   startDate: string;
   endAge: number;
@@ -281,6 +286,7 @@ export type ProjectionInputs = {
   monthlyDiscretionarySpendingToday: number;
   spendingPhases: SpendingPhase[];
   retirementGoalToday: number;
+  retirementRequirement: RetirementRequirementInput;
   tax: TaxAssumptions;
   person: PersonInput;
   accounts: FinancialAccountInput[];
@@ -486,6 +492,51 @@ export type ProjectionSummary = {
   mortgagePayoffAge: number | null;
 };
 
+export type RetirementRequirementComposition = {
+  accountId: string;
+  accountType: AccountType;
+  projectedBalanceToday: number;
+  weight: number;
+  requiredBalanceToday: number | null;
+};
+
+export type RetirementRequirementBindingConstraint =
+  | "self_funding"
+  | "terminal_balance"
+  | "retirement_cash_flow"
+  | "liability_overlap"
+  | "unavailable_composition"
+  | "infeasible";
+
+export type RetirementRequirementResult = {
+  status: "available" | "unavailable" | "infeasible";
+  projectedFinancialAssetsToday: number;
+  requiredFinancialAssetsToday: number | null;
+  fundingMarginToday: number | null;
+  terminalAge: number;
+  minimumEndingFinancialAssetsToday: number;
+  minimumEndingBalanceSource:
+    | "explicit_configuration"
+    | "compatibility_default";
+  ownerGoalToday: number;
+  ownerGoalDifferenceToday: number;
+  compositionMode: "projected_retirement_account_weights";
+  composition: RetirementRequirementComposition[];
+  taxModel: "flat_retirement_tax_compatibility";
+  provisionalTax: true;
+  bindingConstraint: RetirementRequirementBindingConstraint;
+  solver: {
+    zeroCandidatePassed: boolean;
+    highestFailingCandidateCents: number | null;
+    acceptedCandidateCents: number | null;
+    acceptedCandidatePassed: boolean;
+    oneCentBelowFailed: boolean | null;
+    upperBoundEvaluations: number;
+    binarySearchIterations: number;
+  };
+  reason: string | null;
+};
+
 export type ProjectionObservation = {
   code: string;
   message: string;
@@ -675,9 +726,10 @@ export type SavingsPolicyCalculationSummary = {
 };
 
 export type ProjectionResult = {
-  schemaVersion: "9.0";
+  schemaVersion: "10.0";
   inputs: ProjectionInputs;
   summary: ProjectionSummary;
+  retirementRequirement: RetirementRequirementResult;
   retirementSnapshot: RetirementSnapshot;
   financialAssetsBridge: {
     nominal: FinancialAssetsBridge;
@@ -863,6 +915,21 @@ export function validateProjectionInputs(value: unknown): ProjectionInputs {
     throw new Error("The final spending phase must cover endAge");
   }
   assertNonNegative("retirementGoalToday", input.retirementGoalToday);
+  if (!input.retirementRequirement || typeof input.retirementRequirement !== "object") {
+    throw new Error("retirementRequirement must be resolved");
+  }
+  assertNonNegative(
+    "retirementRequirement.minimumEndingFinancialAssetsToday",
+    input.retirementRequirement.minimumEndingFinancialAssetsToday,
+  );
+  if (
+    input.retirementRequirement.source !== "explicit_configuration" &&
+    input.retirementRequirement.source !== "compatibility_default"
+  ) {
+    throw new Error(
+      "retirementRequirement.source must identify configuration or compatibility normalization",
+    );
+  }
   assertNonNegative("annualPensionToday", input.person.annualPensionToday);
   assertNonNegative("CPP monthlyAmountAt65Today", input.person.cpp.monthlyAmountAt65Today);
   assertNonNegative(

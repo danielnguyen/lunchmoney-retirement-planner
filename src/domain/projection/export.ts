@@ -117,7 +117,7 @@ export type ShareSafeDerivedBaseline = {
 };
 
 export type ProjectionSnapshot = {
-  schemaVersion: "9.0";
+  schemaVersion: "10.0";
   generatedAt: string;
   exportMetadata: {
     transformation: "typed_allowlist_and_automatic_anonymization";
@@ -314,6 +314,7 @@ const SAFE_PROVENANCE_FIELDS = new Set([
   "cppMonthlyAmountAt65",
   "oasMonthlyAmountAt65",
   "retirementGoalToday",
+  "retirementRequirement.minimumEndingFinancialAssetsToday",
   "annualInflation",
   "effectiveTaxRate",
   "oasRecoveryThresholdToday",
@@ -967,6 +968,11 @@ function safeProjectionInputs(
       };
     }),
     retirementGoalToday: inputs.retirementGoalToday,
+    retirementRequirement: {
+      minimumEndingFinancialAssetsToday:
+        inputs.retirementRequirement.minimumEndingFinancialAssetsToday,
+      source: inputs.retirementRequirement.source,
+    },
     tax: {
       effectiveTaxRate: inputs.tax.effectiveTaxRate,
       oasRecoveryThresholdToday: inputs.tax.oasRecoveryThresholdToday,
@@ -1367,7 +1373,7 @@ function safeProjectionResult(
   context: ShareSafeContext,
 ): ProjectionResult {
   return {
-    schemaVersion: "9.0",
+    schemaVersion: "10.0",
     inputs: safeProjectionInputs(projection.inputs, context),
     summary: {
       retirementYear: projection.summary.retirementYear,
@@ -1388,6 +1394,15 @@ function safeProjectionResult(
       endingNetWorthToday: projection.summary.endingNetWorthToday,
       mortgagePayoffDate: projection.summary.mortgagePayoffDate,
       mortgagePayoffAge: projection.summary.mortgagePayoffAge,
+    },
+    retirementRequirement: {
+      ...projection.retirementRequirement,
+      composition: projection.retirementRequirement.composition.map(
+        (entry) => ({
+          ...entry,
+          accountId: requiredAccountAlias(entry.accountId, context).key,
+        }),
+      ),
     },
     retirementSnapshot: {
       calendarDate: projection.retirementSnapshot.calendarDate,
@@ -2620,7 +2635,7 @@ export function createProjectionSnapshot(
   const dataThrough = safeDateLike(baseline.dataThrough, projection.inputs.startDate);
   const safeGeneratedAt = requireIsoTimestamp(generatedAt);
   return {
-    schemaVersion: "9.0",
+    schemaVersion: "10.0",
     generatedAt: safeGeneratedAt,
     exportMetadata: {
       transformation: "typed_allowlist_and_automatic_anonymization",
@@ -2748,6 +2763,25 @@ export function projectionSnapshotToCsv(
     "age",
     "phase",
     "dollarMode",
+    "retirement_requirement_status",
+    "projected_retirement_assets_today",
+    "required_retirement_assets_today",
+    "retirement_funding_margin_today",
+    "retirement_terminal_age",
+    "minimum_ending_financial_assets_today",
+    "minimum_ending_balance_source",
+    "owner_goal_marker_today",
+    "owner_goal_difference_today",
+    "retirement_requirement_binding_constraint",
+    "retirement_requirement_tax_model",
+    "retirement_requirement_provisional_tax",
+    "retirement_requirement_composition_mode",
+    ...accountAliases.map(
+      (account) => `retirement_requirement_weight_${account.key}`,
+    ),
+    ...accountAliases.map(
+      (account) => `retirement_requirement_amount_${account.key}`,
+    ),
     "employmentPhase",
     "employmentNetCash",
     "cppIncome",
@@ -2908,6 +2942,36 @@ export function projectionSnapshotToCsv(
       point.age,
       point.phase,
       mode,
+      snapshot.projection.retirementRequirement.status,
+      snapshot.projection.retirementRequirement
+        .projectedFinancialAssetsToday,
+      snapshot.projection.retirementRequirement
+        .requiredFinancialAssetsToday ?? "",
+      snapshot.projection.retirementRequirement.fundingMarginToday ?? "",
+      snapshot.projection.retirementRequirement.terminalAge,
+      snapshot.projection.retirementRequirement
+        .minimumEndingFinancialAssetsToday,
+      snapshot.projection.retirementRequirement
+        .minimumEndingBalanceSource,
+      snapshot.projection.retirementRequirement.ownerGoalToday,
+      snapshot.projection.retirementRequirement
+        .ownerGoalDifferenceToday ?? "",
+      snapshot.projection.retirementRequirement.bindingConstraint,
+      snapshot.projection.retirementRequirement.taxModel,
+      snapshot.projection.retirementRequirement.provisionalTax ? 1 : 0,
+      snapshot.projection.retirementRequirement.compositionMode,
+      ...accountAliases.map(
+        (account) =>
+          snapshot.projection.retirementRequirement.composition.find(
+            (entry) => entry.accountId === account.key,
+          )?.weight ?? "",
+      ),
+      ...accountAliases.map(
+        (account) =>
+          snapshot.projection.retirementRequirement.composition.find(
+            (entry) => entry.accountId === account.key,
+          )?.requiredBalanceToday ?? "",
+      ),
       point.employmentPhaseLabels.length === 1
         ? point.employmentPhaseLabels[0]!
         : point.employmentPhaseLabels.length === 0

@@ -188,6 +188,10 @@ describe("private planner configuration", () => {
     expect(contents).toContain("qualifying years");
     expect(contents).not.toMatch(/^cppStartAge:|^oasStartAge:/m);
     expect(config.transactionTrailingMonths).toBe(12);
+    expect(config.retirementRequirement).toEqual({
+      minimumEndingFinancialAssetsToday: 0,
+      source: "explicit_configuration",
+    });
     expect(config.governmentBenefits).toEqual({
       cpp: {
         startAge: 65,
@@ -241,6 +245,31 @@ describe("private planner configuration", () => {
         ),
       ),
     ).toHaveLength(2);
+  });
+
+  it("normalizes an omitted retirement requirement visibly and validates explicit values", async () => {
+    const explicit = await loadPlannerConfig(EXAMPLE_CONFIG_PATH);
+    const omitted = structuredClone(explicit) as unknown as Record<
+      string,
+      unknown
+    >;
+    delete omitted.retirementRequirement;
+
+    expect(validatePlannerConfig(omitted).retirementRequirement).toEqual({
+      minimumEndingFinancialAssetsToday: 0,
+      source: "compatibility_default",
+    });
+
+    const negative = structuredClone(explicit) as unknown as Record<
+      string,
+      unknown
+    >;
+    negative.retirementRequirement = {
+      minimumEndingFinancialAssetsToday: -0.01,
+    };
+    expect(() => validatePlannerConfig(negative)).toThrow(
+      "retirementRequirement.minimumEndingFinancialAssetsToday must be at least 0",
+    );
   });
 
   it("accepts spending phases in simple and advanced modes and preserves omission compatibility", async () => {

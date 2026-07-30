@@ -63,7 +63,7 @@ The draft operation preserves comments, key order, quoted mapping keys, unrelate
 
 Preview and apply resolve every destination against the YAML draft's current mode and structure, not merely the loaded baseline. A missing optional block, changed phase/account/liability identity, incompatible configured source, or simple/advanced mode mismatch is shown as scenario-only with a reason instead of failing later during an otherwise predictable patch. The review separates the active resolved baseline, each scalar's actual current YAML value or `live_baseline` source, and the proposed scenario value. Multi-scalar assumptions list every application-owned destination separately. After application, the summary is labelled as the last scenario application; if the YAML is then edited manually, a notice identifies the draft itself as the source of truth. Another successful application refreshes that summary, while Revert or a successful save/reload clears it.
 
-Direct bindings cover exact scalar assumptions whose destination is unambiguous in the active simple or advanced configuration: projection and benefit ages; inflation and account returns; operating and reserve targets/indexing; configured TFSA/RRSP starting room; employment amounts, growth, and RRSP-room inputs; personal, workplace, and reserve-building contribution phases; configured residence value/appreciation; and liability rates/payments. Phase, account, and liability destinations resolve through stable configured IDs or roles, never browser-supplied YAML paths or display order.
+Direct bindings cover exact scalar assumptions whose destination is unambiguous in the active simple or advanced configuration: projection and benefit ages; the minimum terminal financial-assets balance; inflation and account returns; operating and reserve targets/indexing; configured TFSA/RRSP starting room; employment amounts, growth, and RRSP-room inputs; personal, workplace, and reserve-building contribution phases; configured residence value/appreciation; and liability rates/payments. Phase, account, and liability destinations resolve through stable configured IDs or roles, never browser-supplied YAML paths or display order.
 
 If an employment or contribution value currently uses `live_baseline` in the YAML draft, applying opens one accessible review dialog. The dialog shows the sentinel, the active resolved baseline, and the proposed fixed value. **Cancel** changes nothing. **Keep live baseline** applies ordinary values but leaves live-derived fields and their scenario overrides temporary. **Replace with fixed values** changes those YAML scalars to fixed numbers and warns that future Lunch Money changes will no longer update them automatically.
 
@@ -126,6 +126,21 @@ employmentIncomePhases:
 Each simple employment phase explicitly provides RRSP-eligible earned income, pension adjustment, other reduction, and growth. Net deposited cash is separate and is never substituted for those room-generation inputs. Explicit zero is valid; omission is not.
 
 Lifestyle spending phases are independent of employment phases. Each phase multiplies the live trailing essential and discretionary baselines, and the global inflation assumption continues to index the adjusted amounts. `1` keeps a baseline unchanged; `0.60` means 60% of that baseline, or a 40% reduction. Configured phases must continuously cover `currentAge` through `projectionEndAge`, with inclusive starts, exclusive ends, and month-aligned boundaries. Omitting `spendingPhases` preserves the historical full-projection `1 / 1` behaviour.
+
+### Retirement funding requirement
+
+The dashboard distinguishes projected financial assets at retirement, the independently derived requirement, and the resulting funding margin or shortfall. `retirementGoal` remains your own round-number marker and is never used as a solver input. Configure the today-dollar terminal criterion separately:
+
+```yaml
+retirementRequirement:
+  minimumEndingFinancialAssetsToday: 0
+```
+
+The solver tests integer cents at the exact end of the final working month and finds the lowest amount that funds the configured retirement spending, benefits, liabilities, one-time outflows, withdrawals, returns, tax compatibility model, and surplus rules through `projectionEndAge`, while leaving at least the configured terminal balance. It uses the same monthly engine as the ordinary projection and verifies that one cent less fails. Existing configurations that omit the block receive a visible backward-compatible zero-dollar terminal minimum; this is not described as an owner-configured value.
+
+Candidate totals are distributed across cash, TFSA, RRSP/RRIF, and non-registered accounts using their exact projected retirement-boundary weights. Account type, return, withdrawal priority, allocation, and identity are preserved, with any residual cent assigned deterministically. Residence value, other non-financial assets, home equity, and liabilities are excluded from the funding composition. If the projected financial accounts cannot provide a valid positive composition, the requirement is shown as unavailable instead of inventing weights.
+
+The requirement is provisional under the current flat retirement-tax compatibility assumption. Progressive Canadian retirement taxation and statutory RRIF minimum withdrawals are not included yet.
 
 ```yaml
 savingsPolicy:
@@ -230,7 +245,7 @@ Registered-room ledgers are always labelled and displayed in nominal regulatory 
 
 The exact `retirementSnapshot` keeps end-of-final-working-month balances and allocation. Its flow fields describe only that final working month, identified by `flowPeriod`; cumulative activity from today through retirement belongs to `financialAssetsBridge`.
 
-Baseline schema `1.8` includes aggregate cash-flow and debt-payment audit evidence, typed imported non-financial-asset balances, distinct financial accounts, non-financial assets and liabilities, simple/advanced mode, resolved employment, savings, and lifestyle-spending phases, concrete CPP/OAS inputs, registered room, routing, and field-level provenance. It contains category/account names and reconciled aggregates—not raw transactions, transaction IDs, raw liability matcher text, credentials, tokens, or private statement metadata.
+Baseline schema `2.0` includes aggregate cash-flow and debt-payment audit evidence, typed imported non-financial-asset balances, distinct financial accounts, non-financial assets and liabilities, simple/advanced mode, the resolved terminal-balance criterion and compatibility source, resolved employment, savings, and lifestyle-spending phases, concrete CPP/OAS inputs, registered room, routing, and field-level provenance. It contains category/account names and reconciled aggregates—not raw transactions, transaction IDs, raw liability matcher text, credentials, tokens, or private statement metadata.
 
 The Retirement funding assets explanation uses the exact end-of-final-working-month snapshot and the financial-assets bridge. Separate total-net-worth and liability-schedule explanations show the three-part balance sheet, residence appreciation, interest/principal split, historical-payment replacement, payoff boundary, and a cent-stable net-worth bridge. Cash-funded contributions and principal repayment are internal balance-sheet movements; only interest is consumption. Success labels appear only when the shared result reconciles within one cent.
 
@@ -255,7 +270,7 @@ POST /api/v1/exports/projection-csv
 
 `GET /api/v1/lunchmoney/status` validates the token with a read-only categories request and returns a sanitized result.
 
-`GET /api/v1/baseline/current` returns schema `1.8` projection inputs, simple/advanced mode, role/compiler, phase, benefit, financial-account, imported non-financial-asset, liability, savings-policy, registered-room, and waterfall provenance; derived values; cash-flow and debt-payment audit evidence; warnings; and mapping details.
+`GET /api/v1/baseline/current` returns schema `2.0` projection inputs, simple/advanced mode, terminal-balance source, role/compiler, phase, benefit, financial-account, imported non-financial-asset, liability, savings-policy, registered-room, and waterfall provenance; derived values; cash-flow and debt-payment audit evidence; warnings; and mapping details.
 
 The current-config API is dynamic and uncached. `GET` returns only the active YAML text, a display-safe filename, write capability, and a content hash. `POST` validates submitted YAML without saving. `PUT` is available only when `PLANNER_CONFIG_WRITE_ENABLED=true`; it accepts YAML and the expected content hash, never a browser-supplied path.
 
@@ -281,7 +296,7 @@ Export requests use the current baseline response, active inputs, and browser ov
 
 Every normal JSON and CSV export is automatically anonymized; there is no raw or private export mode. Financial amounts, dates, account types and origins, assumptions, CPP/OAS and savings calculation summaries, sanitized policy preview, public Canadian reference metadata, the exact retirement snapshot, and both accumulation bridges remain available for analysis. Imported and projection-only account IDs, role and policy references, account and institution labels, employer, category, event, recurring-expense, warning, and employment/contribution/savings-phase text are replaced with stable generic aliases based only on record type and order.
 
-Schema `9.0` JSON is the complete analysis document and uses a typed allowlist with export-local aliases; it never recursively copies source objects. JSON retains typed non-financial assets, liabilities and schedules, debt-payment evidence, lifestyle-spending phases, balance sheets, financial-assets and net-worth bridges, room ledgers, routes, and policy results with sanitized references. The flat CSV keeps one row per annual period with scalar balance-sheet, liability-flow, explicit-plan, unplanned-cash, room, contribution, and deterministic per-account fields. It never embeds schedules, role lists, route arrays, phase arrays, maps, JSON, or delimited lists in cells. Both formats remain automatically anonymized.
+Schema `10.0` JSON is the complete analysis document and uses a typed allowlist with export-local aliases; it never recursively copies source objects. JSON retains typed non-financial assets, liabilities and schedules, debt-payment evidence, lifestyle-spending phases, balance sheets, financial-assets and net-worth bridges, the retirement requirement and anonymized account composition, room ledgers, routes, and policy results with sanitized references. The flat CSV keeps one row per annual period with stable scalar requirement, composition, balance-sheet, liability-flow, explicit-plan, unplanned-cash, room, contribution, and deterministic per-account fields. It never embeds schedules, role lists, route arrays, phase arrays, maps, JSON, or delimited lists in cells. Both formats remain automatically anonymized.
 
 ## Docker Compose
 
@@ -318,7 +333,7 @@ Tests use synthetic fixtures under `tests/`. Production modules do not import th
 
 ## Projection scope
 
-Lunch Money income transactions are modelled as net deposited employment cash and are not taxed again. Each working month selects one resolved employment phase; growth is phase-local and employment becomes zero after the exact retirement boundary. Each investment account independently selects its active contribution phase and stops contributing at retirement. The simplified effective tax rate applies to gross retirement income and taxable RRSP/RRIF withdrawals; it is not a tax filing model. The projection calendar starts in the baseline data-through month, so the first and last annual rows may be partial calendar years. CPP/OAS claim timing, explicit OAS eligibility, and the OAS age-75 increase are deterministic; CPP entitlement is not calculated from contribution history. RRIF conversion is a milestone; statutory minimum withdrawals are not enforced. Monte Carlo simulation, optimized withdrawals, real estate, households, saved scenarios, background synchronization, and server-generated PDFs are outside the MVP.
+Lunch Money income transactions are modelled as net deposited employment cash and are not taxed again. Each working month selects one resolved employment phase; growth is phase-local and employment becomes zero after the exact retirement boundary. Each investment account independently selects its active contribution phase and stops contributing at retirement. The simplified effective tax rate applies to gross retirement income and taxable RRSP/RRIF withdrawals; it is not a tax filing model, so the derived retirement requirement is visibly provisional. The projection calendar starts in the baseline data-through month, so the first and last annual rows may be partial calendar years. CPP/OAS claim timing, explicit OAS eligibility, and the OAS age-75 increase are deterministic; CPP entitlement is not calculated from contribution history. RRIF conversion is a milestone; statutory minimum withdrawals are not enforced. Monte Carlo simulation, optimized withdrawals, real estate, households, saved scenarios, background synchronization, and server-generated PDFs are outside the MVP.
 
 See [docs/architecture.md](docs/architecture.md) and [docs/report-model.md](docs/report-model.md) for implementation details.
 

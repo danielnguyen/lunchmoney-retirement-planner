@@ -31,6 +31,10 @@ import type {
 } from "./types";
 import { validateProjectionInputs } from "./types";
 import {
+  solveRetirementRequirement,
+  type RetirementCandidateEvaluation,
+} from "./retirement-requirement";
+import {
   cppClaimRules,
   oasClaimRules,
 } from "@/src/domain/defaults/canadian-public-benefits";
@@ -1283,7 +1287,32 @@ function milestoneLabels(inputs: ProjectionInputs, previousMonth: number, month:
   return checks.filter(([target]) => previousAge < target && age >= target).map(([, label]) => label);
 }
 
-export function calculateProjection(rawInputs: ProjectionInputs): ProjectionResult {
+type CoreProjectionResult = Omit<
+  ProjectionResult,
+  "retirementRequirement"
+>;
+
+type RetirementSimulationOptions = {
+  candidateBalancesToday?: ReadonlyMap<string, number>;
+};
+
+type RawRetirementState = {
+  accountBalances: Map<string, number>;
+  financialAssetsToday: number;
+  totalLiabilitiesToday: number;
+  inflationFactor: number;
+};
+
+type SimulationOutcome = {
+  result: CoreProjectionResult;
+  retirementState: RawRetirementState;
+  candidateEvaluation: RetirementCandidateEvaluation | null;
+};
+
+function simulateProjection(
+  rawInputs: ProjectionInputs,
+  options: RetirementSimulationOptions = {},
+): SimulationOutcome {
   const inputs = validateProjectionInputs(rawInputs);
   const benefits = governmentBenefitSummary(inputs);
   const startYear = Number(inputs.startDate.slice(0, 4));
@@ -1360,6 +1389,10 @@ export function calculateProjection(rawInputs: ProjectionInputs): ProjectionResu
   let financialAssetsDepletionAge: number | null = null;
   let previousSnapshotMonth = 0;
   let retirementSnapshot: RetirementSnapshot | undefined;
+  let rawRetirementState: RawRetirementState | undefined;
+  let terminalFinancialAssetsToday = 0;
+  let retirementUnmetRequiredOutflow = 0;
+  let retirementUnmetSpending = 0;
   const nominalSurplusThroughRetirement = emptySurplusTotals();
   const realSurplusThroughRetirement = emptySurplusTotals();
   const nominalSavingsThroughRetirement = emptySavingsTotals();
@@ -2008,9 +2041,11 @@ export function calculateProjection(rawInputs: ProjectionInputs): ProjectionResu
     if (remainingRequiredLiabilityPayment > 0.005) {
       monthlyFlow.outflows.unmetRequiredOutflow =
         remainingRequiredLiabilityPayment;
-      throw new Error(
-        `Required liability payment could not be funded for ${calendarMonthKey}`,
-      );
+      if (!options.candidateBalancesToday || month <= retirementMonth) {
+        throw new Error(
+          `Required liability payment could not be funded for ${calendarMonthKey}`,
+        );
+      }
     }
 
     for (const demand of liabilityPaymentDemands) {
@@ -2441,6 +2476,11 @@ export function calculateProjection(rawInputs: ProjectionInputs): ProjectionResu
       monthlyFlow.outflows.contributions +
       monthlyFlow.outflows.unmetRequiredOutflow +
       monthlyFlow.outflows.unmetSpending;
+    if (month > retirementMonth) {
+      retirementUnmetRequiredOutflow +=
+        monthlyFlow.outflows.unmetRequiredOutflow;
+      retirementUnmetSpending += monthlyFlow.outflows.unmetSpending;
+    }
     monthlyFlow.registeredAccountRoom.tfsa.closingRoom = tfsaRoom;
     monthlyFlow.registeredAccountRoom.rrsp.closingRoom = rrspRoom;
 
@@ -2559,6 +2599,14 @@ export function calculateProjection(rawInputs: ProjectionInputs): ProjectionResu
         inputs.liabilities,
         liabilityBalances,
       );
+      rawRetirementState = {
+        accountBalances: new Map(balances),
+        financialAssetsToday:
+          rawRetirementBalanceSheet.financialAssets / factor,
+        totalLiabilitiesToday:
+          rawRetirementBalanceSheet.totalLiabilities / factor,
+        inflationFactor: factor,
+      };
       const retirementRealMonthlyFlow = emptyView();
       addMonthlyFlow(retirementRealMonthlyFlow, monthlyFlow, factor);
       retirementSnapshot = {
@@ -2652,6 +2700,18 @@ export function calculateProjection(rawInputs: ProjectionInputs): ProjectionResu
     if (calendarMonth === MONTHS_PER_YEAR || month === totalMonths) {
       snapshot(month, previousSnapshotMonth, calendarYear);
     }
+    if (month === retirementMonth && options.candidateBalancesToday) {
+      for (const account of inputs.accounts) {
+        balances.set(
+          account.id,
+          (options.candidateBalancesToday.get(account.id) ?? 0) * factor,
+        );
+      }
+    }
+    if (month === totalMonths) {
+      terminalFinancialAssetsToday =
+        balanceSheet(inputs.accounts, balances).financialAssets / factor;
+    }
   }
 
   if (!retirementSnapshot) {
@@ -2729,8 +2789,12 @@ export function calculateProjection(rawInputs: ProjectionInputs): ProjectionResu
     age: financialAssetsDepletionAge ?? inputs.endAge,
   });
 
-  return {
-    schemaVersion: "9.0",
+  if (!rawRetirementState) {
+    throw new Error("The raw retirement state could not be captured");
+  }
+
+  const result: CoreProjectionResult = {
+    schemaVersion: "10.0",
     inputs,
     summary: {
       retirementYear,
@@ -2885,5 +2949,87 @@ export function calculateProjection(rawInputs: ProjectionInputs): ProjectionResu
     },
     annual,
     observations,
+  };
+  const terminalMinimum =
+    inputs.retirementRequirement.minimumEndingFinancialAssetsToday;
+  const candidateEvaluation = options.candidateBalancesToday
+    ? {
+        passes:
+          retirementUnmetRequiredOutflow <= 0.000001 &&
+          retirementUnmetSpending <= 0.000001 &&
+          terminalFinancialAssetsToday + 0.000001 >= terminalMinimum,
+        terminalFinancialAssetsToday,
+        failure:
+          retirementUnmetRequiredOutflow > 0.000001
+            ? ("unmet_required_outflow" as const)
+            : retirementUnmetSpending > 0.000001
+              ? ("unmet_spending" as const)
+              : terminalFinancialAssetsToday + 0.000001 < terminalMinimum
+                ? ("terminal_balance" as const)
+                : null,
+      }
+    : null;
+  return { result, retirementState: rawRetirementState, candidateEvaluation };
+}
+
+export function calculateProjection(
+  rawInputs: ProjectionInputs,
+): ProjectionResult {
+  const ordinary = simulateProjection(rawInputs);
+  const inputs = ordinary.result.inputs;
+  const retirementAccounts = inputs.accounts.map((account) => ({
+    accountId: account.id,
+    accountType: account.type,
+    projectedBalanceToday:
+      (ordinary.retirementState.accountBalances.get(account.id) ?? 0) /
+      ordinary.retirementState.inflationFactor,
+  }));
+  const initialUpperBoundToday = Math.max(
+    0.01,
+    ordinary.retirementState.financialAssetsToday,
+    inputs.retirementRequirement.minimumEndingFinancialAssetsToday,
+    (inputs.monthlyEssentialSpendingToday +
+      inputs.monthlyDiscretionarySpendingToday) *
+      12,
+  );
+  const retirementRequirement = solveRetirementRequirement({
+    projectedFinancialAssetsToday:
+      ordinary.retirementState.financialAssetsToday,
+    ownerGoalToday: inputs.retirementGoalToday,
+    terminalAge: inputs.endAge,
+    minimumEndingFinancialAssetsToday:
+      inputs.retirementRequirement.minimumEndingFinancialAssetsToday,
+    minimumEndingBalanceSource: inputs.retirementRequirement.source,
+    accounts: retirementAccounts,
+    initialUpperBoundToday,
+    hasRetirementLiabilityOverlap:
+      ordinary.retirementState.totalLiabilitiesToday > 0.005,
+    evaluate: (candidateBalancesToday) => {
+      const candidate = simulateProjection(inputs, {
+        candidateBalancesToday,
+      }).candidateEvaluation;
+      if (!candidate) {
+        throw new Error("Retirement candidate evaluation was not captured");
+      }
+      return candidate;
+    },
+  });
+  ordinary.result.observations.push({
+    code: "retirement_requirement_tax_compatibility",
+    message:
+      "The retirement funding requirement is provisional under the current flat retirement-tax compatibility assumption.",
+    age: inputs.person.retirementAge,
+  });
+  if (inputs.retirementRequirement.source === "compatibility_default") {
+    ordinary.result.observations.push({
+      code: "retirement_requirement_compatibility_default",
+      message:
+        "The minimum terminal financial-assets balance uses a backward-compatible zero-dollar default because retirementRequirement is not explicitly configured.",
+      age: inputs.endAge,
+    });
+  }
+  return {
+    ...ordinary.result,
+    retirementRequirement,
   };
 }

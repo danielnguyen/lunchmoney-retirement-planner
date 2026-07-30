@@ -1034,7 +1034,7 @@ describe("exact retirement snapshot and accumulation bridge", () => {
   it("captures an integer-age retirement after the final working month", () => {
     const result = calculateProjection(oneYearFixture());
 
-    expect(result.schemaVersion).toBe("9.0");
+    expect(result.schemaVersion).toBe("10.0");
     expect(result.retirementSnapshot.calendarDate).toBe("2026-12-31");
     expect(result.retirementSnapshot.age).toBe(41);
     expect(result.retirementSnapshot.flowPeriod).toEqual({
