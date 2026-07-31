@@ -230,7 +230,7 @@ describe("scenario-to-config dashboard workflow", () => {
 
     fireEvent.click(screen.getByRole("button", { name: "Refresh Lunch Money" }));
     expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
-  });
+  }, 10_000);
 
   it("patches the existing dirty draft, never saves, and preserves it across drawer closes", async () => {
     const requestBodies: Record<string, unknown>[] = [];

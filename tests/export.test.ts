@@ -470,7 +470,7 @@ describe("automatically anonymized projection exports", () => {
       projectionSnapshotToCsv(snapshot, "nominal"),
     ].join("\n");
 
-    expect(snapshot.schemaVersion).toBe("11.0");
+    expect(snapshot.schemaVersion).toBe("12.0");
     expect(exported).not.toContain("lunchMoneyMappings");
     for (const privateMappingValue of [
       "manual:707070",
@@ -489,8 +489,8 @@ describe("automatically anonymized projection exports", () => {
     const { snapshot } = buildExportFixture();
     const serialized = JSON.stringify(snapshot);
 
-    expect(snapshot.schemaVersion).toBe("11.0");
-    expect(snapshot.projection.schemaVersion).toBe("11.0");
+    expect(snapshot.schemaVersion).toBe("12.0");
+    expect(snapshot.projection.schemaVersion).toBe("12.0");
     expect(snapshot.exportMetadata).toEqual({
       transformation: "typed_allowlist_and_automatic_anonymization",
       automaticSanitizationApplied: true,
@@ -1363,7 +1363,7 @@ describe("automatically anonymized projection exports", () => {
     );
     const serialized = JSON.stringify(snapshot);
 
-    expect(snapshot.schemaVersion).toBe("11.0");
+    expect(snapshot.schemaVersion).toBe("12.0");
     expect(snapshot.projection.inputs.accounts.at(-1)).toMatchObject({
       id: "non_registered_1",
       label: "Non-registered account 1",

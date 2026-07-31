@@ -433,6 +433,23 @@ describe("scenario draft classification and YAML patching", () => {
     ]);
   });
 
+  it("applies the guided RRIF conversion age only to the YAML draft", () => {
+    const result = applyScenarioDraft({
+      contents,
+      baseline: projectionFixture,
+      overrides: { rrifConversionAge: 70 },
+    });
+    expect(result.contents).toBe(
+      contents.replace("  rrifConversionAge: 71", "  rrifConversionAge: 70"),
+    );
+    expect(result.appliedChanges).toEqual([
+      expect.objectContaining({
+        key: "rrifConversionAge",
+        kind: "config",
+      }),
+    ]);
+  });
+
   it("previews and applies the guided terminal-balance value without saving", () => {
     const overrideKey =
       "retirementRequirement.minimumEndingFinancialAssetsToday";

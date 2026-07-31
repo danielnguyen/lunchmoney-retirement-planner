@@ -192,6 +192,12 @@ describe("private planner configuration", () => {
       minimumEndingFinancialAssetsToday: 0,
       source: "explicit_configuration",
     });
+    expect(config.rrifMinimumWithdrawals).toEqual({
+      mode: "statutory",
+      source: "explicit_configuration",
+      ageBasis: "owner_age",
+      settlementTiming: "december_true_up",
+    });
     expect(config.governmentBenefits).toEqual({
       cpp: {
         startAge: 65,
@@ -269,6 +275,38 @@ describe("private planner configuration", () => {
     };
     expect(() => validatePlannerConfig(negative)).toThrow(
       "retirementRequirement.minimumEndingFinancialAssetsToday must be at least 0",
+    );
+  });
+
+  it("normalizes omitted RRIF minimums and validates the statutory contract", async () => {
+    const explicit = await loadPlannerConfig(EXAMPLE_CONFIG_PATH);
+    const omitted = structuredClone(explicit) as unknown as Record<
+      string,
+      unknown
+    >;
+    delete omitted.rrifMinimumWithdrawals;
+    expect(validatePlannerConfig(omitted).rrifMinimumWithdrawals).toEqual({
+      mode: "not_modelled_compatibility",
+      source: "compatibility_default",
+    });
+
+    const late = structuredClone(explicit) as unknown as Record<string, unknown>;
+    (late.assumptions as Record<string, unknown>).rrifConversionAge = 72;
+    expect(() => validatePlannerConfig(late)).toThrow(
+      "assumptions.rrifConversionAge must be no greater than 71",
+    );
+
+    const spouseAge = structuredClone(explicit) as unknown as Record<
+      string,
+      unknown
+    >;
+    spouseAge.rrifMinimumWithdrawals = {
+      mode: "statutory",
+      ageBasis: "spouse_age",
+      settlementTiming: "december_true_up",
+    };
+    expect(() => validatePlannerConfig(spouseAge)).toThrow(
+      "spouse-age elections are not supported",
     );
   });
 

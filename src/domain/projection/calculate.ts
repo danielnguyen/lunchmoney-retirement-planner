@@ -23,6 +23,7 @@ import type {
   ProjectionResult,
   ProjectionView,
   RegisteredProgramAnnualBreakdown,
+  RrifAnnualAggregate,
   RetirementSnapshot,
   SavingsPolicyBreakdown,
   SavingsPolicyTotals,
@@ -64,6 +65,20 @@ import {
   type CanadianTaxYearState,
 } from "./canadian-tax-ledger";
 import { solveTaxableWithdrawal } from "./taxable-withdrawal";
+import {
+  beginRrifCalendarYear,
+  cloneRrifSimulationState,
+  convertRrspAccounts,
+  createRrifSimulationState,
+  recordForcedRrifWithdrawal,
+  recordOrdinaryRrifWithdrawal,
+  registeredAccounts,
+  remainingRrifMinimum,
+  rrifAnnualAggregate,
+  rrifCalculationSummary,
+  rrifLifecycleForAccount,
+  type RrifSimulationState,
+} from "./rrif";
 
 const MONTHS_PER_YEAR = 12;
 const AGE_TOLERANCE = 1e-6;
@@ -1329,6 +1344,7 @@ type RetirementContinuationState = {
     { eligible: number; pensionAdjustment: number; otherReduction: number }
   >;
   canadianTaxYearState: CanadianTaxYearState | null;
+  rrifState: RrifSimulationState;
 };
 
 type SimulationOutcome = {
@@ -1474,6 +1490,9 @@ function simulateProjection(
             inputs.tax.futureIndexingRate,
           )
       : null;
+  let rrifState = continuation
+    ? cloneRrifSimulationState(continuation.rrifState)
+    : createRrifSimulationState(inputs);
   const nominalSurplusThroughRetirement = emptySurplusTotals();
   const realSurplusThroughRetirement = emptySurplusTotals();
   const nominalSavingsThroughRetirement = emptySavingsTotals();
@@ -1528,7 +1547,10 @@ function simulateProjection(
   ): number {
     if (account.type === "tfsa") return tfsaRoom;
     if (account.type === "rrsp_rrif") {
-      return workingAge >= inputs.person.rrifConversionAge - AGE_TOLERANCE
+      return inputs.rrifMinimumWithdrawals.mode === "statutory" &&
+        rrifLifecycleForAccount(rrifState, account.id) === "rrif"
+        ? 0
+        : workingAge >= inputs.person.rrifConversionAge - AGE_TOLERANCE
         ? 0
         : rrspRoom;
     }
@@ -1618,6 +1640,15 @@ function simulateProjection(
             periodStartDate.endsWith("-01")
           ? "complete_tax_year"
           : "partial_tax_year";
+    const rrifPeriodStatus: RrifAnnualAggregate["periodStatus"] =
+      projectedRetirementLiabilityShortfall !== null
+        ? "stopped_incomplete"
+        : periodStartYear === periodEndYear &&
+            periodStartMonth === 1 &&
+            periodEndMonth === MONTHS_PER_YEAR &&
+            periodStartDate.endsWith("-01")
+          ? "complete_calendar_year"
+          : "partial_period";
     const annualTax: AnnualTaxResult =
       inputs.tax.mode === "canadian_annual"
         ? annualCanadianTaxResult({
@@ -1678,6 +1709,12 @@ function simulateProjection(
         ]),
       ),
       tax: annualTax,
+      rrif: rrifAnnualAggregate({
+        mode: inputs.rrifMinimumWithdrawals.mode,
+        state: rrifState,
+        calendarYear,
+        periodStatus: rrifPeriodStatus,
+      }),
     });
     annualNominalFlow = emptyView();
     annualRealFlow = emptyView();
@@ -1710,6 +1747,18 @@ function simulateProjection(
       );
     }
     const monthlyFlow = emptyView();
+    if (
+      inputs.rrifMinimumWithdrawals.mode === "statutory" &&
+      calendarMonth === 1
+    ) {
+      beginRrifCalendarYear({
+        state: rrifState,
+        calendarYear,
+        ownerAgeAtBeginningOfYear: workingAge,
+        balances,
+        inflationFactor: previousFactor,
+      });
+    }
     const ordinaryRetirementMonthOpening =
       !evaluationOnly && month > retirementMonth
         ? {
@@ -1723,6 +1772,7 @@ function simulateProjection(
             canadianTaxYearState: canadianTaxYearState
               ? cloneCanadianTaxYearState(canadianTaxYearState)
               : null,
+            rrifState: cloneRrifSimulationState(rrifState),
           }
         : null;
     if (inputs.registeredAccountRoom) {
@@ -2223,6 +2273,13 @@ function simulateProjection(
       (left, right) =>
         left.withdrawalPriority - right.withdrawalPriority,
     );
+    const registeredWithdrawalSource = (
+      account: FinancialAccountInput,
+    ): "rrspWithdrawals" | "rrifWithdrawals" =>
+      inputs.rrifMinimumWithdrawals.mode === "statutory" &&
+      rrifLifecycleForAccount(rrifState, account.id) === "rrif"
+        ? "rrifWithdrawals"
+        : "rrspWithdrawals";
     let withdrawalTaxTotal = 0;
     const fundCashNeedFromWithdrawals = (
       requestedNetCash: number,
@@ -2235,6 +2292,7 @@ function simulateProjection(
         let grossWithdrawal = Math.min(balance, remaining);
         let netCash = grossWithdrawal;
         if (account.type === "rrsp_rrif") {
+          const taxIncomeSource = registeredWithdrawalSource(account);
           let withdrawalTax: number;
           if (inputs.tax.mode === "flat_compatibility") {
             const netRate = 1 - inputs.tax.effectiveTaxRate;
@@ -2252,15 +2310,18 @@ function simulateProjection(
                 inputs.person.pensionIncomeCreditEligible,
             });
             const solution = solveTaxableWithdrawal({
+              incomeSource: taxIncomeSource,
               availableBalance: balance,
               requiredNetCash: remaining,
+              minimumIncrementalTax:
+                -currentPosition.projectionFundedTax,
               incrementalTax: (candidate) => {
                 const candidateState = cloneCanadianTaxYearState(
                   canadianTaxYearState!,
                 );
                 addCanadianTaxIncome(
                   candidateState,
-                  "rrspWithdrawals",
+                  taxIncomeSource,
                   candidate,
                   false,
                 );
@@ -2280,7 +2341,7 @@ function simulateProjection(
             grossWithdrawal = solution.grossWithdrawal;
             addCanadianTaxIncome(
               canadianTaxYearState!,
-              "rrspWithdrawals",
+              taxIncomeSource,
               grossWithdrawal,
               false,
             );
@@ -2292,11 +2353,6 @@ function simulateProjection(
                 inputs.person.pensionIncomeCreditEligible,
             });
             withdrawalTax = recognized.newlyRecognizedTax;
-            if (withdrawalTax < -0.01) {
-              throw new Error(
-                "Canadian taxable withdrawal produced a negative incremental tax liability",
-              );
-            }
             netCash = grossWithdrawal - withdrawalTax;
             monthlyFlow.outflows.oasRecoveryTax +=
               recognized.newlyRecognizedOasRecoveryTax;
@@ -2315,6 +2371,19 @@ function simulateProjection(
           withdrawalTaxTotal += withdrawalTax;
         }
         balances.set(account.id, balance - grossWithdrawal);
+        if (
+          account.type === "rrsp_rrif" &&
+          inputs.rrifMinimumWithdrawals.mode === "statutory" &&
+          rrifLifecycleForAccount(rrifState, account.id) === "rrif"
+        ) {
+          recordOrdinaryRrifWithdrawal({
+            state: rrifState,
+            calendarYear,
+            accountId: account.id,
+            amount: grossWithdrawal,
+            inflationFactor: factor,
+          });
+        }
         addWithdrawal(
           monthlyFlow.withdrawals,
           account.type,
@@ -2352,6 +2421,7 @@ function simulateProjection(
           );
         }
         const gross = Math.max(0, Math.floor((balance + 1e-9) * 100) / 100);
+        const taxIncomeSource = registeredWithdrawalSource(account);
         const before = canadianTaxPosition({
           state: previewCanadianTaxState!,
           tax: inputs.tax,
@@ -2361,7 +2431,7 @@ function simulateProjection(
         });
         addCanadianTaxIncome(
           previewCanadianTaxState!,
-          "rrspWithdrawals",
+          taxIncomeSource,
           gross,
           false,
         );
@@ -2374,15 +2444,10 @@ function simulateProjection(
         });
         const incrementalTax =
           after.projectionFundedTax - before.projectionFundedTax;
-        if (incrementalTax < -0.01) {
-          throw new Error(
-            "Canadian taxable withdrawal preview produced a negative incremental tax liability",
-          );
-        }
         return (
           total +
           gross -
-          Math.max(0, incrementalTax)
+          incrementalTax
         );
       },
       0,
@@ -2432,6 +2497,9 @@ function simulateProjection(
               ordinaryRetirementMonthOpening.canadianTaxYearState,
             )
           : null;
+      rrifState = cloneRrifSimulationState(
+        ordinaryRetirementMonthOpening.rrifState,
+      );
       projectedRetirementLiabilityShortfall = {
         calendarMonth: calendarMonthKey,
         calendarYear,
@@ -2533,6 +2601,88 @@ function simulateProjection(
         monthlyFlow.outflows.unmetSpending += unmetSpending;
       }
       cashPosition = 0;
+    }
+
+    if (
+      inputs.rrifMinimumWithdrawals.mode === "statutory" &&
+      calendarMonth === MONTHS_PER_YEAR
+    ) {
+      for (const account of registeredAccounts(inputs.accounts)) {
+        if (rrifLifecycleForAccount(rrifState, account.id) !== "rrif") {
+          continue;
+        }
+        const remainingMinimum = remainingRrifMinimum(
+          rrifState,
+          calendarYear,
+          account.id,
+        );
+        if (remainingMinimum <= 0.000001) continue;
+        const balance = balances.get(account.id) ?? 0;
+        const payableTrueUp = remainingMinimum;
+        const grossWithdrawal = Math.min(balance, payableTrueUp);
+        if (grossWithdrawal <= 0) {
+          recordForcedRrifWithdrawal({
+            state: rrifState,
+            calendarYear,
+            accountId: account.id,
+            amount: 0,
+            inflationFactor: factor,
+            exhausted: true,
+          });
+          continue;
+        }
+        let taxAdjustment: number;
+        if (inputs.tax.mode === "flat_compatibility") {
+          taxAdjustment = grossWithdrawal * inputs.tax.effectiveTaxRate;
+        } else {
+          addCanadianTaxIncome(
+            canadianTaxYearState!,
+            "rrifWithdrawals",
+            grossWithdrawal,
+            false,
+          );
+          const recognized = recognizeCanadianProjectionTax({
+            state: canadianTaxYearState!,
+            tax: inputs.tax,
+            ageAtYearEnd: ageAtEndOfTaxYear(calendarYear),
+            pensionIncomeCreditEligible:
+              inputs.person.pensionIncomeCreditEligible,
+          });
+          taxAdjustment = recognized.newlyRecognizedTax;
+          monthlyFlow.outflows.oasRecoveryTax +=
+            recognized.newlyRecognizedOasRecoveryTax;
+        }
+        const netCash = grossWithdrawal - taxAdjustment;
+        if (
+          Math.abs(
+            centDifference(
+              [grossWithdrawal],
+              [taxAdjustment, netCash],
+            ),
+          ) > 0.01
+        ) {
+          throw new Error(
+            "Forced RRIF withdrawal failed to reconcile gross, tax, and net cash",
+          );
+        }
+        balances.set(account.id, Math.max(0, balance - grossWithdrawal));
+        addWithdrawal(
+          monthlyFlow.withdrawals,
+          account.type,
+          grossWithdrawal,
+        );
+        monthlyFlow.outflows.tax += taxAdjustment;
+        withdrawalTaxTotal += taxAdjustment;
+        cashPosition += netCash;
+        recordForcedRrifWithdrawal({
+          state: rrifState,
+          calendarYear,
+          accountId: account.id,
+          amount: grossWithdrawal,
+          inflationFactor: factor,
+          exhausted: balance + 0.000001 < payableTrueUp,
+        });
+      }
     }
 
     if (simplePolicy) {
@@ -3003,6 +3153,18 @@ function simulateProjection(
         (monthlyFlow.outflows.oneTime * fundedRatio) / factor;
     }
 
+    if (
+      inputs.rrifMinimumWithdrawals.mode === "statutory" &&
+      workingAge < inputs.person.rrifConversionAge - AGE_TOLERANCE &&
+      age >= inputs.person.rrifConversionAge - AGE_TOLERANCE
+    ) {
+      convertRrspAccounts(
+        rrifState,
+        lastDayOfMonth(calendarYear, calendarMonth),
+        calendarYear,
+      );
+    }
+
     const currentBalances = balanceSheet(
       inputs.accounts,
       balances,
@@ -3043,6 +3205,7 @@ function simulateProjection(
         canadianTaxYearState: canadianTaxYearState
           ? cloneCanadianTaxYearState(canadianTaxYearState)
           : null,
+        rrifState: cloneRrifSimulationState(rrifState),
       };
       if (!evaluationOnly) {
         const retirementRealMonthlyFlow = emptyView();
@@ -3270,6 +3433,46 @@ function simulateProjection(
     calendarYear: retirementYear,
     age: retirementSnapshot.age,
   });
+  if (inputs.rrifMinimumWithdrawals.mode === "statutory") {
+    observations.push({
+      code: "rrif_statutory_minimums_active",
+      message: `Statutory RRIF conversion occurs at the close of the month when age ${inputs.person.rrifConversionAge} is reached; per-account minimums begin in the following calendar year and settle through a December true-up.`,
+      age: inputs.person.rrifConversionAge,
+    });
+    for (const account of rrifState.accounts.values()) {
+      if (account.conversionDate) {
+        observations.push({
+          code: "rrif_conversion",
+          message: `A registered account converted directly from RRSP to RRIF on ${account.conversionDate} without creating cash or taxable income.`,
+          calendarYear: account.establishmentYear ?? undefined,
+          age: inputs.person.rrifConversionAge,
+        });
+      }
+    }
+    for (const period of annual.map((point) => point.rrif)) {
+      if (period.forcedDecemberWithdrawal > 0) {
+        observations.push({
+          code: "rrif_december_true_up",
+          message: `A statutory RRIF minimum required a December true-up in ${period.calendarYear}; after-tax surplus followed the configured surplus policy.`,
+          calendarYear: period.calendarYear,
+        });
+      }
+      if (period.accountExhaustion) {
+        observations.push({
+          code: "rrif_account_exhausted",
+          message: `A RRIF was exhausted before its computed minimum could be fully paid in ${period.calendarYear}; no withdrawal above the remaining account value was created.`,
+          calendarYear: period.calendarYear,
+        });
+      }
+    }
+  } else {
+    observations.push({
+      code: "rrif_compatibility_mode",
+      message:
+        "RRIF conversion remains a milestone-only compatibility assumption; statutory minimum withdrawals are not active.",
+      age: inputs.person.rrifConversionAge,
+    });
+  }
   observations.push({
     code: "cpp_start",
     message: `CPP begins at age ${inputs.person.cpp.startAge}.`,
@@ -3306,7 +3509,7 @@ function simulateProjection(
   });
 
   const result: CoreProjectionResult = {
-    schemaVersion: "11.0",
+    schemaVersion: "12.0",
     inputs,
     summary: {
       retirementYear,
@@ -3482,6 +3685,11 @@ function simulateProjection(
           ? [...inputs.tax.limitations]
           : ["flat_rate_compatibility_not_a_tax_return"],
     },
+    rrif: rrifCalculationSummary({
+      inputs,
+      state: rrifState,
+      annual: annual.map((point) => point.rrif),
+    }),
     annual,
     observations,
   };
@@ -3552,7 +3760,9 @@ export function calculateProjection(
       ? {
           code: "retirement_requirement_tax_provisional",
           message:
-            "The retirement funding requirement uses annual federal and Ontario tax, but remains provisional because RRIF minimum withdrawals and non-registered investment-income taxation are not modelled.",
+            inputs.rrifMinimumWithdrawals.mode === "statutory"
+              ? "The retirement funding requirement uses annual federal and Ontario tax with statutory RRIF minimum withdrawals, but remains provisional because non-registered investment-income taxation and full tax-return fidelity are not modelled."
+              : "The retirement funding requirement uses annual federal and Ontario tax, but remains provisional because RRIF minimum withdrawals and non-registered investment-income taxation are not modelled.",
           age: inputs.person.retirementAge,
         }
       : {

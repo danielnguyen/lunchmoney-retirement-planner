@@ -130,6 +130,9 @@ describe("precise scenario input semantics", () => {
     expect(screen.getByLabelText("CPP start age")).toHaveAttribute("type", "range");
     expect(screen.getByLabelText("OAS start age")).toHaveAttribute("type", "range");
     expect(screen.getByLabelText("Projection end age")).toHaveAttribute("type", "range");
+    expect(
+      screen.getByLabelText("RRSP-to-RRIF conversion age"),
+    ).toHaveAttribute("type", "range");
   });
 
   it("distinguishes temporary scenarios, baseline values, and human-readable sources", () => {

@@ -306,11 +306,24 @@ export type TaxAssumptions =
         income: CanadianTaxIncomeLedger;
         source: "explicit_configuration" | "january_zero";
       };
-      limitations: [
-        "rrif_minimum_withdrawals_not_modelled",
-        "non_registered_investment_income_not_modelled",
-        "full_tax_return_deductions_and_refundable_credits_not_modelled",
-      ];
+      limitations: Array<
+        | "rrif_minimum_withdrawals_not_modelled"
+        | "non_registered_investment_income_not_modelled"
+        | "full_tax_return_deductions_and_refundable_credits_not_modelled"
+      >;
+    };
+
+export type RrifMinimumWithdrawalsAssumptions =
+  | {
+      mode: "not_modelled_compatibility";
+      source: "explicit_configuration" | "compatibility_default";
+    }
+  | {
+      mode: "statutory";
+      source: "explicit_configuration";
+      ageBasis: "owner_age";
+      settlementTiming: "december_true_up";
+      supportedRrifClass: "all_other_rrifs";
     };
 
 export type RetirementRequirementBaselineSource =
@@ -336,6 +349,7 @@ export type ProjectionInputs = {
   spendingPhases: SpendingPhase[];
   retirementGoalToday: number;
   retirementRequirement: RetirementRequirementInput;
+  rrifMinimumWithdrawals: RrifMinimumWithdrawalsAssumptions;
   tax: TaxAssumptions;
   person: PersonInput;
   accounts: FinancialAccountInput[];
@@ -528,6 +542,111 @@ export type AnnualProjection = {
   employmentPhaseLabels: string[];
   contributionPhaseLabels: Record<string, string[]>;
   tax: AnnualTaxResult;
+  rrif: RrifAnnualAggregate;
+};
+
+export type RrifLifecycleState = "rrsp" | "rrif";
+
+export type RrifMinimumStatus =
+  | "compatibility_mode"
+  | "not_yet_converted"
+  | "establishment_year_no_minimum"
+  | "minimum_active"
+  | "satisfied_by_ordinary_withdrawals"
+  | "satisfied_by_december_true_up"
+  | "account_exhausted"
+  | "partial_year_unsettled"
+  | "stopped_incomplete";
+
+export type RrifAnnualAccountResult = {
+  calendarYear: number;
+  accountId: string;
+  lifecycleState: RrifLifecycleState;
+  establishmentYear: number | null;
+  periodStatus: "complete_calendar_year" | "partial_period" | "stopped_incomplete";
+  openingFairMarketValue: number | null;
+  openingFairMarketValueToday: number | null;
+  ownerAgeAtBeginningOfYear: number | null;
+  prescribedFactor: number | null;
+  prescribedFactorClass:
+    | "under_71_formula"
+    | "all_other_rrifs_table"
+    | "age_95_plus"
+    | null;
+  rawMinimum: number;
+  payableMinimum: number;
+  settlementDifference: number;
+  ordinaryWithdrawals: number;
+  ordinaryWithdrawalsToday: number;
+  forcedDecemberWithdrawal: number;
+  forcedDecemberWithdrawalToday: number;
+  actualWithdrawals: number;
+  actualWithdrawalsToday: number;
+  remainingMinimum: number;
+  remainingMinimumToday: number;
+  status: RrifMinimumStatus;
+};
+
+export type RrifAnnualAggregate = {
+  calendarYear: number;
+  periodStatus: "complete_calendar_year" | "partial_period" | "stopped_incomplete";
+  openingFairMarketValue: number;
+  openingFairMarketValueToday: number;
+  factorAge: number | null;
+  prescribedFactor: number | null;
+  minimumRequired: number;
+  minimumRequiredToday: number;
+  ordinaryWithdrawals: number;
+  ordinaryWithdrawalsToday: number;
+  forcedDecemberWithdrawal: number;
+  forcedDecemberWithdrawalToday: number;
+  actualWithdrawals: number;
+  actualWithdrawalsToday: number;
+  remainingMinimum: number;
+  remainingMinimumToday: number;
+  satisfied: boolean | null;
+  accountExhaustion: boolean;
+  accounts: RrifAnnualAccountResult[];
+};
+
+export type RrifAccountLifecycleResult = {
+  accountId: string;
+  lifecycleState: RrifLifecycleState;
+  conversionDate: string | null;
+  establishmentYear: number | null;
+  conversionSource: "configured_age_boundary" | "compatibility_milestone_only";
+};
+
+export type RrifCalculationSummary = {
+  mode: RrifMinimumWithdrawalsAssumptions["mode"];
+  source: RrifMinimumWithdrawalsAssumptions["source"];
+  conversionAge: number;
+  ownerAgeBasis: "owner_age_at_beginning_of_year" | "not_applicable";
+  settlementTiming: "december_true_up" | "not_applicable";
+  supportedRrifClass: "all_other_rrifs" | "not_applicable";
+  provisional: true;
+  limitations: string[];
+  references: {
+    retrievedDate: string;
+    maturityUrl: string;
+    maturedRrspTransferUrl: string;
+    minimumUrl: string;
+    factorsUrl: string;
+    receivingIncomeUrl: string;
+    circularUrl: string;
+    pensionIncomeCreditUrl: string;
+    effectiveDates: {
+      rrspMaturity: string;
+      maturedRrspTransfer: string;
+      minimumAmount: string;
+      prescribedFactors: string;
+      receivingIncome: string;
+      circular: string;
+      pensionIncomeAmount: string;
+    };
+  };
+  accounts: RrifAccountLifecycleResult[];
+  annual: RrifAnnualAggregate[];
 };
 
 export type AnnualTaxResult =
@@ -847,7 +966,7 @@ export type SavingsPolicyCalculationSummary = {
 };
 
 export type ProjectionResult = {
-  schemaVersion: "11.0";
+  schemaVersion: "12.0";
   inputs: ProjectionInputs;
   summary: ProjectionSummary;
   projectionCompletion: ProjectionCompletion;
@@ -867,6 +986,7 @@ export type ProjectionResult = {
   registeredAccountRoom: RegisteredAccountRoomCalculationSummary;
   savingsPolicy: SavingsPolicyCalculationSummary;
   taxation: TaxCalculationSummary;
+  rrif: RrifCalculationSummary;
   annual: AnnualProjection[];
   observations: ProjectionObservation[];
 };
@@ -1009,6 +1129,40 @@ export function validateProjectionInputs(value: unknown): ProjectionInputs {
   }
   if (typeof input.person.pensionIncomeCreditEligible !== "boolean") {
     throw new Error("pensionIncomeCreditEligible must be true or false");
+  }
+  assertMonthAligned(
+    "RRIF conversion age",
+    input.person.rrifConversionAge,
+    0,
+  );
+  if (
+    input.person.rrifConversionAge < 18 ||
+    input.person.rrifConversionAge > 100
+  ) {
+    throw new Error("RRIF conversion age must be between 18 and 100");
+  }
+  if (!input.rrifMinimumWithdrawals || typeof input.rrifMinimumWithdrawals !== "object") {
+    throw new Error("rrifMinimumWithdrawals must be resolved");
+  }
+  if (input.rrifMinimumWithdrawals.mode === "statutory") {
+    if (
+      input.rrifMinimumWithdrawals.source !== "explicit_configuration" ||
+      input.rrifMinimumWithdrawals.ageBasis !== "owner_age" ||
+      input.rrifMinimumWithdrawals.settlementTiming !== "december_true_up" ||
+      input.rrifMinimumWithdrawals.supportedRrifClass !== "all_other_rrifs"
+    ) {
+      throw new Error("Statutory RRIF minimum inputs must use owner_age, december_true_up, and all_other_rrifs");
+    }
+    if (input.person.rrifConversionAge > 71 + PROJECTION_AGE_TOLERANCE) {
+      throw new Error("Statutory RRIF conversion age must be no greater than 71");
+    }
+  } else if (
+    input.rrifMinimumWithdrawals.mode !== "not_modelled_compatibility" ||
+    !["explicit_configuration", "compatibility_default"].includes(
+      input.rrifMinimumWithdrawals.source,
+    )
+  ) {
+    throw new Error("RRIF minimum mode must be statutory or not_modelled_compatibility");
   }
   assertRate("pensionIndexingRate", input.person.pensionIndexingRate, -0.2, 0.5);
   assertRate("CPP indexingRate", input.person.cpp.indexingRate, -0.2, 0.5);
@@ -1367,6 +1521,17 @@ export function validateProjectionInputs(value: unknown): ProjectionInputs {
   }
   if (!hasCashAccount) {
     throw new Error("At least one included cash account is required for cash-flow projection");
+  }
+  if (
+    input.rrifMinimumWithdrawals.mode === "statutory" &&
+    input.person.currentAge >= input.person.rrifConversionAge - PROJECTION_AGE_TOLERANCE &&
+    input.accounts.some(
+      (account) => account.type === "rrsp_rrif" && account.openingBalance > 0,
+    )
+  ) {
+    throw new Error(
+      "Statutory RRIF projections that begin after conversion require opening RRIF context; January 1 value and year-to-date withdrawals cannot be inferred",
+    );
   }
 
   const nonFinancialAssetIds = new Set<string>();

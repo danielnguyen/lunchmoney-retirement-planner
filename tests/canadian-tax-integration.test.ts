@@ -9,6 +9,11 @@ import {
   projectionFixture,
 } from "@/tests/fixtures/projection";
 import type { ProjectionInputs } from "@/src/domain/projection/types";
+import {
+  addCanadianTaxIncome,
+  canadianTaxPosition,
+  createCanadianTaxYearState,
+} from "@/src/domain/projection/canadian-tax-ledger";
 
 function canadianProjection(): ProjectionInputs {
   const inputs = structuredClone(projectionFixture);
@@ -131,6 +136,29 @@ function parseCsvLine(line: string): string[] {
 }
 
 describe("Canadian annual tax projection integration", () => {
+  it("awards the pension-income basis to RRIF but not RRSP income at age 65", () => {
+    const input = canadianProjection();
+    if (input.tax.mode !== "canadian_annual") throw new Error("expected Canadian tax");
+    const state = createCanadianTaxYearState(2027, undefined, 0);
+    addCanadianTaxIncome(state, "rrspWithdrawals", 500, false);
+    addCanadianTaxIncome(state, "rrifWithdrawals", 1_500, false);
+    expect(
+      canadianTaxPosition({
+        state,
+        tax: input.tax,
+        ageAtYearEnd: 64,
+        pensionIncomeCreditEligible: false,
+      }).full.eligiblePensionIncome,
+    ).toBe(0);
+    expect(
+      canadianTaxPosition({
+        state,
+        tax: input.tax,
+        ageAtYearEnd: 65,
+        pensionIncomeCreditEligible: false,
+      }).full.eligiblePensionIncome,
+    ).toBe(1_500);
+  });
   it("uses opening and employment income as embedded context without taxing net cash twice", () => {
     const result = calculateProjection(canadianProjection());
     const firstYear = result.annual.find((row) => row.calendarYear === 2026)!;
@@ -306,7 +334,7 @@ describe("Canadian annual tax projection integration", () => {
       {},
       "2026-07-30T12:00:00.000Z",
     );
-    expect(snapshot.schemaVersion).toBe("11.0");
+    expect(snapshot.schemaVersion).toBe("12.0");
     expect(snapshot.projection.taxation.mode).toBe("canadian_annual");
     expect(snapshot.projection.taxation.provisional).toBe(true);
     expect(snapshot.projection.taxation.annual.every(

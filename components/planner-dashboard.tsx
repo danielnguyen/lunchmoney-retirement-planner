@@ -1652,6 +1652,7 @@ export function PlannerDashboard() {
   const chartData = projection ? buildAnnualChartData(inputs, projection, mode) : [];
   const ledgerData = projection ? buildAnnualLedgerData(inputs, projection, mode) : [];
   const latestAnnualTax = projection?.taxation.annual.at(-1) ?? null;
+  const latestRrifPeriod = projection?.rrif.annual.at(-1) ?? null;
   const milestonePoints = projection?.annual.filter((point) => point.milestones.length > 0) ?? [];
   const selectedAllocationPoint = projection && allocationYear !== null
     ? closestAnnualPoint(projection.annual, allocationYear)
@@ -1964,9 +1965,29 @@ export function PlannerDashboard() {
               <strong>Provisional</strong>
               <small>
                 {projection.taxation.mode === "canadian_annual"
-                  ? "Annual federal and Ontario income tax is modelled; RRIF minimum withdrawals and non-registered investment-income taxation remain incomplete."
-                  : "Calculated using the flat retirement-tax compatibility assumption; progressive Canadian taxes and RRIF minimums are not active."}
+                  ? projection.rrif.mode === "statutory"
+                    ? "Annual federal and Ontario income tax and statutory RRIF minimums are modelled; non-registered investment-income taxation remains incomplete."
+                    : "Annual federal and Ontario income tax is modelled; RRIF minimum withdrawals and non-registered investment-income taxation remain incomplete."
+                  : projection.rrif.mode === "statutory"
+                    ? "Statutory RRIF minimums are active with the flat retirement-tax compatibility assumption."
+                    : "Calculated using the flat retirement-tax compatibility assumption; progressive Canadian taxes and RRIF minimums are not active."}
               </small>
+            </article>
+            <article className="metric-card" role="status">
+              <span>RRIF lifecycle</span>
+              <strong>
+                {projection.rrif.mode === "statutory"
+                  ? "Statutory minimums active"
+                  : "Compatibility milestone only"}
+              </strong>
+              <small>
+                Conversion age {projection.rrif.conversionAge} · {projection.rrif.ownerAgeBasis.replaceAll("_", " ")} · {projection.rrif.settlementTiming.replaceAll("_", " ")}
+              </small>
+              {latestRrifPeriod ? (
+                <small>
+                  {latestRrifPeriod.calendarYear} {latestRrifPeriod.periodStatus.replaceAll("_", " ")} · opening {currency.format(mode === "nominal" ? latestRrifPeriod.openingFairMarketValue : latestRrifPeriod.openingFairMarketValueToday)} · minimum {currency.format(mode === "nominal" ? latestRrifPeriod.minimumRequired : latestRrifPeriod.minimumRequiredToday)} · ordinary {currency.format(mode === "nominal" ? latestRrifPeriod.ordinaryWithdrawals : latestRrifPeriod.ordinaryWithdrawalsToday)} · forced {currency.format(mode === "nominal" ? latestRrifPeriod.forcedDecemberWithdrawal : latestRrifPeriod.forcedDecemberWithdrawalToday)} · remaining {currency.format(mode === "nominal" ? latestRrifPeriod.remainingMinimum : latestRrifPeriod.remainingMinimumToday)}
+                </small>
+              ) : null}
             </article>
             {latestAnnualTax?.mode === "canadian_annual" ? (
               <article className="metric-card" role="status">
@@ -2579,6 +2600,8 @@ export function PlannerDashboard() {
                   <div><dt>CPP start age</dt><dd>{inputs.person.cpp.startAge}</dd></div>
                   <div><dt>OAS start age</dt><dd>{inputs.person.oas.startAge}</dd></div>
                   <div><dt>RRIF conversion age</dt><dd>{inputs.person.rrifConversionAge}</dd></div>
+                  <div><dt>RRIF minimum mode</dt><dd>{projection.rrif.mode.replaceAll("_", " ")} · {projection.rrif.source.replaceAll("_", " ")}</dd></div>
+                  <div><dt>RRIF settlement</dt><dd>{projection.rrif.settlementTiming.replaceAll("_", " ")}</dd></div>
                 </dl>
               </div>
               {projectionOnlyAccounts.length > 0 ? (

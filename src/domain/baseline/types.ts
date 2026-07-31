@@ -35,6 +35,7 @@ export const baselineWarningCodes = [
   "inactive_flat_tax_fields",
   "oas_recovery_threshold_estimate",
   "rrif_minimums_not_modelled",
+  "rrif_statutory_minimums_active",
   "non_registered_tax_not_modelled",
 ] as const;
 
@@ -190,7 +191,7 @@ export type LunchMoneyMappings = {
 };
 
 export type CurrentBaseline = {
-  schemaVersion: "3.0";
+  schemaVersion: "4.0";
   connection: ConnectionStatus;
   projectionInputs: ProjectionInputs;
   provenance: Record<string, BaselineValue<unknown>>;

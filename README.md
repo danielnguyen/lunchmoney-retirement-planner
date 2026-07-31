@@ -140,7 +140,24 @@ The solver tests integer cents at the exact end of the final working month and f
 
 Candidate totals are distributed across cash, TFSA, RRSP/RRIF, and non-registered accounts using their exact projected retirement-boundary weights. Account type, return, withdrawal priority, allocation, and identity are preserved, with any residual cent assigned deterministically. Residence value, other non-financial assets, home equity, and liabilities are excluded from the funding composition. If the projected financial accounts cannot provide a valid positive composition, the requirement is shown as unavailable instead of inventing weights.
 
-The requirement uses the active tax mode. It remains provisional in Canadian annual mode because statutory RRIF minimum withdrawals and non-registered investment-income taxation are not included yet.
+The requirement uses the active tax and RRIF modes. It remains provisional because non-registered investment-income taxation and full tax-return fidelity are not included.
+
+### RRSP-to-RRIF conversion and minimum withdrawals
+
+Existing configurations keep the historical milestone-only behaviour through a visible compatibility default. To activate actual registered-account conversion and statutory minimum withdrawals, configure:
+
+```yaml
+rrifMinimumWithdrawals:
+  mode: statutory
+  ageBasis: owner_age
+  settlementTiming: december_true_up
+```
+
+Statutory mode converts each modelled `rrsp_rrif` account at the close of the month in which `assumptions.rrifConversionAge` is reached. The transfer preserves the account and balance and creates no cash or taxable income. No minimum applies in the establishment year. Beginning the following January, each account independently captures its exact raw January 1 value before returns and applies the CRA “All other RRIFs” owner-age factor. The payable minimum is rounded upward to cents so it is never less than the raw calculation.
+
+Ordinary withdrawals from a converted account are RRIF income and count only toward that account’s minimum. After ordinary December withdrawals, any remainder is taken once as a gross December true-up. Canadian annual mode includes RRIF income in annual tax and OAS recovery; it also treats RRIF income as eligible pension income when age 65 or older at year end. In flat mode the existing flat withdrawal-tax approximation remains in use. After-tax cash not needed for the month follows the existing cash-target, TFSA-room, taxable-overflow, or retain-as-cash policy, and cannot be contributed back to a converted account.
+
+The supported model is single-person and uses owner age. It does not support spouse-age elections, legacy RRIF classes, inherited arrangements, or projections that begin after a positive account should already have converted without opening RRIF context. Partial or stopped years do not fabricate a December payment. Primary references: [RRSP maturity at age 71](https://www.canada.ca/en/revenue-agency/services/tax/individuals/topics/rrsps-related-plans/rrsp-options-when-you-turn-71.html), [RRIF minimum calculation](https://www.canada.ca/en/revenue-agency/services/tax/businesses/topics/completing-slips-summaries/t4rsp-t4rif-information-returns/payments/minimum-amount-a-rrif.html), [prescribed factors](https://www.canada.ca/en/revenue-agency/services/tax/businesses/topics/completing-slips-summaries/t4rsp-t4rif-information-returns/payments/chart-prescribed-factors.html), and [RRIF income and pension credit](https://www.canada.ca/en/revenue-agency/services/tax/individuals/topics/registered-retirement-income-fund-rrif/receiving-income-a-rrif.html).
 
 ### Annual Canadian retirement tax
 
@@ -170,7 +187,7 @@ Each employment phase has three deliberately separate amounts: `annualNetCashTod
 
 For a mid-year projection start, opening context is required through the preceding month. It affects the annual brackets but is neither deposited nor taxed again inside the projection. Each modelled month recognizes the cumulative annual federal/Ontario liability beyond tax already embedded in opening and net-employment income. If later embedded employment context reprices that cumulative amount downward, the ledger records the signed tax adjustment explicitly while the cumulative funded liability remains non-negative. OAS recovery uses supported annual income rather than a monthly proxy. Taxable RRSP cash needs use a bounded integer-cent search for the lowest gross withdrawal whose incremental-tax-adjusted proceeds pass; cash and TFSA withdrawals remain tax free, while non-registered investment-income tax is explicitly deferred.
 
-The annual tax result is a deterministic planning estimate rather than full tax-return preparation. It does not model RRIF conversion/minimum withdrawals, non-registered interest/dividend/capital-gain tax, arbitrary deductions, or refundable credits. Partial years use full annual credit amounts and are labelled partial estimates. Official reference provenance is included in the shared result and exports.
+The annual tax result is a deterministic planning estimate rather than full tax-return preparation. Statutory RRIF behaviour is active only when explicitly selected; non-registered interest/dividend/capital-gain tax, arbitrary deductions, and refundable credits remain unmodelled. Partial years use full annual credit amounts and are labelled partial estimates. Official reference provenance is included in the shared result and exports.
 
 Statutory calculations retain raw nominal precision and round the aggregate annual liability once; any presentation-cent residual is assigned deterministically to Ontario net tax so the displayed components still reconcile. The 2026 OAS recovery threshold is identified as an official published estimate rather than a final amount. Primary references: [CRA 2026 federal/Ontario payroll tables](https://www.canada.ca/en/revenue-agency/services/forms-publications/payroll/t4032-payroll-deductions-tables/t4032on-jan/t4032on-january-general-information.html), [CRA payroll formulas](https://www.canada.ca/en/revenue-agency/services/forms-publications/payroll/t4127-payroll-deductions-formulas/t4127-jul/t4127-jul-payroll-deductions-formulas.html), [federal TD1 credits](https://www.canada.ca/en/revenue-agency/services/forms-publications/td1-personal-tax-credits-returns/td1-forms-pay-received-on-january-1-later/td1.html), [Ontario TD1 credits](https://www.canada.ca/en/revenue-agency/services/forms-publications/td1-personal-tax-credits-returns/td1-forms-pay-received-on-january-1-later/td1on.html), and [OAS recovery tax](https://www.canada.ca/en/services/benefits/publicpensions/old-age-security/recovery-tax.html).
 

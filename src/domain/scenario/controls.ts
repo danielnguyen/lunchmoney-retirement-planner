@@ -721,6 +721,23 @@ export function buildControls(baseline: ProjectionInputs): ControlDefinition[] {
       persistence: () => configBinding(scalar("projectionEndAge")),
     },
     {
+      key: "rrifConversionAge",
+      sourceKey: "person.rrifConversionAge",
+      label: "RRSP-to-RRIF conversion age",
+      kind: "age",
+      min: (inputs) => inputs.person.currentAge,
+      max: (inputs) =>
+        inputs.rrifMinimumWithdrawals.mode === "statutory" ? 71 : 100,
+      step: 1,
+      format: String,
+      get: (inputs) => inputs.person.rrifConversionAge,
+      set: (inputs, value) => {
+        inputs.person.rrifConversionAge = value;
+      },
+      persistence: () =>
+        configBinding(scalar("assumptions", "rrifConversionAge")),
+    },
+    {
       key: "retirementRequirement.minimumEndingFinancialAssetsToday",
       sourceKey:
         "retirementRequirement.minimumEndingFinancialAssetsToday",

@@ -237,6 +237,19 @@ describe("unified planner configuration drawer", () => {
     );
   });
 
+  it("renders shared RRIF lifecycle and annual minimum evidence", async () => {
+    const dashboard = await readFile(
+      "components/planner-dashboard.tsx",
+      "utf8",
+    );
+    expect(dashboard).toContain("<span>RRIF lifecycle</span>");
+    expect(dashboard).toContain("Statutory minimums active");
+    expect(dashboard).toContain("Compatibility milestone only");
+    expect(dashboard).toContain("latestRrifPeriod.minimumRequired");
+    expect(dashboard).toContain("latestRrifPeriod.forcedDecemberWithdrawal");
+    expect(dashboard).toContain("latestRrifPeriod.remainingMinimum");
+  });
+
   it("opens guided controls by default and exposes one stable ARIA contract", () => {
     render(<ScenarioHarness />);
     const opener = screen.getByRole("button", { name: "Scenario controls" });

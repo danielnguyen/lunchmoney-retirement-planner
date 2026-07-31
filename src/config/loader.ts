@@ -215,6 +215,51 @@ function taxConfig(value: unknown): PlannerTaxConfig {
   };
 }
 
+function rrifMinimumWithdrawalsConfig(
+  value: unknown,
+): PlannerConfig["rrifMinimumWithdrawals"] {
+  if (value === undefined) {
+    return {
+      mode: "not_modelled_compatibility",
+      source: "compatibility_default",
+    };
+  }
+  const item = record(value, "rrifMinimumWithdrawals");
+  if (item.mode === "not_modelled_compatibility") {
+    return {
+      mode: "not_modelled_compatibility",
+      source: "explicit_configuration",
+    };
+  }
+  if (item.mode !== "statutory") {
+    throw new PlannerRuntimeError(
+      "invalid_planner_config",
+      "rrifMinimumWithdrawals.mode must be not_modelled_compatibility or statutory.",
+      422,
+    );
+  }
+  if (item.ageBasis !== "owner_age") {
+    throw new PlannerRuntimeError(
+      "invalid_planner_config",
+      "rrifMinimumWithdrawals.ageBasis must be owner_age; spouse-age elections are not supported.",
+      422,
+    );
+  }
+  if (item.settlementTiming !== "december_true_up") {
+    throw new PlannerRuntimeError(
+      "invalid_planner_config",
+      "rrifMinimumWithdrawals.settlementTiming must be december_true_up.",
+      422,
+    );
+  }
+  return {
+    mode: "statutory",
+    source: "explicit_configuration",
+    ageBasis: "owner_age",
+    settlementTiming: "december_true_up",
+  };
+}
+
 function allocation(value: unknown, field: string): AssetAllocation {
   const item = record(value, field);
   return {
@@ -1660,7 +1705,6 @@ function assumptions(value: unknown): PlannerAssumptions {
     rrifConversionAge: number(item.rrifConversionAge, "assumptions.rrifConversionAge", {
       min: 18,
       max: 100,
-      integer: true,
     }),
     allocations: {
       cash: allocation(allocations.cash, "assumptions.allocations.cash"),
@@ -2577,6 +2621,9 @@ export function validatePlannerConfig(value: unknown): PlannerConfig {
       : { governmentBenefits: governmentBenefits(item.governmentBenefits) }),
     retirementGoal: number(item.retirementGoal, "retirementGoal", { min: 0 }),
     retirementRequirement: retirementRequirement(item.retirementRequirement),
+    rrifMinimumWithdrawals: rrifMinimumWithdrawalsConfig(
+      item.rrifMinimumWithdrawals,
+    ),
     tax: taxConfig(item.tax),
     transactionTrailingMonths: number(item.transactionTrailingMonths, "transactionTrailingMonths", {
       min: 1,
@@ -2674,6 +2721,16 @@ export function validatePlannerConfig(value: unknown): PlannerConfig {
     throw new PlannerRuntimeError(
       "invalid_planner_config",
       "retirementAge must be greater than currentAge in the planner configuration.",
+      422,
+    );
+  }
+  if (
+    config.rrifMinimumWithdrawals.mode === "statutory" &&
+    config.assumptions.rrifConversionAge > 71
+  ) {
+    throw new PlannerRuntimeError(
+      "invalid_planner_config",
+      "assumptions.rrifConversionAge must be no greater than 71 when statutory RRIF minimum withdrawals are active.",
       422,
     );
   }
