@@ -13,12 +13,14 @@ Public tracking must remain generic and must not contain private financial value
 - Open maintenance pull request: None
 - Pull request state: Open, draft, mergeable, and unmerged; independent review remains
 - Active implementation: Simplified non-registered investment taxation and final supported-model migration
-- Status: Locally and hosted-validated draft implementation; independent review remains
+- Status: Locally and hosted-validated corrected draft implementation; independent review remains
 - Implementation branch: `agent/add-non-registered-taxation`
 - Starting merged-main SHA: `86d5c2a51618c74d883745cfbc054d0a8fc9fd3c`
-- Validated implementation commit: `549d807542df101700567ba03dc4699e13af22f5`
+- Correction starting PR head: `ff08bcbab0b0aaa10c74f9027f4e93af4e479d8c`
+- Validated implementation commit: `7e2612c8cb0d89437f2baeb0d308c419e5160609`
 - Final tracking head: Determined from the live GitHub PR head after the tracking-only commit; not duplicated here because embedding a commit's own SHA is recursive
-- Synthetic validation: Passed — 267 focused tests across 15 official-reference, annual investment-tax, distribution, pooled-ACB, taxable-disposition, RRIF, retirement-requirement, configuration, dashboard, explanation, JSON allowlist, nominal/real rectangular CSV, and export-privacy files; 557 tests across the complete 32-file suite. Typecheck, lint, production build, diff check, Docker build, Compose validation, isolated container startup, schema-aware health smoke, and clean planner-container removal passed locally. Hosted CI and Docker also passed on the exact live final PR head; immutable run details are retained in the PR description.
+- Correction: The shared withdrawal-funding boundary now retains signed-tax overfunding as explicit generated, applied, excess, and unmet net cash. Liability and lifestyle callers preserve excess for ordinary monthly cash flow and established surplus routing. One shared three-mode coverage decision controls taxation, RRIF, non-registered, and retirement-requirement provisional flags.
+- Synthetic validation: Passed — 257 focused tests across 15 withdrawal-funding, annual-tax, capital-loss disposition, pooled-ACB, liability, surplus-routing, bridge, RRIF, retirement-requirement, dashboard, explanation, JSON allowlist, nominal/real rectangular CSV, and export-privacy files; 566 tests across the complete 32-file suite, including all 557 pre-correction regressions. Typecheck, lint, production build, diff check, Docker build, Compose validation, isolated container startup, schema-aware health smoke, clean planner-container removal, and unchanged private compatibility smoke passed locally. Hosted CI and Docker also passed on the exact live final PR head; immutable run details are retained in the PR description.
 - Latest merged `main`: `86d5c2a51618c74d883745cfbc054d0a8fc9fd3c`
 - Last completed capability stage: RRSP-to-RRIF conversion and statutory minimum withdrawals
 - Last completed pull request: [#26 Add RRIF conversion and minimum withdrawals](https://github.com/danielnguyen/lunchmoney-retirement-planner/pull/26)
