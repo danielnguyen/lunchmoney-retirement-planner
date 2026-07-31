@@ -9,15 +9,15 @@ Public tracking must remain generic and must not contain private financial value
 - Open roadmap planning pull request: None
 - Planning branch: None
 - Planning status: None
-- Open implementation pull request: Pending draft PR for simplified non-registered taxation
+- Open implementation pull request: [#27 Add simplified non-registered taxation](https://github.com/danielnguyen/lunchmoney-retirement-planner/pull/27)
 - Open maintenance pull request: None
-- Pull request state: Local implementation in progress; draft not yet opened
+- Pull request state: Open, draft, mergeable, and unmerged; independent review remains
 - Active implementation: Simplified non-registered investment taxation and final supported-model migration
-- Status: Local implementation and validation in progress
+- Status: Locally validated draft implementation; hosted validation in progress
 - Implementation branch: `agent/add-non-registered-taxation`
 - Starting merged-main SHA: `86d5c2a51618c74d883745cfbc054d0a8fc9fd3c`
-- Validated implementation commit: Pending commit after completed local validation
-- Final tracking head: Pending draft pull-request and hosted validation
+- Validated implementation commit: `549d807542df101700567ba03dc4699e13af22f5`
+- Final tracking head: Determined from the live GitHub PR head after the tracking-only commit; not duplicated here because embedding a commit's own SHA is recursive
 - Synthetic validation: Passed locally — 267 focused tests across 15 official-reference, annual investment-tax, distribution, pooled-ACB, taxable-disposition, RRIF, retirement-requirement, configuration, dashboard, explanation, JSON allowlist, nominal/real rectangular CSV, and export-privacy files; 557 tests across the complete 32-file suite. Typecheck, lint, production build, diff check, Docker build, Compose validation, isolated container startup, schema-aware health smoke, and clean planner-container removal passed.
 - Latest merged `main`: `86d5c2a51618c74d883745cfbc054d0a8fc9fd3c`
 - Last completed capability stage: RRSP-to-RRIF conversion and statutory minimum withdrawals
@@ -28,8 +28,8 @@ Public tracking must remain generic and must not contain private financial value
 - Last completed synthetic validation: Passed — 396 synthetic tests for the merged retirement bridge ending-precision correction; its one-cent integrity threshold and financial calculations remained unchanged
 - Last completed private migration: Passed — the operating-cash policy was updated and validated locally without publishing private values
 - Private smoke state: Passed — the unchanged private configuration normalized through non-registered compatibility without reporting values. Simplified private mode was not run because explicit ACB and distribution assumptions are absent.
-- Remaining step: commit and push the validated implementation, open draft PR #27, verify hosted validation on the exact final head, then independent review
-- Next action: publish and validate draft PR #27; after merge, begin deterministic return paths and sequence-risk scenarios
+- Remaining step: push this tracking-only update, verify hosted CI and Docker on the exact resulting PR head, then independent review
+- Next action: validate draft PR #27; after merge, begin deterministic return paths and sequence-risk scenarios
 
 ## Planned implementation sequence
 
@@ -43,7 +43,7 @@ Public tracking must remain generic and must not contain private financial value
 | 6 | Operating-cash target and automatic excess sweep | Surplus allocation and contribution waterfall | Completed | [#15](https://github.com/danielnguyen/lunchmoney-retirement-planner/pull/15) |
 | 7 | General spending phases | Corrected income and cash policies | Completed | [#16](https://github.com/danielnguyen/lunchmoney-retirement-planner/pull/16) |
 | 8 | Retirement funding requirement and terminal balance | Spending phases and retirement projection | Completed | [#24](https://github.com/danielnguyen/lunchmoney-retirement-planner/pull/24) |
-| 9 | RRIF minimum withdrawals and Canadian retirement taxes | Surplus policy, debt model, spending phases, and requirement contract | In progress — annual tax and RRIF stages completed; simplified non-registered tax final stage active | [#25 annual tax](https://github.com/danielnguyen/lunchmoney-retirement-planner/pull/25), [#26 RRIF](https://github.com/danielnguyen/lunchmoney-retirement-planner/pull/26), draft PR pending |
+| 9 | RRIF minimum withdrawals and Canadian retirement taxes | Surplus policy, debt model, spending phases, and requirement contract | In progress — annual tax and RRIF stages completed; simplified non-registered tax final stage active | [#25 annual tax](https://github.com/danielnguyen/lunchmoney-retirement-planner/pull/25), [#26 RRIF](https://github.com/danielnguyen/lunchmoney-retirement-planner/pull/26), [#27 non-registered tax](https://github.com/danielnguyen/lunchmoney-retirement-planner/pull/27) |
 | 10 | Deterministic return paths and sequence-risk scenarios | Reconciled deterministic projection | Planned | — |
 | 11 | Structured housing transitions | Net-worth, debt, spending, and event models | Planned | — |
 
