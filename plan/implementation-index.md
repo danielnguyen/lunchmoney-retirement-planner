@@ -16,7 +16,7 @@ Public tracking must remain generic and must not contain private financial value
 - Status: Ready for independent review
 - Implementation branch: `agent/add-annual-canadian-retirement-tax`
 - Validated implementation commit: `5a7686d8c665dca88b73e4abb0b82ce19f9bcaa4`
-- Synthetic validation: Passed — 491 synthetic tests, including 235 focused Canadian reference, annual-tax, YTD-ledger, exact-cent withdrawal, configuration, baseline, projection, requirement, dashboard, explanation, export, and runtime-safety tests plus a 98-test dashboard/explanation/export follow-up. Typecheck, lint, production build, local Docker image build, Docker Compose validation, planner-container startup, health endpoint smoke, clean planner-container removal, and `git diff --check` passed. All committed values are synthetic.
+- Synthetic validation: Passed — 491 synthetic tests, including 235 focused Canadian reference, annual-tax, YTD-ledger, exact-cent withdrawal, configuration, baseline, projection, requirement, dashboard, explanation, export, and runtime-safety tests plus a 98-test dashboard/explanation/export follow-up. Typecheck, lint, production build, local Docker image build, Docker Compose validation, planner-container startup, health endpoint smoke, clean planner-container removal, and `git diff --check` passed. Hosted CI and Docker image build passed on the current GitHub branch head; immutable head and run details are recorded in the pull-request description. All committed values are synthetic.
 - Latest merged `main`: `d5765c736cc1688302710f57359ecf947e347352`
 - Last completed capability: Retirement funding requirement and terminal balance
 - Last completed pull request: [#24 Derive retirement funding requirement](https://github.com/danielnguyen/lunchmoney-retirement-planner/pull/24)
@@ -25,7 +25,7 @@ Public tracking must remain generic and must not contain private financial value
 - Last completed synthetic validation: Passed — 396 synthetic tests for the merged retirement bridge ending-precision correction; its one-cent integrity threshold and financial calculations remained unchanged
 - Last completed private migration: Passed — the operating-cash policy was updated and validated locally without publishing private values
 - Private smoke state: Flat compatibility passed without reporting private values; Canadian annual mode was not run because the private configuration does not supply the explicit new inputs
-- Remaining step: hosted CI and Docker validation on the final branch head, followed by independent review
+- Remaining step: independent review of draft pull request #25
 - Next action: independently review annual Canadian tax; after merge, implement RRIF conversion and statutory minimum withdrawals in the immediate next stage, then simplified non-registered taxation and final migration
 
 ## Planned implementation sequence
