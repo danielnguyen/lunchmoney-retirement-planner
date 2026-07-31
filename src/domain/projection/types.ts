@@ -3,6 +3,7 @@ import {
   monthlyLiabilityInterestRate,
   type LiabilityInterestRateConvention,
 } from "./liability-interest";
+import type { AnnualCanadianTaxResult } from "./canadian-tax";
 
 export const accountTypes = ["cash", "tfsa", "rrsp_rrif", "non_registered"] as const;
 export const contributionFundingTypes = ["cash", "income_withheld"] as const;
@@ -42,6 +43,7 @@ export type EmploymentIncomePhase = {
   startAge: number;
   endAge: number;
   annualNetCashToday: number;
+  annualTaxableEmploymentIncomeToday?: number;
   annualGrowth: number;
   rrspRoomGeneration?: {
     annualEligibleEarnedIncomeToday: number;
@@ -68,6 +70,7 @@ export type PersonInput = {
   annualPensionToday: number;
   pensionStartAge: number;
   pensionIndexingRate: number;
+  pensionIncomeCreditEligible: boolean;
   cpp: CppBenefitInput;
   oas: OasBenefitInput;
   rrifConversionAge: number;
@@ -267,11 +270,48 @@ export type ProjectionEventInput = {
   targetAccountId?: string;
 };
 
-export type TaxAssumptions = {
-  effectiveTaxRate: number;
-  oasRecoveryThresholdToday: number;
-  oasRecoveryRate: number;
+export type CanadianTaxIncomeLedger = {
+  employment: number;
+  cpp: number;
+  oas: number;
+  pension: number;
+  rrspWithdrawals: number;
+  rrifWithdrawals: number;
+  otherTaxableIncome: number;
 };
+
+export type TaxAssumptions =
+  | {
+      mode: "flat_compatibility";
+      source: "explicit_configuration" | "compatibility_default";
+      effectiveTaxRate: number;
+      oasRecoveryThresholdToday: number;
+      oasRecoveryRate: number;
+    }
+  | {
+      mode: "canadian_annual";
+      source: "explicit_configuration";
+      /** Retained only as explicit inactive compatibility evidence. */
+      effectiveTaxRate: number;
+      /** Retained only as explicit inactive compatibility evidence. */
+      oasRecoveryThresholdToday: number;
+      /** Retained only as explicit inactive compatibility evidence. */
+      oasRecoveryRate: number;
+      province: "ON";
+      referenceYear: 2026;
+      futureIndexingRate: number;
+      openingTaxYearBeforeProjectionMonth: {
+        calendarYear: number;
+        throughMonth: number;
+        income: CanadianTaxIncomeLedger;
+        source: "explicit_configuration" | "january_zero";
+      };
+      limitations: [
+        "rrif_minimum_withdrawals_not_modelled",
+        "non_registered_investment_income_not_modelled",
+        "full_tax_return_deductions_and_refundable_credits_not_modelled",
+      ];
+    };
 
 export type RetirementRequirementBaselineSource =
   | "explicit_configuration"
@@ -487,6 +527,50 @@ export type AnnualProjection = {
   milestones: string[];
   employmentPhaseLabels: string[];
   contributionPhaseLabels: Record<string, string[]>;
+  tax: AnnualTaxResult;
+};
+
+export type AnnualTaxResult =
+  | {
+      mode: "flat_compatibility";
+      source: "explicit_configuration" | "compatibility_default";
+      taxYear: number;
+      periodStatus: "complete_tax_year" | "partial_tax_year" | "stopped_incomplete";
+      projectionFundedTax: number;
+      oasRecoveryTax: number;
+      effectiveTaxRate: number;
+      limitations: ["flat_rate_compatibility_not_a_tax_return"];
+    }
+  | {
+      mode: "canadian_annual";
+      province: "ON";
+      taxYear: number;
+      periodStatus: "complete_tax_year" | "partial_tax_year" | "stopped_incomplete";
+      openingIncome: CanadianTaxIncomeLedger;
+      projectionIncome: CanadianTaxIncomeLedger;
+      totalIncome: CanadianTaxIncomeLedger;
+      embeddedIncome: CanadianTaxIncomeLedger;
+      fullAnnualTax: AnnualCanadianTaxResult;
+      embeddedAnnualTax: AnnualCanadianTaxResult;
+      projectionFundedTax: number;
+      recognizedProjectionFundedTax: number;
+      reconciliation: {
+        fullMinusEmbeddedDifference: number;
+        recognizedCashDifference: number;
+      };
+      reconciled: boolean;
+      provisional: true;
+      limitations: string[];
+    };
+
+export type TaxCalculationSummary = {
+  mode: TaxAssumptions["mode"];
+  province: "ON" | null;
+  referenceYear: 2026 | null;
+  forecastIndexingRate: number | null;
+  provisional: boolean;
+  annual: AnnualTaxResult[];
+  limitations: string[];
 };
 
 export type ProjectionSummary = {
@@ -557,7 +641,9 @@ export type RetirementRequirementResult = {
   ownerGoalDifferenceToday: number;
   compositionMode: "projected_retirement_account_weights";
   composition: RetirementRequirementComposition[];
-  taxModel: "flat_retirement_tax_compatibility";
+  taxModel:
+    | "flat_retirement_tax_compatibility"
+    | "canadian_annual_federal_ontario_forecast";
   provisionalTax: true;
   bindingConstraint: RetirementRequirementBindingConstraint;
   solver: {
@@ -761,7 +847,7 @@ export type SavingsPolicyCalculationSummary = {
 };
 
 export type ProjectionResult = {
-  schemaVersion: "10.0";
+  schemaVersion: "11.0";
   inputs: ProjectionInputs;
   summary: ProjectionSummary;
   projectionCompletion: ProjectionCompletion;
@@ -780,6 +866,7 @@ export type ProjectionResult = {
   surplusAllocation: SurplusAllocationCalculationSummary;
   registeredAccountRoom: RegisteredAccountRoomCalculationSummary;
   savingsPolicy: SavingsPolicyCalculationSummary;
+  taxation: TaxCalculationSummary;
   annual: AnnualProjection[];
   observations: ProjectionObservation[];
 };
@@ -879,8 +966,50 @@ export function validateProjectionInputs(value: unknown): ProjectionInputs {
   }
 
   assertRate("annualInflation", input.annualInflation, -0.2, 0.5);
-  assertRate("effectiveTaxRate", input.tax?.effectiveTaxRate, 0, 0.8);
-  assertRate("oasRecoveryRate", input.tax?.oasRecoveryRate, 0, 1);
+  if (!input.tax || typeof input.tax !== "object") {
+    throw new Error("A resolved tax input is required");
+  }
+  if (input.tax.mode === "flat_compatibility") {
+    assertRate("effectiveTaxRate", input.tax.effectiveTaxRate, 0, 0.8);
+    assertRate("oasRecoveryRate", input.tax.oasRecoveryRate, 0, 1);
+    assertNonNegative(
+      "oasRecoveryThresholdToday",
+      input.tax.oasRecoveryThresholdToday,
+    );
+  } else if (input.tax.mode === "canadian_annual") {
+    if (input.tax.province !== "ON") {
+      throw new Error("Canadian annual tax currently supports Ontario (ON) only");
+    }
+    if (input.tax.referenceYear !== 2026) {
+      throw new Error("Canadian annual tax referenceYear must be 2026");
+    }
+    assertRate("tax.futureIndexingRate", input.tax.futureIndexingRate, -0.2, 0.5);
+    const opening = input.tax.openingTaxYearBeforeProjectionMonth;
+    if (!opening || !Number.isInteger(opening.calendarYear)) {
+      throw new Error("Canadian annual tax requires resolved opening tax-year context");
+    }
+    if (!Number.isInteger(opening.throughMonth) || opening.throughMonth < 0 || opening.throughMonth > 11) {
+      throw new Error("opening tax-year throughMonth must be between 0 and 11");
+    }
+    const projectionStartYear = Number(input.startDate.slice(0, 4));
+    const projectionStartMonth = Number(input.startDate.slice(5, 7));
+    if (
+      opening.calendarYear !== projectionStartYear ||
+      opening.throughMonth !== projectionStartMonth - 1
+    ) {
+      throw new Error(
+        "Canadian annual tax opening context must cover the starting tax year through the month before projection start",
+      );
+    }
+    for (const [source, amount] of Object.entries(opening.income)) {
+      assertNonNegative(`opening tax income ${source}`, amount);
+    }
+  } else {
+    throw new Error("tax.mode must be flat_compatibility or canadian_annual");
+  }
+  if (typeof input.person.pensionIncomeCreditEligible !== "boolean") {
+    throw new Error("pensionIncomeCreditEligible must be true or false");
+  }
   assertRate("pensionIndexingRate", input.person.pensionIndexingRate, -0.2, 0.5);
   assertRate("CPP indexingRate", input.person.cpp.indexingRate, -0.2, 0.5);
   assertRate("OAS indexingRate", input.person.oas.indexingRate, -0.2, 0.5);
@@ -1041,6 +1170,22 @@ export function validateProjectionInputs(value: unknown): ProjectionInputs {
       throw new Error(`${field}.annualNetCashToday must be resolved before projection`);
     }
     assertNonNegative(`${field}.annualNetCashToday`, phase.annualNetCashToday);
+    if (input.tax.mode === "canadian_annual") {
+      if (phase.annualTaxableEmploymentIncomeToday === undefined) {
+        throw new Error(
+          `${field}.annualTaxableEmploymentIncomeToday is required in Canadian annual tax mode`,
+        );
+      }
+      assertNonNegative(
+        `${field}.annualTaxableEmploymentIncomeToday`,
+        phase.annualTaxableEmploymentIncomeToday,
+      );
+    } else if (phase.annualTaxableEmploymentIncomeToday !== undefined) {
+      assertNonNegative(
+        `${field}.annualTaxableEmploymentIncomeToday`,
+        phase.annualTaxableEmploymentIncomeToday,
+      );
+    }
     assertRate(`${field}.annualGrowth`, phase.annualGrowth, -0.2, 0.5);
     if (phase.rrspRoomGeneration) {
       assertNonNegative(

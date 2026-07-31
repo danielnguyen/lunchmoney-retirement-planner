@@ -19,8 +19,8 @@ Public planning material, examples, and tests must remain synthetic and must not
 | 5 | Employment-income today-dollar semantics correction | Completed | [PR #14](https://github.com/danielnguyen/lunchmoney-retirement-planner/pull/14) |
 | 6 | Operating-cash target and automatic excess sweep | Completed | [PR #15](https://github.com/danielnguyen/lunchmoney-retirement-planner/pull/15) |
 | 7 | General spending phases | Completed | [PR #16](https://github.com/danielnguyen/lunchmoney-retirement-planner/pull/16) |
-| 8 | Retirement funding requirement and terminal balance | **Next** | — |
-| 9 | RRIF minimum withdrawals and Canadian retirement taxes | Planned | — |
+| 8 | Retirement funding requirement and terminal balance | Completed | [PR #24](https://github.com/danielnguyen/lunchmoney-retirement-planner/pull/24) |
+| 9 | RRIF minimum withdrawals and Canadian retirement taxes | In progress | PR 25 annual-tax stage |
 | 10 | Deterministic return paths and sequence-risk scenarios | Planned | — |
 | 11 | Structured housing transitions | Planned | — |
 

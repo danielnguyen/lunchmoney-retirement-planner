@@ -28,6 +28,8 @@ export const projectionFixture: ProjectionInputs = {
     activeValueSource: "explicit_configuration",
   },
   tax: {
+    mode: "flat_compatibility",
+    source: "explicit_configuration",
     effectiveTaxRate: 0.2,
     oasRecoveryThresholdToday: 90000,
     oasRecoveryRate: 0.15,
@@ -54,6 +56,7 @@ export const projectionFixture: ProjectionInputs = {
     annualPensionToday: 0,
     pensionStartAge: 65,
     pensionIndexingRate: 0.02,
+    pensionIncomeCreditEligible: false,
     cpp: { startAge: 65, monthlyAmountAt65Today: 1200, indexingRate: 0.02 },
     oas: {
       startAge: 65,
@@ -288,7 +291,7 @@ export const baselineContextFixture: BaselineExportContext = {
 
 export const currentBaselineFixture: CurrentBaseline = {
   ...baselineContextFixture,
-  schemaVersion: "2.0",
+  schemaVersion: "3.0",
   lunchMoneyMappings: {
     accounts: [
       {

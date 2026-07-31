@@ -34,6 +34,7 @@ import {
   type PlannerAccountType,
   type PlannerAssumptions,
   type PlannerConfig,
+  type PlannerTaxConfig,
   type ProjectionAccountConfig,
   type PrimaryResidenceConfig,
   type RegisteredRoomConfig,
@@ -90,6 +91,128 @@ function number(
     );
   }
   return value;
+}
+
+function boolean(value: unknown, field: string): boolean {
+  if (typeof value !== "boolean") {
+    throw new PlannerRuntimeError(
+      "invalid_planner_config",
+      `${field} must be true or false.`,
+      422,
+    );
+  }
+  return value;
+}
+
+function canadianTaxIncome(
+  value: unknown,
+  field: string,
+): NonNullable<
+  Extract<PlannerTaxConfig, { mode: "canadian_annual" }>[
+    "openingTaxYearBeforeProjectionMonth"
+  ]
+>["income"] {
+  const item = record(value, field);
+  return {
+    employment: number(item.employment, `${field}.employment`, { min: 0 }),
+    cpp: number(item.cpp, `${field}.cpp`, { min: 0 }),
+    oas: number(item.oas, `${field}.oas`, { min: 0 }),
+    pension: number(item.pension, `${field}.pension`, { min: 0 }),
+    rrspWithdrawals: number(
+      item.rrspWithdrawals,
+      `${field}.rrspWithdrawals`,
+      { min: 0 },
+    ),
+    rrifWithdrawals: number(
+      item.rrifWithdrawals,
+      `${field}.rrifWithdrawals`,
+      { min: 0 },
+    ),
+    otherTaxableIncome: number(
+      item.otherTaxableIncome,
+      `${field}.otherTaxableIncome`,
+      { min: 0 },
+    ),
+  };
+}
+
+function taxConfig(value: unknown): PlannerTaxConfig {
+  if (value === undefined) {
+    return {
+      mode: "flat_compatibility",
+      source: "compatibility_default",
+    };
+  }
+  const item = record(value, "tax");
+  if (item.mode === "flat_compatibility") {
+    return {
+      mode: "flat_compatibility",
+      source: "explicit_configuration",
+    };
+  }
+  if (item.mode !== "canadian_annual") {
+    throw new PlannerRuntimeError(
+      "invalid_planner_config",
+      "tax.mode must be flat_compatibility or canadian_annual.",
+      422,
+    );
+  }
+  if (item.province !== "ON") {
+    throw new PlannerRuntimeError(
+      "invalid_planner_config",
+      `tax.province ${String(item.province)} is unsupported; canadian_annual currently supports Ontario (ON) only.`,
+      422,
+    );
+  }
+  if (item.referenceYear !== 2026) {
+    throw new PlannerRuntimeError(
+      "invalid_planner_config",
+      "tax.referenceYear must be 2026 for canadian_annual mode.",
+      422,
+    );
+  }
+  const opening =
+    item.openingTaxYearBeforeProjectionMonth === undefined
+      ? undefined
+      : record(
+          item.openingTaxYearBeforeProjectionMonth,
+          "tax.openingTaxYearBeforeProjectionMonth",
+        );
+  return {
+    mode: "canadian_annual",
+    source: "explicit_configuration",
+    province: "ON",
+    referenceYear: 2026,
+    futureIndexingRate: number(
+      item.futureIndexingRate,
+      "tax.futureIndexingRate",
+      { min: -0.2, max: 0.5 },
+    ),
+    pensionIncomeCreditEligible: boolean(
+      item.pensionIncomeCreditEligible,
+      "tax.pensionIncomeCreditEligible",
+    ),
+    ...(opening
+      ? {
+          openingTaxYearBeforeProjectionMonth: {
+            calendarYear: number(
+              opening.calendarYear,
+              "tax.openingTaxYearBeforeProjectionMonth.calendarYear",
+              { min: 2026, max: 2300, integer: true },
+            ),
+            throughMonth: number(
+              opening.throughMonth,
+              "tax.openingTaxYearBeforeProjectionMonth.throughMonth",
+              { min: 1, max: 11, integer: true },
+            ),
+            income: canadianTaxIncome(
+              opening.income,
+              "tax.openingTaxYearBeforeProjectionMonth.income",
+            ),
+          },
+        }
+      : {}),
+  };
 }
 
 function allocation(value: unknown, field: string): AssetAllocation {
@@ -1590,6 +1713,15 @@ function employmentIncomePhases(
         item.annualNetCashToday,
         `${field}.annualNetCashToday`,
       ),
+      ...(item.annualTaxableEmploymentIncomeToday === undefined
+        ? {}
+        : {
+            annualTaxableEmploymentIncomeToday: number(
+              item.annualTaxableEmploymentIncomeToday,
+              `${field}.annualTaxableEmploymentIncomeToday`,
+              { min: 0 },
+            ),
+          }),
       annualGrowth: number(item.annualGrowth, `${field}.annualGrowth`, {
         min: -0.2,
         max: 0.5,
@@ -2445,6 +2577,7 @@ export function validatePlannerConfig(value: unknown): PlannerConfig {
       : { governmentBenefits: governmentBenefits(item.governmentBenefits) }),
     retirementGoal: number(item.retirementGoal, "retirementGoal", { min: 0 }),
     retirementRequirement: retirementRequirement(item.retirementRequirement),
+    tax: taxConfig(item.tax),
     transactionTrailingMonths: number(item.transactionTrailingMonths, "transactionTrailingMonths", {
       min: 1,
       max: 60,
@@ -2516,6 +2649,26 @@ export function validatePlannerConfig(value: unknown): PlannerConfig {
     assumptions: assumptions(item.assumptions),
     futureEvents: events(item.futureEvents),
   };
+
+  if (config.tax.mode === "canadian_annual") {
+    if (!config.employmentIncomePhases) {
+      throw new PlannerRuntimeError(
+        "invalid_planner_config",
+        "Canadian annual tax mode requires explicit employmentIncomePhases with annualTaxableEmploymentIncomeToday.",
+        422,
+      );
+    }
+    const missingTaxable = config.employmentIncomePhases.find(
+      (phase) => phase.annualTaxableEmploymentIncomeToday === undefined,
+    );
+    if (missingTaxable) {
+      throw new PlannerRuntimeError(
+        "invalid_planner_config",
+        `Employment phase ${missingTaxable.id} requires annualTaxableEmploymentIncomeToday in Canadian annual tax mode.`,
+        422,
+      );
+    }
+  }
 
   if (config.retirementAge <= config.currentAge) {
     throw new PlannerRuntimeError(

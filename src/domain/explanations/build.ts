@@ -276,14 +276,19 @@ function commonAssumptions(context: ExplanationContext) {
       "monthlyDiscretionarySpendingToday",
       exactCurrency.format,
     ),
-    inputAssumption(
-      context,
-      "Simplified retirement tax rate",
-      context.inputs.tax.effectiveTaxRate,
-      baseline.tax.effectiveTaxRate,
-      "tax.effectiveTaxRate",
-      percent.format,
-    ),
+    ...(context.inputs.tax.mode === "flat_compatibility" &&
+    baseline.tax.mode === "flat_compatibility"
+      ? [
+          inputAssumption(
+            context,
+            "Simplified retirement tax rate",
+            context.inputs.tax.effectiveTaxRate,
+            baseline.tax.effectiveTaxRate,
+            "tax.effectiveTaxRate",
+            percent.format,
+          ),
+        ]
+      : []),
   ];
 
   for (const account of context.inputs.accounts) {
@@ -854,7 +859,11 @@ function retirementRequirementDocument(
       },
       {
         label: "Tax model",
-        value: "Flat retirement-tax compatibility model",
+        value:
+          requirement.taxModel ===
+          "canadian_annual_federal_ontario_forecast"
+            ? "Canadian annual federal and Ontario forecast"
+            : "Flat retirement-tax compatibility model",
         sourceType: "configuration",
       },
       {
@@ -864,11 +873,168 @@ function retirementRequirementDocument(
       },
     ],
     caveats: [
-      "Provisional — calculated using the current flat retirement-tax compatibility assumption.",
-      "Progressive Canadian retirement taxes and RRIF minimum withdrawals are not yet modelled.",
+      requirement.taxModel ===
+      "canadian_annual_federal_ontario_forecast"
+        ? "Provisional — annual federal and Ontario income tax is modelled, but RRIF minimum withdrawals and non-registered investment-income taxation are not."
+        : "Provisional — calculated using the current flat retirement-tax compatibility assumption; RRIF minimum withdrawals are not modelled.",
       "Residence value, home equity, and other non-financial assets cannot satisfy this requirement.",
       sourceCaveat,
     ],
+  };
+}
+
+function annualTaxDocument(context: ExplanationContext): ExplanationDocument {
+  const latest = context.projection.taxation.annual.at(-1);
+  if (!latest || latest.mode === "flat_compatibility") {
+    return {
+      id: "annual-tax",
+      title: "Tax status",
+      plainLanguage:
+        "The projection uses the backward-compatible flat retirement-tax approximation.",
+      steps: latest
+        ? [
+            {
+              label: "Projection-funded tax in the latest period",
+              value: exactCurrency.format(latest.projectionFundedTax),
+              rawValue: latest.projectionFundedTax,
+              sourceType: "projection",
+            },
+          ]
+        : [],
+      dataSections: [],
+      assumptions: [
+        {
+          label: "Mode",
+          value: "Flat compatibility",
+          sourceType: "configuration",
+        },
+      ],
+      caveats: [
+        "This is not a progressive federal or provincial tax calculation.",
+        "Net employment cash is not taxed a second time.",
+      ],
+    };
+  }
+  return {
+    id: "annual-tax",
+    title: "Canadian annual tax",
+    plainLanguage:
+      "The monthly projection accumulates nominal income by tax year, calculates annual federal and Ontario tax, and deducts only the liability created inside the projection beyond tax already embedded in net employment cash and opening context.",
+    displayedResult: {
+      label: `${latest.taxYear} projection-funded tax`,
+      value: exactCurrency.format(latest.projectionFundedTax),
+      dollarMode: "nominal",
+    },
+    formula:
+      "Full annual tax − tax on embedded/opening income = projection-funded tax",
+    steps: [
+      {
+        label: "Supported taxable income",
+        value: exactCurrency.format(latest.fullAnnualTax.taxableIncomeBasis),
+        rawValue: latest.fullAnnualTax.taxableIncomeBasis,
+        sourceType: "projection",
+      },
+      {
+        label: "Federal tax",
+        value: exactCurrency.format(latest.fullAnnualTax.totals.federalTax),
+        rawValue: latest.fullAnnualTax.totals.federalTax,
+        sourceType: "canadian_reference",
+      },
+      {
+        label: "Ontario income tax",
+        value: exactCurrency.format(latest.fullAnnualTax.totals.ontarioTax),
+        rawValue: latest.fullAnnualTax.totals.ontarioTax,
+        sourceType: "canadian_reference",
+      },
+      {
+        label: "Ontario health premium",
+        value: exactCurrency.format(
+          latest.fullAnnualTax.totals.ontarioHealthPremium,
+        ),
+        rawValue: latest.fullAnnualTax.totals.ontarioHealthPremium,
+        sourceType: "canadian_reference",
+      },
+      {
+        label: "OAS recovery tax",
+        value: exactCurrency.format(latest.fullAnnualTax.totals.oasRecoveryTax),
+        rawValue: latest.fullAnnualTax.totals.oasRecoveryTax,
+        sourceType: "canadian_reference",
+      },
+      {
+        label: "Full annual liability",
+        value: exactCurrency.format(latest.fullAnnualTax.totals.totalTax),
+        rawValue: latest.fullAnnualTax.totals.totalTax,
+        sourceType: "projection",
+      },
+      {
+        label: "Embedded/outside-projection liability",
+        value: exactCurrency.format(latest.embeddedAnnualTax.totals.totalTax),
+        rawValue: latest.embeddedAnnualTax.totals.totalTax,
+        operation: "subtract",
+        sourceType: "projection",
+      },
+      {
+        label: "Projection-funded liability",
+        value: exactCurrency.format(latest.projectionFundedTax),
+        rawValue: latest.projectionFundedTax,
+        operation: "result",
+        sourceType: "projection",
+      },
+    ],
+    dataSections: [
+      {
+        title: "Annual tax evidence",
+        description:
+          "Tax law is calculated in nominal tax-year dollars. Today-dollar chart values come from monthly recognized tax outflows through the ordinary real-value conversion.",
+        columns: [
+          { key: "year", label: "Tax year" },
+          { key: "period", label: "Period status" },
+          { key: "income", label: "Taxable income" },
+          { key: "full", label: "Full tax" },
+          { key: "embedded", label: "Embedded tax" },
+          { key: "funded", label: "Projection-funded tax" },
+        ],
+        rows: context.projection.taxation.annual
+          .filter((tax) => tax.mode === "canadian_annual")
+          .map((tax) => ({
+            year: tax.taxYear,
+            period: tax.periodStatus.replaceAll("_", " "),
+            income: tax.fullAnnualTax.taxableIncomeBasis,
+            full: tax.fullAnnualTax.totals.totalTax,
+            embedded: tax.embeddedAnnualTax.totals.totalTax,
+            funded: tax.projectionFundedTax,
+          })),
+      },
+    ],
+    assumptions: [
+      {
+        label: "Jurisdiction",
+        value: `Canada / Ontario · ${latest.fullAnnualTax.referenceYear} reference · ${percent.format(context.projection.taxation.forecastIndexingRate ?? 0)} future indexing`,
+        sourceType: "canadian_reference",
+      },
+      {
+        label: "Opening context",
+        value:
+          context.inputs.tax.mode === "canadian_annual" &&
+          context.inputs.tax.openingTaxYearBeforeProjectionMonth.source ===
+            "explicit_configuration"
+            ? `Configured through month ${context.inputs.tax.openingTaxYearBeforeProjectionMonth.throughMonth}`
+            : "January zero",
+        sourceType: "configuration",
+      },
+    ],
+    caveats: [
+      "Employment net cash enters the budget, taxable employment establishes brackets, and RRSP-eligible income creates contribution room; these are separate inputs.",
+      "Annual credits are not prorated for partial modelled years; a partial year is labelled as an estimate using income through the completed period.",
+      "OAS recovery uses supported annual income, not a monthly threshold proxy.",
+      "RRSP gross withdrawals use a bounded exact-cent search for the lowest amount whose after-tax proceeds fund the cash need.",
+      "RRIF minimum withdrawals and non-registered investment-income taxation are not modelled.",
+    ],
+    reconciliation: {
+      matched: latest.reconciled,
+      calculatedValue: latest.projectionFundedTax,
+      displayedValue: latest.recognizedProjectionFundedTax,
+    },
   };
 }
 
@@ -1278,7 +1444,10 @@ function baselineMetricDocument(
         : "person.employmentIncomePhases",
       plainLanguage:
         "The current Lunch Money-derived net employment cash average. Future projection income may change across the configured employment phases shown below.",
-      caveat: "Employment income is already net deposited cash, so the projection does not apply the simplified tax a second time.",
+      caveat:
+        context.inputs.tax.mode === "canadian_annual"
+          ? "Employment income is net deposited cash. Its separate taxable-employment amount affects annual brackets, but the embedded employment-tax baseline prevents a second cash charge."
+          : "Employment income is already net deposited cash, so the projection does not apply the simplified tax a second time.",
     },
     "baseline-essential": {
       title: "Essential spending",
@@ -1525,6 +1694,10 @@ function spendingChartDocument(context: ExplanationContext): ExplanationDocument
 
 function fundingChartDocument(context: ExplanationContext): ExplanationDocument {
   const rows = buildAnnualChartData(context.inputs, context.projection, context.displayMode);
+  const taxLabel =
+    context.inputs.tax.mode === "canadian_annual"
+      ? "Projection-funded annual tax"
+      : "Simplified retirement tax";
   return {
     id: "annual-funding",
     title: "How each year is funded",
@@ -1537,7 +1710,7 @@ function fundingChartDocument(context: ExplanationContext): ExplanationDocument 
       period: period(context),
     },
     formula:
-      "Employment + CPP + OAS + pension + account withdrawals; simplified retirement tax is shown as the line",
+      `Employment + CPP + OAS + pension + account withdrawals; ${taxLabel.toLowerCase()} is shown as the line`,
     steps: context.inputs.accounts
       .sort((left, right) => left.withdrawalPriority - right.withdrawalPriority)
       .map((account): ExplanationStep => ({
@@ -1581,9 +1754,11 @@ function fundingChartDocument(context: ExplanationContext): ExplanationDocument 
               "Withdrawals needed after income, processed in configured account-priority order.",
           },
           {
-            series: "Simplified retirement tax",
+            series: taxLabel,
             calculation:
-              "Configured effective rate applied to gross retirement income and taxable RRSP/RRIF withdrawals.",
+              context.inputs.tax.mode === "canadian_annual"
+                ? "Cumulative annual federal/Ontario liability beyond tax embedded in net employment cash and opening context; RRSP withdrawals use exact-cent after-tax gross-up."
+                : "Configured effective rate applied to gross retirement income and taxable RRSP/RRIF withdrawals.",
           },
         ],
       },
@@ -1601,7 +1776,7 @@ function fundingChartDocument(context: ExplanationContext): ExplanationDocument 
           { key: "nonRegisteredWithdrawal", label: "Non-registered" },
           { key: "rrspWithdrawal", label: "RRSP / RRIF" },
           { key: "tfsaWithdrawal", label: "TFSA" },
-          { key: "tax", label: "Simplified tax" },
+          { key: "tax", label: taxLabel },
         ],
         rows: rows.map((row) => ({
           periodLabel: row.periodLabel,
@@ -1624,7 +1799,9 @@ function fundingChartDocument(context: ExplanationContext): ExplanationDocument 
       "A labelled annual period can contain an employment transition; the phase column preserves the active labels in order.",
       "Employment disappears after the exact retirement boundary because the model stops net employment cash after the final working month.",
       "CPP and OAS begin at their configured start ages using the same calculation summaries shown in their dedicated explanations.",
-      "The tax line applies the simplified rate to gross retirement income and taxable RRSP/RRIF withdrawals, not to net employment deposits.",
+      context.inputs.tax.mode === "canadian_annual"
+        ? "The tax line contains only monthly recognized projection-funded annual liability; full annual tax remains available in the annual-tax explanation and is not deducted a second time."
+        : "The tax line applies the simplified rate to gross retirement income and taxable RRSP/RRIF withdrawals, not to net employment deposits.",
       ...chartCaveats(context),
     ],
   };
@@ -1632,6 +1809,10 @@ function fundingChartDocument(context: ExplanationContext): ExplanationDocument 
 
 function outflowChartDocument(context: ExplanationContext): ExplanationDocument {
   const rows = buildAnnualChartData(context.inputs, context.projection, context.displayMode);
+  const taxLabel =
+    context.inputs.tax.mode === "canadian_annual"
+      ? "Projection-funded annual tax"
+      : "Simplified retirement tax";
   const contributionAccounts = context.inputs.accounts.filter(
     (account) => ["tfsa", "rrsp_rrif", "non_registered"].includes(account.type),
   );
@@ -1648,7 +1829,7 @@ function outflowChartDocument(context: ExplanationContext): ExplanationDocument 
     id: "annual-outflows",
     title: "Spending, liability payments, taxes, and contributions",
     plainLanguage:
-      "Cash leaving the projected budget for non-debt spending, configured liability payments, one-time events, simplified retirement tax, and cash-funded contributions.",
+      `Cash leaving the projected budget for non-debt spending, configured liability payments, one-time events, ${taxLabel.toLowerCase()}, and cash-funded contributions.`,
     displayedResult: {
       label: "Chart view",
       value: modeLabel(context),
@@ -1656,7 +1837,7 @@ function outflowChartDocument(context: ExplanationContext): ExplanationDocument 
       period: period(context),
     },
     formula:
-      "Essential + discretionary + liability cash payments + one-time events + simplified tax + cash-funded contributions",
+      `Essential + discretionary + liability cash payments + one-time events + ${taxLabel.toLowerCase()} + cash-funded contributions`,
     steps: [
       {
         label: "Cash-funded contribution accounts",
@@ -1708,9 +1889,11 @@ function outflowChartDocument(context: ExplanationContext): ExplanationDocument 
               "Regular principal-and-interest payments plus dated lump-sum principal from the resolved liability schedules.",
           },
           {
-            series: "Simplified retirement tax",
+            series: taxLabel,
             calculation:
-              "Tax calculated on retirement income and taxable RRSP/RRIF withdrawals for the period.",
+              context.inputs.tax.mode === "canadian_annual"
+                ? "Monthly increments in the annual federal/Ontario liability created by projection-modelled benefits, pensions, and taxable registered withdrawals."
+                : "Tax calculated on retirement income and taxable RRSP/RRIF withdrawals for the period.",
           },
           {
             series: "Cash-funded contributions",
@@ -1729,7 +1912,7 @@ function outflowChartDocument(context: ExplanationContext): ExplanationDocument 
           { key: "discretionary", label: "Discretionary" },
           { key: "liabilityCashPayment", label: "Liability payments" },
           { key: "oneTime", label: "One-time events" },
-          { key: "tax", label: "Simplified tax" },
+          { key: "tax", label: taxLabel },
           { key: "contributions", label: "Cash-funded contributions" },
         ],
         rows: rows.map(
@@ -4358,6 +4541,7 @@ export function buildExplanation(
   if (target === "assets-at-retirement") return assetsAtRetirementDocument(context);
   if (target === "retirement-requirement") return retirementRequirementDocument(context);
   if (target === "retirement-funding-margin") return retirementFundingMarginDocument(context);
+  if (target === "annual-tax") return annualTaxDocument(context);
   if (target === "retirement-goal") return goalDocument(context);
   if (target === "goal-gap") return goalGapDocument(context);
   if (target === "financial-assets-duration") return durationDocument(context);

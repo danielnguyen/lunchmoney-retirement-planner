@@ -9,6 +9,8 @@ export const explanationTooltips: Record<ExplanationTarget, string> = {
     "The lowest retirement-boundary financial-assets amount that funds the configured retirement cash flows and minimum terminal balance through the terminal age.",
   "retirement-funding-margin":
     "Projected retirement financial assets minus the independently derived retirement requirement. The label states whether the result is a margin or shortfall.",
+  "annual-tax":
+    "The active tax model and shared annual evidence for full, embedded, and projection-funded tax.",
   "retirement-goal":
     "Your configured round-number marker. It remains separate from the mathematically derived retirement requirement.",
   "goal-gap":

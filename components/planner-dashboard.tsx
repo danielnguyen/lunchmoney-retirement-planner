@@ -1651,6 +1651,7 @@ export function PlannerDashboard() {
 
   const chartData = projection ? buildAnnualChartData(inputs, projection, mode) : [];
   const ledgerData = projection ? buildAnnualLedgerData(inputs, projection, mode) : [];
+  const latestAnnualTax = projection?.taxation.annual.at(-1) ?? null;
   const milestonePoints = projection?.annual.filter((point) => point.milestones.length > 0) ?? [];
   const selectedAllocationPoint = projection && allocationYear !== null
     ? closestAnnualPoint(projection.annual, allocationYear)
@@ -1953,12 +1954,37 @@ export function PlannerDashboard() {
               </small>
             </article>
             <article className="metric-card" role="status">
-              <span>Tax status</span>
+              <ExplainableHeading
+                compact
+                headingLevel="span"
+                target="annual-tax"
+                title="Tax status"
+                onExplain={openExplanation}
+              />
               <strong>Provisional</strong>
               <small>
-                Calculated using the current flat retirement-tax compatibility assumption; progressive Canadian taxes and RRIF minimums are not yet modelled.
+                {projection.taxation.mode === "canadian_annual"
+                  ? "Annual federal and Ontario income tax is modelled; RRIF minimum withdrawals and non-registered investment-income taxation remain incomplete."
+                  : "Calculated using the flat retirement-tax compatibility assumption; progressive Canadian taxes and RRIF minimums are not active."}
               </small>
             </article>
+            {latestAnnualTax?.mode === "canadian_annual" ? (
+              <article className="metric-card" role="status">
+                <span>Canadian annual tax · latest modelled period</span>
+                <strong>
+                  {latestAnnualTax.taxYear} · Canada / Ontario
+                </strong>
+                <small>
+                  {latestAnnualTax.periodStatus.replaceAll("_", " ")} · taxable income {currency.format(latestAnnualTax.fullAnnualTax.taxableIncomeBasis)} · effective rate {percent.format(latestAnnualTax.fullAnnualTax.totals.effectiveTaxRate)}
+                </small>
+                <small>
+                  Federal {currency.format(latestAnnualTax.fullAnnualTax.totals.federalTax)} · Ontario net tax including surtax {currency.format(latestAnnualTax.fullAnnualTax.totals.ontarioTax)} · surtax component {currency.format(latestAnnualTax.fullAnnualTax.ontario.surtax)} · health premium {currency.format(latestAnnualTax.fullAnnualTax.totals.ontarioHealthPremium)} · OAS recovery {currency.format(latestAnnualTax.fullAnnualTax.totals.oasRecoveryTax)}
+                </small>
+                <small>
+                  Full liability {currency.format(latestAnnualTax.fullAnnualTax.totals.totalTax)} · embedded/outside projection {currency.format(latestAnnualTax.embeddedAnnualTax.totals.totalTax)} · projection-funded {currency.format(latestAnnualTax.projectionFundedTax)}
+                </small>
+              </article>
+            ) : null}
             <article className="metric-card" role="status">
               <span>Projection completion</span>
               <strong>
@@ -2587,8 +2613,38 @@ export function PlannerDashboard() {
                     </dd>
                   </div>
                   <div><dt>Inflation</dt><dd>{percent.format(inputs.annualInflation)}</dd></div>
-                  <div><dt>Simplified retirement tax rate</dt><dd>{percent.format(inputs.tax.effectiveTaxRate)}</dd></div>
-                  <div><dt>Employment tax basis</dt><dd>Net cash; no second tax</dd></div>
+                  <div>
+                    <dt>Tax model</dt>
+                    <dd>
+                      {inputs.tax.mode === "canadian_annual"
+                        ? `Canadian annual tax · Canada / Ontario · ${inputs.tax.referenceYear} reference · ${percent.format(inputs.tax.futureIndexingRate)} forecast indexing`
+                        : `Flat compatibility · ${percent.format(inputs.tax.effectiveTaxRate)}`}
+                    </dd>
+                  </div>
+                  <div>
+                    <dt>Employment tax basis</dt>
+                    <dd>
+                      Net deposited cash enters the budget; explicit taxable employment income establishes annual bracket context; RRSP-eligible income creates future contribution room.
+                    </dd>
+                  </div>
+                  {inputs.tax.mode === "canadian_annual" ? (
+                    <>
+                      <div>
+                        <dt>Opening tax-year context</dt>
+                        <dd>
+                          {inputs.tax.openingTaxYearBeforeProjectionMonth.source === "january_zero"
+                            ? "January start · explicit zero opening context"
+                            : `${inputs.tax.openingTaxYearBeforeProjectionMonth.calendarYear} through month ${inputs.tax.openingTaxYearBeforeProjectionMonth.throughMonth} · bracket context only, not deposited cash`}
+                        </dd>
+                      </div>
+                      <div>
+                        <dt>Canadian tax limitations</dt>
+                        <dd>
+                          Provisional · RRIF minimum withdrawals, non-registered investment income, and full-return deductions/refundable credits are not modelled.
+                        </dd>
+                      </div>
+                    </>
+                  ) : null}
                   <div><dt>Data through</dt><dd>{baseline.dataThrough}</dd></div>
                 </dl>
               </div>

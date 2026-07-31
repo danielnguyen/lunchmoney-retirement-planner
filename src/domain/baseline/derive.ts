@@ -14,6 +14,7 @@ import type {
   ProjectionAccountConfig,
 } from "@/src/config/types";
 import type { BaselineValue } from "@/src/domain/defaults/types";
+import { CANADIAN_TAX_REFERENCE_URLS } from "@/src/domain/defaults/canadian-tax-2026";
 import {
   canadianCppReference,
   canadianOasReference,
@@ -1760,6 +1761,12 @@ export function deriveCurrentBaseline(
         phase.annualNetCashToday === "live_baseline"
           ? annualEmploymentNetCashToday
           : phase.annualNetCashToday,
+      ...(phase.annualTaxableEmploymentIncomeToday === undefined
+        ? {}
+        : {
+            annualTaxableEmploymentIncomeToday:
+              phase.annualTaxableEmploymentIncomeToday,
+          }),
       annualGrowth: phase.annualGrowth,
       ...(phase.rrspRoomGeneration
         ? { rrspRoomGeneration: { ...phase.rrspRoomGeneration } }
@@ -1827,6 +1834,13 @@ export function deriveCurrentBaseline(
         : `${fallbackDescription}; growth preserves assumptions.incomeGrowth`,
       window.endDate,
     );
+    if (phase.annualTaxableEmploymentIncomeToday !== undefined) {
+      provenance[`${prefix}.annualTaxableEmploymentIncomeToday`] = localValue(
+        phase.annualTaxableEmploymentIncomeToday,
+        "Explicit taxable employment income used only for annual tax context",
+        window.endDate,
+      );
+    }
     if (phase.rrspRoomGeneration) {
       for (const [field, value] of Object.entries(
         phase.rrspRoomGeneration,
@@ -1877,6 +1891,67 @@ export function deriveCurrentBaseline(
       severity: "warning",
       message: `Current Lunch Money employment income is assumed to continue for ${years} years. Consider configuring future employment-income phases.`,
     });
+  }
+
+  if (config.tax.mode === "flat_compatibility") {
+    warnings.push({
+      code: "flat_tax_compatibility_active",
+      severity: "warning",
+      message:
+        "Flat retirement-tax compatibility remains active; explicitly configure tax.mode as canadian_annual to use annual federal and Ontario taxation.",
+    });
+  } else {
+    warnings.push(
+      {
+        code: "canadian_tax_provisional",
+        severity: "warning",
+        message:
+          "Canadian annual federal and Ontario tax is active, but the result remains provisional.",
+      },
+      {
+        code: "inactive_flat_tax_fields",
+        severity: "warning",
+        message:
+          "Compatibility effectiveTaxRate and monthly OAS recovery assumptions are inactive in Canadian annual tax mode.",
+      },
+      {
+        code: "oas_recovery_threshold_estimate",
+        severity: "warning",
+        message:
+          "The official 2026 OAS recovery threshold is currently published as an estimate.",
+      },
+      {
+        code: "rrif_minimums_not_modelled",
+        severity: "warning",
+        message: "Statutory RRIF minimum withdrawals are not modelled yet.",
+      },
+      {
+        code: "non_registered_tax_not_modelled",
+        severity: "warning",
+        message:
+          "Non-registered investment income taxation is not modelled yet.",
+      },
+    );
+    for (const phase of employmentIncomePhases) {
+      const netCash = phase.annualNetCashToday;
+      const taxable = phase.annualTaxableEmploymentIncomeToday ?? 0;
+      const eligible =
+        phase.rrspRoomGeneration?.annualEligibleEarnedIncomeToday ?? 0;
+      const positive = [netCash, taxable, eligible].filter((value) => value > 0);
+      const zeroMismatch = positive.length > 0 && positive.length < 3;
+      const ratioMismatch =
+        positive.length > 1 &&
+        Math.max(...positive) > Math.min(...positive) * 2;
+      if (netCash > taxable || zeroMismatch || ratioMismatch) {
+        warnings.push({
+          code: "suspicious_employment_income_bases",
+          severity: "warning",
+          identifier: phase.id,
+          message:
+            "Review this employment phase: net deposited cash, taxable employment income, and RRSP-eligible earned income are distinct inputs with an unusual relationship.",
+        });
+      }
+    }
   }
 
   const spendingPhases: ProjectionInputs["spendingPhases"] =
@@ -2621,6 +2696,128 @@ export function deriveCurrentBaseline(
     );
   }
 
+  const taxStartYear = Number(dataThrough.slice(0, 4));
+  const taxStartMonth = Number(dataThrough.slice(5, 7));
+  let resolvedTax: ProjectionInputs["tax"];
+  if (config.tax.mode === "flat_compatibility") {
+    resolvedTax = {
+      mode: "flat_compatibility",
+      source: config.tax.source,
+      effectiveTaxRate: config.assumptions.effectiveTaxRate,
+      oasRecoveryThresholdToday: config.assumptions.oasRecoveryThreshold,
+      oasRecoveryRate: config.assumptions.oasRecoveryRate,
+    };
+  } else {
+    const configuredOpening = config.tax.openingTaxYearBeforeProjectionMonth;
+    if (taxStartMonth === 1 && configuredOpening) {
+      throw new PlannerRuntimeError(
+        "invalid_planner_config",
+        "tax.openingTaxYearBeforeProjectionMonth must be omitted when the projection starts in January.",
+        422,
+      );
+    }
+    if (taxStartMonth > 1 && !configuredOpening) {
+      throw new PlannerRuntimeError(
+        "invalid_planner_config",
+        "Canadian annual tax mode requires openingTaxYearBeforeProjectionMonth for a projection beginning after January.",
+        422,
+      );
+    }
+    if (
+      configuredOpening &&
+      (configuredOpening.calendarYear !== taxStartYear ||
+        configuredOpening.throughMonth !== taxStartMonth - 1)
+    ) {
+      throw new PlannerRuntimeError(
+        "invalid_planner_config",
+        `tax.openingTaxYearBeforeProjectionMonth must cover ${taxStartYear}-01 through ${taxStartYear}-${String(taxStartMonth - 1).padStart(2, "0")}.`,
+        422,
+      );
+    }
+    const zeroIncome = {
+      employment: 0,
+      cpp: 0,
+      oas: 0,
+      pension: 0,
+      rrspWithdrawals: 0,
+      rrifWithdrawals: 0,
+      otherTaxableIncome: 0,
+    };
+    resolvedTax = {
+      mode: "canadian_annual",
+      source: "explicit_configuration",
+      province: "ON",
+      referenceYear: 2026,
+      futureIndexingRate: config.tax.futureIndexingRate,
+      effectiveTaxRate: config.assumptions.effectiveTaxRate,
+      oasRecoveryThresholdToday: config.assumptions.oasRecoveryThreshold,
+      oasRecoveryRate: config.assumptions.oasRecoveryRate,
+      openingTaxYearBeforeProjectionMonth: configuredOpening
+        ? {
+            ...configuredOpening,
+            source: "explicit_configuration",
+          }
+        : {
+            calendarYear: taxStartYear,
+            throughMonth: 0,
+            income: zeroIncome,
+            source: "january_zero",
+          },
+      limitations: [
+        "rrif_minimum_withdrawals_not_modelled",
+        "non_registered_investment_income_not_modelled",
+        "full_tax_return_deductions_and_refundable_credits_not_modelled",
+      ],
+    };
+    if (configuredOpening) {
+      warnings.push({
+        code: "opening_tax_year_context_active",
+        severity: "warning",
+        message:
+          "Opening pre-projection taxable income is included in annual tax context without entering projected cash.",
+      });
+    }
+  }
+  provenance["tax.mode"] = localValue(
+    resolvedTax.mode,
+    resolvedTax.mode === "flat_compatibility" &&
+      resolvedTax.source === "compatibility_default"
+      ? "Backward-compatible flat tax mode normalized because the tax block was omitted"
+      : "Explicit tax model from private planner configuration",
+    dataThrough,
+  );
+  if (resolvedTax.mode === "canadian_annual") {
+    provenance["tax.province"] = localValue(
+      resolvedTax.province,
+      "Explicit supported province for Canadian annual tax",
+      dataThrough,
+    );
+    provenance["tax.referenceYear"] = canadianValue(
+      resolvedTax.referenceYear,
+      "CRA 2026 federal and Ontario tax reference year",
+      "2026-01-01",
+      "statutory_program_default",
+      CANADIAN_TAX_REFERENCE_URLS.payrollTables,
+    );
+    provenance["tax.futureIndexingRate"] = localValue(
+      resolvedTax.futureIndexingRate,
+      "Explicit tax-reference forecast indexing assumption",
+      dataThrough,
+    );
+    provenance["tax.openingTaxYearBeforeProjectionMonth.source"] = localValue(
+      resolvedTax.openingTaxYearBeforeProjectionMonth.source,
+      "Opening tax-year context source; the income is bracket context and not projected cash",
+      dataThrough,
+    );
+    provenance["person.pensionIncomeCreditEligible"] = localValue(
+      config.tax.mode === "canadian_annual"
+        ? config.tax.pensionIncomeCreditEligible
+        : false,
+      "Explicit configured-pension eligibility for the pension-income credit",
+      dataThrough,
+    );
+  }
+
   const projectionInputs = validateProjectionInputs({
     startDate: dataThrough,
     endAge: config.projectionEndAge,
@@ -2635,11 +2832,7 @@ export function deriveCurrentBaseline(
       baselineSource: config.retirementRequirement.source,
       activeValueSource: config.retirementRequirement.source,
     },
-    tax: {
-      effectiveTaxRate: config.assumptions.effectiveTaxRate,
-      oasRecoveryThresholdToday: config.assumptions.oasRecoveryThreshold,
-      oasRecoveryRate: config.assumptions.oasRecoveryRate,
-    },
+    tax: resolvedTax,
     person: {
       currentAge: config.currentAge,
       retirementAge: config.retirementAge,
@@ -2647,6 +2840,10 @@ export function deriveCurrentBaseline(
       annualPensionToday: config.assumptions.pensionAnnualIncome,
       pensionStartAge: config.assumptions.pensionStartAge,
       pensionIndexingRate: config.assumptions.pensionIndexing,
+      pensionIncomeCreditEligible:
+        config.tax.mode === "canadian_annual"
+          ? config.tax.pensionIncomeCreditEligible
+          : false,
       cpp: {
         startAge: cppStartAge,
         monthlyAmountAt65Today: cppMonthlyAmountAt65Today,
@@ -2674,7 +2871,7 @@ export function deriveCurrentBaseline(
   });
 
   return {
-    schemaVersion: "2.0",
+    schemaVersion: "3.0",
     connection,
     projectionInputs,
     provenance,

@@ -33,6 +33,7 @@ type SolverInput = {
     RetirementRequirementResult["minimumEndingBalanceBaselineSource"];
   minimumEndingBalanceActiveValueSource:
     RetirementRequirementResult["minimumEndingBalanceActiveValueSource"];
+  taxModel: RetirementRequirementResult["taxModel"];
   accounts: RetirementCompositionAccount[];
   initialUpperBoundToday: number;
   hasRetirementLiabilityOverlap: boolean;
@@ -150,7 +151,7 @@ export function solveRetirementRequirement(
     ownerGoalToday: input.ownerGoalToday,
     compositionMode:
       "projected_retirement_account_weights" as const,
-    taxModel: "flat_retirement_tax_compatibility" as const,
+    taxModel: input.taxModel,
     provisionalTax: true as const,
   };
   const zeroAllocation = allocateRetirementCandidate(0, input.accounts);

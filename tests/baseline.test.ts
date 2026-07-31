@@ -28,6 +28,10 @@ const configFixture: PlannerConfig = {
     minimumEndingFinancialAssetsToday: 0,
     source: "explicit_configuration",
   },
+  tax: {
+    mode: "flat_compatibility",
+    source: "explicit_configuration",
+  },
   transactionTrailingMonths: 12,
   accountMappings: {
     "manual:1": { include: true, type: "cash", withdrawalPriority: 1 },
@@ -262,6 +266,108 @@ function lunchMoneyData(): LunchMoneyData {
 const window = { startDate: "2025-07-14", endDate: "2026-07-14", trailingMonths: 12 };
 
 describe("live baseline derivation", () => {
+  it("resolves Canadian annual tax context, provenance, and review warnings", () => {
+    const config = structuredClone(configFixture);
+    config.employmentIncomePhases = [
+      {
+        id: "synthetic-employment",
+        label: "Synthetic employment",
+        startAge: 40,
+        endAge: 65,
+        annualNetCashToday: "live_baseline",
+        annualTaxableEmploymentIncomeToday: 100_000,
+        annualGrowth: 0.02,
+      },
+    ];
+    config.tax = {
+      mode: "canadian_annual",
+      source: "explicit_configuration",
+      province: "ON",
+      referenceYear: 2026,
+      futureIndexingRate: 0.02,
+      pensionIncomeCreditEligible: false,
+      openingTaxYearBeforeProjectionMonth: {
+        calendarYear: 2026,
+        throughMonth: 6,
+        income: {
+          employment: 50_000,
+          cpp: 0,
+          oas: 0,
+          pension: 0,
+          rrspWithdrawals: 0,
+          rrifWithdrawals: 0,
+          otherTaxableIncome: 0,
+        },
+      },
+    };
+
+    const baseline = deriveCurrentBaseline(
+      config,
+      lunchMoneyData(),
+      window,
+      "2026-07-14T12:00:00.000Z",
+    );
+    expect(baseline.projectionInputs.tax).toMatchObject({
+      mode: "canadian_annual",
+      province: "ON",
+      referenceYear: 2026,
+      openingTaxYearBeforeProjectionMonth: {
+        calendarYear: 2026,
+        throughMonth: 6,
+        source: "explicit_configuration",
+      },
+    });
+    expect(baseline.provenance["tax.referenceYear"]).toMatchObject({
+      value: 2026,
+      sourceType: "canadian_reference",
+      effectiveDate: "2026-01-01",
+    });
+    expect(baseline.warnings.map((warning) => warning.code)).toEqual(
+      expect.arrayContaining([
+        "canadian_tax_provisional",
+        "opening_tax_year_context_active",
+        "inactive_flat_tax_fields",
+        "oas_recovery_threshold_estimate",
+        "rrif_minimums_not_modelled",
+        "non_registered_tax_not_modelled",
+      ]),
+    );
+
+    delete config.tax.openingTaxYearBeforeProjectionMonth;
+    expect(() =>
+      deriveCurrentBaseline(
+        config,
+        lunchMoneyData(),
+        window,
+        "2026-07-14T12:00:00.000Z",
+      ),
+    ).toThrow(/requires openingTaxYearBeforeProjectionMonth/i);
+
+    const januaryData = lunchMoneyData();
+    januaryData.transactions = januaryData.transactions.map((item) => ({
+      ...item,
+      date: item.date.replace("2026-07-", "2026-01-"),
+    }));
+    const january = deriveCurrentBaseline(
+      config,
+      januaryData,
+      {
+        startDate: "2025-01-14",
+        endDate: "2026-01-14",
+        trailingMonths: 12,
+      },
+      "2026-01-14T12:00:00.000Z",
+    );
+    expect(january.projectionInputs.tax).toMatchObject({
+      mode: "canadian_annual",
+      openingTaxYearBeforeProjectionMonth: {
+        calendarYear: 2026,
+        throughMonth: 0,
+        source: "january_zero",
+      },
+    });
+  });
+
   it("uses exact mapped balances and derives cash flow from posted transactions", () => {
     const baseline = deriveCurrentBaseline(
       configFixture,
@@ -341,7 +447,7 @@ describe("live baseline derivation", () => {
       }),
     ]);
     expect(baseline.recordsAnalyzed.transactions).toBe(8);
-    expect(baseline.schemaVersion).toBe("2.0");
+    expect(baseline.schemaVersion).toBe("3.0");
     expect(baseline.warnings).toContainEqual(
       expect.objectContaining({ code: "long_live_baseline_income" }),
     );
@@ -472,7 +578,7 @@ describe("live baseline derivation", () => {
       "2026-07-14T12:00:00.000Z",
     );
 
-    expect(baseline.schemaVersion).toBe("2.0");
+    expect(baseline.schemaVersion).toBe("3.0");
     expect(baseline.lunchMoneyMappings.accounts).toEqual([
       {
         mappingId: "manual:1",
@@ -532,7 +638,7 @@ describe("live baseline derivation", () => {
       "2026-07-14T12:00:00.000Z",
     );
 
-    expect(baseline.schemaVersion).toBe("2.0");
+    expect(baseline.schemaVersion).toBe("3.0");
     expect(
       baseline.projectionInputs.registeredAccountRoom?.tfsa
         .startingAvailableRoom.amount,
@@ -752,7 +858,7 @@ describe("live baseline derivation", () => {
       "2026-07-14T12:00:00.000Z",
     );
 
-    expect(baseline.schemaVersion).toBe("2.0");
+    expect(baseline.schemaVersion).toBe("3.0");
     expect(baseline.projectionInputs.nonFinancialAssets).toEqual([
       expect.objectContaining({
         id: "manual:4",

@@ -9,24 +9,24 @@ Public tracking must remain generic and must not contain private financial value
 - Open roadmap planning pull request: None
 - Planning branch: None
 - Planning status: None
-- Open implementation pull request: [#24 Derive retirement funding requirement](https://github.com/danielnguyen/lunchmoney-retirement-planner/pull/24)
+- Open implementation pull request: [#25 Add annual Canadian retirement taxation](https://github.com/danielnguyen/lunchmoney-retirement-planner/pull/25)
 - Open maintenance pull request: None
 - Pull request state: Open draft
-- Active implementation: Retirement funding requirement and terminal balance
+- Active implementation: Annual Canadian retirement taxation for an Ontario resident
 - Status: Ready for independent review
-- Implementation branch: `agent/add-retirement-funding-requirement`
-- Validated implementation commit: `895648a11b2f110ae41e84a151f19b85848fd6f8`
-- Synthetic validation: Passed — 437 synthetic tests, including 23 focused solver cases and 197 focused scenario-control, scenario-draft, requirement, baseline, dashboard, explanation, and export tests. The active terminal minimum now carries separate baseline and effective sources: compatibility normalization or explicit configuration remains immutable baseline evidence, while a temporary guided override is reported as `scenario_override`. Regressions cover omitted and explicit YAML with and without overrides, exact active solver use, reset, missing-block scenario-only application without disk writes, observations, explanations, dashboard source labels, JSON allowlisting, CSV scalar sources, liability shortfalls, completion state, exact-cent proof, and privacy. Typecheck, lint, production build, local Docker image build, Docker Compose validation, container health, private local smoke validation, and `git diff --check` passed. Hosted CI #124 and Docker image build #118 passed on correction tracking head `0d90db5099ae23352445d9af2e018cc666dda91e`.
-- Latest merged `main`: `61a0dc20f879f19c662e237f49858263b8626c80`
-- Last completed capability: Explicit scenario-to-config bindings
-- Last completed pull request: [#20 Apply scenario overrides to the YAML config draft](https://github.com/danielnguyen/lunchmoney-retirement-planner/pull/20)
+- Implementation branch: `agent/add-annual-canadian-retirement-tax`
+- Validated implementation commit: `5f6d27517239657592e6b3aaadfd4decac8c9aab`
+- Synthetic validation: Passed — 493 synthetic tests, including 32 focused configuration, flat/Canadian tax integration, JSON allowlist, nominal/real rectangular CSV, and export-privacy tests. Flat compatibility now exports provisional status from the shared taxation summary and leaves Canadian annual reconciliation explicitly not applicable; Canadian annual rows preserve their shared reconciliation result. Typecheck, lint, production build, local Docker image build, Docker Compose validation, planner-container startup, health endpoint smoke, clean planner-container removal, private flat-compatibility smoke, `git diff --check`, hosted CI run #130, and hosted Docker image build run #124 passed. All committed values are synthetic.
+- Latest merged `main`: `d5765c736cc1688302710f57359ecf947e347352`
+- Last completed capability: Retirement funding requirement and terminal balance
+- Last completed pull request: [#24 Derive retirement funding requirement](https://github.com/danielnguyen/lunchmoney-retirement-planner/pull/24)
 - Last completed maintenance correction: Retirement bridge ending precision
 - Last maintenance pull request: [#23 Fix retirement bridge reconciliation against raw balances](https://github.com/danielnguyen/lunchmoney-retirement-planner/pull/23)
 - Last completed synthetic validation: Passed — 396 synthetic tests for the merged retirement bridge ending-precision correction; its one-cent integrity threshold and financial calculations remained unchanged
 - Last completed private migration: Passed — the operating-cash policy was updated and validated locally without publishing private values
-- Private smoke state: Passed for configuration loading, ordinary projection, retirement-requirement calculation, and dashboard-shell availability without publishing private values
-- Remaining step: independently review draft pull request #24
-- Next action: verify the requirement uses the shared monthly engine, exact retirement-boundary account composition, the lowest passing cent, and a visibly provisional flat-tax result before merge; Canadian retirement taxes and RRIF minimums remain next
+- Private smoke state: Flat compatibility passed without reporting private values; Canadian annual mode was not run because the private configuration does not supply the explicit new inputs
+- Remaining step: independent review of draft pull request #25
+- Next action: independently review annual Canadian tax; after merge, implement RRIF conversion and statutory minimum withdrawals in the immediate next stage, then simplified non-registered taxation and final migration
 
 ## Planned implementation sequence
 
@@ -39,8 +39,8 @@ Public tracking must remain generic and must not contain private financial value
 | 5 | Employment-income today-dollar semantics correction | Existing employment-income phase model | Completed | [#14](https://github.com/danielnguyen/lunchmoney-retirement-planner/pull/14) |
 | 6 | Operating-cash target and automatic excess sweep | Surplus allocation and contribution waterfall | Completed | [#15](https://github.com/danielnguyen/lunchmoney-retirement-planner/pull/15) |
 | 7 | General spending phases | Corrected income and cash policies | Completed | [#16](https://github.com/danielnguyen/lunchmoney-retirement-planner/pull/16) |
-| 8 | Retirement funding requirement and terminal balance | Spending phases and retirement projection | In progress | [#24](https://github.com/danielnguyen/lunchmoney-retirement-planner/pull/24) |
-| 9 | RRIF minimum withdrawals and Canadian retirement taxes | Surplus policy, debt model, spending phases, and requirement contract | Planned | — |
+| 8 | Retirement funding requirement and terminal balance | Spending phases and retirement projection | Completed | [#24](https://github.com/danielnguyen/lunchmoney-retirement-planner/pull/24) |
+| 9 | RRIF minimum withdrawals and Canadian retirement taxes | Surplus policy, debt model, spending phases, and requirement contract | In progress — annual-tax stage | [#25](https://github.com/danielnguyen/lunchmoney-retirement-planner/pull/25) |
 | 10 | Deterministic return paths and sequence-risk scenarios | Reconciled deterministic projection | Planned | — |
 | 11 | Structured housing transitions | Net-worth, debt, spending, and event models | Planned | — |
 
@@ -77,4 +77,4 @@ Planning order is project-management shorthand only. Production names must descr
 
 ## New-conversation handoff
 
-> Read `AGENTS.md`, `plan/roadmap.md`, and `plan/implementation-index.md`. Independently review draft PR #24 for the retirement funding requirement and terminal balance using synthetic data only. Confirm that it reuses the ordinary monthly engine without recursive solving, preserves projected retirement account composition, excludes residence equity, finds and proves the lowest passing cent, keeps the owner goal separate, and labels the flat-tax result provisional. Canadian retirement taxes and RRIF minimums remain the next capability.
+> Read `AGENTS.md`, `plan/roadmap.md`, and `plan/implementation-index.md`. Continue or independently review the annual Canadian retirement-tax implementation using synthetic data only. Confirm dated 2026 Canada/Ontario references, annual YTD full-versus-embedded-versus-funded tax, annual OAS recovery, exact-cent taxable-withdrawal gross-up, shared requirement-engine reuse, partial-year evidence, export privacy, and flat compatibility. RRIF conversion/minimum withdrawals remain the immediate next stage; simplified non-registered taxation follows.

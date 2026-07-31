@@ -140,7 +140,39 @@ The solver tests integer cents at the exact end of the final working month and f
 
 Candidate totals are distributed across cash, TFSA, RRSP/RRIF, and non-registered accounts using their exact projected retirement-boundary weights. Account type, return, withdrawal priority, allocation, and identity are preserved, with any residual cent assigned deterministically. Residence value, other non-financial assets, home equity, and liabilities are excluded from the funding composition. If the projected financial accounts cannot provide a valid positive composition, the requirement is shown as unavailable instead of inventing weights.
 
-The requirement is provisional under the current flat retirement-tax compatibility assumption. Progressive Canadian retirement taxation and statutory RRIF minimum withdrawals are not included yet.
+The requirement uses the active tax mode. It remains provisional in Canadian annual mode because statutory RRIF minimum withdrawals and non-registered investment-income taxation are not included yet.
+
+### Annual Canadian retirement tax
+
+Existing configurations continue to use `flat_compatibility` unless they explicitly opt into the annual Canada/Ontario model. Canadian mode uses dated official 2026 federal and Ontario brackets, credits, surtax, health-premium, and OAS-recovery references. Future indexed reference amounts use a distinct configured forecast rate; fixed statutory values and rates remain fixed.
+
+```yaml
+tax:
+  mode: canadian_annual
+  province: ON
+  referenceYear: 2026
+  futureIndexingRate: 0.02
+  pensionIncomeCreditEligible: true
+  openingTaxYearBeforeProjectionMonth:
+    calendarYear: 2026
+    throughMonth: 6
+    income:
+      employment: 55000
+      cpp: 0
+      oas: 0
+      pension: 0
+      rrspWithdrawals: 0
+      rrifWithdrawals: 0
+      otherTaxableIncome: 0
+```
+
+Each employment phase has three deliberately separate amounts: `annualNetCashToday` enters the budget as already-net deposited cash; `annualTaxableEmploymentIncomeToday` establishes annual bracket and credit context without adding cash; and `rrspRoom.eligibleEarnedIncomeToday` generates future RRSP room without determining tax. Canadian mode requires taxable employment explicitly. Configured pension income receives the pension-income credit only when `pensionIncomeCreditEligible` is explicitly true; CPP, OAS, and ordinary RRSP withdrawals are not treated as eligible pension income.
+
+For a mid-year projection start, opening context is required through the preceding month. It affects the annual brackets but is neither deposited nor taxed again inside the projection. Each modelled month recognizes the cumulative annual federal/Ontario liability beyond tax already embedded in opening and net-employment income. If later embedded employment context reprices that cumulative amount downward, the ledger records the signed tax adjustment explicitly while the cumulative funded liability remains non-negative. OAS recovery uses supported annual income rather than a monthly proxy. Taxable RRSP cash needs use a bounded integer-cent search for the lowest gross withdrawal whose incremental-tax-adjusted proceeds pass; cash and TFSA withdrawals remain tax free, while non-registered investment-income tax is explicitly deferred.
+
+The annual tax result is a deterministic planning estimate rather than full tax-return preparation. It does not model RRIF conversion/minimum withdrawals, non-registered interest/dividend/capital-gain tax, arbitrary deductions, or refundable credits. Partial years use full annual credit amounts and are labelled partial estimates. Official reference provenance is included in the shared result and exports.
+
+Statutory calculations retain raw nominal precision and round the aggregate annual liability once; any presentation-cent residual is assigned deterministically to Ontario net tax so the displayed components still reconcile. The 2026 OAS recovery threshold is identified as an official published estimate rather than a final amount. Primary references: [CRA 2026 federal/Ontario payroll tables](https://www.canada.ca/en/revenue-agency/services/forms-publications/payroll/t4032-payroll-deductions-tables/t4032on-jan/t4032on-january-general-information.html), [CRA payroll formulas](https://www.canada.ca/en/revenue-agency/services/forms-publications/payroll/t4127-payroll-deductions-formulas/t4127-jul/t4127-jul-payroll-deductions-formulas.html), [federal TD1 credits](https://www.canada.ca/en/revenue-agency/services/forms-publications/td1-personal-tax-credits-returns/td1-forms-pay-received-on-january-1-later/td1.html), [Ontario TD1 credits](https://www.canada.ca/en/revenue-agency/services/forms-publications/td1-personal-tax-credits-returns/td1-forms-pay-received-on-january-1-later/td1on.html), and [OAS recovery tax](https://www.canada.ca/en/services/benefits/publicpensions/old-age-security/recovery-tax.html).
 
 ```yaml
 savingsPolicy:
@@ -245,7 +277,7 @@ Registered-room ledgers are always labelled and displayed in nominal regulatory 
 
 The exact `retirementSnapshot` keeps end-of-final-working-month balances and allocation. Its flow fields describe only that final working month, identified by `flowPeriod`; cumulative activity from today through retirement belongs to `financialAssetsBridge`.
 
-Baseline schema `2.0` includes aggregate cash-flow and debt-payment audit evidence, typed imported non-financial-asset balances, distinct financial accounts, non-financial assets and liabilities, simple/advanced mode, the resolved terminal-balance criterion and compatibility source, resolved employment, savings, and lifestyle-spending phases, concrete CPP/OAS inputs, registered room, routing, and field-level provenance. It contains category/account names and reconciled aggregates—not raw transactions, transaction IDs, raw liability matcher text, credentials, tokens, or private statement metadata.
+Baseline schema `3.0` includes aggregate cash-flow and debt-payment audit evidence, typed imported non-financial-asset balances, distinct financial accounts, non-financial assets and liabilities, simple/advanced mode, the resolved terminal-balance criterion and compatibility source, resolved tax mode and opening-year context, resolved employment, savings, and lifestyle-spending phases, concrete CPP/OAS inputs, registered room, routing, and field-level provenance. It contains category/account names and reconciled aggregates—not raw transactions, transaction IDs, raw liability matcher text, credentials, tokens, or private statement metadata.
 
 The Retirement funding assets explanation uses the exact end-of-final-working-month snapshot and the financial-assets bridge. Separate total-net-worth and liability-schedule explanations show the three-part balance sheet, residence appreciation, interest/principal split, historical-payment replacement, payoff boundary, and a cent-stable net-worth bridge. Cash-funded contributions and principal repayment are internal balance-sheet movements; only interest is consumption. Success labels appear only when the shared result reconciles within one cent.
 
@@ -270,7 +302,7 @@ POST /api/v1/exports/projection-csv
 
 `GET /api/v1/lunchmoney/status` validates the token with a read-only categories request and returns a sanitized result.
 
-`GET /api/v1/baseline/current` returns schema `2.0` projection inputs, simple/advanced mode, terminal-balance source, role/compiler, phase, benefit, financial-account, imported non-financial-asset, liability, savings-policy, registered-room, and waterfall provenance; derived values; cash-flow and debt-payment audit evidence; warnings; and mapping details.
+`GET /api/v1/baseline/current` returns schema `3.0` projection inputs, simple/advanced mode, terminal-balance and tax provenance, role/compiler, phase, benefit, financial-account, imported non-financial-asset, liability, savings-policy, registered-room, and waterfall provenance; derived values; cash-flow and debt-payment audit evidence; warnings; and mapping details.
 
 The current-config API is dynamic and uncached. `GET` returns only the active YAML text, a display-safe filename, write capability, and a content hash. `POST` validates submitted YAML without saving. `PUT` is available only when `PLANNER_CONFIG_WRITE_ENABLED=true`; it accepts YAML and the expected content hash, never a browser-supplied path.
 
@@ -296,7 +328,7 @@ Export requests use the current baseline response, active inputs, and browser ov
 
 Every normal JSON and CSV export is automatically anonymized; there is no raw or private export mode. Financial amounts, dates, account types and origins, assumptions, CPP/OAS and savings calculation summaries, sanitized policy preview, public Canadian reference metadata, the exact retirement snapshot, and both accumulation bridges remain available for analysis. Imported and projection-only account IDs, role and policy references, account and institution labels, employer, category, event, recurring-expense, warning, and employment/contribution/savings-phase text are replaced with stable generic aliases based only on record type and order.
 
-Schema `10.0` JSON is the complete analysis document and uses a typed allowlist with export-local aliases; it never recursively copies source objects. JSON retains typed non-financial assets, liabilities and schedules, debt-payment evidence, lifestyle-spending phases, balance sheets, financial-assets and net-worth bridges, the retirement requirement and anonymized account composition, room ledgers, routes, and policy results with sanitized references. The flat CSV keeps one row per annual period with stable scalar requirement, composition, balance-sheet, liability-flow, explicit-plan, unplanned-cash, room, contribution, and deterministic per-account fields. It never embeds schedules, role lists, route arrays, phase arrays, maps, JSON, or delimited lists in cells. Both formats remain automatically anonymized.
+Schema `11.0` JSON is the complete analysis document and uses a typed allowlist with export-local aliases; it never recursively copies source objects. JSON retains typed non-financial assets, liabilities and schedules, debt-payment evidence, lifestyle-spending phases, balance sheets, financial-assets and net-worth bridges, the retirement requirement and anonymized account composition, annual tax evidence, room ledgers, routes, and policy results with sanitized references. The flat CSV keeps one row per annual period with stable scalar requirement, tax, composition, balance-sheet, liability-flow, explicit-plan, unplanned-cash, room, contribution, and deterministic per-account fields. It never embeds schedules, role lists, route arrays, phase arrays, maps, JSON, or delimited lists in cells. Both formats remain automatically anonymized.
 
 ## Docker Compose
 
@@ -333,7 +365,7 @@ Tests use synthetic fixtures under `tests/`. Production modules do not import th
 
 ## Projection scope
 
-Lunch Money income transactions are modelled as net deposited employment cash and are not taxed again. Each working month selects one resolved employment phase; growth is phase-local and employment becomes zero after the exact retirement boundary. Each investment account independently selects its active contribution phase and stops contributing at retirement. The simplified effective tax rate applies to gross retirement income and taxable RRSP/RRIF withdrawals; it is not a tax filing model, so the derived retirement requirement is visibly provisional. The projection calendar starts in the baseline data-through month, so the first and last annual rows may be partial calendar years. CPP/OAS claim timing, explicit OAS eligibility, and the OAS age-75 increase are deterministic; CPP entitlement is not calculated from contribution history. RRIF conversion is a milestone; statutory minimum withdrawals are not enforced. Monte Carlo simulation, optimized withdrawals, real estate, households, saved scenarios, background synchronization, and server-generated PDFs are outside the MVP.
+Lunch Money income transactions are modelled as net deposited employment cash and are not taxed again. Each working month selects one resolved employment phase; growth is phase-local and employment becomes zero after the exact retirement boundary. Each investment account independently selects its active contribution phase and stops contributing at retirement. Tax is either the explicit flat compatibility model or the annual federal/Ontario model described above. The projection calendar starts in the baseline data-through month, so the first and last annual rows may be partial calendar years. CPP/OAS claim timing, explicit OAS eligibility, and the OAS age-75 increase are deterministic; CPP entitlement is not calculated from contribution history. RRIF conversion remains only a milestone; statutory minimum withdrawals are not enforced, and Canadian-mode requirement results remain provisional. Monte Carlo simulation, optimized withdrawals, housing transitions, households, saved scenarios, background synchronization, and server-generated PDFs are outside the MVP.
 
 See [docs/architecture.md](docs/architecture.md) and [docs/report-model.md](docs/report-model.md) for implementation details.
 
