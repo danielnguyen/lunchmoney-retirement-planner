@@ -1,5 +1,48 @@
 import { describe, expect, it } from "vitest";
-import { solveTaxableWithdrawal } from "@/src/domain/projection/taxable-withdrawal";
+import {
+  settleWithdrawalFunding,
+  solveTaxableWithdrawal,
+} from "@/src/domain/projection/taxable-withdrawal";
+
+describe("shared withdrawal funding settlement", () => {
+  it("preserves generated cash above the requested amount", () => {
+    expect(
+      settleWithdrawalFunding({
+        requestedNetCash: 100,
+        netCashGenerated: 120,
+      }),
+    ).toEqual({
+      unmetNetCash: 0,
+      netCashGenerated: 120,
+      netCashApplied: 100,
+      excessNetCash: 20,
+    });
+  });
+
+  it("preserves cent-sized excess and unmet cash", () => {
+    const overfunded = settleWithdrawalFunding({
+      requestedNetCash: 100,
+      netCashGenerated: 100.01,
+    });
+    expect(overfunded).toMatchObject({
+      unmetNetCash: 0,
+      netCashGenerated: 100.01,
+      netCashApplied: 100,
+    });
+    expect(overfunded.excessNetCash).toBeCloseTo(0.01, 12);
+    expect(
+      settleWithdrawalFunding({
+        requestedNetCash: 100,
+        netCashGenerated: 80,
+      }),
+    ).toEqual({
+      unmetNetCash: 20,
+      netCashGenerated: 80,
+      netCashApplied: 80,
+      excessNetCash: 0,
+    });
+  });
+});
 
 describe("taxable registered withdrawal solver", () => {
   it("returns zero for zero required cash", () => {

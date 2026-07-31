@@ -4,6 +4,7 @@ import {
   createProjectionSnapshot,
   projectionSnapshotToCsv,
 } from "@/src/domain/projection/export";
+import { centDifference } from "@/src/domain/projection/monetary-reconciliation";
 import type { ProjectionInputs } from "@/src/domain/projection/types";
 import {
   baselineContextFixture,
@@ -148,6 +149,40 @@ function simplifiedTaxableProjection(): ProjectionInputs {
   return input;
 }
 
+function capitalLossRefundProjection(): ProjectionInputs {
+  const input = simplifiedTaxableProjection();
+  input.endAge = 64 + 2 / 12;
+  input.person.retirementAge = input.endAge;
+  input.person.employmentIncomePhases[0]!.endAge = input.endAge;
+  input.spendingPhases[0]!.endAge = input.endAge;
+  input.monthlyEssentialSpendingToday = 100;
+  input.events = [
+    {
+      id: "synthetic-opening-cash",
+      label: "Synthetic opening-month cash",
+      calendarYear: 2026,
+      month: 1,
+      amountToday: 1_420.47,
+      direction: "inflow",
+    },
+  ];
+  input.accounts[1]!.openingBalance = 1_000_000;
+  input.accounts[1]!.annualReturn = 0;
+  if (input.nonRegisteredTaxation.mode !== "simplified_canadian") {
+    throw new Error("expected simplified mode");
+  }
+  input.nonRegisteredTaxation.accounts[0]!.openingAdjustedCostBase.amount =
+    1_000_000_000_000;
+  input.nonRegisteredTaxation.accounts[0]!.annualDistributionYields = {
+    interest: 0,
+    eligibleCanadianDividends: 0,
+    foreignIncome: 0,
+    capitalGains: 1,
+  };
+  input.surplusAllocation.excess = { mode: "retain_as_cash" };
+  return input;
+}
+
 function csvRows(csv: string): string[][] {
   return csv
     .trimEnd()
@@ -156,11 +191,284 @@ function csvRows(csv: string): string[][] {
 }
 
 describe("simplified non-registered projection integration", () => {
+  it("retains a material capital-loss refund as cash without breaking either bridge", () => {
+    const result = calculateProjection(capitalLossRefundProjection());
+    const year = result.annual[0]!;
+    const bridge = result.financialAssetsBridge.nominal;
+
+    // Independent synthetic cash proof: month one recognizes $1,320.47 of
+    // tax. The final annual tax is $267.79, so month two reprices tax by
+    // -$1,052.68. The $0.07 sale plus that refund generates $1,052.75;
+    // $100 funds spending and the remaining $952.75 must stay in assets.
+    expect(year.nominal.withdrawals.nonRegistered).toBe(0.07);
+    expect(year.nominal.outflows.tax).toBe(267.79);
+    expect(year.nonRegisteredTaxation.realizedCapitalLosses).toBe(69_999.94);
+    expect(year.nominal.surplusAllocation).toMatchObject({
+      generated: 952.75,
+      retainedAsCash: 952.75,
+      redirected: 0,
+    });
+    expect(year.nominal.accountBalances["manual:1"]).toBe(952.75);
+    expect(year.nominal.balances.financialAssets).toBe(1_000_952.68);
+    expect(
+      centDifference(
+        [0.07, 1_052.68],
+        [100, 952.75],
+      ),
+    ).toBe(0);
+    expect(
+      Math.abs(
+        centDifference(
+          [
+            bridge.startingFinancialAssets,
+            bridge.employmentNetCash,
+            bridge.publicBenefitsAndPension,
+            bridge.otherInflows,
+            bridge.incomeWithheldContributions,
+            bridge.investmentReturns,
+          ],
+          [
+            bridge.essentialSpending,
+            bridge.discretionarySpending,
+            bridge.liabilityCashPayments,
+            bridge.oneTimeOutflows,
+            bridge.taxes,
+            bridge.endingFinancialAssets,
+          ],
+        ),
+      ),
+    ).toBe(0);
+    expect(result.netWorthBridge.nominal.endingNetWorth).toBe(
+      bridge.endingFinancialAssets,
+    );
+  });
+
+  it("routes capital-loss refund excess into taxable FMV and ACB", () => {
+    const input = capitalLossRefundProjection();
+    input.surplusAllocation.excess = {
+      mode: "allocate_to_account",
+      destinationAccountId: "manual:2",
+    };
+    const year = calculateProjection(input).annual[0]!;
+    const nonRegistered = year.nonRegisteredTaxation;
+
+    expect(year.nominal.surplusAllocation).toMatchObject({
+      generated: 952.75,
+      retainedAsCash: 0,
+      redirected: 952.75,
+    });
+    expect(nonRegistered.contributions).toBe(952.75);
+    expect(nonRegistered.closingMarketValue).toBe(1_000_952.68);
+    expect(
+      Math.abs(
+        centDifference(
+          [
+            nonRegistered.openingAdjustedCostBase,
+            nonRegistered.totalDistributions,
+            nonRegistered.contributions,
+          ],
+          [
+            nonRegistered.adjustedCostBaseDisposed,
+            nonRegistered.closingAdjustedCostBase,
+          ],
+        ),
+      ),
+    ).toBe(0);
+  });
+
+  it("stops at the funded account instead of withdrawing to create more surplus", () => {
+    const input = capitalLossRefundProjection();
+    if (input.nonRegisteredTaxation.mode !== "simplified_canadian") {
+      throw new Error("expected simplified mode");
+    }
+    input.accounts.push({
+      id: "synthetic:unused-taxable",
+      label: "Synthetic unused taxable account",
+      origin: "lunchmoney",
+      type: "non_registered",
+      openingBalance: 1_000,
+      annualReturn: 0,
+      contributionPhases: [],
+      withdrawalPriority: 3,
+      allocation: { cash: 0, fixedIncome: 1, equity: 0 },
+    });
+    input.nonRegisteredTaxation.accounts.push({
+      accountId: "synthetic:unused-taxable",
+      openingAdjustedCostBase: {
+        amount: 800,
+        effectiveDate: input.startDate,
+        sourceDescription: "Synthetic unused opening ACB",
+        source: "explicit_configuration",
+      },
+      annualDistributionYields: {
+        interest: 0,
+        eligibleCanadianDividends: 0,
+        foreignIncome: 0,
+        capitalGains: 0,
+      },
+    });
+
+    const year = calculateProjection(input).annual[0]!.nonRegisteredTaxation;
+    const first = year.accounts.find(
+      (account) => account.accountId === "manual:2",
+    )!;
+    const unused = year.accounts.find(
+      (account) => account.accountId === "synthetic:unused-taxable",
+    )!;
+    expect(first.dispositionProceeds).toBe(0.07);
+    expect(unused.dispositionProceeds).toBe(0);
+    expect(unused.closingMarketValue).toBe(1_000);
+    expect(unused.closingAdjustedCostBase).toBe(800);
+  });
+
+  it("routes capital-loss refund excess into available TFSA room", () => {
+    const input = capitalLossRefundProjection();
+    input.accounts.push({
+      id: "synthetic:refund-tfsa",
+      label: "Synthetic refund TFSA",
+      origin: "lunchmoney",
+      type: "tfsa",
+      openingBalance: 0,
+      annualReturn: 0,
+      contributionPhases: [],
+      withdrawalPriority: 3,
+      allocation: { cash: 0, fixedIncome: 0, equity: 1 },
+    });
+    input.registeredAccountRoom = {
+      tfsa: {
+        startingAvailableRoom: {
+          source: "configured_amount",
+          amount: 1_000,
+          sourceDescription: "Synthetic TFSA starting room",
+          effectiveDate: input.startDate,
+        },
+        annualNewRoom: {
+          source: "canadian_reference",
+          futureIndexingRate: 0,
+          roundingIncrement: 500,
+        },
+        carryForwardUnusedRoom: true,
+        withdrawalRoomRecredit: "next_calendar_year",
+      },
+      rrsp: {
+        startingAvailableDeductionRoom: {
+          source: "configured_amount",
+          amount: 0,
+          sourceDescription: "Synthetic RRSP starting room",
+          effectiveDate: input.startDate,
+        },
+        carryForwardUnusedRoom: true,
+        newRoom: {
+          source: "earned_income",
+          annualCap: {
+            source: "canadian_reference",
+            futureGrowthRate: 0,
+            futureRoundingIncrement: 10,
+          },
+          startYearBeforeProjectionMonth: {
+            calendarYear: 2026,
+            eligibleEarnedIncome: 0,
+            pensionAdjustment: 0,
+            otherRoomReduction: 0,
+          },
+        },
+      },
+    };
+    input.contributionWaterfall = {
+      mode: "canonical",
+      routes: [],
+      surplusDestinationAccountIds: ["synthetic:refund-tfsa"],
+    };
+    input.surplusAllocation.excess = {
+      mode: "allocate_through_contribution_waterfall",
+    };
+
+    const year = calculateProjection(input).annual[0]!;
+    expect(year.nominal.surplusAllocation.redirected).toBe(952.75);
+    expect(year.nominal.accountBalances["synthetic:refund-tfsa"]).toBe(
+      952.75,
+    );
+    expect(year.nominal.registeredAccountRoom.tfsa).toMatchObject({
+      surplusFundedContributions: 952.75,
+      allowedContributions: 952.75,
+    });
+  });
+
+  it("keeps liability-funded refund excess available for later monthly cash flow", () => {
+    const input = capitalLossRefundProjection();
+    input.monthlyEssentialSpendingToday = 0;
+    input.events[0]!.amountToday = 1_370.47;
+    input.liabilities = [
+      {
+        id: "synthetic:refund-liability",
+        label: "Synthetic refund-funded liability",
+        origin: "lunchmoney",
+        openingBalance: 100,
+        balanceAsOf: input.startDate,
+        role: null,
+        treatment: {
+          mode: "amortizing",
+          annualInterestRate: 0,
+          interestRateConvention: "effective_annual",
+          regularPayment: {
+            amount: 50,
+            frequency: "monthly",
+            monthlyEquivalent: 50,
+          },
+          scheduleStartDate: input.startDate,
+          lumpSumPayments: [],
+        },
+        historicalPaymentHandling: "already_excluded_or_transfer",
+        historicalMonthlyAverage: 0,
+      },
+    ];
+
+    const result = calculateProjection(input);
+    const year = result.annual[0]!;
+    expect(result.projectionCompletion.status).toBe("complete");
+    expect(year.nominal.outflows.unmetRequiredOutflow).toBe(0);
+    expect(year.nominal.outflows.liabilityCashPayment).toBe(100);
+    expect(year.nominal.surplusAllocation.retainedAsCash).toBe(14.75);
+    expect(year.nominal.accountBalances["manual:1"]).toBe(14.75);
+    expect(
+      year.nominal.liabilitySchedules["synthetic:refund-liability"]!
+        .closingBalance,
+    ).toBe(0);
+  });
+
+  it("uses the corrected refund cash path for exact-cent retirement candidates", () => {
+    const input = capitalLossRefundProjection();
+    input.person.retirementAge = 64 + 1 / 12;
+    input.person.employmentIncomePhases[0]!.endAge =
+      input.person.retirementAge;
+
+    const first = calculateProjection(input);
+    const repeated = calculateProjection(input);
+    expect(first.retirementRequirement).toMatchObject({
+      status: "available",
+      provisionalTax: false,
+      solver: {
+        acceptedCandidatePassed: true,
+        oneCentBelowFailed: true,
+      },
+    });
+    expect(
+      first.retirementRequirement.requiredFinancialAssetsToday,
+    ).toBeGreaterThan(0);
+    expect(repeated.retirementRequirement).toEqual(
+      first.retirementRequirement,
+    );
+  });
   it("distinguishes every supported tax-coverage combination", () => {
     const complete = calculateProjection(simplifiedTaxableProjection());
-    expect(complete.taxation.coverageStatus).toBe(
-      "complete_supported_deterministic_model",
-    );
+    expect(complete.taxation).toMatchObject({
+      coverageStatus: "complete_supported_deterministic_model",
+      provisional: false,
+      fullTaxReturnFidelity: false,
+    });
+    expect(complete.rrif.provisional).toBe(false);
+    expect(complete.nonRegisteredTaxation.provisional).toBe(false);
+    expect(complete.retirementRequirement.provisionalTax).toBe(false);
 
     const nonRegisteredCompatibility = simplifiedTaxableProjection();
     nonRegisteredCompatibility.nonRegisteredTaxation = {
@@ -175,16 +483,33 @@ describe("simplified non-registered projection integration", () => {
         "canadian_annual_rrif_statutory_non_registered_compatibility",
       provisional: true,
     });
+    expect(statutoryCompatibility.rrif.provisional).toBe(true);
+    expect(statutoryCompatibility.nonRegisteredTaxation.provisional).toBe(
+      true,
+    );
+    expect(
+      statutoryCompatibility.retirementRequirement.provisionalTax,
+    ).toBe(true);
 
     const rrifCompatibility = simplifiedTaxableProjection();
     rrifCompatibility.rrifMinimumWithdrawals = {
       mode: "not_modelled_compatibility",
       source: "explicit_configuration",
     };
-    expect(calculateProjection(rrifCompatibility).taxation).toMatchObject({
+    const simplifiedWithRrifCompatibility = calculateProjection(
+      rrifCompatibility,
+    );
+    expect(simplifiedWithRrifCompatibility.taxation).toMatchObject({
       coverageStatus: "canadian_annual_rrif_compatibility",
       provisional: true,
     });
+    expect(simplifiedWithRrifCompatibility.rrif.provisional).toBe(true);
+    expect(
+      simplifiedWithRrifCompatibility.nonRegisteredTaxation.provisional,
+    ).toBe(true);
+    expect(
+      simplifiedWithRrifCompatibility.retirementRequirement.provisionalTax,
+    ).toBe(true);
 
     const flat = simplifiedTaxableProjection();
     flat.nonRegisteredTaxation = {
@@ -198,10 +523,14 @@ describe("simplified non-registered projection integration", () => {
       oasRecoveryThresholdToday: 90_000,
       oasRecoveryRate: 0.15,
     };
-    expect(calculateProjection(flat).taxation).toMatchObject({
+    const flatCompatibility = calculateProjection(flat);
+    expect(flatCompatibility.taxation).toMatchObject({
       coverageStatus: "flat_tax_compatibility",
       provisional: true,
     });
+    expect(flatCompatibility.rrif.provisional).toBe(true);
+    expect(flatCompatibility.nonRegisteredTaxation.provisional).toBe(true);
+    expect(flatCompatibility.retirementRequirement.provisionalTax).toBe(true);
   });
 
   it("characterizes the existing return, taxes distributions, and disposes pooled ACB", () => {
@@ -411,6 +740,42 @@ describe("simplified non-registered projection integration", () => {
       );
       expect(projectionSnapshotToCsv(snapshot, mode)).not.toContain(
         "manual:2",
+      );
+    }
+  });
+
+  it("exports shared provisional flags when RRIF compatibility is active", () => {
+    const input = simplifiedTaxableProjection();
+    input.rrifMinimumWithdrawals = {
+      mode: "not_modelled_compatibility",
+      source: "explicit_configuration",
+    };
+    const projection = calculateProjection(input);
+    const context = structuredClone(baselineContextFixture);
+    context.projectionInputs = input;
+    const snapshot = createProjectionSnapshot(
+      projection,
+      context,
+      {},
+      "2026-07-31T12:00:00.000Z",
+    );
+
+    expect(snapshot.projection.taxation.provisional).toBe(true);
+    expect(snapshot.projection.rrif.provisional).toBe(true);
+    expect(snapshot.projection.nonRegisteredTaxation.provisional).toBe(true);
+    expect(snapshot.projection.retirementRequirement.provisionalTax).toBe(
+      true,
+    );
+    for (const mode of ["nominal", "real"] as const) {
+      const rows = csvRows(projectionSnapshotToCsv(snapshot, mode));
+      const header = rows[0]!;
+      const first = rows[1]!;
+      expect(first[header.indexOf("tax_provisional")]).toBe("1");
+      expect(first[header.indexOf("non_registered_tax_mode")]).toBe(
+        "simplified_canadian",
+      );
+      expect(rows.slice(1).every((row) => row.length === header.length)).toBe(
+        true,
       );
     }
   });

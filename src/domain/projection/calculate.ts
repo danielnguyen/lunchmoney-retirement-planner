@@ -65,7 +65,11 @@ import {
   recognizeCanadianProjectionTax,
   type CanadianTaxYearState,
 } from "./canadian-tax-ledger";
-import { solveTaxableWithdrawal } from "./taxable-withdrawal";
+import {
+  settleWithdrawalFunding,
+  solveTaxableWithdrawal,
+  type WithdrawalFundingResult,
+} from "./taxable-withdrawal";
 import {
   NON_REGISTERED_TAX_LIMITATIONS,
   cloneNonRegisteredSimulationState,
@@ -97,25 +101,30 @@ const MONTHS_PER_YEAR = 12;
 const AGE_TOLERANCE = 1e-6;
 const ZERO_ALLOCATION: AssetAllocation = { cash: 0, fixedIncome: 0, equity: 0 };
 
-function supportedTaxModelComplete(inputs: ProjectionInputs): boolean {
-  return (
-    inputs.tax.mode === "canadian_annual" &&
-    inputs.rrifMinimumWithdrawals.mode === "statutory" &&
-    inputs.nonRegisteredTaxation.mode === "simplified_canadian"
-  );
-}
-
-function taxCoverageStatus(inputs: ProjectionInputs) {
+function resolveTaxCoverage(inputs: ProjectionInputs) {
   if (inputs.tax.mode === "flat_compatibility") {
-    return "flat_tax_compatibility" as const;
+    return {
+      status: "flat_tax_compatibility" as const,
+      supportedComplete: false,
+    };
   }
   if (inputs.rrifMinimumWithdrawals.mode !== "statutory") {
-    return "canadian_annual_rrif_compatibility" as const;
+    return {
+      status: "canadian_annual_rrif_compatibility" as const,
+      supportedComplete: false,
+    };
   }
   if (inputs.nonRegisteredTaxation.mode !== "simplified_canadian") {
-    return "canadian_annual_rrif_statutory_non_registered_compatibility" as const;
+    return {
+      status:
+        "canadian_annual_rrif_statutory_non_registered_compatibility" as const,
+      supportedComplete: false,
+    };
   }
-  return "complete_supported_deterministic_model" as const;
+  return {
+    status: "complete_supported_deterministic_model" as const,
+    supportedComplete: true,
+  };
 }
 
 function round(value: number): number {
@@ -1399,6 +1408,7 @@ function simulateProjection(
   options: RetirementSimulationOptions = {},
 ): SimulationOutcome {
   const inputs = validateProjectionInputs(rawInputs);
+  const taxCoverage = resolveTaxCoverage(inputs);
   // Solver candidates execute the same monthly financial engine, but they do
   // not build presentation snapshots or bridges that cannot affect pass/fail.
   const evaluationOnly = options.candidateBalancesToday !== undefined;
@@ -1716,7 +1726,7 @@ function simulateProjection(
             pensionIncomeCreditEligible:
               inputs.person.pensionIncomeCreditEligible,
             periodStatus,
-            provisional: !supportedTaxModelComplete(inputs),
+            provisional: !taxCoverage.supportedComplete,
           })
         : {
             mode: "flat_compatibility",
@@ -2423,14 +2433,21 @@ function simulateProjection(
     let withdrawalTaxTotal = 0;
     const fundCashNeedFromWithdrawals = (
       requestedNetCash: number,
-    ): number => {
-      let remaining = requestedNetCash;
+    ): WithdrawalFundingResult => {
+      let netCashGenerated = 0;
+      let grossProceedsGenerated = 0;
+      let signedTaxAdjustment = 0;
       for (const account of withdrawalAccounts) {
+        const remaining = Math.max(
+          0,
+          requestedNetCash - netCashGenerated,
+        );
         if (remaining <= 0) break;
         const balance = balances.get(account.id) ?? 0;
         if (balance <= 0) continue;
         let grossWithdrawal = Math.min(balance, remaining);
         let netCash = grossWithdrawal;
+        let withdrawalTaxAdjustment = 0;
         let committedNonRegisteredDisposition = false;
         if (account.type === "rrsp_rrif") {
           const taxIncomeSource = registeredWithdrawalSource(account);
@@ -2510,6 +2527,7 @@ function simulateProjection(
           }
           monthlyFlow.outflows.tax += withdrawalTax;
           withdrawalTaxTotal += withdrawalTax;
+          withdrawalTaxAdjustment = withdrawalTax;
         } else if (
           account.type === "non_registered" &&
           inputs.nonRegisteredTaxation.mode === "simplified_canadian"
@@ -2603,6 +2621,7 @@ function simulateProjection(
           monthlyFlow.outflows.oasRecoveryTax +=
             recognized.newlyRecognizedOasRecoveryTax;
           withdrawalTaxTotal += dispositionTax;
+          withdrawalTaxAdjustment = dispositionTax;
           if (
             Math.abs(
               centDifference(
@@ -2647,9 +2666,34 @@ function simulateProjection(
               grossWithdrawal,
           );
         }
-        remaining -= netCash;
+        grossProceedsGenerated += grossWithdrawal;
+        signedTaxAdjustment += withdrawalTaxAdjustment;
+        netCashGenerated += netCash;
       }
-      return Math.max(0, remaining);
+      const result = settleWithdrawalFunding({
+        requestedNetCash,
+        netCashGenerated,
+      });
+      const differences = [
+        centDifference(
+          [grossProceedsGenerated],
+          [signedTaxAdjustment, result.netCashGenerated],
+        ),
+        centDifference(
+          [result.netCashGenerated],
+          [result.netCashApplied, result.excessNetCash],
+        ),
+        centDifference(
+          [requestedNetCash],
+          [result.netCashApplied, result.unmetNetCash],
+        ),
+      ];
+      if (differences.some((difference) => Math.abs(difference) > 0.01)) {
+        throw new Error(
+          "Withdrawal funding failed to reconcile gross proceeds, signed tax, generated cash, applied cash, excess cash, and unmet cash",
+        );
+      }
+      return result;
     };
 
     let availableCurrentMonthCash =
@@ -2836,12 +2880,14 @@ function simulateProjection(
       requiredLiabilityCashPayment,
     );
     availableCurrentMonthCash -= liabilityPaymentFromCurrentCash;
-    const remainingRequiredLiabilityPayment =
+    const liabilityWithdrawalFunding =
       fundCashNeedFromWithdrawals(
         requiredLiabilityCashPayment -
           liabilityPaymentFromCurrentCash,
       );
-    if (remainingRequiredLiabilityPayment > 0.005) {
+    availableCurrentMonthCash +=
+      liabilityWithdrawalFunding.excessNetCash;
+    if (liabilityWithdrawalFunding.unmetNetCash > 0.005) {
       throw new Error(
         `Required liability payment could not be funded for ${calendarMonthKey}`,
       );
@@ -2903,13 +2949,14 @@ function simulateProjection(
       cashFundedContributions -
       eventOutflows;
     if (cashPosition < 0) {
-      const unmetSpending = fundCashNeedFromWithdrawals(
+      const spendingWithdrawalFunding = fundCashNeedFromWithdrawals(
         -cashPosition,
       );
-      if (unmetSpending > 0) {
-        monthlyFlow.outflows.unmetSpending += unmetSpending;
+      if (spendingWithdrawalFunding.unmetNetCash > 0) {
+        monthlyFlow.outflows.unmetSpending +=
+          spendingWithdrawalFunding.unmetNetCash;
       }
-      cashPosition = 0;
+      cashPosition = spendingWithdrawalFunding.excessNetCash;
     }
 
     if (
@@ -3986,8 +4033,8 @@ function simulateProjection(
         inputs.tax.mode === "canadian_annual"
           ? inputs.tax.futureIndexingRate
           : null,
-      provisional: !supportedTaxModelComplete(inputs),
-      coverageStatus: taxCoverageStatus(inputs),
+      provisional: !taxCoverage.supportedComplete,
+      coverageStatus: taxCoverage.status,
       fullTaxReturnFidelity: false,
       annual: annual.map((point) => point.tax),
       limitations:
@@ -3999,12 +4046,12 @@ function simulateProjection(
       inputs,
       state: rrifState,
       annual: annual.map((point) => point.rrif),
+      supportedTaxModelComplete: taxCoverage.supportedComplete,
     }),
     nonRegisteredTaxation: {
       mode: inputs.nonRegisteredTaxation.mode,
       source: inputs.nonRegisteredTaxation.source,
-      provisional:
-        inputs.nonRegisteredTaxation.mode !== "simplified_canadian",
+      provisional: !taxCoverage.supportedComplete,
       supportedAdjustedCostBaseModel:
         inputs.nonRegisteredTaxation.mode === "simplified_canadian"
           ? "pooled_account_portfolio"
@@ -4077,6 +4124,7 @@ export function calculateProjection(
   }
   const result = ordinary.result;
   const inputs = result.inputs;
+  const supportedTaxModelComplete = !result.taxation.provisional;
   const retirementAccounts = inputs.accounts.map((account) => ({
     accountId: account.id,
     accountType: account.type,
@@ -4107,7 +4155,7 @@ export function calculateProjection(
       inputs.tax.mode === "canadian_annual"
         ? "canadian_annual_federal_ontario_forecast"
         : "flat_retirement_tax_compatibility",
-    provisionalTax: !supportedTaxModelComplete(inputs),
+    provisionalTax: !supportedTaxModelComplete,
     accounts: retirementAccounts,
     initialUpperBoundToday,
     hasRetirementLiabilityOverlap:
@@ -4124,7 +4172,7 @@ export function calculateProjection(
     },
   });
   result.observations.push(
-    supportedTaxModelComplete(inputs)
+    supportedTaxModelComplete
       ? {
           code: "supported_tax_model_complete",
           message:

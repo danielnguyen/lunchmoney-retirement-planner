@@ -400,6 +400,7 @@ export function rrifCalculationSummary(input: {
   inputs: ProjectionInputs;
   state: RrifSimulationState;
   annual: RrifAnnualAggregate[];
+  supportedTaxModelComplete: boolean;
 }): RrifCalculationSummary {
   const statutory = input.inputs.rrifMinimumWithdrawals.mode === "statutory";
   const accounts: RrifAccountLifecycleResult[] = [...input.state.accounts.values()]
@@ -422,10 +423,7 @@ export function rrifCalculationSummary(input: {
       : "not_applicable",
     settlementTiming: statutory ? "december_true_up" : "not_applicable",
     supportedRrifClass: statutory ? "all_other_rrifs" : "not_applicable",
-    provisional:
-      !statutory ||
-      input.inputs.tax.mode !== "canadian_annual" ||
-      input.inputs.nonRegisteredTaxation.mode !== "simplified_canadian",
+    provisional: !input.supportedTaxModelComplete,
     limitations: statutory
       ? [
           "spouse_age_elections_not_modelled",
