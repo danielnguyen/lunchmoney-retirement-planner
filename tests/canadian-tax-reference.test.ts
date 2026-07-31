@@ -53,17 +53,66 @@ describe("2026 Canadian and Ontario tax references", () => {
       requestedYear: 2026,
       province: "ON",
       jurisdiction: "CA",
-      retrievedDate: "2026-07-30",
+      retrievedDate: "2026-07-31",
       sourceKind: "published",
     });
     expect(canadianTaxReference2026.metadata.sourceUrls).toEqual(
       Object.values(CANADIAN_TAX_REFERENCE_URLS),
     );
     expect(
-      canadianTaxReference2026.metadata.sourceUrls.every((url) =>
-        url.startsWith("https://www.canada.ca/"),
+      canadianTaxReference2026.metadata.sourceUrls.every(
+        (url) =>
+          url.startsWith("https://www.canada.ca/") ||
+          url.startsWith("https://www.ontario.ca/"),
       ),
     ).toBe(true);
+  });
+
+  it("retains fixed 2026 investment-income rates and primary references", () => {
+    expect(canadianTaxReference2026.federal).toMatchObject({
+      eligibleDividendGrossUp: 1.38,
+      eligibleDividendTaxCreditRate: 0.150198,
+      capitalGainsInclusionRate: 0.5,
+    });
+    expect(
+      canadianTaxReference2026.ontario.eligibleDividendTaxCreditRate,
+    ).toBe(0.1);
+    expect(CANADIAN_TAX_REFERENCE_URLS.interestIncome).toContain(
+      "line-12100-interest-other-investment-income",
+    );
+    expect(CANADIAN_TAX_REFERENCE_URLS.ontarioDividendTaxCredit).toBe(
+      "https://www.ontario.ca/page/ontario-dividend-tax-credit",
+    );
+    expect(CANADIAN_TAX_REFERENCE_URLS.investmentIncomeGuide).toContain(
+      "/publications/t4015/",
+    );
+    expect(CANADIAN_TAX_REFERENCE_URLS.ontarioTaxationAct).toBe(
+      "https://www.ontario.ca/laws/statute/07t11",
+    );
+    expect(CANADIAN_TAX_REFERENCE_URLS.capitalGains).toContain(
+      "federal-tax-expenditures/2026/part-6",
+    );
+    expect(CANADIAN_TAX_REFERENCE_URLS.capitalGainsTaxExpenditures).toContain(
+      "federal-tax-expenditures/2026/part-2",
+    );
+    expect(CANADIAN_TAX_REFERENCE_URLS.adjustedCostBase).toContain(
+      "/adjusted-cost-base",
+    );
+
+    const future = resolveCanadianTaxReferences(2040, 0.025);
+    expect(future.federal.eligibleDividendGrossUp).toBe(1.38);
+    expect(future.federal.eligibleDividendTaxCreditRate).toBe(0.150198);
+    expect(future.ontario.eligibleDividendTaxCreditRate).toBe(0.1);
+    expect(future.federal.capitalGainsInclusionRate).toBe(0.5);
+    expect(future.federal).not.toHaveProperty(
+      "capitalGainsHigherInclusionRate",
+    );
+    expect(future.federal).not.toHaveProperty(
+      "capitalGainsIndividualThreshold",
+    );
+    expect(future.metadata.limitations.join(" ")).toMatch(
+      /proposed two-thirds.*would not proceed/i,
+    );
   });
 
   it("forecasts indexed amounts from unrounded cumulative growth and keeps fixed values fixed", () => {

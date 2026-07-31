@@ -8,6 +8,12 @@ import {
   type CanadianTaxIncomeBySource,
 } from "@/src/domain/projection/canadian-tax";
 import { canadianTaxReference2026 } from "@/src/domain/defaults/canadian-tax-2026";
+import {
+  addCanadianTaxIncome,
+  createCanadianTaxYearState,
+  recognizeCanadianProjectionTax,
+} from "@/src/domain/projection/canadian-tax-ledger";
+import type { TaxAssumptions } from "@/src/domain/projection/types";
 
 function calculate(
   incomeBySource: Partial<CanadianTaxIncomeBySource>,
@@ -167,6 +173,137 @@ describe("annual Canadian tax calculator", () => {
     expect(result.totals.totalTax).toBe(
       Math.round((result.totals.federalTax + result.totals.ontarioTax + result.totals.ontarioHealthPremium + result.totals.oasRecoveryTax) * 100) / 100,
     );
+  });
+
+  it("derives eligible-dividend gross-up and non-refundable credits", () => {
+    const result = calculate({
+      otherTaxableIncome: 60_000,
+      eligibleCanadianDividends: 1_000,
+    });
+    expect(result.incomeAdjustments.eligibleDividendGrossUp).toBe(380);
+    expect(result.incomeAdjustments.taxableEligibleDividends).toBe(1_380);
+    expect(result.federal.eligibleDividendTaxCredit).toBe(207.27);
+    expect(result.ontario.eligibleDividendTaxCredit).toBe(138);
+    expect(result.recoveryIncomeBasis).toBe(61_380);
+    expect(result.actualIncomeTotal).toBe(61_000);
+    expect(result.taxableIncomeBasis).toBe(61_380);
+  });
+
+  it("applies dividend credits after personal credits and Ontario surtax before reduction", () => {
+    const result = calculate({
+      otherTaxableIncome: 150_000,
+      eligibleCanadianDividends: 10_000,
+    });
+    expect(result.federal.netTax).toBe(
+      Math.round(
+        Math.max(
+          0,
+          result.federal.bracketTax -
+            result.federal.nonRefundableCreditValue -
+            result.federal.eligibleDividendTaxCredit,
+        ) * 100,
+      ) / 100,
+    );
+    expect(result.ontario.taxAfterSurtaxAndDividendCredit).toBe(
+      Math.round(
+        Math.max(
+          0,
+          result.ontario.bracketTax -
+            result.ontario.nonRefundableCreditValue +
+            result.ontario.surtax -
+            result.ontario.eligibleDividendTaxCredit,
+        ) * 100,
+      ) / 100,
+    );
+    const dividendsOnly = calculate({
+      eligibleCanadianDividends: 1_000,
+    });
+    expect(dividendsOnly.federal.netTax).toBe(0);
+    expect(dividendsOnly.ontario.netTax).toBe(0);
+  });
+
+  it("includes interest and foreign income fully and capital gains at one half", () => {
+    const result = calculate({
+      interest: 1_000,
+      foreignIncome: 2_000,
+      capitalGains: 4_000,
+      capitalLosses: 1_000,
+    });
+    expect(result.incomeAdjustments.currentYearNetCapitalGain).toBe(3_000);
+    expect(result.incomeAdjustments.taxableCapitalGain).toBe(1_500);
+    expect(result.incomeAdjustments.capitalGainsInclusionRate).toBe(0.5);
+    expect(result.taxableIncomeBasis).toBe(4_500);
+  });
+
+  it("keeps excess capital loss visible without offsetting ordinary income", () => {
+    const result = calculate({
+      interest: 10_000,
+      capitalGains: 2_000,
+      capitalLosses: 5_000,
+    });
+    expect(result.incomeAdjustments.currentYearNetCapitalGain).toBe(0);
+    expect(result.incomeAdjustments.currentYearExcessCapitalLoss).toBe(3_000);
+    expect(result.incomeAdjustments.allowableCapitalLoss).toBe(2_500);
+    expect(result.taxableIncomeBasis).toBe(10_000);
+  });
+
+  it("includes grossed-up dividends and taxable capital gains in OAS recovery income", () => {
+    const result = calculate({
+      oas: 10_000,
+      otherTaxableIncome: 80_000,
+      eligibleCanadianDividends: 5_000,
+      capitalGains: 10_000,
+    });
+    expect(result.recoveryIncomeBasis).toBe(101_900);
+    expect(result.oasRecovery.incomeBasis).toBe(101_900);
+    expect(result.oasRecovery.recoveryTax).toBeGreaterThan(0);
+  });
+
+  it("records a later current-year capital loss as signed repricing without funding negative tax", () => {
+    const tax: Extract<TaxAssumptions, { mode: "canadian_annual" }> = {
+      mode: "canadian_annual",
+      source: "explicit_configuration",
+      effectiveTaxRate: 0,
+      oasRecoveryThresholdToday: 1_000_000,
+      oasRecoveryRate: 0,
+      province: "ON",
+      referenceYear: 2026,
+      futureIndexingRate: 0,
+      openingTaxYearBeforeProjectionMonth: {
+        calendarYear: 2026,
+        throughMonth: 0,
+        income: {
+          ...ZERO_CANADIAN_TAX_INCOME,
+          employment: 60_000,
+        },
+        source: "january_zero",
+      },
+      limitations: [],
+    };
+    const state = createCanadianTaxYearState(
+      2026,
+      tax.openingTaxYearBeforeProjectionMonth.income,
+      0,
+    );
+    addCanadianTaxIncome(state, "capitalGains", 40_000, false);
+    const gain = recognizeCanadianProjectionTax({
+      state,
+      tax,
+      ageAtYearEnd: 64,
+      pensionIncomeCreditEligible: false,
+    });
+    expect(gain.newlyRecognizedTax).toBeGreaterThan(0);
+
+    addCanadianTaxIncome(state, "capitalLosses", 40_000, false);
+    const loss = recognizeCanadianProjectionTax({
+      state,
+      tax,
+      ageAtYearEnd: 64,
+      pensionIncomeCreditEligible: false,
+    });
+    expect(loss.newlyRecognizedTax).toBeLessThan(0);
+    expect(loss.projectionFundedTax).toBe(0);
+    expect(state.recognizedProjectionFundedTax).toBe(0);
   });
 
   it("keeps exact-cent after-tax proceeds monotonic around statutory boundaries", () => {

@@ -873,11 +873,13 @@ function retirementRequirementDocument(
       },
     ],
     caveats: [
-      requirement.taxModel ===
-      "canadian_annual_federal_ontario_forecast"
-        ? context.projection.rrif.mode === "statutory"
-          ? "Provisional — annual federal and Ontario income tax and statutory RRIF minimum withdrawals are modelled, but non-registered investment-income taxation and full tax-return fidelity are not."
-          : "Provisional — annual federal and Ontario income tax is modelled, but RRIF minimum withdrawals and non-registered investment-income taxation are not."
+      !requirement.provisionalTax
+        ? "Complete for the supported deterministic tax model — this is still a planning estimate, not a tax return."
+        : requirement.taxModel ===
+            "canadian_annual_federal_ontario_forecast"
+          ? context.projection.rrif.mode === "statutory"
+            ? "Provisional — annual federal and Ontario income tax and statutory RRIF minimum withdrawals are modelled, but non-registered taxation remains in compatibility mode."
+            : "Provisional — annual federal and Ontario income tax is modelled, but RRIF minimum withdrawals remain in compatibility mode."
         : context.projection.rrif.mode === "statutory"
           ? "Provisional — statutory RRIF minimums are modelled under the current flat retirement-tax compatibility assumption."
           : "Provisional — calculated using the current flat retirement-tax compatibility assumption; RRIF minimum withdrawals are not modelled.",
@@ -940,6 +942,58 @@ function annualTaxDocument(context: ExplanationContext): ExplanationDocument {
         value: exactCurrency.format(latest.fullAnnualTax.taxableIncomeBasis),
         rawValue: latest.fullAnnualTax.taxableIncomeBasis,
         sourceType: "projection",
+      },
+      {
+        label: "Actual eligible Canadian dividends",
+        value: exactCurrency.format(
+          latest.totalIncome.eligibleCanadianDividends ?? 0,
+        ),
+        rawValue: latest.totalIncome.eligibleCanadianDividends ?? 0,
+        sourceType: "projection",
+      },
+      {
+        label: "Eligible-dividend gross-up",
+        value: exactCurrency.format(
+          latest.fullAnnualTax.incomeAdjustments.eligibleDividendGrossUp,
+        ),
+        rawValue:
+          latest.fullAnnualTax.incomeAdjustments.eligibleDividendGrossUp,
+        sourceType: "canadian_reference",
+      },
+      {
+        label: "Taxable eligible dividends",
+        value: exactCurrency.format(
+          latest.fullAnnualTax.incomeAdjustments.taxableEligibleDividends,
+        ),
+        rawValue:
+          latest.fullAnnualTax.incomeAdjustments.taxableEligibleDividends,
+        sourceType: "canadian_reference",
+      },
+      {
+        label: "Federal eligible-dividend credit",
+        value: exactCurrency.format(
+          latest.fullAnnualTax.federal.eligibleDividendTaxCredit,
+        ),
+        rawValue: latest.fullAnnualTax.federal.eligibleDividendTaxCredit,
+        operation: "subtract",
+        sourceType: "canadian_reference",
+      },
+      {
+        label: "Ontario eligible-dividend credit",
+        value: exactCurrency.format(
+          latest.fullAnnualTax.ontario.eligibleDividendTaxCredit,
+        ),
+        rawValue: latest.fullAnnualTax.ontario.eligibleDividendTaxCredit,
+        operation: "subtract",
+        sourceType: "canadian_reference",
+      },
+      {
+        label: "Taxable capital gain after current-year losses",
+        value: exactCurrency.format(
+          latest.fullAnnualTax.incomeAdjustments.taxableCapitalGain,
+        ),
+        rawValue: latest.fullAnnualTax.incomeAdjustments.taxableCapitalGain,
+        sourceType: "canadian_reference",
       },
       {
         label: "Federal tax",
@@ -1013,6 +1067,36 @@ function annualTaxDocument(context: ExplanationContext): ExplanationDocument {
           })),
       },
       {
+        title: "Non-registered return and adjusted-cost-base evidence",
+        description:
+          context.projection.nonRegisteredTaxation.mode ===
+          "simplified_canadian"
+            ? "Configured distributions characterize the existing total return and are automatically reinvested. Actual distributions increase pooled account ACB; unrealized appreciation does not. Withdrawals dispose of ACB proportionally."
+            : "Non-registered taxation is in compatibility mode, so ACB and taxable investment income are unavailable rather than shown as zero.",
+        columns: [
+          { key: "year", label: "Year" },
+          { key: "openingAcb", label: "Opening ACB" },
+          { key: "distributions", label: "Reinvested distributions" },
+          { key: "unrealized", label: "Unrealized change" },
+          { key: "proceeds", label: "Disposition proceeds" },
+          { key: "acbDisposed", label: "ACB disposed" },
+          { key: "gains", label: "Realized gains" },
+          { key: "losses", label: "Realized losses" },
+          { key: "closingAcb", label: "Closing ACB" },
+        ],
+        rows: context.projection.nonRegisteredTaxation.annual.map((period) => ({
+          year: period.calendarYear,
+          openingAcb: period.openingAdjustedCostBase,
+          distributions: period.totalDistributions,
+          unrealized: period.unrealizedChange,
+          proceeds: period.dispositionProceeds,
+          acbDisposed: period.adjustedCostBaseDisposed,
+          gains: period.realizedCapitalGains,
+          losses: period.realizedCapitalLosses,
+          closingAcb: period.closingAdjustedCostBase,
+        })),
+      },
+      {
         title: "RRIF lifecycle and minimum evidence",
         description:
           context.projection.rrif.mode === "statutory"
@@ -1062,9 +1146,15 @@ function annualTaxDocument(context: ExplanationContext): ExplanationDocument {
       "Annual credits are not prorated for partial modelled years; a partial year is labelled as an estimate using income through the completed period.",
       "OAS recovery uses supported annual income, not a monthly threshold proxy.",
       "RRSP and ordinary RRIF cash needs use a bounded exact-cent search for the lowest gross amount whose signed annual-tax-adjusted proceeds fund the cash need.",
-      context.projection.rrif.mode === "statutory"
-        ? "RRIF income is eligible pension income at age 65 or older at year end; each account's remaining minimum is settled once in December and surplus follows the configured surplus policy. Non-registered investment-income taxation remains unmodelled."
-        : "RRIF minimum withdrawals and non-registered investment-income taxation are not modelled.",
+      context.projection.nonRegisteredTaxation.mode === "simplified_canadian"
+        ? "Interest and foreign income are fully taxable; actual eligible dividends are grossed up and receive federal/Ontario credits; capital gains use a fixed 50% inclusion rate after current-year losses. Taxable sales use signed annual-tax repricing."
+        : "Non-registered investment income and dispositions are unmodelled in compatibility mode.",
+      "Reinvested distributions are part of the existing account return, not additional assets. Actual reinvested amounts increase pooled ACB; dividend gross-up, credits, taxable capital-gain inclusion, and unrealized appreciation do not.",
+      "RRIF-forced and other surplus routed into a non-registered account increases market value and ACB without immediate investment income; later distributions and dispositions use that same pooled state.",
+      "The model does not carry excess capital losses to another year and does not model security-level lots, identical-property aggregation, superficial losses, return of capital, transaction fees, or foreign tax credits.",
+      context.projection.taxation.provisional
+        ? `Tax coverage remains provisional: ${context.projection.taxation.coverageStatus.replaceAll("_", " ")}.`
+        : "Tax coverage is complete for the supported deterministic model. Full tax-return fidelity remains false: this is a planning estimate, not a tax return.",
     ],
     reconciliation: {
       matched: latest.reconciled,

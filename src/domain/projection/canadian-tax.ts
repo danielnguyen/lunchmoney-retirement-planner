@@ -11,6 +11,11 @@ export type CanadianTaxIncomeBySource = {
   pension: number;
   rrspWithdrawals: number;
   rrifWithdrawals: number;
+  interest: number;
+  eligibleCanadianDividends: number;
+  foreignIncome: number;
+  capitalGains: number;
+  capitalLosses: number;
   otherTaxableIncome: number;
 };
 
@@ -21,6 +26,11 @@ export const ZERO_CANADIAN_TAX_INCOME: CanadianTaxIncomeBySource = {
   pension: 0,
   rrspWithdrawals: 0,
   rrifWithdrawals: 0,
+  interest: 0,
+  eligibleCanadianDividends: 0,
+  foreignIncome: 0,
+  capitalGains: 0,
+  capitalLosses: 0,
   otherTaxableIncome: 0,
 };
 
@@ -30,6 +40,16 @@ export type AnnualCanadianTaxResult = {
   taxYear: number;
   referenceYear: 2026;
   incomeBySource: CanadianTaxIncomeBySource;
+  incomeAdjustments: {
+    eligibleDividendGrossUp: number;
+    taxableEligibleDividends: number;
+    currentYearNetCapitalGain: number;
+    currentYearExcessCapitalLoss: number;
+    capitalGainsInclusionRate: number;
+    taxableCapitalGain: number;
+    allowableCapitalLoss: number;
+  };
+  actualIncomeTotal: number;
   totalIncome: number;
   netIncomeBasis: number;
   taxableIncomeBasis: number;
@@ -42,6 +62,7 @@ export type AnnualCanadianTaxResult = {
     ageAmount: number;
     pensionIncomeAmount: number;
     nonRefundableCreditValue: number;
+    eligibleDividendTaxCredit: number;
     netTax: number;
   };
   ontario: {
@@ -50,6 +71,8 @@ export type AnnualCanadianTaxResult = {
     ageAmount: number;
     pensionIncomeAmount: number;
     nonRefundableCreditValue: number;
+    eligibleDividendTaxCredit: number;
+    taxAfterSurtaxAndDividendCredit: number;
     taxBeforeSurtaxAndReduction: number;
     taxReduction: number;
     surtax: number;
@@ -94,8 +117,45 @@ function assertIncome(income: CanadianTaxIncomeBySource): void {
   }
 }
 
-function totalIncome(income: CanadianTaxIncomeBySource): number {
-  return Object.values(income).reduce((total, value) => total + value, 0);
+function taxBasis(
+  income: CanadianTaxIncomeBySource,
+  reference: CanadianTaxReferenceSet,
+) {
+  const ordinary =
+    income.employment +
+    income.cpp +
+    income.oas +
+    income.pension +
+    income.rrspWithdrawals +
+    income.rrifWithdrawals +
+    income.interest +
+    income.foreignIncome +
+    income.otherTaxableIncome;
+  const taxableEligibleDividends =
+    income.eligibleCanadianDividends *
+    reference.federal.eligibleDividendGrossUp;
+  const eligibleDividendGrossUp =
+    taxableEligibleDividends - income.eligibleCanadianDividends;
+  const currentYearNetCapitalGain = Math.max(
+    0,
+    income.capitalGains - income.capitalLosses,
+  );
+  const currentYearExcessCapitalLoss = Math.max(
+    0,
+    income.capitalLosses - income.capitalGains,
+  );
+  const taxableCapitalGain =
+    currentYearNetCapitalGain * reference.federal.capitalGainsInclusionRate;
+  return {
+    ordinary,
+    taxableEligibleDividends,
+    eligibleDividendGrossUp,
+    currentYearNetCapitalGain,
+    currentYearExcessCapitalLoss,
+    taxableCapitalGain,
+    taxableIncome:
+      ordinary + taxableEligibleDividends + taxableCapitalGain,
+  };
 }
 
 function bracketTaxRaw(
@@ -229,7 +289,12 @@ export function calculateAnnualCanadianTax(input: {
   const reference =
     input.referenceSet ??
     resolveCanadianTaxReferences(input.calendarYear, input.futureIndexingRate);
-  const total = totalIncome(input.incomeBySource);
+  const basis = taxBasis(input.incomeBySource, reference);
+  const total = basis.taxableIncome;
+  const actualIncomeTotal =
+    basis.ordinary +
+    input.incomeBySource.eligibleCanadianDividends +
+    basis.currentYearNetCapitalGain;
   const federalBracketTaxRaw = bracketTaxRaw(
     total,
     reference.federal.brackets,
@@ -256,9 +321,12 @@ export function calculateAnnualCanadianTax(input: {
       federalAgeRaw +
       federalPensionRaw) *
     reference.federal.nonRefundableCreditRate;
+  const federalDividendTaxCreditRaw =
+    basis.taxableEligibleDividends *
+    reference.federal.eligibleDividendTaxCreditRate;
   const federalNetRaw = Math.max(
     0,
-    federalBracketTaxRaw - federalCreditsRaw,
+    federalBracketTaxRaw - federalCreditsRaw - federalDividendTaxCreditRaw,
   );
 
   const ontarioBracketTaxRaw = bracketTaxRaw(
@@ -285,7 +353,14 @@ export function calculateAnnualCanadianTax(input: {
     ontarioBracketTaxRaw - ontarioCreditsRaw,
   );
   const surtaxRaw = ontarioSurtaxRaw(ontarioBeforeSurtaxRaw, reference);
-  const taxBeforeReductionRaw = ontarioBeforeSurtaxRaw + surtaxRaw;
+  const ontarioDividendTaxCreditRaw =
+    basis.taxableEligibleDividends *
+    reference.ontario.eligibleDividendTaxCreditRate;
+  const taxAfterSurtaxAndDividendCreditRaw = Math.max(
+    0,
+    ontarioBeforeSurtaxRaw + surtaxRaw - ontarioDividendTaxCreditRaw,
+  );
+  const taxBeforeReductionRaw = taxAfterSurtaxAndDividendCreditRaw;
   const reductionRaw = ontarioTaxReductionRaw(
     taxBeforeReductionRaw,
     reference,
@@ -326,6 +401,19 @@ export function calculateAnnualCanadianTax(input: {
     taxYear: input.calendarYear,
     referenceYear: 2026,
     incomeBySource: { ...input.incomeBySource },
+    incomeAdjustments: {
+      eligibleDividendGrossUp: money(basis.eligibleDividendGrossUp),
+      taxableEligibleDividends: money(basis.taxableEligibleDividends),
+      currentYearNetCapitalGain: money(basis.currentYearNetCapitalGain),
+      currentYearExcessCapitalLoss: money(basis.currentYearExcessCapitalLoss),
+      capitalGainsInclusionRate: reference.federal.capitalGainsInclusionRate,
+      taxableCapitalGain: money(basis.taxableCapitalGain),
+      allowableCapitalLoss: money(
+        input.incomeBySource.capitalLosses *
+          reference.federal.capitalGainsInclusionRate,
+      ),
+    },
+    actualIncomeTotal: money(actualIncomeTotal),
     totalIncome: money(total),
     netIncomeBasis: money(total),
     taxableIncomeBasis: money(total),
@@ -338,6 +426,7 @@ export function calculateAnnualCanadianTax(input: {
       ageAmount: money(federalAgeRaw),
       pensionIncomeAmount: money(federalPensionRaw),
       nonRefundableCreditValue: money(federalCreditsRaw),
+      eligibleDividendTaxCredit: money(federalDividendTaxCreditRaw),
       netTax: federalNet,
     },
     ontario: {
@@ -346,7 +435,11 @@ export function calculateAnnualCanadianTax(input: {
       ageAmount: money(ontarioAgeRaw),
       pensionIncomeAmount: money(ontarioPensionRaw),
       nonRefundableCreditValue: money(ontarioCreditsRaw),
+      eligibleDividendTaxCredit: money(ontarioDividendTaxCreditRaw),
       taxBeforeSurtaxAndReduction: money(ontarioBeforeSurtaxRaw),
+      taxAfterSurtaxAndDividendCredit: money(
+        taxAfterSurtaxAndDividendCreditRaw,
+      ),
       taxReduction: money(reductionRaw),
       surtax: money(surtaxRaw),
       healthPremium,
@@ -377,9 +470,9 @@ export function calculateAnnualCanadianTax(input: {
       reconciled: Math.abs(normalizedDifference) <= 0.01,
     },
     limitations: [
-      "Supported income sources are treated as total, net, and taxable income without additional deductions.",
-      "RRIF minimum withdrawals are not modelled.",
-      "Non-registered investment income is not modelled.",
+      "Current-year capital losses offset current-year capital gains only; carryback and carryforward are not modelled.",
+      "Eligible Canadian dividends use the supported gross-up and non-refundable federal and Ontario credits.",
+      "Foreign tax credits and non-eligible Canadian dividend credits are not modelled.",
       "Refundable credits and full tax-return deductions are not modelled.",
     ],
   };

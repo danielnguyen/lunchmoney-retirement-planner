@@ -31,6 +31,10 @@ export const projectionFixture: ProjectionInputs = {
     mode: "not_modelled_compatibility",
     source: "compatibility_default",
   },
+  nonRegisteredTaxation: {
+    mode: "not_modelled_compatibility",
+    source: "compatibility_default",
+  },
   tax: {
     mode: "flat_compatibility",
     source: "explicit_configuration",
@@ -295,7 +299,7 @@ export const baselineContextFixture: BaselineExportContext = {
 
 export const currentBaselineFixture: CurrentBaseline = {
   ...baselineContextFixture,
-  schemaVersion: "4.0",
+  schemaVersion: "5.0",
   lunchMoneyMappings: {
     accounts: [
       {

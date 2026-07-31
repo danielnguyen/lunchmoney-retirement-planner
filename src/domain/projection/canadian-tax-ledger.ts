@@ -27,7 +27,7 @@ export type CanadianTaxYearState = {
 };
 
 function copy(income: CanadianTaxIncomeLedger): CanadianTaxIncomeLedger {
-  return { ...income };
+  return { ...ZERO_CANADIAN_TAX_INCOME, ...income };
 }
 
 export function createCanadianTaxYearState(
@@ -74,9 +74,13 @@ export function addCanadianTaxIncome(
   if (!Number.isFinite(amount) || amount < 0) {
     throw new Error(`Canadian tax ledger ${source} income must be finite and non-negative`);
   }
-  state.projectionIncome[source] += amount;
-  state.totalIncome[source] += amount;
-  if (embedded) state.embeddedIncome[source] += amount;
+  state.projectionIncome[source] =
+    (state.projectionIncome[source] ?? 0) + amount;
+  state.totalIncome[source] = (state.totalIncome[source] ?? 0) + amount;
+  if (embedded) {
+    state.embeddedIncome[source] =
+      (state.embeddedIncome[source] ?? 0) + amount;
+  }
 }
 
 export type CanadianTaxPosition = {
@@ -115,22 +119,17 @@ export function canadianTaxPosition(input: {
   } as const;
   const full = calculateAnnualCanadianTax({
     ...common,
-    incomeBySource: input.state.totalIncome,
+    incomeBySource: copy(input.state.totalIncome) as CanadianTaxIncomeBySource,
     eligiblePensionIncome: eligibleFull,
   });
   const embedded = calculateAnnualCanadianTax({
     ...common,
-    incomeBySource: input.state.embeddedIncome,
+    incomeBySource: copy(input.state.embeddedIncome) as CanadianTaxIncomeBySource,
     eligiblePensionIncome: eligibleEmbedded,
   });
   const projectionFundedTax = round(
     full.totals.totalTax - embedded.totals.totalTax,
   );
-  if (projectionFundedTax < -0.01) {
-    throw new Error(
-      "Canadian projection-funded tax became negative; the supported annual tax function is not monotonic for this ledger",
-    );
-  }
   return {
     full,
     embedded,
@@ -156,11 +155,6 @@ export function recognizeCanadianProjectionTax(input: {
     position.full.oasRecovery.recoveryTax -
       position.embedded.oasRecovery.recoveryTax,
   );
-  if (cumulativeOasRecoveryTax < -0.01) {
-    throw new Error(
-      "Canadian cumulative projection-funded OAS recovery tax became negative",
-    );
-  }
   const newlyRecognizedOasRecoveryTax = round(
     cumulativeOasRecoveryTax - input.state.recognizedOasRecoveryTax,
   );
@@ -169,10 +163,7 @@ export function recognizeCanadianProjectionTax(input: {
   // explicitly so recognized cash always equals the current non-negative YTD
   // projection-funded liability instead of silently retaining stale tax.
   input.state.recognizedProjectionFundedTax = position.projectionFundedTax;
-  input.state.recognizedOasRecoveryTax = Math.max(
-    0,
-    cumulativeOasRecoveryTax,
-  );
+  input.state.recognizedOasRecoveryTax = cumulativeOasRecoveryTax;
   return {
     ...position,
     newlyRecognizedTax,
@@ -188,6 +179,7 @@ export function annualCanadianTaxResult(input: {
   periodStatus: Extract<AnnualTaxResult, { mode: "canadian_annual" }>[
     "periodStatus"
   ];
+  provisional?: boolean;
 }): Extract<AnnualTaxResult, { mode: "canadian_annual" }> {
   const position = canadianTaxPosition(input);
   const difference = centDifference(
@@ -221,7 +213,7 @@ export function annualCanadianTaxResult(input: {
     },
     reconciled:
       Math.abs(difference) <= 0.01 && Math.abs(cashDifference) <= 0.01,
-    provisional: true,
+    provisional: input.provisional ?? true,
     limitations: [...input.tax.limitations],
   };
 }

@@ -334,7 +334,7 @@ describe("Canadian annual tax projection integration", () => {
       {},
       "2026-07-30T12:00:00.000Z",
     );
-    expect(snapshot.schemaVersion).toBe("12.0");
+    expect(snapshot.schemaVersion).toBe("13.0");
     expect(snapshot.projection.taxation.mode).toBe("canadian_annual");
     expect(snapshot.projection.taxation.provisional).toBe(true);
     expect(snapshot.projection.taxation.annual.every(

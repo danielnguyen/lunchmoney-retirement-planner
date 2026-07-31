@@ -28,7 +28,7 @@ const configFixture: PlannerConfig = {
     minimumEndingFinancialAssetsToday: 0,
     source: "explicit_configuration",
   },
-  rrifMinimumWithdrawals: {
+    rrifMinimumWithdrawals: {
     mode: "not_modelled_compatibility",
     source: "compatibility_default",
   },
@@ -88,6 +88,10 @@ const configFixture: PlannerConfig = {
         },
       },
     },
+  },
+  nonRegisteredTaxation: {
+    mode: "not_modelled_compatibility",
+    source: "compatibility_default",
   },
   contributionWaterfall: {
     routes: [
@@ -270,6 +274,144 @@ function lunchMoneyData(): LunchMoneyData {
 const window = { startDate: "2025-07-14", endDate: "2026-07-14", trailingMonths: 12 };
 
 describe("live baseline derivation", () => {
+  it("resolves complete per-account simplified non-registered ACB evidence", () => {
+    const config = structuredClone(configFixture);
+    config.accountMappings["manual:3"] = {
+      include: true,
+      type: "non_registered",
+      withdrawalPriority: 3,
+    };
+    config.employmentIncomePhases = [
+      {
+        id: "synthetic-employment",
+        label: "Synthetic employment",
+        startAge: 40,
+        endAge: 65,
+        annualNetCashToday: "live_baseline",
+        annualTaxableEmploymentIncomeToday: 100_000,
+        annualGrowth: 0.02,
+      },
+    ];
+    config.tax = {
+      mode: "canadian_annual",
+      source: "explicit_configuration",
+      province: "ON",
+      referenceYear: 2026,
+      futureIndexingRate: 0.02,
+      pensionIncomeCreditEligible: false,
+      openingTaxYearBeforeProjectionMonth: {
+        calendarYear: 2026,
+        throughMonth: 6,
+        income: {
+          employment: 0,
+          cpp: 0,
+          oas: 0,
+          pension: 0,
+          rrspWithdrawals: 0,
+          rrifWithdrawals: 0,
+          interest: 0,
+          eligibleCanadianDividends: 0,
+          foreignIncome: 0,
+          capitalGains: 0,
+          capitalLosses: 0,
+          otherTaxableIncome: 0,
+        },
+      },
+    };
+    config.rrifMinimumWithdrawals = {
+      mode: "statutory",
+      source: "explicit_configuration",
+      ageBasis: "owner_age",
+      settlementTiming: "december_true_up",
+    };
+    config.nonRegisteredTaxation = {
+      mode: "simplified_canadian",
+      source: "explicit_configuration",
+      accounts: [
+        {
+          accountId: "manual:3",
+          openingAdjustedCostBase: {
+            amount: 1_200,
+            effectiveDate: "2026-07-08",
+            sourceDescription: "Synthetic opening tax book value",
+          },
+          annualDistributionYields: {
+            interest: 0.01,
+            eligibleCanadianDividends: 0.02,
+            foreignIncome: 0.01,
+            capitalGains: 0,
+          },
+        },
+      ],
+    };
+
+    const baseline = deriveCurrentBaseline(
+      config,
+      lunchMoneyData(),
+      window,
+      "2026-07-14T12:00:00.000Z",
+    );
+    expect(baseline.projectionInputs.nonRegisteredTaxation).toMatchObject({
+      mode: "simplified_canadian",
+      accounts: [
+        {
+          accountId: "manual:3",
+          openingAdjustedCostBase: {
+            amount: 1_200,
+            effectiveDate: "2026-07-08",
+            source: "explicit_configuration",
+          },
+        },
+      ],
+    });
+    expect(baseline.warnings.map((warning) => warning.code)).toEqual(
+      expect.arrayContaining([
+        "non_registered_tax_simplified_active",
+        "non_registered_foreign_tax_credit_not_modelled",
+        "supported_tax_model_complete",
+      ]),
+    );
+    expect(
+      baseline.provenance[
+        "nonRegisteredTaxation.accounts.manual:3.openingAdjustedCostBase"
+      ],
+    ).toMatchObject({
+      value: 1_200,
+      sourceType: "local_configuration",
+      effectiveDate: "2026-07-08",
+    });
+
+    const missing = structuredClone(config);
+    if (missing.nonRegisteredTaxation.mode !== "simplified_canadian") {
+      throw new Error("expected simplified mode");
+    }
+    delete missing.nonRegisteredTaxation.accounts[0]!
+      .openingAdjustedCostBase;
+    expect(() =>
+      deriveCurrentBaseline(
+        missing,
+        lunchMoneyData(),
+        window,
+        "2026-07-14T12:00:00.000Z",
+      ),
+    ).toThrow(/requires an explicit opening adjusted cost base/i);
+
+    const zeroAcb = structuredClone(config);
+    if (zeroAcb.nonRegisteredTaxation.mode !== "simplified_canadian") {
+      throw new Error("expected simplified mode");
+    }
+    zeroAcb.nonRegisteredTaxation.accounts[0]!.openingAdjustedCostBase!.amount =
+      0;
+    expect(
+      deriveCurrentBaseline(
+        zeroAcb,
+        lunchMoneyData(),
+        window,
+        "2026-07-14T12:00:00.000Z",
+      ).warnings.map((warning) => warning.code),
+    ).toContain("non_registered_zero_acb");
+  });
+
   it("resolves Canadian annual tax context, provenance, and review warnings", () => {
     const config = structuredClone(configFixture);
     config.employmentIncomePhases = [
@@ -464,7 +606,7 @@ describe("live baseline derivation", () => {
       }),
     ]);
     expect(baseline.recordsAnalyzed.transactions).toBe(8);
-    expect(baseline.schemaVersion).toBe("4.0");
+    expect(baseline.schemaVersion).toBe("5.0");
     expect(baseline.warnings).toContainEqual(
       expect.objectContaining({ code: "long_live_baseline_income" }),
     );
@@ -627,7 +769,7 @@ describe("live baseline derivation", () => {
       "2026-07-14T12:00:00.000Z",
     );
 
-    expect(baseline.schemaVersion).toBe("4.0");
+    expect(baseline.schemaVersion).toBe("5.0");
     expect(baseline.lunchMoneyMappings.accounts).toEqual([
       {
         mappingId: "manual:1",
@@ -687,7 +829,7 @@ describe("live baseline derivation", () => {
       "2026-07-14T12:00:00.000Z",
     );
 
-    expect(baseline.schemaVersion).toBe("4.0");
+    expect(baseline.schemaVersion).toBe("5.0");
     expect(
       baseline.projectionInputs.registeredAccountRoom?.tfsa
         .startingAvailableRoom.amount,
@@ -907,7 +1049,7 @@ describe("live baseline derivation", () => {
       "2026-07-14T12:00:00.000Z",
     );
 
-    expect(baseline.schemaVersion).toBe("4.0");
+    expect(baseline.schemaVersion).toBe("5.0");
     expect(baseline.projectionInputs.nonFinancialAssets).toEqual([
       expect.objectContaining({
         id: "manual:4",

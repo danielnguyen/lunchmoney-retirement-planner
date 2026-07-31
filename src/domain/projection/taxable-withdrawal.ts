@@ -1,5 +1,5 @@
 export type TaxableWithdrawalSolution = {
-  incomeSource: "rrspWithdrawals" | "rrifWithdrawals";
+  incomeSource: "rrspWithdrawals" | "rrifWithdrawals" | "nonRegisteredDisposition";
   grossWithdrawal: number;
   incrementalTax: number;
   netProceeds: number;
@@ -23,7 +23,7 @@ function dollars(value: number): number {
 }
 
 export function solveTaxableWithdrawal(input: {
-  incomeSource: "rrspWithdrawals" | "rrifWithdrawals";
+  incomeSource: "rrspWithdrawals" | "rrifWithdrawals" | "nonRegisteredDisposition";
   availableBalance: number;
   requiredNetCash: number;
   incrementalTax: (grossWithdrawal: number) => number;

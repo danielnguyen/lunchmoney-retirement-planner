@@ -43,6 +43,10 @@ function baseInputs(): ProjectionInputs {
       mode: "not_modelled_compatibility",
       source: "compatibility_default",
     },
+    nonRegisteredTaxation: {
+      mode: "not_modelled_compatibility",
+      source: "compatibility_default",
+    },
     tax: {
       mode: "flat_compatibility",
       source: "explicit_configuration",

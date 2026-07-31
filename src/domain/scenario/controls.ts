@@ -28,7 +28,7 @@ export type Overrides = Record<string, number>;
 
 export type ScenarioPathSegment =
   | string
-  | { itemId: string };
+  | { itemId: string; identityKey?: "id" | "accountId" };
 
 export type ScenarioConfigTarget = {
   segments: ScenarioPathSegment[];
@@ -575,6 +575,41 @@ function registeredRoomPersistence(
   };
 }
 
+type NonRegisteredYieldField =
+  | "interest"
+  | "eligibleCanadianDividends"
+  | "foreignIncome"
+  | "capitalGains";
+
+function nonRegisteredYieldPersistence(
+  accountId: string,
+  field: NonRegisteredYieldField,
+): ScenarioPersistenceResolver {
+  return (config) => {
+    if (config.nonRegisteredTaxation.mode !== "simplified_canadian") {
+      return scenarioOnly(
+        "This distribution yield has no destination because the YAML draft does not use simplified Canadian non-registered taxation.",
+      );
+    }
+    const treatment = config.nonRegisteredTaxation.accounts.find(
+      (account) => account.accountId === accountId,
+    );
+    return treatment
+      ? configBinding(
+          scalar(
+            "nonRegisteredTaxation",
+            "accounts",
+            { itemId: accountId, identityKey: "accountId" },
+            "annualDistributionYields",
+            field,
+          ),
+        )
+      : scenarioOnly(
+          "This distribution yield has no matching non-registered account treatment in the YAML draft.",
+        );
+  };
+}
+
 export function buildControls(baseline: ProjectionInputs): ControlDefinition[] {
   const simplePolicy = baseline.savingsPolicy.mode === "simple";
   const controls: ControlDefinition[] = [
@@ -799,6 +834,52 @@ export function buildControls(baseline: ProjectionInputs): ControlDefinition[] {
               "Tax-reference indexing has no destination because the YAML draft does not use Canadian annual tax mode.",
             ),
     });
+  }
+
+  if (baseline.nonRegisteredTaxation.mode === "simplified_canadian") {
+    const labels: Record<NonRegisteredYieldField, string> = {
+      interest: "interest distribution yield",
+      eligibleCanadianDividends: "eligible Canadian dividend yield",
+      foreignIncome: "foreign or other fully taxable distribution yield",
+      capitalGains: "capital-gain distribution yield",
+    };
+    for (const treatment of baseline.nonRegisteredTaxation.accounts) {
+      const accountLabel =
+        baseline.accounts.find(
+          (account) => account.id === treatment.accountId,
+        )?.label ?? "Non-registered account";
+      for (const field of Object.keys(labels) as NonRegisteredYieldField[]) {
+        controls.push({
+          key: `nonRegisteredTaxation.${treatment.accountId}.annualDistributionYields.${field}`,
+          sourceKey: `nonRegisteredTaxation.accounts.${treatment.accountId}.annualDistributionYields.${field}`,
+          label: `${accountLabel} · ${labels[field]}`,
+          kind: "percentage",
+          min: fixed(0),
+          max: fixed(1),
+          step: 0.01,
+          format: percent.format,
+          get: (inputs) =>
+            inputs.nonRegisteredTaxation.mode === "simplified_canadian"
+              ? inputs.nonRegisteredTaxation.accounts.find(
+                  (account) => account.accountId === treatment.accountId,
+                )!.annualDistributionYields[field]
+              : 0,
+          set: (inputs, value) => {
+            if (
+              inputs.nonRegisteredTaxation.mode === "simplified_canadian"
+            ) {
+              inputs.nonRegisteredTaxation.accounts.find(
+                (account) => account.accountId === treatment.accountId,
+              )!.annualDistributionYields[field] = value;
+            }
+          },
+          persistence: nonRegisteredYieldPersistence(
+            treatment.accountId,
+            field,
+          ),
+        });
+      }
+    }
   }
 
   if (

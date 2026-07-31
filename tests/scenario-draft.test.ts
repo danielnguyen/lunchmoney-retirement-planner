@@ -862,6 +862,133 @@ describe("scenario draft classification and YAML patching", () => {
     expect(applied.contents).toContain("  inflation: 0.025");
   });
 
+  it("previews and applies a guided non-registered distribution yield by accountId", () => {
+    const baseline = simpleBaseline();
+    baseline.person.employmentIncomePhases[0]!.annualTaxableEmploymentIncomeToday =
+      0;
+    baseline.tax = {
+      mode: "canadian_annual",
+      source: "explicit_configuration",
+      effectiveTaxRate: 0,
+      oasRecoveryThresholdToday: 1_000_000,
+      oasRecoveryRate: 0,
+      province: "ON",
+      referenceYear: 2026,
+      futureIndexingRate: 0.02,
+      openingTaxYearBeforeProjectionMonth: {
+        calendarYear: 2026,
+        throughMonth: 6,
+        income: {
+          employment: 0,
+          cpp: 0,
+          oas: 0,
+          pension: 0,
+          rrspWithdrawals: 0,
+          rrifWithdrawals: 0,
+          interest: 0,
+          eligibleCanadianDividends: 0,
+          foreignIncome: 0,
+          capitalGains: 0,
+          capitalLosses: 0,
+          otherTaxableIncome: 0,
+        },
+        source: "explicit_configuration",
+      },
+      limitations: [],
+    };
+    baseline.nonRegisteredTaxation = {
+      mode: "simplified_canadian",
+      source: "explicit_configuration",
+      accounts: [
+        {
+          accountId: FUTURE_TAXABLE_ID,
+          openingAdjustedCostBase: {
+            amount: 0,
+            effectiveDate: baseline.startDate,
+            sourceDescription: "Synthetic zero opening ACB",
+            source: "projection_zero_balance_default",
+          },
+          annualDistributionYields: {
+            interest: 0.01,
+            eligibleCanadianDividends: 0.02,
+            foreignIncome: 0.01,
+            capitalGains: 0,
+          },
+        },
+      ],
+      limitations: [],
+    };
+    validateProjectionInputs(baseline);
+    const configured = modifiedConfigContents(contents, (value) => {
+      value.tax = {
+        mode: "canadian_annual",
+        province: "ON",
+        referenceYear: 2026,
+        futureIndexingRate: 0.02,
+        pensionIncomeCreditEligible: false,
+        openingTaxYearBeforeProjectionMonth: {
+          calendarYear: 2026,
+          throughMonth: 6,
+          income: {
+            employment: 0,
+            cpp: 0,
+            oas: 0,
+            pension: 0,
+            rrspWithdrawals: 0,
+            rrifWithdrawals: 0,
+            interest: 0,
+            eligibleCanadianDividends: 0,
+            foreignIncome: 0,
+            capitalGains: 0,
+            capitalLosses: 0,
+            otherTaxableIncome: 0,
+          },
+        },
+      };
+      value.nonRegisteredTaxation = {
+        mode: "simplified_canadian",
+        accounts: [
+          {
+            accountId: FUTURE_TAXABLE_ID,
+            annualDistributionYields: {
+              interest: 0.01,
+              eligibleCanadianDividends: 0.02,
+              foreignIncome: 0.01,
+              capitalGains: 0,
+            },
+          },
+        ],
+      };
+    });
+    const key = `nonRegisteredTaxation.${FUTURE_TAXABLE_ID}.annualDistributionYields.interest`;
+    const preview = previewScenarioDraft({
+      contents: configured,
+      baseline,
+      overrides: { [key]: 0.025 },
+    });
+    expect(preview.directChanges).toHaveLength(1);
+    expect(preview.directChanges[0]).toMatchObject({
+      key,
+      formattedActiveBaselineValue: "1%",
+      formattedScenarioValue: "2.5%",
+    });
+
+    const applied = applyScenarioDraft({
+      contents: configured,
+      baseline,
+      overrides: { [key]: 0.025 },
+    });
+    const parsed = parseAndValidatePlannerConfig(applied.contents, "YAML");
+    expect(parsed.nonRegisteredTaxation.mode).toBe("simplified_canadian");
+    if (parsed.nonRegisteredTaxation.mode !== "simplified_canadian") {
+      throw new Error("expected simplified mode");
+    }
+    expect(
+      parsed.nonRegisteredTaxation.accounts[0]!.annualDistributionYields
+        .interest,
+    ).toBe(0.025);
+  });
+
   it("distinguishes fixed draft income from a true live_baseline conversion", () => {
     const fixed = contents.replace(
       "annualNetCashToday: live_baseline",

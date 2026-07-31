@@ -315,7 +315,12 @@ function mapValue(node: YamlNode, key: string, label: string): YamlNode {
   return matches[0]!.value;
 }
 
-function sequenceItem(node: YamlNode, itemId: string, label: string): YamlNode {
+function sequenceItem(
+  node: YamlNode,
+  itemId: string,
+  label: string,
+  identityKey: "id" | "accountId" = "id",
+): YamlNode {
   if (!isSeq(node)) {
     throw new PlannerRuntimeError(
       "scenario_binding_unavailable",
@@ -325,7 +330,7 @@ function sequenceItem(node: YamlNode, itemId: string, label: string): YamlNode {
   }
   const matches = node.items.filter((item): item is YamlNode => {
     if (!item || !isMap(item)) return false;
-    const idNode = mapValue(item, "id", label);
+    const idNode = mapValue(item, identityKey, label);
     return isScalar(idNode) && idNode.value === itemId;
   });
   if (matches.length !== 1) {
@@ -347,7 +352,12 @@ function scalarNode(
   for (const segment of target.segments) {
     current = typeof segment === "string"
       ? mapValue(current, segment, label)
-      : sequenceItem(current, segment.itemId, label);
+      : sequenceItem(
+          current,
+          segment.itemId,
+          label,
+          segment.identityKey,
+        );
   }
   if (!isScalar(current) || !current.range) {
     throw new PlannerRuntimeError(

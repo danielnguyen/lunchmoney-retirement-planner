@@ -117,7 +117,7 @@ export type ShareSafeDerivedBaseline = {
 };
 
 export type ProjectionSnapshot = {
-  schemaVersion: "12.0";
+  schemaVersion: "13.0";
   generatedAt: string;
   exportMetadata: {
     transformation: "typed_allowlist_and_automatic_anonymization";
@@ -142,7 +142,7 @@ export type ProjectionSnapshot = {
   activeInputs: ProjectionInputs;
   calculationBasis: {
     employmentIncome: "net_deposited_cash_no_additional_tax";
-    simplifiedTax: "gross_retirement_income_and_taxable_rrsp_rrif_withdrawals";
+    taxation: "resolved_tax_rrif_and_non_registered_modes";
     contributions: "cash_funded_reduce_cash_income_withheld_do_not";
   };
   provenance: Record<string, ShareSafeProvenanceValue>;
@@ -435,6 +435,10 @@ const SAFE_OBSERVATION_CODES = new Set([
   "retirement_requirement_scenario_override",
   "retirement_requirement_tax_compatibility",
   "retirement_requirement_tax_provisional",
+  "non_registered_tax_compatibility",
+  "non_registered_tax_simplified_active",
+  "non_registered_unused_current_year_capital_loss",
+  "supported_tax_model_complete",
 ]);
 
 const SOURCE_TYPES = new Set<BaselineSourceType>([
@@ -491,6 +495,16 @@ const SAFE_WARNING_MESSAGES: Record<BaselineWarningCode, string> = {
     "Statutory RRIF conversion and minimum withdrawals are active.",
   non_registered_tax_not_modelled:
     "Non-registered investment-income taxation is not modelled.",
+  non_registered_tax_simplified_active:
+    "Simplified Canadian non-registered taxation is active.",
+  non_registered_zero_acb:
+    "A positive non-registered balance has an explicitly configured zero adjusted cost base.",
+  non_registered_distribution_yield_review:
+    "Configured taxable distributions materially exceed expected total return.",
+  non_registered_foreign_tax_credit_not_modelled:
+    "Foreign investment income is modelled without foreign tax credits.",
+  supported_tax_model_complete:
+    "Tax coverage is complete for the supported deterministic model; it is not a tax return.",
 };
 
 const REFERENCE_KINDS = new Set<CanadianReferenceKind>([
@@ -997,6 +1011,23 @@ function safeProjectionInputs(
       activeValueSource: inputs.retirementRequirement.activeValueSource,
     },
     rrifMinimumWithdrawals: { ...inputs.rrifMinimumWithdrawals },
+    nonRegisteredTaxation:
+      inputs.nonRegisteredTaxation.mode === "not_modelled_compatibility"
+        ? { ...inputs.nonRegisteredTaxation }
+        : {
+            ...inputs.nonRegisteredTaxation,
+            accounts: inputs.nonRegisteredTaxation.accounts.map((account) => ({
+              accountId: requiredAccountAlias(account.accountId, context).key,
+              openingAdjustedCostBase: {
+                ...account.openingAdjustedCostBase,
+                sourceDescription: "Configured opening adjusted cost base evidence",
+              },
+              annualDistributionYields: {
+                ...account.annualDistributionYields,
+              },
+            })),
+            limitations: [...inputs.nonRegisteredTaxation.limitations],
+          },
     tax:
       inputs.tax.mode === "flat_compatibility"
         ? { ...inputs.tax }
@@ -1417,6 +1448,18 @@ function safeObservationMessage(
   if (code === "retirement_requirement_tax_provisional") {
     return "The retirement requirement uses provisional annual Canadian tax.";
   }
+  if (code === "non_registered_tax_compatibility") {
+    return "Non-registered taxation uses compatibility mode.";
+  }
+  if (code === "non_registered_tax_simplified_active") {
+    return "Simplified Canadian non-registered taxation is active.";
+  }
+  if (code === "non_registered_unused_current_year_capital_loss") {
+    return "An unused current-year capital loss remains visible and is not carried to another year.";
+  }
+  if (code === "supported_tax_model_complete") {
+    return "Tax coverage is complete for the supported deterministic model; this remains a planning estimate, not a tax return.";
+  }
   return `Projection observation ${index + 1}`;
 }
 
@@ -1425,7 +1468,7 @@ function safeProjectionResult(
   context: ShareSafeContext,
 ): ProjectionResult {
   return {
-    schemaVersion: "12.0",
+    schemaVersion: "13.0",
     inputs: safeProjectionInputs(projection.inputs, context),
     summary: {
       retirementYear: projection.summary.retirementYear,
@@ -1712,6 +1755,32 @@ function safeProjectionResult(
         })),
       })),
     },
+    nonRegisteredTaxation: {
+      ...projection.nonRegisteredTaxation,
+      references: projection.nonRegisteredTaxation.references
+        ? {
+            ...projection.nonRegisteredTaxation.references,
+            sourceUrls: [
+              ...projection.nonRegisteredTaxation.references.sourceUrls,
+            ],
+          }
+        : null,
+      accounts: projection.nonRegisteredTaxation.accounts.map((account) => ({
+        ...account,
+        accountId: requiredAccountAlias(account.accountId, context).key,
+        annualDistributionYields: account.annualDistributionYields
+          ? { ...account.annualDistributionYields }
+          : null,
+      })),
+      annual: projection.nonRegisteredTaxation.annual.map((period) => ({
+        ...period,
+        accounts: period.accounts.map((account) => ({
+          ...account,
+          accountId: requiredAccountAlias(account.accountId, context).key,
+        })),
+      })),
+      limitations: [...projection.nonRegisteredTaxation.limitations],
+    },
     annual: projection.annual.map((point) => ({
       calendarYear: point.calendarYear,
       age: point.age,
@@ -1745,6 +1814,13 @@ function safeProjectionResult(
       rrif: {
         ...point.rrif,
         accounts: point.rrif.accounts.map((account) => ({
+          ...account,
+          accountId: requiredAccountAlias(account.accountId, context).key,
+        })),
+      },
+      nonRegisteredTaxation: {
+        ...point.nonRegisteredTaxation,
+        accounts: point.nonRegisteredTaxation.accounts.map((account) => ({
           ...account,
           accountId: requiredAccountAlias(account.accountId, context).key,
         })),
@@ -2723,7 +2799,7 @@ export function createProjectionSnapshot(
   const dataThrough = safeDateLike(baseline.dataThrough, projection.inputs.startDate);
   const safeGeneratedAt = requireIsoTimestamp(generatedAt);
   return {
-    schemaVersion: "12.0",
+    schemaVersion: "13.0",
     generatedAt: safeGeneratedAt,
     exportMetadata: {
       transformation: "typed_allowlist_and_automatic_anonymization",
@@ -2779,7 +2855,7 @@ export function createProjectionSnapshot(
     activeInputs: safeProjection.inputs,
     calculationBasis: {
       employmentIncome: "net_deposited_cash_no_additional_tax",
-      simplifiedTax: "gross_retirement_income_and_taxable_rrsp_rrif_withdrawals",
+      taxation: "resolved_tax_rrif_and_non_registered_modes",
       contributions: "cash_funded_reduce_cash_income_withheld_do_not",
     },
     provenance: safeProvenance(
@@ -2923,6 +2999,33 @@ export function projectionSnapshotToCsv(
     "annual_tax_effective_rate",
     "annual_tax_provisional",
     "annual_tax_reconciled",
+    "tax_coverage_status",
+    "tax_provisional",
+    "full_tax_return_fidelity",
+    "non_registered_tax_mode",
+    "non_registered_acb_status",
+    "interest_income",
+    "actual_eligible_dividends",
+    "eligible_dividend_gross_up",
+    "taxable_eligible_dividends",
+    "foreign_income",
+    "capital_gain_distributions",
+    "realized_capital_gains",
+    "realized_capital_losses",
+    "net_capital_gain",
+    "taxable_capital_gain",
+    "unused_current_year_capital_loss",
+    "federal_eligible_dividend_tax_credit",
+    "ontario_eligible_dividend_tax_credit",
+    "non_registered_opening_market_value",
+    "non_registered_opening_acb",
+    "non_registered_contributions",
+    "non_registered_reinvested_distributions",
+    "non_registered_disposition_proceeds",
+    "non_registered_acb_disposed",
+    "non_registered_closing_market_value",
+    "non_registered_closing_acb",
+    "non_registered_closing_unrealized_gain_or_loss",
     "rrif_mode",
     "rrif_conversion_age",
     "rrif_owner_age_basis",
@@ -3080,6 +3183,9 @@ export function projectionSnapshotToCsv(
     const view = point[mode];
     const canadianTax =
       point.tax.mode === "canadian_annual" ? point.tax : null;
+    const nonRegisteredActive =
+      snapshot.projection.nonRegisteredTaxation.mode ===
+      "simplified_canadian";
     return [
       annualPeriodLabel(
         snapshot.projection.inputs,
@@ -3186,6 +3292,88 @@ export function projectionSnapshotToCsv(
           : ""),
       snapshot.projection.taxation.provisional ? 1 : 0,
       canadianTax ? (canadianTax.reconciled ? 1 : 0) : "",
+      snapshot.projection.taxation.coverageStatus,
+      snapshot.projection.taxation.provisional ? 1 : 0,
+      snapshot.projection.taxation.fullTaxReturnFidelity ? 1 : 0,
+      snapshot.projection.nonRegisteredTaxation.mode,
+      nonRegisteredActive
+        ? "pooled_account_acb_modelled"
+        : "unavailable_compatibility_mode",
+      canadianTax?.totalIncome.interest ?? "",
+      canadianTax?.totalIncome.eligibleCanadianDividends ?? "",
+      canadianTax?.fullAnnualTax.incomeAdjustments
+        .eligibleDividendGrossUp ?? "",
+      canadianTax?.fullAnnualTax.incomeAdjustments
+        .taxableEligibleDividends ?? "",
+      canadianTax?.totalIncome.foreignIncome ?? "",
+      nonRegisteredActive
+        ? mode === "nominal"
+          ? point.nonRegisteredTaxation.capitalGainDistributions
+          : point.nonRegisteredTaxation.capitalGainDistributionsToday
+        : "",
+      nonRegisteredActive
+        ? mode === "nominal"
+          ? point.nonRegisteredTaxation.realizedCapitalGains
+          : point.nonRegisteredTaxation.realizedCapitalGainsToday
+        : "",
+      nonRegisteredActive
+        ? mode === "nominal"
+          ? point.nonRegisteredTaxation.realizedCapitalLosses
+          : point.nonRegisteredTaxation.realizedCapitalLossesToday
+        : "",
+      canadianTax?.fullAnnualTax.incomeAdjustments.currentYearNetCapitalGain ??
+        "",
+      canadianTax?.fullAnnualTax.incomeAdjustments.taxableCapitalGain ?? "",
+      nonRegisteredActive
+        ? point.nonRegisteredTaxation.unusedCurrentYearCapitalLoss
+        : "",
+      canadianTax?.fullAnnualTax.federal.eligibleDividendTaxCredit ?? "",
+      canadianTax?.fullAnnualTax.ontario.eligibleDividendTaxCredit ?? "",
+      nonRegisteredActive
+        ? mode === "nominal"
+          ? point.nonRegisteredTaxation.openingMarketValue
+          : point.nonRegisteredTaxation.openingMarketValueToday
+        : "",
+      nonRegisteredActive
+        ? mode === "nominal"
+          ? point.nonRegisteredTaxation.openingAdjustedCostBase
+          : point.nonRegisteredTaxation.openingAdjustedCostBaseToday
+        : "",
+      nonRegisteredActive
+        ? mode === "nominal"
+          ? point.nonRegisteredTaxation.contributions
+          : point.nonRegisteredTaxation.contributionsToday
+        : "",
+      nonRegisteredActive
+        ? mode === "nominal"
+          ? point.nonRegisteredTaxation.totalDistributions
+          : point.nonRegisteredTaxation.totalDistributionsToday
+        : "",
+      nonRegisteredActive
+        ? mode === "nominal"
+          ? point.nonRegisteredTaxation.dispositionProceeds
+          : point.nonRegisteredTaxation.dispositionProceedsToday
+        : "",
+      nonRegisteredActive
+        ? mode === "nominal"
+          ? point.nonRegisteredTaxation.adjustedCostBaseDisposed
+          : point.nonRegisteredTaxation.adjustedCostBaseDisposedToday
+        : "",
+      nonRegisteredActive
+        ? mode === "nominal"
+          ? point.nonRegisteredTaxation.closingMarketValue
+          : point.nonRegisteredTaxation.closingMarketValueToday
+        : "",
+      nonRegisteredActive
+        ? mode === "nominal"
+          ? point.nonRegisteredTaxation.closingAdjustedCostBase
+          : point.nonRegisteredTaxation.closingAdjustedCostBaseToday
+        : "",
+      nonRegisteredActive
+        ? mode === "nominal"
+          ? point.nonRegisteredTaxation.closingUnrealizedGainOrLoss
+          : point.nonRegisteredTaxation.closingUnrealizedGainOrLossToday
+        : "",
       snapshot.projection.rrif.mode,
       snapshot.projection.rrif.conversionAge,
       snapshot.projection.rrif.ownerAgeBasis,

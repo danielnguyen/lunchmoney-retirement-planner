@@ -34,6 +34,25 @@ describe("taxable registered withdrawal solver", () => {
     expect(result.evaluations).toBeLessThanOrEqual(80);
   });
 
+  it("matches a hand-calculated proportional-ACB non-registered sale", () => {
+    // Synthetic pooled portfolio: FMV $1,000, ACB $800. Every sale is 20%
+    // gain; at a synthetic 20% tax rate on the 50% taxable gain, signed
+    // incremental tax is 2% of gross proceeds.
+    const result = solveTaxableWithdrawal({
+      incomeSource: "nonRegisteredDisposition",
+      availableBalance: 1_000,
+      requiredNetCash: 381.05,
+      incrementalTax: (gross) => gross * 0.02,
+    });
+    expect(result).toMatchObject({
+      grossWithdrawal: 388.83,
+      incrementalTax: 7.78,
+      netProceeds: 381.05,
+      acceptedCandidatePassed: true,
+      oneCentBelowFailed: true,
+    });
+  });
+
   it("rounds a fractional-cent cash need upward rather than underfunding it", () => {
     const result = solveTaxableWithdrawal({
       incomeSource: "rrspWithdrawals",

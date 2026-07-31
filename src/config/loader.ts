@@ -128,6 +128,27 @@ function canadianTaxIncome(
       `${field}.rrifWithdrawals`,
       { min: 0 },
     ),
+    interest: number(item.interest ?? 0, `${field}.interest`, { min: 0 }),
+    eligibleCanadianDividends: number(
+      item.eligibleCanadianDividends ?? 0,
+      `${field}.eligibleCanadianDividends`,
+      { min: 0 },
+    ),
+    foreignIncome: number(
+      item.foreignIncome ?? 0,
+      `${field}.foreignIncome`,
+      { min: 0 },
+    ),
+    capitalGains: number(
+      item.capitalGains ?? 0,
+      `${field}.capitalGains`,
+      { min: 0 },
+    ),
+    capitalLosses: number(
+      item.capitalLosses ?? 0,
+      `${field}.capitalLosses`,
+      { min: 0 },
+    ),
     otherTaxableIncome: number(
       item.otherTaxableIncome,
       `${field}.otherTaxableIncome`,
@@ -228,7 +249,10 @@ function rrifMinimumWithdrawalsConfig(
   if (item.mode === "not_modelled_compatibility") {
     return {
       mode: "not_modelled_compatibility",
-      source: "explicit_configuration",
+      source:
+        item.source === "compatibility_default"
+          ? "compatibility_default"
+          : "explicit_configuration",
     };
   }
   if (item.mode !== "statutory") {
@@ -257,6 +281,126 @@ function rrifMinimumWithdrawalsConfig(
     source: "explicit_configuration",
     ageBasis: "owner_age",
     settlementTiming: "december_true_up",
+  };
+}
+function nonRegisteredTaxationConfig(
+  value: unknown,
+): PlannerConfig["nonRegisteredTaxation"] {
+  if (value === undefined) {
+    return {
+      mode: "not_modelled_compatibility",
+      source: "compatibility_default",
+    };
+  }
+  const item = record(value, "nonRegisteredTaxation");
+  if (item.mode === "not_modelled_compatibility") {
+    return {
+      mode: "not_modelled_compatibility",
+      source:
+        item.source === "compatibility_default"
+          ? "compatibility_default"
+          : "explicit_configuration",
+    };
+  }
+  if (item.mode !== "simplified_canadian") {
+    throw new PlannerRuntimeError(
+      "invalid_planner_config",
+      "nonRegisteredTaxation.mode must be not_modelled_compatibility or simplified_canadian.",
+      422,
+    );
+  }
+  if (!Array.isArray(item.accounts)) {
+    throw new PlannerRuntimeError(
+      "invalid_planner_config",
+      "nonRegisteredTaxation.accounts must be an array in simplified_canadian mode.",
+      422,
+    );
+  }
+  const accounts = item.accounts.map((value, index) => {
+    const field = `nonRegisteredTaxation.accounts[${index}]`;
+    const account = record(value, field);
+    if (typeof account.accountId !== "string" || account.accountId.length === 0) {
+      throw new PlannerRuntimeError(
+        "invalid_planner_config",
+        `${field}.accountId must be a non-empty string.`,
+        422,
+      );
+    }
+    const opening =
+      account.openingAdjustedCostBase === undefined
+        ? undefined
+        : record(
+            account.openingAdjustedCostBase,
+            `${field}.openingAdjustedCostBase`,
+          );
+    if (
+      opening &&
+      (typeof opening.effectiveDate !== "string" ||
+        typeof opening.sourceDescription !== "string" ||
+        opening.sourceDescription.length === 0)
+    ) {
+      throw new PlannerRuntimeError(
+        "invalid_planner_config",
+        `${field}.openingAdjustedCostBase requires effectiveDate and sourceDescription.`,
+        422,
+      );
+    }
+    const yields = record(
+      account.annualDistributionYields,
+      `${field}.annualDistributionYields`,
+    );
+    const annualDistributionYields = {
+      interest: number(yields.interest, `${field}.annualDistributionYields.interest`, { min: 0, max: 1 }),
+      eligibleCanadianDividends: number(yields.eligibleCanadianDividends, `${field}.annualDistributionYields.eligibleCanadianDividends`, { min: 0, max: 1 }),
+      foreignIncome: number(yields.foreignIncome, `${field}.annualDistributionYields.foreignIncome`, { min: 0, max: 1 }),
+      capitalGains: number(yields.capitalGains, `${field}.annualDistributionYields.capitalGains`, { min: 0, max: 1 }),
+    };
+    if (
+      Object.values(annualDistributionYields).reduce(
+        (sum, rate) => sum + rate,
+        0,
+      ) > 1 + Number.EPSILON
+    ) {
+      throw new PlannerRuntimeError(
+        "invalid_planner_config",
+        `${field}.annualDistributionYields combined rate must not exceed 1.`,
+        422,
+      );
+    }
+    return {
+      accountId: account.accountId,
+      ...(opening
+        ? {
+            openingAdjustedCostBase: {
+              ...(opening.amount === undefined
+                ? {}
+                : {
+                    amount: number(
+                      opening.amount,
+                      `${field}.openingAdjustedCostBase.amount`,
+                      { min: 0 },
+                    ),
+                  }),
+              effectiveDate: opening.effectiveDate as string,
+              sourceDescription: opening.sourceDescription as string,
+            },
+          }
+        : {}),
+      annualDistributionYields,
+    };
+  });
+  const ids = new Set(accounts.map((account) => account.accountId));
+  if (ids.size !== accounts.length) {
+    throw new PlannerRuntimeError(
+      "invalid_planner_config",
+      "nonRegisteredTaxation.accounts must not contain duplicate accountId entries.",
+      422,
+    );
+  }
+  return {
+    mode: "simplified_canadian",
+    source: "explicit_configuration",
+    accounts,
   };
 }
 
@@ -2624,6 +2768,9 @@ export function validatePlannerConfig(value: unknown): PlannerConfig {
     rrifMinimumWithdrawals: rrifMinimumWithdrawalsConfig(
       item.rrifMinimumWithdrawals,
     ),
+    nonRegisteredTaxation: nonRegisteredTaxationConfig(
+      item.nonRegisteredTaxation,
+    ),
     tax: taxConfig(item.tax),
     transactionTrailingMonths: number(item.transactionTrailingMonths, "transactionTrailingMonths", {
       min: 1,
@@ -2712,6 +2859,48 @@ export function validatePlannerConfig(value: unknown): PlannerConfig {
       throw new PlannerRuntimeError(
         "invalid_planner_config",
         `Employment phase ${missingTaxable.id} requires annualTaxableEmploymentIncomeToday in Canadian annual tax mode.`,
+        422,
+      );
+    }
+  }
+  if (
+    config.nonRegisteredTaxation.mode === "simplified_canadian" &&
+    config.tax.mode !== "canadian_annual"
+  ) {
+    throw new PlannerRuntimeError(
+      "invalid_planner_config",
+      "simplified_canadian non-registered taxation requires tax.mode: canadian_annual.",
+      422,
+    );
+  }
+  if (
+    config.nonRegisteredTaxation.mode === "simplified_canadian" &&
+    config.tax.mode === "canadian_annual" &&
+    config.tax.openingTaxYearBeforeProjectionMonth
+  ) {
+    const rawTax = record(item.tax, "tax");
+    const rawOpening = record(
+      rawTax.openingTaxYearBeforeProjectionMonth,
+      "tax.openingTaxYearBeforeProjectionMonth",
+    );
+    const rawIncome = record(
+      rawOpening.income,
+      "tax.openingTaxYearBeforeProjectionMonth.income",
+    );
+    const requiredInvestmentFields = [
+      "interest",
+      "eligibleCanadianDividends",
+      "foreignIncome",
+      "capitalGains",
+      "capitalLosses",
+    ] as const;
+    const missingInvestmentFields = requiredInvestmentFields.filter(
+      (field) => rawIncome[field] === undefined,
+    );
+    if (missingInvestmentFields.length > 0) {
+      throw new PlannerRuntimeError(
+        "invalid_planner_config",
+        `Simplified non-registered taxation requires explicit opening tax-year investment income fields, including zeros: ${missingInvestmentFields.join(", ")}.`,
         422,
       );
     }

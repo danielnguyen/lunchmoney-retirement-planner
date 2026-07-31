@@ -277,6 +277,11 @@ export type CanadianTaxIncomeLedger = {
   pension: number;
   rrspWithdrawals: number;
   rrifWithdrawals: number;
+  interest?: number;
+  eligibleCanadianDividends?: number;
+  foreignIncome?: number;
+  capitalGains?: number;
+  capitalLosses?: number;
   otherTaxableIncome: number;
 };
 
@@ -326,6 +331,36 @@ export type RrifMinimumWithdrawalsAssumptions =
       supportedRrifClass: "all_other_rrifs";
     };
 
+export type NonRegisteredDistributionYields = {
+  interest: number;
+  eligibleCanadianDividends: number;
+  foreignIncome: number;
+  capitalGains: number;
+};
+
+export type NonRegisteredTaxationAssumptions =
+  | {
+      mode: "not_modelled_compatibility";
+      source: "explicit_configuration" | "compatibility_default";
+    }
+  | {
+      mode: "simplified_canadian";
+      source: "explicit_configuration";
+      accounts: Array<{
+        accountId: string;
+        openingAdjustedCostBase: {
+          amount: number;
+          effectiveDate: string;
+          sourceDescription: string;
+          source:
+            | "explicit_configuration"
+            | "projection_zero_balance_default";
+        };
+        annualDistributionYields: NonRegisteredDistributionYields;
+      }>;
+      limitations: string[];
+    };
+
 export type RetirementRequirementBaselineSource =
   | "explicit_configuration"
   | "compatibility_default";
@@ -350,6 +385,7 @@ export type ProjectionInputs = {
   retirementGoalToday: number;
   retirementRequirement: RetirementRequirementInput;
   rrifMinimumWithdrawals: RrifMinimumWithdrawalsAssumptions;
+  nonRegisteredTaxation: NonRegisteredTaxationAssumptions;
   tax: TaxAssumptions;
   person: PersonInput;
   accounts: FinancialAccountInput[];
@@ -543,7 +579,87 @@ export type AnnualProjection = {
   contributionPhaseLabels: Record<string, string[]>;
   tax: AnnualTaxResult;
   rrif: RrifAnnualAggregate;
+  nonRegisteredTaxation: NonRegisteredAnnualAggregate;
 };
+
+export type NonRegisteredAnnualAccountResult = {
+  calendarYear: number;
+  accountId: string;
+  periodStatus: "complete_calendar_year" | "partial_period" | "stopped_incomplete";
+  openingMarketValue: number;
+  openingMarketValueToday: number;
+  openingAdjustedCostBase: number;
+  openingAdjustedCostBaseToday: number;
+  contributions: number;
+  contributionsToday: number;
+  interestDistributions: number;
+  interestDistributionsToday: number;
+  eligibleCanadianDividends: number;
+  eligibleCanadianDividendsToday: number;
+  foreignIncomeDistributions: number;
+  foreignIncomeDistributionsToday: number;
+  capitalGainDistributions: number;
+  capitalGainDistributionsToday: number;
+  totalDistributions: number;
+  totalDistributionsToday: number;
+  unrealizedChange: number;
+  unrealizedChangeToday: number;
+  dispositionProceeds: number;
+  dispositionProceedsToday: number;
+  adjustedCostBaseDisposed: number;
+  adjustedCostBaseDisposedToday: number;
+  realizedCapitalGains: number;
+  realizedCapitalGainsToday: number;
+  realizedCapitalLosses: number;
+  realizedCapitalLossesToday: number;
+  closingMarketValue: number;
+  closingMarketValueToday: number;
+  closingAdjustedCostBase: number;
+  closingAdjustedCostBaseToday: number;
+  closingUnrealizedGainOrLoss: number;
+  closingUnrealizedGainOrLossToday: number;
+  reconciled: boolean;
+};
+
+export type NonRegisteredAnnualAggregate = Omit<
+  NonRegisteredAnnualAccountResult,
+  "accountId"
+> & {
+  accounts: NonRegisteredAnnualAccountResult[];
+  unusedCurrentYearCapitalLoss: number;
+};
+
+export type NonRegisteredTaxationSummary = {
+  mode: NonRegisteredTaxationAssumptions["mode"];
+  source: NonRegisteredTaxationAssumptions["source"];
+  provisional: boolean;
+  supportedAdjustedCostBaseModel: "pooled_account_portfolio" | "not_modelled";
+  capitalGainsInclusionRate: 0.5 | null;
+  eligibleDividendGrossUp: 1.38 | null;
+  federalEligibleDividendCreditRate: 0.150198 | null;
+  ontarioEligibleDividendCreditRate: 0.1 | null;
+  references: {
+    referenceYear: 2026;
+    retrievedDate: "2026-07-31";
+    effectiveDate: "2026-01-01";
+    sourceKind: "published";
+    forecastStatus: "fixed_2026_percentages";
+    sourceUrls: string[];
+  } | null;
+  accounts: Array<{
+    accountId: string;
+    openingAdjustedCostBase: number | null;
+    annualDistributionYields: NonRegisteredDistributionYields | null;
+  }>;
+  annual: NonRegisteredAnnualAggregate[];
+  limitations: string[];
+};
+
+export type TaxCoverageStatus =
+  | "flat_tax_compatibility"
+  | "canadian_annual_rrif_compatibility"
+  | "canadian_annual_rrif_statutory_non_registered_compatibility"
+  | "complete_supported_deterministic_model";
 
 export type RrifLifecycleState = "rrsp" | "rrif";
 
@@ -624,7 +740,7 @@ export type RrifCalculationSummary = {
   ownerAgeBasis: "owner_age_at_beginning_of_year" | "not_applicable";
   settlementTiming: "december_true_up" | "not_applicable";
   supportedRrifClass: "all_other_rrifs" | "not_applicable";
-  provisional: true;
+  provisional: boolean;
   limitations: string[];
   references: {
     retrievedDate: string;
@@ -678,7 +794,7 @@ export type AnnualTaxResult =
         recognizedCashDifference: number;
       };
       reconciled: boolean;
-      provisional: true;
+      provisional: boolean;
       limitations: string[];
     };
 
@@ -688,6 +804,8 @@ export type TaxCalculationSummary = {
   referenceYear: 2026 | null;
   forecastIndexingRate: number | null;
   provisional: boolean;
+  coverageStatus: TaxCoverageStatus;
+  fullTaxReturnFidelity: false;
   annual: AnnualTaxResult[];
   limitations: string[];
 };
@@ -763,7 +881,7 @@ export type RetirementRequirementResult = {
   taxModel:
     | "flat_retirement_tax_compatibility"
     | "canadian_annual_federal_ontario_forecast";
-  provisionalTax: true;
+  provisionalTax: boolean;
   bindingConstraint: RetirementRequirementBindingConstraint;
   solver: {
     zeroCandidatePassed: boolean;
@@ -966,7 +1084,7 @@ export type SavingsPolicyCalculationSummary = {
 };
 
 export type ProjectionResult = {
-  schemaVersion: "12.0";
+  schemaVersion: "13.0";
   inputs: ProjectionInputs;
   summary: ProjectionSummary;
   projectionCompletion: ProjectionCompletion;
@@ -987,6 +1105,7 @@ export type ProjectionResult = {
   savingsPolicy: SavingsPolicyCalculationSummary;
   taxation: TaxCalculationSummary;
   rrif: RrifCalculationSummary;
+  nonRegisteredTaxation: NonRegisteredTaxationSummary;
   annual: AnnualProjection[];
   observations: ProjectionObservation[];
 };
@@ -1163,6 +1282,70 @@ export function validateProjectionInputs(value: unknown): ProjectionInputs {
     )
   ) {
     throw new Error("RRIF minimum mode must be statutory or not_modelled_compatibility");
+  }
+  if (!input.nonRegisteredTaxation || typeof input.nonRegisteredTaxation !== "object") {
+    throw new Error("nonRegisteredTaxation must be resolved");
+  }
+  if (input.nonRegisteredTaxation.mode === "simplified_canadian") {
+    if (input.tax.mode !== "canadian_annual") {
+      throw new Error("Simplified non-registered taxation requires Canadian annual tax");
+    }
+    for (const source of [
+      "interest",
+      "eligibleCanadianDividends",
+      "foreignIncome",
+      "capitalGains",
+      "capitalLosses",
+    ] as const) {
+      if (input.tax.openingTaxYearBeforeProjectionMonth.income[source] === undefined) {
+        throw new Error(
+          `Simplified non-registered taxation requires explicit opening ${source}, including zero`,
+        );
+      }
+    }
+    const treatments = new Map<string, typeof input.nonRegisteredTaxation.accounts[number]>();
+    for (const treatment of input.nonRegisteredTaxation.accounts) {
+      if (treatments.has(treatment.accountId)) {
+        throw new Error(`Duplicate non-registered tax treatment for ${treatment.accountId}`);
+      }
+      treatments.set(treatment.accountId, treatment);
+      const account = input.accounts.find((candidate) => candidate.id === treatment.accountId);
+      if (!account || account.type !== "non_registered") {
+        throw new Error(`Non-registered tax treatment ${treatment.accountId} must match an included non_registered account`);
+      }
+      assertNonNegative(
+        `opening adjusted cost base for ${treatment.accountId}`,
+        treatment.openingAdjustedCostBase.amount,
+      );
+      if (
+        account.openingBalance === 0 &&
+        treatment.openingAdjustedCostBase.amount > 0
+      ) {
+        throw new Error(
+          `Positive opening adjusted cost base for zero-balance account ${treatment.accountId} is unsupported`,
+        );
+      }
+      if (treatment.openingAdjustedCostBase.effectiveDate !== input.startDate) {
+        throw new Error(`Opening adjusted cost base date for ${treatment.accountId} must match projection start`);
+      }
+      let combined = 0;
+      for (const [source, rate] of Object.entries(treatment.annualDistributionYields)) {
+        assertRate(`${source} distribution yield for ${treatment.accountId}`, rate, 0, 1);
+        combined += rate;
+      }
+      if (combined > 1 + Number.EPSILON) {
+        throw new Error(`Combined distribution yield for ${treatment.accountId} must not exceed 1`);
+      }
+    }
+    const taxableAccounts = input.accounts.filter((account) => account.type === "non_registered");
+    if (taxableAccounts.length !== treatments.size || taxableAccounts.some((account) => !treatments.has(account.id))) {
+      throw new Error("Every non_registered account requires exactly one simplified tax treatment");
+    }
+  } else if (
+    input.nonRegisteredTaxation.mode !== "not_modelled_compatibility" ||
+    !["explicit_configuration", "compatibility_default"].includes(input.nonRegisteredTaxation.source)
+  ) {
+    throw new Error("Non-registered taxation mode must be simplified_canadian or compatibility");
   }
   assertRate("pensionIndexingRate", input.person.pensionIndexingRate, -0.2, 0.5);
   assertRate("CPP indexingRate", input.person.cpp.indexingRate, -0.2, 0.5);
