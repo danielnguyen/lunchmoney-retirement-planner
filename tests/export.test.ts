@@ -391,6 +391,56 @@ function expectNoSourceIdentifiersOrCredentials(exported: string): void {
 }
 
 describe("automatically anonymized projection exports", () => {
+  it.each([
+    ["omitted tax compatibility normalization", "compatibility_default"],
+    ["explicit flat compatibility", "explicit_configuration"],
+  ] as const)(
+    "exports provisional flat tax with reconciliation marked not applicable for %s",
+    (_label, source) => {
+      const inputs = structuredClone(projectionFixture);
+      inputs.tax.source = source;
+      const baseline = structuredClone(baselineContextFixture);
+      baseline.projectionInputs = structuredClone(inputs);
+      const projection = calculateProjection(inputs);
+      const snapshot = createProjectionSnapshot(
+        projection,
+        baseline,
+        {},
+        "2026-07-30T12:00:00.000Z",
+      );
+
+      expect(snapshot.projection.taxation).toMatchObject({
+        mode: "flat_compatibility",
+        provisional: true,
+        limitations: ["flat_rate_compatibility_not_a_tax_return"],
+      });
+      expect(snapshot.projection.taxation.annual.every(
+        (tax) =>
+          tax.mode === "flat_compatibility" && tax.source === source,
+      )).toBe(true);
+
+      for (const mode of ["nominal", "real"] as const) {
+        const csv = projectionSnapshotToCsv(snapshot, mode);
+        const lines = csv.trimEnd().split("\n").map(parseCsvLine);
+        const header = lines[0]!;
+        const rows = lines.slice(1);
+        const taxModelIndex = header.indexOf("tax_model");
+        const provisionalIndex = header.indexOf("annual_tax_provisional");
+        const reconciledIndex = header.indexOf("annual_tax_reconciled");
+
+        expect(rows.length).toBeGreaterThan(0);
+        expect(rows.every((row) => row.length === header.length)).toBe(true);
+        expect(rows.every(
+          (row) => row[taxModelIndex] === "flat_compatibility",
+        )).toBe(true);
+        expect(rows.every((row) => row[provisionalIndex] === "1")).toBe(true);
+        expect(rows.every((row) => row[reconciledIndex] === "")).toBe(true);
+        expect(csv).not.toContain("manual:");
+        expect(csv).not.toContain("config/planner.local");
+      }
+    },
+  );
+
   it("keeps Lunch Money mapping reference metadata outside JSON and both CSV modes", () => {
     const baseline = structuredClone(currentBaselineFixture);
     baseline.lunchMoneyMappings = {

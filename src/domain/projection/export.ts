@@ -3139,8 +3139,8 @@ export function projectionSnapshotToCsv(
         (point.tax.mode === "flat_compatibility"
           ? point.tax.effectiveTaxRate
           : ""),
-      canadianTax?.provisional ? 1 : 0,
-      canadianTax?.reconciled ? 1 : 0,
+      snapshot.projection.taxation.provisional ? 1 : 0,
+      canadianTax ? (canadianTax.reconciled ? 1 : 0) : "",
       view.surplusAllocation.generated,
       view.surplusAllocation.reserveRefill,
       view.surplusAllocation.retainedAsCash,

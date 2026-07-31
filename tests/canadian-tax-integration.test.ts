@@ -108,6 +108,28 @@ function canadianProjection(): ProjectionInputs {
   return inputs;
 }
 
+function parseCsvLine(line: string): string[] {
+  const cells: string[] = [];
+  let value = "";
+  let quoted = false;
+  for (let index = 0; index < line.length; index += 1) {
+    const character = line[index]!;
+    if (character === '"' && quoted && line[index + 1] === '"') {
+      value += '"';
+      index += 1;
+    } else if (character === '"') {
+      quoted = !quoted;
+    } else if (character === "," && !quoted) {
+      cells.push(value);
+      value = "";
+    } else {
+      value += character;
+    }
+  }
+  cells.push(value);
+  return cells;
+}
+
 describe("Canadian annual tax projection integration", () => {
   it("uses opening and employment income as embedded context without taxing net cash twice", () => {
     const result = calculateProjection(canadianProjection());
@@ -284,30 +306,40 @@ describe("Canadian annual tax projection integration", () => {
       {},
       "2026-07-30T12:00:00.000Z",
     );
-    const csv = projectionSnapshotToCsv(snapshot, "nominal");
-    const [header, ...rows] = csv.trim().split("\n");
-    const columns = header!.split(",");
-
     expect(snapshot.schemaVersion).toBe("11.0");
     expect(snapshot.projection.taxation.mode).toBe("canadian_annual");
-    expect(columns).toEqual(
-      expect.arrayContaining([
-        "tax_model",
-        "taxable_employment_income",
-        "federal_tax",
-        "ontario_net_tax",
-        "ontario_surtax",
-        "ontario_health_premium",
-        "annual_oas_recovery_tax",
-        "full_annual_tax",
-        "embedded_annual_tax",
-        "projection_funded_annual_tax",
-      ]),
-    );
-    expect(rows.every((row) => row.split(",").length === columns.length)).toBe(
-      true,
-    );
-    expect(csv).not.toContain("manual:1");
-    expect(csv).not.toContain("manual:2");
+    expect(snapshot.projection.taxation.provisional).toBe(true);
+    expect(snapshot.projection.taxation.annual.every(
+      (tax) => tax.mode === "canadian_annual" && tax.reconciled,
+    )).toBe(true);
+
+    for (const mode of ["nominal", "real"] as const) {
+      const csv = projectionSnapshotToCsv(snapshot, mode);
+      const lines = csv.trimEnd().split("\n").map(parseCsvLine);
+      const columns = lines[0]!;
+      const rows = lines.slice(1);
+      expect(columns).toEqual(
+        expect.arrayContaining([
+          "tax_model",
+          "taxable_employment_income",
+          "federal_tax",
+          "ontario_net_tax",
+          "ontario_surtax",
+          "ontario_health_premium",
+          "annual_oas_recovery_tax",
+          "full_annual_tax",
+          "embedded_annual_tax",
+          "projection_funded_annual_tax",
+        ]),
+      );
+      const provisionalIndex = columns.indexOf("annual_tax_provisional");
+      const reconciledIndex = columns.indexOf("annual_tax_reconciled");
+      expect(rows.every((row) => row.length === columns.length)).toBe(true);
+      expect(rows.every((row) => row[provisionalIndex] === "1")).toBe(true);
+      expect(rows.every((row) => row[reconciledIndex] === "1")).toBe(true);
+      expect(csv).not.toContain("manual:1");
+      expect(csv).not.toContain("manual:2");
+      expect(csv).not.toContain("config/planner.local");
+    }
   });
 });
