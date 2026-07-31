@@ -9,24 +9,24 @@ Public tracking must remain generic and must not contain private financial value
 - Open roadmap planning pull request: None
 - Planning branch: None
 - Planning status: None
-- Open implementation pull request: [#25 Add annual Canadian retirement taxation](https://github.com/danielnguyen/lunchmoney-retirement-planner/pull/25)
+- Open implementation pull request: [#26 Add RRIF conversion and minimum withdrawals](https://github.com/danielnguyen/lunchmoney-retirement-planner/pull/26)
 - Open maintenance pull request: None
 - Pull request state: Open draft
-- Active implementation: Annual Canadian retirement taxation for an Ontario resident
+- Active implementation: RRSP-to-RRIF conversion and statutory minimum withdrawals
 - Status: Ready for independent review
-- Implementation branch: `agent/add-annual-canadian-retirement-tax`
-- Validated implementation commit: `5f6d27517239657592e6b3aaadfd4decac8c9aab`
-- Synthetic validation: Passed — 493 synthetic tests, including 32 focused configuration, flat/Canadian tax integration, JSON allowlist, nominal/real rectangular CSV, and export-privacy tests. Flat compatibility now exports provisional status from the shared taxation summary and leaves Canadian annual reconciliation explicitly not applicable; Canadian annual rows preserve their shared reconciliation result. Typecheck, lint, production build, local Docker image build, Docker Compose validation, planner-container startup, health endpoint smoke, clean planner-container removal, private flat-compatibility smoke, `git diff --check`, hosted CI run #130, and hosted Docker image build run #124 passed. All committed values are synthetic.
-- Latest merged `main`: `d5765c736cc1688302710f57359ecf947e347352`
-- Last completed capability: Retirement funding requirement and terminal balance
-- Last completed pull request: [#24 Derive retirement funding requirement](https://github.com/danielnguyen/lunchmoney-retirement-planner/pull/24)
+- Implementation branch: `agent/add-rrif-minimum-withdrawals`
+- Validated implementation commit: `abeadbfa881a588f64dd204e57583580fb2ad1c0`
+- Synthetic validation: Passed — 520 synthetic tests, including 256 focused RRIF reference, lifecycle, annual-minimum, Canada/Ontario tax, exact-cent withdrawal, retirement-requirement, configuration, scenario, dashboard, explanation, JSON allowlist, nominal/real rectangular CSV, and export-privacy tests. Typecheck, lint, production build, local Docker image build, Docker Compose validation, isolated planner-container startup, health endpoint smoke, clean container removal, private RRIF-compatibility smoke, and `git diff --check` passed. Final-head hosted CI and Docker results are recorded on PR #26 after GitHub completes them. All committed values are synthetic.
+- Latest merged `main`: `c063c16f86ba7153787b3cd82dafc5f965177259`
+- Last completed capability: Annual Canadian retirement taxation for an Ontario resident
+- Last completed pull request: [#25 Add annual Canadian retirement taxation](https://github.com/danielnguyen/lunchmoney-retirement-planner/pull/25)
 - Last completed maintenance correction: Retirement bridge ending precision
 - Last maintenance pull request: [#23 Fix retirement bridge reconciliation against raw balances](https://github.com/danielnguyen/lunchmoney-retirement-planner/pull/23)
 - Last completed synthetic validation: Passed — 396 synthetic tests for the merged retirement bridge ending-precision correction; its one-cent integrity threshold and financial calculations remained unchanged
 - Last completed private migration: Passed — the operating-cash policy was updated and validated locally without publishing private values
-- Private smoke state: Flat compatibility passed without reporting private values; Canadian annual mode was not run because the private configuration does not supply the explicit new inputs
-- Remaining step: independent review of draft pull request #25
-- Next action: independently review annual Canadian tax; after merge, implement RRIF conversion and statutory minimum withdrawals in the immediate next stage, then simplified non-registered taxation and final migration
+- Private smoke state: RRIF compatibility mode passed without reporting private values; statutory RRIF mode was not run because the private configuration does not explicitly activate it; Canadian annual mode remains untested privately if its explicit inputs are absent
+- Remaining step: independent review of draft pull request #26
+- Next action: independently review RRIF conversion and statutory minimum withdrawals; after merge, implement simplified non-registered investment-income taxation and final migration
 
 ## Planned implementation sequence
 
@@ -40,7 +40,7 @@ Public tracking must remain generic and must not contain private financial value
 | 6 | Operating-cash target and automatic excess sweep | Surplus allocation and contribution waterfall | Completed | [#15](https://github.com/danielnguyen/lunchmoney-retirement-planner/pull/15) |
 | 7 | General spending phases | Corrected income and cash policies | Completed | [#16](https://github.com/danielnguyen/lunchmoney-retirement-planner/pull/16) |
 | 8 | Retirement funding requirement and terminal balance | Spending phases and retirement projection | Completed | [#24](https://github.com/danielnguyen/lunchmoney-retirement-planner/pull/24) |
-| 9 | RRIF minimum withdrawals and Canadian retirement taxes | Surplus policy, debt model, spending phases, and requirement contract | In progress — annual-tax stage | [#25](https://github.com/danielnguyen/lunchmoney-retirement-planner/pull/25) |
+| 9 | RRIF minimum withdrawals and Canadian retirement taxes | Surplus policy, debt model, spending phases, and requirement contract | In progress — annual tax completed; RRIF stage in review | [#25 annual tax](https://github.com/danielnguyen/lunchmoney-retirement-planner/pull/25), [#26 RRIF](https://github.com/danielnguyen/lunchmoney-retirement-planner/pull/26) |
 | 10 | Deterministic return paths and sequence-risk scenarios | Reconciled deterministic projection | Planned | — |
 | 11 | Structured housing transitions | Net-worth, debt, spending, and event models | Planned | — |
 
@@ -77,4 +77,4 @@ Planning order is project-management shorthand only. Production names must descr
 
 ## New-conversation handoff
 
-> Read `AGENTS.md`, `plan/roadmap.md`, and `plan/implementation-index.md`. Continue or independently review the annual Canadian retirement-tax implementation using synthetic data only. Confirm dated 2026 Canada/Ontario references, annual YTD full-versus-embedded-versus-funded tax, annual OAS recovery, exact-cent taxable-withdrawal gross-up, shared requirement-engine reuse, partial-year evidence, export privacy, and flat compatibility. RRIF conversion/minimum withdrawals remain the immediate next stage; simplified non-registered taxation follows.
+> Read `AGENTS.md`, `plan/roadmap.md`, and `plan/implementation-index.md`. Continue or independently review the RRSP-to-RRIF conversion and statutory minimum-withdrawal implementation using synthetic data only. Confirm compatibility normalization, the month-close conversion boundary, exact January 1 values, owner-age prescribed factors, independent account minimums, ordinary-withdrawal credit, December true-up, exhaustion and partial-year states, Canada/Ontario tax and pension-credit integration, shared requirement-engine reuse, surplus routing, export privacy, and deterministic exact-cent evidence. Simplified non-registered investment-income taxation and final migration follow after merge.
