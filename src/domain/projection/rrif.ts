@@ -188,11 +188,14 @@ export function remainingRrifMinimum(
 ): number {
   const ledger = state.annual.get(annualKey(calendarYear, accountId));
   if (!ledger) return 0;
-  return Math.max(
-    0,
-    ledger.payableMinimum -
-      ledger.ordinaryWithdrawals -
-      ledger.forcedDecemberWithdrawal,
+  const remainingAfterOrdinary = settleRrifMinimum(
+    Math.max(
+      0,
+      ledger.payableMinimum - ledger.ordinaryWithdrawals,
+    ),
+  );
+  return settleRrifMinimum(
+    Math.max(0, remainingAfterOrdinary - ledger.forcedDecemberWithdrawal),
   );
 }
 
@@ -252,7 +255,11 @@ function accountAnnualResult(
   const actual = ledger.ordinaryWithdrawals + ledger.forcedDecemberWithdrawal;
   const actualToday =
     ledger.ordinaryWithdrawalsToday + ledger.forcedDecemberWithdrawalToday;
-  const remaining = Math.max(0, ledger.payableMinimum - actual);
+  const remaining = remainingRrifMinimum(
+    state,
+    calendarYear,
+    lifecycle.accountId,
+  );
   const openingFactor =
     ledger.openingFairMarketValue && ledger.openingFairMarketValueToday
       ? ledger.openingFairMarketValue / ledger.openingFairMarketValueToday

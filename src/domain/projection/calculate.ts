@@ -65,7 +65,6 @@ import {
   type CanadianTaxYearState,
 } from "./canadian-tax-ledger";
 import { solveTaxableWithdrawal } from "./taxable-withdrawal";
-import { settleRrifMinimum } from "@/src/domain/defaults/rrif-factors";
 import {
   beginRrifCalendarYear,
   cloneRrifSimulationState,
@@ -2619,7 +2618,7 @@ function simulateProjection(
         );
         if (remainingMinimum <= 0.000001) continue;
         const balance = balances.get(account.id) ?? 0;
-        const payableTrueUp = settleRrifMinimum(remainingMinimum);
+        const payableTrueUp = remainingMinimum;
         const grossWithdrawal = Math.min(balance, payableTrueUp);
         if (grossWithdrawal <= 0) {
           recordForcedRrifWithdrawal({

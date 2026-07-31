@@ -101,5 +101,16 @@ export function settleRrifMinimum(rawMinimum: number): number {
   if (!Number.isFinite(rawMinimum) || rawMinimum < 0) {
     throw new Error("RRIF minimum must be finite and non-negative");
   }
-  return Math.ceil(rawMinimum * 100) / 100;
+  const scaledCents = rawMinimum * 100;
+  const nearestCent = Math.round(scaledCents);
+  const representationNoiseTolerance =
+    4 * Number.EPSILON * Math.max(1, Math.abs(scaledCents));
+  // Snap only values within a few scaled-value ULPs of an integer cent. This
+  // removes IEEE-754 representation noise; a genuine statutory fraction of a
+  // cent remains outside the magnitude-derived tolerance and rounds upward.
+  const settledCents =
+    Math.abs(scaledCents - nearestCent) <= representationNoiseTolerance
+      ? nearestCent
+      : Math.ceil(scaledCents);
+  return settledCents / 100;
 }
