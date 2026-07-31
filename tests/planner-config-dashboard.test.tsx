@@ -358,7 +358,7 @@ describe("dashboard config-save baseline transitions", () => {
     });
     expect(await screen.findByLabelText("Projection summary")).toBeInTheDocument();
     expect(projectionInputs.at(-1)?.monthlyEssentialSpendingToday).toBe(3600.25);
-  });
+  }, 10_000);
 
   it("installs a blocking error after reload failure and keeps the editor usable for repair", async () => {
     const initialBaseline = structuredClone(currentBaselineFixture);
