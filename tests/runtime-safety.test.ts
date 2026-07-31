@@ -67,10 +67,10 @@ describe("runtime safety regressions", () => {
       "utf8",
     );
 
-    expect(health).toContain('baselineSchemaVersion: "3.0"');
-    expect(health).toContain('projectionSchemaVersion: "11.0"');
-    expect(baselineTypes).toContain('schemaVersion: "3.0"');
-    expect(projectionTypes).toContain('schemaVersion: "11.0"');
+    expect(health).toContain('baselineSchemaVersion: "4.0"');
+    expect(health).toContain('projectionSchemaVersion: "12.0"');
+    expect(baselineTypes).toContain('schemaVersion: "4.0"');
+    expect(projectionTypes).toContain('schemaVersion: "12.0"');
   });
 
   it("contains no Lunch Money mutation call", async () => {

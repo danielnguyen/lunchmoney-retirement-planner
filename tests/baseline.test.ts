@@ -28,6 +28,10 @@ const configFixture: PlannerConfig = {
     minimumEndingFinancialAssetsToday: 0,
     source: "explicit_configuration",
   },
+  rrifMinimumWithdrawals: {
+    mode: "not_modelled_compatibility",
+    source: "compatibility_default",
+  },
   tax: {
     mode: "flat_compatibility",
     source: "explicit_configuration",
@@ -421,6 +425,19 @@ describe("live baseline derivation", () => {
       baselineSource: "explicit_configuration",
       activeValueSource: "explicit_configuration",
     });
+    expect(baseline.projectionInputs.rrifMinimumWithdrawals).toEqual({
+      mode: "not_modelled_compatibility",
+      source: "compatibility_default",
+    });
+    expect(
+      baseline.provenance["rrifMinimumWithdrawals.mode"],
+    ).toMatchObject({
+      value: "not_modelled_compatibility",
+      sourceType: "local_configuration",
+    });
+    expect(baseline.warnings).toContainEqual(
+      expect.objectContaining({ code: "rrif_minimums_not_modelled" }),
+    );
     expect(
       baseline.provenance[
         "retirementRequirement.minimumEndingFinancialAssetsToday"
@@ -447,7 +464,7 @@ describe("live baseline derivation", () => {
       }),
     ]);
     expect(baseline.recordsAnalyzed.transactions).toBe(8);
-    expect(baseline.schemaVersion).toBe("3.0");
+    expect(baseline.schemaVersion).toBe("4.0");
     expect(baseline.warnings).toContainEqual(
       expect.objectContaining({ code: "long_live_baseline_income" }),
     );
@@ -489,6 +506,38 @@ describe("live baseline derivation", () => {
         code: "retirement_requirement_compatibility_default",
         message: expect.stringContaining("backward-compatible"),
       }),
+    );
+  });
+
+  it("resolves explicit statutory RRIF provenance and removes the compatibility warning", () => {
+    const config = structuredClone(configFixture);
+    config.rrifMinimumWithdrawals = {
+      mode: "statutory",
+      source: "explicit_configuration",
+      ageBasis: "owner_age",
+      settlementTiming: "december_true_up",
+    };
+    const baseline = deriveCurrentBaseline(
+      config,
+      lunchMoneyData(),
+      window,
+      "2026-07-14T12:00:00.000Z",
+    );
+    expect(baseline.projectionInputs.rrifMinimumWithdrawals).toEqual({
+      ...config.rrifMinimumWithdrawals,
+      supportedRrifClass: "all_other_rrifs",
+    });
+    expect(
+      baseline.provenance["rrifMinimumWithdrawals.mode"],
+    ).toMatchObject({
+      value: "statutory",
+      sourceType: "local_configuration",
+    });
+    expect(baseline.warnings).toContainEqual(
+      expect.objectContaining({ code: "rrif_statutory_minimums_active" }),
+    );
+    expect(baseline.warnings).not.toContainEqual(
+      expect.objectContaining({ code: "rrif_minimums_not_modelled" }),
     );
   });
 
@@ -578,7 +627,7 @@ describe("live baseline derivation", () => {
       "2026-07-14T12:00:00.000Z",
     );
 
-    expect(baseline.schemaVersion).toBe("3.0");
+    expect(baseline.schemaVersion).toBe("4.0");
     expect(baseline.lunchMoneyMappings.accounts).toEqual([
       {
         mappingId: "manual:1",
@@ -638,7 +687,7 @@ describe("live baseline derivation", () => {
       "2026-07-14T12:00:00.000Z",
     );
 
-    expect(baseline.schemaVersion).toBe("3.0");
+    expect(baseline.schemaVersion).toBe("4.0");
     expect(
       baseline.projectionInputs.registeredAccountRoom?.tfsa
         .startingAvailableRoom.amount,
@@ -858,7 +907,7 @@ describe("live baseline derivation", () => {
       "2026-07-14T12:00:00.000Z",
     );
 
-    expect(baseline.schemaVersion).toBe("3.0");
+    expect(baseline.schemaVersion).toBe("4.0");
     expect(baseline.projectionInputs.nonFinancialAssets).toEqual([
       expect.objectContaining({
         id: "manual:4",

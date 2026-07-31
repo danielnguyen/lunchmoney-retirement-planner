@@ -1921,11 +1921,6 @@ export function deriveCurrentBaseline(
           "The official 2026 OAS recovery threshold is currently published as an estimate.",
       },
       {
-        code: "rrif_minimums_not_modelled",
-        severity: "warning",
-        message: "Statutory RRIF minimum withdrawals are not modelled yet.",
-      },
-      {
         code: "non_registered_tax_not_modelled",
         severity: "warning",
         message:
@@ -2764,7 +2759,9 @@ export function deriveCurrentBaseline(
             source: "january_zero",
           },
       limitations: [
-        "rrif_minimum_withdrawals_not_modelled",
+        ...(config.rrifMinimumWithdrawals.mode === "statutory"
+          ? []
+          : ["rrif_minimum_withdrawals_not_modelled" as const]),
         "non_registered_investment_income_not_modelled",
         "full_tax_return_deductions_and_refundable_credits_not_modelled",
       ],
@@ -2786,6 +2783,53 @@ export function deriveCurrentBaseline(
       : "Explicit tax model from private planner configuration",
     dataThrough,
   );
+  const resolvedRrifMinimumWithdrawals: ProjectionInputs["rrifMinimumWithdrawals"] =
+    config.rrifMinimumWithdrawals.mode === "statutory"
+      ? {
+          mode: "statutory",
+          source: "explicit_configuration",
+          ageBasis: "owner_age",
+          settlementTiming: "december_true_up",
+          supportedRrifClass: "all_other_rrifs",
+        }
+      : { ...config.rrifMinimumWithdrawals };
+  provenance["rrifMinimumWithdrawals.mode"] = localValue(
+    resolvedRrifMinimumWithdrawals.mode,
+    resolvedRrifMinimumWithdrawals.source === "compatibility_default"
+      ? "Backward-compatible RRIF milestone-only mode normalized because rrifMinimumWithdrawals was omitted"
+      : "Explicit RRIF minimum-withdrawal mode from private planner configuration",
+    dataThrough,
+  );
+  provenance["person.rrifConversionAge"] = localValue(
+    config.assumptions.rrifConversionAge,
+    "Configured RRSP-to-RRIF conversion age",
+    dataThrough,
+  );
+  if (resolvedRrifMinimumWithdrawals.mode === "statutory") {
+    provenance["rrifMinimumWithdrawals.ageBasis"] = localValue(
+      resolvedRrifMinimumWithdrawals.ageBasis,
+      "Statutory RRIF minimum uses the owner's whole age at the beginning of the year",
+      dataThrough,
+    );
+    provenance["rrifMinimumWithdrawals.settlementTiming"] = localValue(
+      resolvedRrifMinimumWithdrawals.settlementTiming,
+      "Remaining per-account RRIF minimum is settled once after ordinary December withdrawals",
+      dataThrough,
+    );
+    warnings.push({
+      code: "rrif_statutory_minimums_active",
+      severity: "warning",
+      message:
+        "Statutory RRIF conversion and per-account minimum withdrawals are active; non-registered investment-income taxation remains unmodelled.",
+    });
+  } else {
+    warnings.push({
+      code: "rrif_minimums_not_modelled",
+      severity: "warning",
+      message:
+        "RRIF conversion remains a milestone only because statutory minimum withdrawals are in compatibility mode.",
+    });
+  }
   if (resolvedTax.mode === "canadian_annual") {
     provenance["tax.province"] = localValue(
       resolvedTax.province,
@@ -2832,6 +2876,7 @@ export function deriveCurrentBaseline(
       baselineSource: config.retirementRequirement.source,
       activeValueSource: config.retirementRequirement.source,
     },
+    rrifMinimumWithdrawals: resolvedRrifMinimumWithdrawals,
     tax: resolvedTax,
     person: {
       currentAge: config.currentAge,
@@ -2871,7 +2916,7 @@ export function deriveCurrentBaseline(
   });
 
   return {
-    schemaVersion: "3.0",
+    schemaVersion: "4.0",
     connection,
     projectionInputs,
     provenance,

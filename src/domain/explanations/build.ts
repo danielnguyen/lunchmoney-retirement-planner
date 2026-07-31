@@ -875,8 +875,12 @@ function retirementRequirementDocument(
     caveats: [
       requirement.taxModel ===
       "canadian_annual_federal_ontario_forecast"
-        ? "Provisional — annual federal and Ontario income tax is modelled, but RRIF minimum withdrawals and non-registered investment-income taxation are not."
-        : "Provisional — calculated using the current flat retirement-tax compatibility assumption; RRIF minimum withdrawals are not modelled.",
+        ? context.projection.rrif.mode === "statutory"
+          ? "Provisional — annual federal and Ontario income tax and statutory RRIF minimum withdrawals are modelled, but non-registered investment-income taxation and full tax-return fidelity are not."
+          : "Provisional — annual federal and Ontario income tax is modelled, but RRIF minimum withdrawals and non-registered investment-income taxation are not."
+        : context.projection.rrif.mode === "statutory"
+          ? "Provisional — statutory RRIF minimums are modelled under the current flat retirement-tax compatibility assumption."
+          : "Provisional — calculated using the current flat retirement-tax compatibility assumption; RRIF minimum withdrawals are not modelled.",
       "Residence value, home equity, and other non-financial assets cannot satisfy this requirement.",
       sourceCaveat,
     ],
@@ -912,6 +916,9 @@ function annualTaxDocument(context: ExplanationContext): ExplanationDocument {
       caveats: [
         "This is not a progressive federal or provincial tax calculation.",
         "Net employment cash is not taxed a second time.",
+        context.projection.rrif.mode === "statutory"
+          ? "Converted-account withdrawals are classified as RRIF withdrawals, while the flat compatibility rate remains the tax approximation."
+          : "RRIF conversion and statutory minimum withdrawals are not modelled in compatibility mode.",
       ],
     };
   }
@@ -1005,6 +1012,33 @@ function annualTaxDocument(context: ExplanationContext): ExplanationDocument {
             funded: tax.projectionFundedTax,
           })),
       },
+      {
+        title: "RRIF lifecycle and minimum evidence",
+        description:
+          context.projection.rrif.mode === "statutory"
+            ? "Each account converts at its configured month-close boundary. Its next-year minimum uses the raw January 1 value and owner-age prescribed factor; ordinary withdrawals count before the December true-up."
+            : "The RRIF date remains a milestone only because statutory mode is not active.",
+        columns: [
+          { key: "year", label: "Year" },
+          { key: "status", label: "Period" },
+          { key: "opening", label: "January 1 value" },
+          { key: "factor", label: "Factor" },
+          { key: "minimum", label: "Minimum" },
+          { key: "ordinary", label: "Ordinary" },
+          { key: "forced", label: "December true-up" },
+          { key: "remaining", label: "Remaining" },
+        ],
+        rows: context.projection.rrif.annual.map((period) => ({
+          year: period.calendarYear,
+          status: period.periodStatus.replaceAll("_", " "),
+          opening: period.openingFairMarketValue,
+          factor: period.prescribedFactor ?? "Not applicable",
+          minimum: period.minimumRequired,
+          ordinary: period.ordinaryWithdrawals,
+          forced: period.forcedDecemberWithdrawal,
+          remaining: period.remainingMinimum,
+        })),
+      },
     ],
     assumptions: [
       {
@@ -1027,8 +1061,10 @@ function annualTaxDocument(context: ExplanationContext): ExplanationDocument {
       "Employment net cash enters the budget, taxable employment establishes brackets, and RRSP-eligible income creates contribution room; these are separate inputs.",
       "Annual credits are not prorated for partial modelled years; a partial year is labelled as an estimate using income through the completed period.",
       "OAS recovery uses supported annual income, not a monthly threshold proxy.",
-      "RRSP gross withdrawals use a bounded exact-cent search for the lowest amount whose after-tax proceeds fund the cash need.",
-      "RRIF minimum withdrawals and non-registered investment-income taxation are not modelled.",
+      "RRSP and ordinary RRIF cash needs use a bounded exact-cent search for the lowest gross amount whose signed annual-tax-adjusted proceeds fund the cash need.",
+      context.projection.rrif.mode === "statutory"
+        ? "RRIF income is eligible pension income at age 65 or older at year end; each account's remaining minimum is settled once in December and surplus follows the configured surplus policy. Non-registered investment-income taxation remains unmodelled."
+        : "RRIF minimum withdrawals and non-registered investment-income taxation are not modelled.",
     ],
     reconciliation: {
       matched: latest.reconciled,

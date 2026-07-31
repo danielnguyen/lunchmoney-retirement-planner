@@ -17,6 +17,14 @@ retirementRequirement:
   minimumEndingFinancialAssetsToday: 0
 transactionTrailingMonths: 12
 
+# Omit this block to preserve the historical milestone-only compatibility
+# behaviour. Statutory mode converts each modelled RRSP at the configured
+# rrifConversionAge and settles each account's annual minimum in December.
+rrifMinimumWithdrawals:
+  mode: statutory
+  ageBasis: owner_age
+  settlementTiming: december_true_up
+
 # Existing configurations resolve to this compatibility mode when the tax block
 # is omitted. Keeping it explicit makes the active approximation visible.
 tax:

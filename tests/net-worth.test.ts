@@ -39,6 +39,10 @@ function baseInputs(): ProjectionInputs {
       baselineSource: "explicit_configuration",
       activeValueSource: "explicit_configuration",
     },
+    rrifMinimumWithdrawals: {
+      mode: "not_modelled_compatibility",
+      source: "compatibility_default",
+    },
     tax: {
       mode: "flat_compatibility",
       source: "explicit_configuration",

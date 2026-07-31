@@ -27,6 +27,10 @@ export const projectionFixture: ProjectionInputs = {
     baselineSource: "explicit_configuration",
     activeValueSource: "explicit_configuration",
   },
+  rrifMinimumWithdrawals: {
+    mode: "not_modelled_compatibility",
+    source: "compatibility_default",
+  },
   tax: {
     mode: "flat_compatibility",
     source: "explicit_configuration",
@@ -291,7 +295,7 @@ export const baselineContextFixture: BaselineExportContext = {
 
 export const currentBaselineFixture: CurrentBaseline = {
   ...baselineContextFixture,
-  schemaVersion: "3.0",
+  schemaVersion: "4.0",
   lunchMoneyMappings: {
     accounts: [
       {

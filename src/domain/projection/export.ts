@@ -117,7 +117,7 @@ export type ShareSafeDerivedBaseline = {
 };
 
 export type ProjectionSnapshot = {
-  schemaVersion: "11.0";
+  schemaVersion: "12.0";
   generatedAt: string;
   exportMetadata: {
     transformation: "typed_allowlist_and_automatic_anonymization";
@@ -487,6 +487,8 @@ const SAFE_WARNING_MESSAGES: Record<BaselineWarningCode, string> = {
     "The official 2026 OAS recovery threshold is currently a published estimate.",
   rrif_minimums_not_modelled:
     "Statutory RRIF minimum withdrawals are not modelled.",
+  rrif_statutory_minimums_active:
+    "Statutory RRIF conversion and minimum withdrawals are active.",
   non_registered_tax_not_modelled:
     "Non-registered investment-income taxation is not modelled.",
 };
@@ -994,6 +996,7 @@ function safeProjectionInputs(
       baselineSource: inputs.retirementRequirement.baselineSource,
       activeValueSource: inputs.retirementRequirement.activeValueSource,
     },
+    rrifMinimumWithdrawals: { ...inputs.rrifMinimumWithdrawals },
     tax:
       inputs.tax.mode === "flat_compatibility"
         ? { ...inputs.tax }
@@ -1422,7 +1425,7 @@ function safeProjectionResult(
   context: ShareSafeContext,
 ): ProjectionResult {
   return {
-    schemaVersion: "11.0",
+    schemaVersion: "12.0",
     inputs: safeProjectionInputs(projection.inputs, context),
     summary: {
       retirementYear: projection.summary.retirementYear,
@@ -1690,6 +1693,25 @@ function safeProjectionResult(
       annual: projection.taxation.annual.map((tax) => tax),
       limitations: [...projection.taxation.limitations],
     },
+    rrif: {
+      ...projection.rrif,
+      limitations: [...projection.rrif.limitations],
+      references: {
+        ...projection.rrif.references,
+        effectiveDates: { ...projection.rrif.references.effectiveDates },
+      },
+      accounts: projection.rrif.accounts.map((account) => ({
+        ...account,
+        accountId: requiredAccountAlias(account.accountId, context).key,
+      })),
+      annual: projection.rrif.annual.map((period) => ({
+        ...period,
+        accounts: period.accounts.map((account) => ({
+          ...account,
+          accountId: requiredAccountAlias(account.accountId, context).key,
+        })),
+      })),
+    },
     annual: projection.annual.map((point) => ({
       calendarYear: point.calendarYear,
       age: point.age,
@@ -1720,6 +1742,13 @@ function safeProjectionResult(
         ]),
       ),
       tax: point.tax,
+      rrif: {
+        ...point.rrif,
+        accounts: point.rrif.accounts.map((account) => ({
+          ...account,
+          accountId: requiredAccountAlias(account.accountId, context).key,
+        })),
+      },
     })),
     observations: projection.observations.map((observation, index) => {
       const code = SAFE_OBSERVATION_CODES.has(observation.code)
@@ -2694,7 +2723,7 @@ export function createProjectionSnapshot(
   const dataThrough = safeDateLike(baseline.dataThrough, projection.inputs.startDate);
   const safeGeneratedAt = requireIsoTimestamp(generatedAt);
   return {
-    schemaVersion: "11.0",
+    schemaVersion: "12.0",
     generatedAt: safeGeneratedAt,
     exportMetadata: {
       transformation: "typed_allowlist_and_automatic_anonymization",
@@ -2894,6 +2923,22 @@ export function projectionSnapshotToCsv(
     "annual_tax_effective_rate",
     "annual_tax_provisional",
     "annual_tax_reconciled",
+    "rrif_mode",
+    "rrif_conversion_age",
+    "rrif_owner_age_basis",
+    "rrif_settlement_timing",
+    "rrif_period_status",
+    "rrif_opening_balance",
+    "rrif_factor_age",
+    "rrif_factor",
+    "rrif_minimum_required",
+    "rrif_ordinary_withdrawals",
+    "rrif_forced_december_withdrawal",
+    "rrif_actual_withdrawals",
+    "rrif_remaining_minimum",
+    "rrif_satisfied",
+    "rrif_account_exhaustion",
+    "rrif_provisional",
     "surplus_generated",
     "surplus_reserve_refill",
     "surplus_retained_as_cash",
@@ -3141,6 +3186,34 @@ export function projectionSnapshotToCsv(
           : ""),
       snapshot.projection.taxation.provisional ? 1 : 0,
       canadianTax ? (canadianTax.reconciled ? 1 : 0) : "",
+      snapshot.projection.rrif.mode,
+      snapshot.projection.rrif.conversionAge,
+      snapshot.projection.rrif.ownerAgeBasis,
+      snapshot.projection.rrif.settlementTiming,
+      point.rrif.periodStatus,
+      mode === "nominal"
+        ? point.rrif.openingFairMarketValue
+        : point.rrif.openingFairMarketValueToday,
+      point.rrif.factorAge ?? "",
+      point.rrif.prescribedFactor ?? "",
+      mode === "nominal"
+        ? point.rrif.minimumRequired
+        : point.rrif.minimumRequiredToday,
+      mode === "nominal"
+        ? point.rrif.ordinaryWithdrawals
+        : point.rrif.ordinaryWithdrawalsToday,
+      mode === "nominal"
+        ? point.rrif.forcedDecemberWithdrawal
+        : point.rrif.forcedDecemberWithdrawalToday,
+      mode === "nominal"
+        ? point.rrif.actualWithdrawals
+        : point.rrif.actualWithdrawalsToday,
+      mode === "nominal"
+        ? point.rrif.remainingMinimum
+        : point.rrif.remainingMinimumToday,
+      point.rrif.satisfied === null ? "" : point.rrif.satisfied ? 1 : 0,
+      point.rrif.accountExhaustion ? 1 : 0,
+      snapshot.projection.rrif.provisional ? 1 : 0,
       view.surplusAllocation.generated,
       view.surplusAllocation.reserveRefill,
       view.surplusAllocation.retainedAsCash,

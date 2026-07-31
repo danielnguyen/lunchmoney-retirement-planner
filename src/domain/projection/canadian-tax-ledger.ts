@@ -95,12 +95,17 @@ export function canadianTaxPosition(input: {
   ageAtYearEnd: number;
   pensionIncomeCreditEligible: boolean;
 }): CanadianTaxPosition {
-  const eligibleFull = input.pensionIncomeCreditEligible
-    ? input.state.totalIncome.pension
-    : 0;
-  const eligibleEmbedded = input.pensionIncomeCreditEligible
-    ? input.state.embeddedIncome.pension
-    : 0;
+  const rrifCreditEligible = input.ageAtYearEnd >= 65;
+  const eligibleFull =
+    (input.pensionIncomeCreditEligible
+      ? input.state.totalIncome.pension
+      : 0) +
+    (rrifCreditEligible ? input.state.totalIncome.rrifWithdrawals : 0);
+  const eligibleEmbedded =
+    (input.pensionIncomeCreditEligible
+      ? input.state.embeddedIncome.pension
+      : 0) +
+    (rrifCreditEligible ? input.state.embeddedIncome.rrifWithdrawals : 0);
   const common = {
     calendarYear: input.state.calendarYear,
     province: input.tax.province,

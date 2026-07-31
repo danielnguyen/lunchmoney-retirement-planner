@@ -99,6 +99,18 @@ export type PlannerTaxConfig =
       };
     };
 
+export type PlannerRrifMinimumWithdrawalsConfig =
+  | {
+      mode: "not_modelled_compatibility";
+      source: "explicit_configuration" | "compatibility_default";
+    }
+  | {
+      mode: "statutory";
+      source: "explicit_configuration";
+      ageBasis: "owner_age";
+      settlementTiming: "december_true_up";
+    };
+
 export type SpendingPhaseConfig = {
   id: string;
   label: string;
@@ -339,6 +351,7 @@ export type PlannerConfig = {
     minimumEndingFinancialAssetsToday: number;
     source: "explicit_configuration" | "compatibility_default";
   };
+  rrifMinimumWithdrawals: PlannerRrifMinimumWithdrawalsConfig;
   tax: PlannerTaxConfig;
   transactionTrailingMonths: number;
   employmentIncomePhases?: EmploymentIncomePhaseConfig[];

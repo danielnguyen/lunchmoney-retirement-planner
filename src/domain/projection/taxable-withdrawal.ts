@@ -1,4 +1,5 @@
 export type TaxableWithdrawalSolution = {
+  incomeSource: "rrspWithdrawals" | "rrifWithdrawals";
   grossWithdrawal: number;
   incrementalTax: number;
   netProceeds: number;
@@ -22,9 +23,11 @@ function dollars(value: number): number {
 }
 
 export function solveTaxableWithdrawal(input: {
+  incomeSource: "rrspWithdrawals" | "rrifWithdrawals";
   availableBalance: number;
   requiredNetCash: number;
   incrementalTax: (grossWithdrawal: number) => number;
+  minimumIncrementalTax?: number;
   maximumEvaluations?: number;
 }): TaxableWithdrawalSolution {
   if (!Number.isFinite(input.availableBalance) || input.availableBalance < 0) {
@@ -36,6 +39,15 @@ export function solveTaxableWithdrawal(input: {
   const bound = cents(input.availableBalance);
   const target = requiredCents(input.requiredNetCash);
   const evaluationLimit = input.maximumEvaluations ?? 80;
+  const minimumIncrementalTax = input.minimumIncrementalTax ?? 0;
+  if (
+    !Number.isFinite(minimumIncrementalTax) ||
+    minimumIncrementalTax > 0
+  ) {
+    throw new Error(
+      "Taxable withdrawal minimum incremental tax must be finite and non-positive",
+    );
+  }
   let evaluations = 0;
   const evaluated = new Map<number, number>();
 
@@ -46,10 +58,14 @@ export function solveTaxableWithdrawal(input: {
     }
     const gross = dollars(candidateCents);
     const tax = input.incrementalTax(gross);
-    if (!Number.isFinite(tax) || tax < -0.005 || tax > gross + 0.005) {
+    if (
+      !Number.isFinite(tax) ||
+      tax < minimumIncrementalTax - 0.005 ||
+      tax > gross + 0.005
+    ) {
       throw new Error("Taxable withdrawal tax function returned an invalid result");
     }
-    const taxCents = Math.max(0, Math.round(tax * 100));
+    const taxCents = Math.round(tax * 100);
     const netCents = candidateCents - taxCents;
     for (const [priorCandidate, priorNet] of evaluated) {
       if (
@@ -68,6 +84,7 @@ export function solveTaxableWithdrawal(input: {
   const zero = evaluate(0);
   if (target === 0) {
     return {
+      incomeSource: input.incomeSource,
       grossWithdrawal: 0,
       incrementalTax: 0,
       netProceeds: 0,
@@ -88,6 +105,7 @@ export function solveTaxableWithdrawal(input: {
       if (probe > 0 && probe < bound && !evaluated.has(probe)) evaluate(probe);
     }
     return {
+      incomeSource: input.incomeSource,
       grossWithdrawal: full.gross,
       incrementalTax: full.tax,
       netProceeds: dollars(full.netCents),
@@ -113,6 +131,7 @@ export function solveTaxableWithdrawal(input: {
     throw new Error("Taxable withdrawal solver failed its exact-cent boundary proof");
   }
   return {
+    incomeSource: input.incomeSource,
     grossWithdrawal: accepted.gross,
     incrementalTax: accepted.tax,
     netProceeds: dollars(accepted.netCents),
