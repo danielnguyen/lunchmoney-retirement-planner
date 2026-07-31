@@ -83,6 +83,64 @@ describe("dashboard config-save baseline transitions", () => {
     ).toBeInTheDocument();
   });
 
+  it("renders shared Canadian annual tax evidence and its provisional limits", async () => {
+    const baseline = structuredClone(currentBaselineFixture);
+    baseline.projectionInputs.tax = {
+      mode: "canadian_annual",
+      source: "explicit_configuration",
+      effectiveTaxRate: 0.2,
+      oasRecoveryThresholdToday: 90_000,
+      oasRecoveryRate: 0.15,
+      province: "ON",
+      referenceYear: 2026,
+      futureIndexingRate: 0.02,
+      openingTaxYearBeforeProjectionMonth: {
+        calendarYear: 2026,
+        throughMonth: 6,
+        income: {
+          employment: 40_000,
+          cpp: 0,
+          oas: 0,
+          pension: 0,
+          rrspWithdrawals: 0,
+          rrifWithdrawals: 0,
+          otherTaxableIncome: 0,
+        },
+        source: "explicit_configuration",
+      },
+      limitations: [
+        "rrif_minimum_withdrawals_not_modelled",
+        "non_registered_investment_income_not_modelled",
+        "full_tax_return_deductions_and_refundable_credits_not_modelled",
+      ],
+    };
+    for (const phase of baseline.projectionInputs.person.employmentIncomePhases) {
+      phase.annualTaxableEmploymentIncomeToday = 100_000;
+    }
+    const projection = calculateProjection(baseline.projectionInputs);
+    const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
+      const url = requestUrl(input);
+      if (url === "/api/v1/baseline/current") {
+        return jsonResponse(baseline);
+      }
+      if (url === "/api/v1/projections") return jsonResponse(projection);
+      throw new Error(`Unexpected request: ${url}`);
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    render(<PlannerDashboard />);
+
+    expect(
+      await screen.findByText("Canadian annual tax · latest modelled period"),
+    ).toBeInTheDocument();
+    expect(screen.getAllByText(/Canada \/ Ontario/).length).toBeGreaterThan(0);
+    expect(screen.getByText(/Full liability/)).toBeInTheDocument();
+    expect(screen.getByText(/embedded\/outside projection/)).toBeInTheDocument();
+    expect(screen.getByText(/projection-funded/)).toBeInTheDocument();
+    expect(screen.getAllByText(/RRIF minimum withdrawals/).length).toBeGreaterThan(0);
+    expect(screen.getByText(/Opening tax-year context/)).toBeInTheDocument();
+  });
+
   it("shows the active terminal override separately from its compatibility YAML source", async () => {
     const baseline = structuredClone(currentBaselineFixture);
     baseline.projectionInputs.retirementRequirement = {

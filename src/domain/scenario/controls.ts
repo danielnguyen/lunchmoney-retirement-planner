@@ -192,7 +192,10 @@ function benefitStartPersistence(
 
 function employmentPhasePersistence(
   phaseId: string,
-  field: "annualNetCashToday" | "annualGrowth",
+  field:
+    | "annualNetCashToday"
+    | "annualTaxableEmploymentIncomeToday"
+    | "annualGrowth",
 ): ScenarioPersistenceResolver {
   return (config) => {
     const phase = config.employmentIncomePhases?.find(
@@ -201,6 +204,14 @@ function employmentPhasePersistence(
     if (!phase) {
       return scenarioOnly(
         "This resolved employment value has no matching configured phase id in the YAML draft.",
+      );
+    }
+    if (
+      field === "annualTaxableEmploymentIncomeToday" &&
+      phase.annualTaxableEmploymentIncomeToday === undefined
+    ) {
+      return scenarioOnly(
+        "This taxable-employment assumption has no configured scalar destination in the YAML draft.",
       );
     }
     const target = scalar(
@@ -745,6 +756,34 @@ export function buildControls(baseline: ProjectionInputs): ControlDefinition[] {
     },
   ];
 
+  if (baseline.tax.mode === "canadian_annual") {
+    controls.push({
+      key: "tax.futureIndexingRate",
+      sourceKey: "tax.futureIndexingRate",
+      label: "Tax-reference forecast indexing",
+      kind: "percentage",
+      min: fixed(-0.2),
+      max: fixed(0.5),
+      step: 0.01,
+      format: percent.format,
+      get: (inputs) =>
+        inputs.tax.mode === "canadian_annual"
+          ? inputs.tax.futureIndexingRate
+          : 0,
+      set: (inputs, value) => {
+        if (inputs.tax.mode === "canadian_annual") {
+          inputs.tax.futureIndexingRate = value;
+        }
+      },
+      persistence: (config) =>
+        config.tax.mode === "canadian_annual"
+          ? configBinding(scalar("tax", "futureIndexingRate"))
+          : scenarioOnly(
+              "Tax-reference indexing has no destination because the YAML draft does not use Canadian annual tax mode.",
+            ),
+    });
+  }
+
   if (
     baseline.savingsPolicy.mode === "simple" &&
     baseline.savingsPolicy.operatingCashTarget
@@ -914,6 +953,33 @@ export function buildControls(baseline: ProjectionInputs): ControlDefinition[] {
         persistence: employmentPhasePersistence(phase.id, "annualGrowth"),
       },
     );
+    if (phase.annualTaxableEmploymentIncomeToday !== undefined) {
+      controls.push({
+        key: `employmentPhase.${phase.id}.annualTaxableEmploymentIncomeToday`,
+        sourceKey: `person.employmentIncomePhases.${phase.id}.annualTaxableEmploymentIncomeToday`,
+        label: `${phase.label} annual taxable employment income`,
+        kind: "currency",
+        min: fixed(0),
+        max: fixed(
+          Math.max(500000, phase.annualTaxableEmploymentIncomeToday * 3),
+        ),
+        step: 0.01,
+        format: currency.format,
+        get: (inputs) =>
+          inputs.person.employmentIncomePhases.find(
+            (item) => item.id === phase.id,
+          )!.annualTaxableEmploymentIncomeToday!,
+        set: (inputs, value) => {
+          inputs.person.employmentIncomePhases.find(
+            (item) => item.id === phase.id,
+          )!.annualTaxableEmploymentIncomeToday = value;
+        },
+        persistence: employmentPhasePersistence(
+          phase.id,
+          "annualTaxableEmploymentIncomeToday",
+        ),
+      });
+    }
     if (phase.rrspRoomGeneration) {
       for (const [field, label] of [
         [

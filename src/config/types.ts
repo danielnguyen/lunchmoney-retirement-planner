@@ -54,6 +54,7 @@ export type EmploymentIncomePhaseConfig = {
   startAge: number;
   endAge: number;
   annualNetCashToday: LiveBaselineAmount;
+  annualTaxableEmploymentIncomeToday?: number;
   annualGrowth: number;
   rrspRoomGeneration?: {
     annualEligibleEarnedIncomeToday: number;
@@ -68,6 +69,35 @@ export type EmploymentIncomePhaseConfig = {
     annualGrowth: number;
   };
 };
+
+export type CanadianTaxIncomeConfig = {
+  employment: number;
+  cpp: number;
+  oas: number;
+  pension: number;
+  rrspWithdrawals: number;
+  rrifWithdrawals: number;
+  otherTaxableIncome: number;
+};
+
+export type PlannerTaxConfig =
+  | {
+      mode: "flat_compatibility";
+      source: "explicit_configuration" | "compatibility_default";
+    }
+  | {
+      mode: "canadian_annual";
+      source: "explicit_configuration";
+      province: "ON";
+      referenceYear: 2026;
+      futureIndexingRate: number;
+      pensionIncomeCreditEligible: boolean;
+      openingTaxYearBeforeProjectionMonth?: {
+        calendarYear: number;
+        throughMonth: number;
+        income: CanadianTaxIncomeConfig;
+      };
+    };
 
 export type SpendingPhaseConfig = {
   id: string;
@@ -309,6 +339,7 @@ export type PlannerConfig = {
     minimumEndingFinancialAssetsToday: number;
     source: "explicit_configuration" | "compatibility_default";
   };
+  tax: PlannerTaxConfig;
   transactionTrailingMonths: number;
   employmentIncomePhases?: EmploymentIncomePhaseConfig[];
   spendingPhases?: SpendingPhaseConfig[];

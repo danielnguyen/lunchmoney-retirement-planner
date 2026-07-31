@@ -17,6 +17,33 @@ retirementRequirement:
   minimumEndingFinancialAssetsToday: 0
 transactionTrailingMonths: 12
 
+# Existing configurations resolve to this compatibility mode when the tax block
+# is omitted. Keeping it explicit makes the active approximation visible.
+tax:
+  mode: flat_compatibility
+
+# To opt in to the 2026 Canada/Ontario annual model, replace the tax block above
+# with the synthetic example below. A mid-year projection must include opening
+# taxable income through the month before the projection begins; these amounts
+# establish annual bracket context but are not deposited into planner cash.
+# tax:
+#   mode: canadian_annual
+#   province: ON
+#   referenceYear: 2026
+#   futureIndexingRate: 0.02
+#   pensionIncomeCreditEligible: true
+#   openingTaxYearBeforeProjectionMonth:
+#     calendarYear: 2026
+#     throughMonth: 6
+#     income:
+#       employment: 55000
+#       cpp: 0
+#       oas: 0
+#       pension: 0
+#       rrspWithdrawals: 0
+#       rrifWithdrawals: 0
+#       otherTaxableIncome: 0
+
 # Adjust how the live Lunch Money spending baseline changes over time. These
 # phases are independent of employment income. Ages include startAge and stop
 # before endAge, and the phases must cover currentAge through projectionEndAge
@@ -72,6 +99,9 @@ employmentIncomePhases:
     startAge: 38
     endAge: 41
     annualNetCashToday: live_baseline
+    # Taxable employment is annual gross taxable income for bracket context.
+    # It neither enters cash flow nor creates RRSP room.
+    annualTaxableEmploymentIncomeToday: 100000
     annualGrowth: 0
 
     # This block estimates the new RRSP room this job creates in later years.
@@ -93,6 +123,7 @@ employmentIncomePhases:
     startAge: 41
     endAge: 62
     annualNetCashToday: 72000
+    annualTaxableEmploymentIncomeToday: 110000
     annualGrowth: 0.02
     rrspRoom:
       eligibleEarnedIncomeToday: 110000

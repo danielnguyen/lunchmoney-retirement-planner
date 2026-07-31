@@ -7,6 +7,7 @@ export const explanationTargets = [
   "assets-at-retirement",
   "retirement-requirement",
   "retirement-funding-margin",
+  "annual-tax",
   "retirement-goal",
   "goal-gap",
   "financial-assets-duration",

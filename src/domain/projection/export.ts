@@ -117,7 +117,7 @@ export type ShareSafeDerivedBaseline = {
 };
 
 export type ProjectionSnapshot = {
-  schemaVersion: "10.0";
+  schemaVersion: "11.0";
   generatedAt: string;
   exportMetadata: {
     transformation: "typed_allowlist_and_automatic_anonymization";
@@ -433,6 +433,8 @@ const SAFE_OBSERVATION_CODES = new Set([
   "portfolio_duration",
   "projected_retirement_liability_shortfall",
   "retirement_requirement_scenario_override",
+  "retirement_requirement_tax_compatibility",
+  "retirement_requirement_tax_provisional",
 ]);
 
 const SOURCE_TYPES = new Set<BaselineSourceType>([
@@ -471,6 +473,22 @@ const SAFE_WARNING_MESSAGES: Record<BaselineWarningCode, string> = {
     "Contribution plans use fixed source-only compatibility routes.",
   liability_payment_mismatch:
     "A configured liability payment differs materially from historical payment evidence.",
+  flat_tax_compatibility_active:
+    "Flat retirement-tax compatibility remains active.",
+  canadian_tax_provisional:
+    "Canadian annual federal and Ontario tax is active but provisional.",
+  opening_tax_year_context_active:
+    "Opening pre-projection taxable income is included in annual tax context.",
+  suspicious_employment_income_bases:
+    "Employment cash, taxable income, and RRSP-eligible income require review.",
+  inactive_flat_tax_fields:
+    "Flat compatibility tax fields are inactive in Canadian annual mode.",
+  oas_recovery_threshold_estimate:
+    "The official 2026 OAS recovery threshold is currently a published estimate.",
+  rrif_minimums_not_modelled:
+    "Statutory RRIF minimum withdrawals are not modelled.",
+  non_registered_tax_not_modelled:
+    "Non-registered investment-income taxation is not modelled.",
 };
 
 const REFERENCE_KINDS = new Set<CanadianReferenceKind>([
@@ -976,11 +994,19 @@ function safeProjectionInputs(
       baselineSource: inputs.retirementRequirement.baselineSource,
       activeValueSource: inputs.retirementRequirement.activeValueSource,
     },
-    tax: {
-      effectiveTaxRate: inputs.tax.effectiveTaxRate,
-      oasRecoveryThresholdToday: inputs.tax.oasRecoveryThresholdToday,
-      oasRecoveryRate: inputs.tax.oasRecoveryRate,
-    },
+    tax:
+      inputs.tax.mode === "flat_compatibility"
+        ? { ...inputs.tax }
+        : {
+            ...inputs.tax,
+            openingTaxYearBeforeProjectionMonth: {
+              ...inputs.tax.openingTaxYearBeforeProjectionMonth,
+              income: {
+                ...inputs.tax.openingTaxYearBeforeProjectionMonth.income,
+              },
+            },
+            limitations: [...inputs.tax.limitations],
+          },
     person: {
       currentAge: inputs.person.currentAge,
       retirementAge: inputs.person.retirementAge,
@@ -992,6 +1018,12 @@ function safeProjectionInputs(
           startAge: phase.startAge,
           endAge: phase.endAge,
           annualNetCashToday: phase.annualNetCashToday,
+          ...(phase.annualTaxableEmploymentIncomeToday === undefined
+            ? {}
+            : {
+                annualTaxableEmploymentIncomeToday:
+                  phase.annualTaxableEmploymentIncomeToday,
+              }),
           annualGrowth: phase.annualGrowth,
           ...(phase.rrspRoomGeneration
             ? { rrspRoomGeneration: { ...phase.rrspRoomGeneration } }
@@ -1001,6 +1033,8 @@ function safeProjectionInputs(
       annualPensionToday: inputs.person.annualPensionToday,
       pensionStartAge: inputs.person.pensionStartAge,
       pensionIndexingRate: inputs.person.pensionIndexingRate,
+      pensionIncomeCreditEligible:
+        inputs.person.pensionIncomeCreditEligible,
       cpp: {
         startAge: inputs.person.cpp.startAge,
         monthlyAmountAt65Today: inputs.person.cpp.monthlyAmountAt65Today,
@@ -1374,6 +1408,12 @@ function safeObservationMessage(
   if (code === "retirement_requirement_scenario_override") {
     return "The active minimum terminal balance is a temporary scenario override.";
   }
+  if (code === "retirement_requirement_tax_compatibility") {
+    return "The retirement requirement uses flat tax compatibility.";
+  }
+  if (code === "retirement_requirement_tax_provisional") {
+    return "The retirement requirement uses provisional annual Canadian tax.";
+  }
   return `Projection observation ${index + 1}`;
 }
 
@@ -1382,7 +1422,7 @@ function safeProjectionResult(
   context: ShareSafeContext,
 ): ProjectionResult {
   return {
-    schemaVersion: "10.0",
+    schemaVersion: "11.0",
     inputs: safeProjectionInputs(projection.inputs, context),
     summary: {
       retirementYear: projection.summary.retirementYear,
@@ -1645,6 +1685,11 @@ function safeProjectionResult(
         ),
       },
     },
+    taxation: {
+      ...projection.taxation,
+      annual: projection.taxation.annual.map((tax) => tax),
+      limitations: [...projection.taxation.limitations],
+    },
     annual: projection.annual.map((point) => ({
       calendarYear: point.calendarYear,
       age: point.age,
@@ -1674,6 +1719,7 @@ function safeProjectionResult(
           ),
         ]),
       ),
+      tax: point.tax,
     })),
     observations: projection.observations.map((observation, index) => {
       const code = SAFE_OBSERVATION_CODES.has(observation.code)
@@ -2648,7 +2694,7 @@ export function createProjectionSnapshot(
   const dataThrough = safeDateLike(baseline.dataThrough, projection.inputs.startDate);
   const safeGeneratedAt = requireIsoTimestamp(generatedAt);
   return {
-    schemaVersion: "10.0",
+    schemaVersion: "11.0",
     generatedAt: safeGeneratedAt,
     exportMetadata: {
       transformation: "typed_allowlist_and_automatic_anonymization",
@@ -2824,6 +2870,30 @@ export function projectionSnapshotToCsv(
     "pensionIncome",
     "otherIncome",
     "totalIncome",
+    "tax_model",
+    "tax_province",
+    "tax_reference_year",
+    "tax_forecast_indexing_rate",
+    "tax_period_status",
+    "taxable_employment_income",
+    "taxable_cpp_income",
+    "taxable_oas_income",
+    "taxable_pension_income",
+    "taxable_rrsp_income",
+    "taxable_rrif_income",
+    "other_taxable_income",
+    "federal_tax",
+    "ontario_bracket_tax",
+    "ontario_net_tax",
+    "ontario_surtax",
+    "ontario_health_premium",
+    "annual_oas_recovery_tax",
+    "full_annual_tax",
+    "embedded_annual_tax",
+    "projection_funded_annual_tax",
+    "annual_tax_effective_rate",
+    "annual_tax_provisional",
+    "annual_tax_reconciled",
     "surplus_generated",
     "surplus_reserve_refill",
     "surplus_retained_as_cash",
@@ -2963,6 +3033,8 @@ export function projectionSnapshotToCsv(
 
   const rows = snapshot.projection.annual.map((point) => {
     const view = point[mode];
+    const canadianTax =
+      point.tax.mode === "canadian_annual" ? point.tax : null;
     return [
       annualPeriodLabel(
         snapshot.projection.inputs,
@@ -3039,6 +3111,36 @@ export function projectionSnapshotToCsv(
       view.income.pension,
       view.income.other,
       view.income.total,
+      point.tax.mode,
+      canadianTax?.province ?? "",
+      canadianTax?.fullAnnualTax.referenceYear ?? "",
+      canadianTax?.fullAnnualTax.provenance.forecastIndexingRate ?? "",
+      point.tax.periodStatus,
+      canadianTax?.totalIncome.employment ?? "",
+      canadianTax?.totalIncome.cpp ?? "",
+      canadianTax?.totalIncome.oas ?? "",
+      canadianTax?.totalIncome.pension ?? "",
+      canadianTax?.totalIncome.rrspWithdrawals ?? "",
+      canadianTax?.totalIncome.rrifWithdrawals ?? "",
+      canadianTax?.totalIncome.otherTaxableIncome ?? "",
+      canadianTax?.fullAnnualTax.totals.federalTax ?? "",
+      canadianTax?.fullAnnualTax.ontario.bracketTax ?? "",
+      canadianTax?.fullAnnualTax.totals.ontarioTax ?? "",
+      canadianTax?.fullAnnualTax.ontario.surtax ?? "",
+      canadianTax?.fullAnnualTax.totals.ontarioHealthPremium ?? "",
+      canadianTax?.fullAnnualTax.totals.oasRecoveryTax ??
+        (point.tax.mode === "flat_compatibility"
+          ? point.tax.oasRecoveryTax
+          : ""),
+      canadianTax?.fullAnnualTax.totals.totalTax ?? "",
+      canadianTax?.embeddedAnnualTax.totals.totalTax ?? "",
+      point.tax.projectionFundedTax,
+      canadianTax?.fullAnnualTax.totals.effectiveTaxRate ??
+        (point.tax.mode === "flat_compatibility"
+          ? point.tax.effectiveTaxRate
+          : ""),
+      canadianTax?.provisional ? 1 : 0,
+      canadianTax?.reconciled ? 1 : 0,
       view.surplusAllocation.generated,
       view.surplusAllocation.reserveRefill,
       view.surplusAllocation.retainedAsCash,

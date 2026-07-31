@@ -40,6 +40,8 @@ function baseInputs(): ProjectionInputs {
       activeValueSource: "explicit_configuration",
     },
     tax: {
+      mode: "flat_compatibility",
+      source: "explicit_configuration",
       effectiveTaxRate: 0.2,
       oasRecoveryThresholdToday: 90000,
       oasRecoveryRate: 0.15,
@@ -60,6 +62,7 @@ function baseInputs(): ProjectionInputs {
       annualPensionToday: 0,
       pensionStartAge: 65,
       pensionIndexingRate: 0,
+      pensionIncomeCreditEligible: false,
       cpp: {
         startAge: 65,
         monthlyAmountAt65Today: 0,

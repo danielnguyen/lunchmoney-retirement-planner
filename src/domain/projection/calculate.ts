@@ -1,5 +1,6 @@
 import type {
   AccountType,
+  AnnualTaxResult,
   AnnualProjection,
   AssetAllocation,
   BalanceBreakdown,
@@ -53,6 +54,16 @@ import {
   monetaryValue,
 } from "./monetary-reconciliation";
 import { monthlyLiabilityInterestRate } from "./liability-interest";
+import {
+  addCanadianTaxIncome,
+  annualCanadianTaxResult,
+  canadianTaxPosition,
+  cloneCanadianTaxYearState,
+  createCanadianTaxYearState,
+  recognizeCanadianProjectionTax,
+  type CanadianTaxYearState,
+} from "./canadian-tax-ledger";
+import { solveTaxableWithdrawal } from "./taxable-withdrawal";
 
 const MONTHS_PER_YEAR = 12;
 const AGE_TOLERANCE = 1e-6;
@@ -1317,6 +1328,7 @@ type RetirementContinuationState = {
     number,
     { eligible: number; pensionAdjustment: number; otherReduction: number }
   >;
+  canadianTaxYearState: CanadianTaxYearState | null;
 };
 
 type SimulationOutcome = {
@@ -1342,6 +1354,11 @@ function simulateProjection(
   const benefits = governmentBenefitSummary(inputs);
   const startYear = Number(inputs.startDate.slice(0, 4));
   const startMonth = Number(inputs.startDate.slice(5, 7));
+  const ageAtEndOfTaxYear = (calendarYear: number) =>
+    inputs.person.currentAge +
+    ((calendarYear - startYear) * MONTHS_PER_YEAR +
+      (MONTHS_PER_YEAR - startMonth + 1)) /
+      MONTHS_PER_YEAR;
   const totalMonths = Math.round((inputs.endAge - inputs.person.currentAge) * MONTHS_PER_YEAR);
   const retirementMonth = Math.round(
     (inputs.person.retirementAge - inputs.person.currentAge) * MONTHS_PER_YEAR,
@@ -1447,6 +1464,16 @@ function simulateProjection(
     calendarYear: number;
     age: number;
   } | null = null;
+  let canadianTaxYearState: CanadianTaxYearState | null =
+    inputs.tax.mode === "canadian_annual"
+      ? continuation?.canadianTaxYearState
+        ? cloneCanadianTaxYearState(continuation.canadianTaxYearState)
+        : createCanadianTaxYearState(
+            startYear,
+            inputs.tax.openingTaxYearBeforeProjectionMonth.income,
+            inputs.tax.futureIndexingRate,
+          )
+      : null;
   const nominalSurplusThroughRetirement = emptySurplusTotals();
   const realSurplusThroughRetirement = emptySurplusTotals();
   const nominalSavingsThroughRetirement = emptySavingsTotals();
@@ -1582,6 +1609,49 @@ function simulateProjection(
       periodEndYear,
       periodEndMonth,
     );
+    const periodStatus =
+      projectedRetirementLiabilityShortfall !== null
+        ? "stopped_incomplete"
+        : periodStartYear === periodEndYear &&
+            periodStartMonth === 1 &&
+            periodEndMonth === MONTHS_PER_YEAR &&
+            periodStartDate.endsWith("-01")
+          ? "complete_tax_year"
+          : "partial_tax_year";
+    const annualTax: AnnualTaxResult =
+      inputs.tax.mode === "canadian_annual"
+        ? annualCanadianTaxResult({
+            state: canadianTaxYearState!,
+            tax: inputs.tax,
+            ageAtYearEnd: ageAtEndOfTaxYear(calendarYear),
+            pensionIncomeCreditEligible:
+              inputs.person.pensionIncomeCreditEligible,
+            periodStatus,
+          })
+        : {
+            mode: "flat_compatibility",
+            source: inputs.tax.source,
+            taxYear: calendarYear,
+            periodStatus,
+            projectionFundedTax: nominal.outflows.tax,
+            oasRecoveryTax: nominal.outflows.oasRecoveryTax,
+            effectiveTaxRate: inputs.tax.effectiveTaxRate,
+            limitations: ["flat_rate_compatibility_not_a_tax_return"],
+          };
+    if (
+      annualTax.mode === "canadian_annual" &&
+      (!annualTax.reconciled ||
+        Math.abs(
+          centDifference(
+            [annualTax.recognizedProjectionFundedTax],
+            [nominal.outflows.tax],
+          ),
+        ) > 0.01)
+    ) {
+      throw new Error(
+        `Canadian annual tax failed to reconcile for ${calendarYear}`,
+      );
+    }
     annual.push({
       calendarYear,
       age: round(age),
@@ -1607,6 +1677,7 @@ function simulateProjection(
           [...labels],
         ]),
       ),
+      tax: annualTax,
     });
     annualNominalFlow = emptyView();
     annualRealFlow = emptyView();
@@ -1628,6 +1699,16 @@ function simulateProjection(
     const calendarMonthIndex = startMonth - 1 + month - 1;
     const calendarYear = startYear + Math.floor(calendarMonthIndex / MONTHS_PER_YEAR);
     const calendarMonth = (calendarMonthIndex % MONTHS_PER_YEAR) + 1;
+    if (
+      inputs.tax.mode === "canadian_annual" &&
+      canadianTaxYearState!.calendarYear !== calendarYear
+    ) {
+      canadianTaxYearState = createCanadianTaxYearState(
+        calendarYear,
+        undefined,
+        inputs.tax.futureIndexingRate,
+      );
+    }
     const monthlyFlow = emptyView();
     const ordinaryRetirementMonthOpening =
       !evaluationOnly && month > retirementMonth
@@ -1639,6 +1720,9 @@ function simulateProjection(
             rrspRoom,
             tfsaWithdrawalsByYear: new Map(tfsaWithdrawalsByYear),
             rrspGenerationByYear: new Map(rrspGenerationByYear),
+            canadianTaxYearState: canadianTaxYearState
+              ? cloneCanadianTaxYearState(canadianTaxYearState)
+              : null,
           }
         : null;
     if (inputs.registeredAccountRoom) {
@@ -1840,12 +1924,57 @@ function simulateProjection(
     }
 
     const grossRetirementIncome = income.cpp + income.oas + income.pension;
-    const threshold = inputs.tax.oasRecoveryThresholdToday * factor / MONTHS_PER_YEAR;
-    const recoveryTax = Math.min(
-      income.oas,
-      Math.max(0, grossRetirementIncome - threshold) * inputs.tax.oasRecoveryRate,
-    );
-    const regularTax = grossRetirementIncome * inputs.tax.effectiveTaxRate;
+    let regularTax = 0;
+    let recoveryTax = 0;
+    if (inputs.tax.mode === "flat_compatibility") {
+      const threshold =
+        (inputs.tax.oasRecoveryThresholdToday * factor) /
+        MONTHS_PER_YEAR;
+      recoveryTax = Math.min(
+        income.oas,
+        Math.max(0, grossRetirementIncome - threshold) *
+          inputs.tax.oasRecoveryRate,
+      );
+      regularTax = grossRetirementIncome * inputs.tax.effectiveTaxRate;
+    } else {
+      if (employmentPhase) {
+        addCanadianTaxIncome(
+          canadianTaxYearState!,
+          "employment",
+          ((employmentPhase.annualTaxableEmploymentIncomeToday ?? 0) *
+            indexedFactor(employmentPhase.annualGrowth, month)) /
+            MONTHS_PER_YEAR,
+          true,
+        );
+      }
+      addCanadianTaxIncome(
+        canadianTaxYearState!,
+        "cpp",
+        income.cpp,
+        false,
+      );
+      addCanadianTaxIncome(
+        canadianTaxYearState!,
+        "oas",
+        income.oas,
+        false,
+      );
+      addCanadianTaxIncome(
+        canadianTaxYearState!,
+        "pension",
+        income.pension,
+        false,
+      );
+      const recognized = recognizeCanadianProjectionTax({
+        state: canadianTaxYearState!,
+        tax: inputs.tax,
+        ageAtYearEnd: ageAtEndOfTaxYear(calendarYear),
+        pensionIncomeCreditEligible:
+          inputs.person.pensionIncomeCreditEligible,
+      });
+      recoveryTax = recognized.newlyRecognizedOasRecoveryTax;
+      regularTax = recognized.newlyRecognizedTax - recoveryTax;
+    }
     monthlyFlow.outflows.tax += regularTax + recoveryTax;
     monthlyFlow.outflows.oasRecoveryTax += recoveryTax;
 
@@ -2106,11 +2235,82 @@ function simulateProjection(
         let grossWithdrawal = Math.min(balance, remaining);
         let netCash = grossWithdrawal;
         if (account.type === "rrsp_rrif") {
-          const netRate = 1 - inputs.tax.effectiveTaxRate;
-          grossWithdrawal = Math.min(balance, remaining / netRate);
-          const withdrawalTax =
-            grossWithdrawal * inputs.tax.effectiveTaxRate;
-          netCash = grossWithdrawal - withdrawalTax;
+          let withdrawalTax: number;
+          if (inputs.tax.mode === "flat_compatibility") {
+            const netRate = 1 - inputs.tax.effectiveTaxRate;
+            grossWithdrawal = Math.min(balance, remaining / netRate);
+            withdrawalTax =
+              grossWithdrawal * inputs.tax.effectiveTaxRate;
+            netCash = grossWithdrawal - withdrawalTax;
+          } else {
+            const canadianTax = inputs.tax;
+            const currentPosition = canadianTaxPosition({
+              state: canadianTaxYearState!,
+              tax: canadianTax,
+              ageAtYearEnd: ageAtEndOfTaxYear(calendarYear),
+              pensionIncomeCreditEligible:
+                inputs.person.pensionIncomeCreditEligible,
+            });
+            const solution = solveTaxableWithdrawal({
+              availableBalance: balance,
+              requiredNetCash: remaining,
+              incrementalTax: (candidate) => {
+                const candidateState = cloneCanadianTaxYearState(
+                  canadianTaxYearState!,
+                );
+                addCanadianTaxIncome(
+                  candidateState,
+                  "rrspWithdrawals",
+                  candidate,
+                  false,
+                );
+                const candidatePosition = canadianTaxPosition({
+                  state: candidateState,
+                  tax: canadianTax,
+                  ageAtYearEnd: ageAtEndOfTaxYear(calendarYear),
+                  pensionIncomeCreditEligible:
+                    inputs.person.pensionIncomeCreditEligible,
+                });
+                return (
+                  candidatePosition.projectionFundedTax -
+                  currentPosition.projectionFundedTax
+                );
+              },
+            });
+            grossWithdrawal = solution.grossWithdrawal;
+            addCanadianTaxIncome(
+              canadianTaxYearState!,
+              "rrspWithdrawals",
+              grossWithdrawal,
+              false,
+            );
+            const recognized = recognizeCanadianProjectionTax({
+              state: canadianTaxYearState!,
+              tax: canadianTax,
+              ageAtYearEnd: ageAtEndOfTaxYear(calendarYear),
+              pensionIncomeCreditEligible:
+                inputs.person.pensionIncomeCreditEligible,
+            });
+            withdrawalTax = recognized.newlyRecognizedTax;
+            if (withdrawalTax < -0.01) {
+              throw new Error(
+                "Canadian taxable withdrawal produced a negative incremental tax liability",
+              );
+            }
+            netCash = grossWithdrawal - withdrawalTax;
+            monthlyFlow.outflows.oasRecoveryTax +=
+              recognized.newlyRecognizedOasRecoveryTax;
+            if (
+              Math.abs(centDifference(
+                [grossWithdrawal],
+                [withdrawalTax, netCash],
+              )) > 0.01
+            ) {
+              throw new Error(
+                "Canadian taxable withdrawal failed to reconcile gross, tax, and net proceeds",
+              );
+            }
+          }
           monthlyFlow.outflows.tax += withdrawalTax;
           withdrawalTaxTotal += withdrawalTax;
         }
@@ -2134,14 +2334,55 @@ function simulateProjection(
 
     let availableCurrentMonthCash =
       income.total + unassignedEventInflows;
-    const availableNetWithdrawalCash = inputs.accounts.reduce(
+    const previewCanadianTaxState = canadianTaxYearState
+      ? cloneCanadianTaxYearState(canadianTaxYearState)
+      : null;
+    const availableNetWithdrawalCash = withdrawalAccounts.reduce(
       (total, account) => {
         const balance = balances.get(account.id) ?? 0;
+        if (
+          account.type !== "rrsp_rrif" ||
+          inputs.tax.mode === "flat_compatibility"
+        ) {
+          return (
+            total +
+            (account.type === "rrsp_rrif"
+              ? balance * (1 - inputs.tax.effectiveTaxRate)
+              : balance)
+          );
+        }
+        const gross = Math.max(0, Math.floor((balance + 1e-9) * 100) / 100);
+        const before = canadianTaxPosition({
+          state: previewCanadianTaxState!,
+          tax: inputs.tax,
+          ageAtYearEnd: ageAtEndOfTaxYear(calendarYear),
+          pensionIncomeCreditEligible:
+            inputs.person.pensionIncomeCreditEligible,
+        });
+        addCanadianTaxIncome(
+          previewCanadianTaxState!,
+          "rrspWithdrawals",
+          gross,
+          false,
+        );
+        const after = canadianTaxPosition({
+          state: previewCanadianTaxState!,
+          tax: inputs.tax,
+          ageAtYearEnd: ageAtEndOfTaxYear(calendarYear),
+          pensionIncomeCreditEligible:
+            inputs.person.pensionIncomeCreditEligible,
+        });
+        const incrementalTax =
+          after.projectionFundedTax - before.projectionFundedTax;
+        if (incrementalTax < -0.01) {
+          throw new Error(
+            "Canadian taxable withdrawal preview produced a negative incremental tax liability",
+          );
+        }
         return (
           total +
-          (account.type === "rrsp_rrif"
-            ? balance * (1 - inputs.tax.effectiveTaxRate)
-            : balance)
+          gross -
+          Math.max(0, incrementalTax)
         );
       },
       0,
@@ -2185,6 +2426,12 @@ function simulateProjection(
         rrspGenerationByYear,
         ordinaryRetirementMonthOpening.rrspGenerationByYear,
       );
+      canadianTaxYearState =
+        ordinaryRetirementMonthOpening.canadianTaxYearState
+          ? cloneCanadianTaxYearState(
+              ordinaryRetirementMonthOpening.canadianTaxYearState,
+            )
+          : null;
       projectedRetirementLiabilityShortfall = {
         calendarMonth: calendarMonthKey,
         calendarYear,
@@ -2793,6 +3040,9 @@ function simulateProjection(
         rrspRoom,
         tfsaWithdrawalsByYear: new Map(tfsaWithdrawalsByYear),
         rrspGenerationByYear: new Map(rrspGenerationByYear),
+        canadianTaxYearState: canadianTaxYearState
+          ? cloneCanadianTaxYearState(canadianTaxYearState)
+          : null,
       };
       if (!evaluationOnly) {
         const retirementRealMonthlyFlow = emptyView();
@@ -3056,7 +3306,7 @@ function simulateProjection(
   });
 
   const result: CoreProjectionResult = {
-    schemaVersion: "10.0",
+    schemaVersion: "11.0",
     inputs,
     summary: {
       retirementYear,
@@ -3214,6 +3464,24 @@ function simulateProjection(
         real: realSavingsThroughRetirement,
       },
     },
+    taxation: {
+      mode: inputs.tax.mode,
+      province: inputs.tax.mode === "canadian_annual" ? "ON" : null,
+      referenceYear:
+        inputs.tax.mode === "canadian_annual"
+          ? inputs.tax.referenceYear
+          : null,
+      forecastIndexingRate:
+        inputs.tax.mode === "canadian_annual"
+          ? inputs.tax.futureIndexingRate
+          : null,
+      provisional: true,
+      annual: annual.map((point) => point.tax),
+      limitations:
+        inputs.tax.mode === "canadian_annual"
+          ? [...inputs.tax.limitations]
+          : ["flat_rate_compatibility_not_a_tax_return"],
+    },
     annual,
     observations,
   };
@@ -3260,6 +3528,10 @@ export function calculateProjection(
       inputs.retirementRequirement.baselineSource,
     minimumEndingBalanceActiveValueSource:
       inputs.retirementRequirement.activeValueSource,
+    taxModel:
+      inputs.tax.mode === "canadian_annual"
+        ? "canadian_annual_federal_ontario_forecast"
+        : "flat_retirement_tax_compatibility",
     accounts: retirementAccounts,
     initialUpperBoundToday,
     hasRetirementLiabilityOverlap:
@@ -3275,12 +3547,21 @@ export function calculateProjection(
       return candidate;
     },
   });
-  result.observations.push({
-    code: "retirement_requirement_tax_compatibility",
-    message:
-      "The retirement funding requirement is provisional under the current flat retirement-tax compatibility assumption.",
-    age: inputs.person.retirementAge,
-  });
+  result.observations.push(
+    inputs.tax.mode === "canadian_annual"
+      ? {
+          code: "retirement_requirement_tax_provisional",
+          message:
+            "The retirement funding requirement uses annual federal and Ontario tax, but remains provisional because RRIF minimum withdrawals and non-registered investment-income taxation are not modelled.",
+          age: inputs.person.retirementAge,
+        }
+      : {
+          code: "retirement_requirement_tax_compatibility",
+          message:
+            "The retirement funding requirement is provisional under the current flat retirement-tax compatibility assumption.",
+          age: inputs.person.retirementAge,
+        },
+  );
   if (
     inputs.retirementRequirement.activeValueSource ===
       "compatibility_default"
