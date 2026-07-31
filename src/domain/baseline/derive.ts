@@ -1901,13 +1901,23 @@ export function deriveCurrentBaseline(
         "Flat retirement-tax compatibility remains active; explicitly configure tax.mode as canadian_annual to use annual federal and Ontario taxation.",
     });
   } else {
+    const supportedComplete =
+      config.rrifMinimumWithdrawals.mode === "statutory" &&
+      config.nonRegisteredTaxation.mode === "simplified_canadian";
     warnings.push(
-      {
-        code: "canadian_tax_provisional",
-        severity: "warning",
-        message:
-          "Canadian annual federal and Ontario tax is active, but the result remains provisional.",
-      },
+      supportedComplete
+        ? {
+            code: "supported_tax_model_complete",
+            severity: "warning",
+            message:
+              "Canadian annual tax, statutory RRIF minimums, and simplified non-registered taxation are complete for the supported deterministic model; this remains a planning estimate, not a tax return.",
+          }
+        : {
+            code: "canadian_tax_provisional",
+            severity: "warning",
+            message:
+              "Canadian annual federal and Ontario tax is active, but supported tax coverage remains provisional.",
+          },
       {
         code: "inactive_flat_tax_fields",
         severity: "warning",
@@ -1919,12 +1929,6 @@ export function deriveCurrentBaseline(
         severity: "warning",
         message:
           "The official 2026 OAS recovery threshold is currently published as an estimate.",
-      },
-      {
-        code: "non_registered_tax_not_modelled",
-        severity: "warning",
-        message:
-          "Non-registered investment income taxation is not modelled yet.",
       },
     );
     for (const phase of employmentIncomePhases) {
@@ -2736,6 +2740,11 @@ export function deriveCurrentBaseline(
       pension: 0,
       rrspWithdrawals: 0,
       rrifWithdrawals: 0,
+      interest: 0,
+      eligibleCanadianDividends: 0,
+      foreignIncome: 0,
+      capitalGains: 0,
+      capitalLosses: 0,
       otherTaxableIncome: 0,
     };
     resolvedTax = {
@@ -2793,6 +2802,164 @@ export function deriveCurrentBaseline(
           supportedRrifClass: "all_other_rrifs",
         }
       : { ...config.rrifMinimumWithdrawals };
+  let resolvedNonRegisteredTaxation: ProjectionInputs["nonRegisteredTaxation"];
+  if (config.nonRegisteredTaxation.mode === "not_modelled_compatibility") {
+    resolvedNonRegisteredTaxation = { ...config.nonRegisteredTaxation };
+    warnings.push({
+      code: "non_registered_tax_not_modelled",
+      severity: "warning",
+      message:
+        "Non-registered investment income and disposition gains remain outside the tax calculation in compatibility mode.",
+    });
+  } else {
+    const taxableAccounts = projectionAccounts.filter(
+      (account) => account.type === "non_registered",
+    );
+    const configured = new Map(
+      config.nonRegisteredTaxation.accounts.map((item) => [item.accountId, item]),
+    );
+    for (const item of config.nonRegisteredTaxation.accounts) {
+      const account = projectionAccounts.find(
+        (candidate) => candidate.id === item.accountId,
+      );
+      if (!account || account.type !== "non_registered") {
+        throw new PlannerRuntimeError(
+          "invalid_planner_config",
+          `Non-registered tax treatment ${item.accountId} must reference an included non_registered account.`,
+          422,
+        );
+      }
+    }
+    const missing = taxableAccounts.find((account) => !configured.has(account.id));
+    if (missing || configured.size !== taxableAccounts.length) {
+      throw new PlannerRuntimeError(
+        "invalid_planner_config",
+        `Every included non_registered account requires exactly one tax treatment; missing ${missing?.id ?? "or extra entry detected"}.`,
+        422,
+      );
+    }
+    resolvedNonRegisteredTaxation = {
+      mode: "simplified_canadian",
+      source: "explicit_configuration",
+      accounts: taxableAccounts.map((account) => {
+        const treatment = configured.get(account.id)!;
+        const opening = treatment.openingAdjustedCostBase;
+        let amount: number;
+        let source: "explicit_configuration" | "projection_zero_balance_default";
+        if (opening?.amount !== undefined) {
+          amount = opening.amount;
+          source = "explicit_configuration";
+        } else if (account.openingBalance === 0 && account.origin === "projection_configuration") {
+          amount = 0;
+          source = "projection_zero_balance_default";
+        } else {
+          throw new PlannerRuntimeError(
+            "invalid_planner_config",
+            `Non-registered account ${account.id} requires an explicit opening adjusted cost base; market value is not used as ACB.`,
+            422,
+          );
+        }
+        const effectiveDate = opening?.effectiveDate ?? dataThrough;
+        if (effectiveDate !== dataThrough) {
+          throw new PlannerRuntimeError(
+            "invalid_planner_config",
+            `Opening adjusted cost base date for ${account.id} must match projection start ${dataThrough}.`,
+            422,
+          );
+        }
+        if (account.openingBalance === 0 && amount > 0) {
+          throw new PlannerRuntimeError(
+            "invalid_planner_config",
+            `Positive opening adjusted cost base for zero-balance account ${account.id} is unsupported.`,
+            422,
+          );
+        }
+        if (account.openingBalance > 0 && amount === 0) {
+          warnings.push({
+            code: "non_registered_zero_acb",
+            severity: "warning",
+            message: `Non-registered account ${account.id} has positive market value and explicit zero ACB.`,
+            identifier: account.id,
+          });
+        }
+        const combinedYield = Object.values(treatment.annualDistributionYields).reduce(
+          (sum, value) => sum + value,
+          0,
+        );
+        if (combinedYield > Math.max(0, account.annualReturn) + 0.01) {
+          warnings.push({
+            code: "non_registered_distribution_yield_review",
+            severity: "warning",
+            message: `Configured distributions for ${account.id} materially exceed total expected return; negative unrealized change is supported but should be reviewed.`,
+            identifier: account.id,
+          });
+        }
+        if (treatment.annualDistributionYields.foreignIncome > 0) {
+          warnings.push({
+            code: "non_registered_foreign_tax_credit_not_modelled",
+            severity: "warning",
+            message: `Foreign income for ${account.id} is fully taxable; foreign withholding and credits are not modelled.`,
+            identifier: account.id,
+          });
+        }
+        provenance[`nonRegisteredTaxation.accounts.${account.id}.openingAdjustedCostBase`] = localValue(
+          amount,
+          source === "explicit_configuration"
+            ? opening!.sourceDescription
+            : "Projection-created zero-balance taxable account resolves opening ACB to zero",
+          effectiveDate,
+        );
+        provenance[`nonRegisteredTaxation.accounts.${account.id}.annualDistributionYields`] = localValue(
+          treatment.annualDistributionYields,
+          "Configured annual taxable-distribution characterization",
+          dataThrough,
+        );
+        return {
+          accountId: account.id,
+          openingAdjustedCostBase: {
+            amount,
+            effectiveDate,
+            sourceDescription:
+              opening?.sourceDescription ?? "Projection-created zero-balance taxable account",
+            source,
+          },
+          annualDistributionYields: { ...treatment.annualDistributionYields },
+        };
+      }),
+      limitations: [
+        "pooled_account_adjusted_cost_base",
+        "security_tax_lots_not_modelled",
+        "superficial_losses_not_modelled",
+        "capital_loss_carryover_not_modelled",
+        "foreign_tax_credits_not_modelled",
+      ],
+    };
+    warnings.push({
+      code: "non_registered_tax_simplified_active",
+      severity: "warning",
+      message:
+        "Simplified Canadian non-registered distribution, pooled ACB, and disposition taxation is active.",
+    });
+  }
+  provenance["nonRegisteredTaxation.mode"] = localValue(
+    resolvedNonRegisteredTaxation.mode,
+    resolvedNonRegisteredTaxation.source === "compatibility_default"
+      ? "Backward-compatible non-registered tax mode normalized because nonRegisteredTaxation was omitted"
+      : "Explicit non-registered taxation mode from planner configuration",
+    dataThrough,
+  );
+  if (
+    resolvedTax.mode === "canadian_annual" &&
+    resolvedNonRegisteredTaxation.mode === "simplified_canadian"
+  ) {
+    resolvedTax = {
+      ...resolvedTax,
+      limitations: resolvedTax.limitations.filter(
+        (limitation) =>
+          limitation !== "non_registered_investment_income_not_modelled",
+      ),
+    };
+  }
   provenance["rrifMinimumWithdrawals.mode"] = localValue(
     resolvedRrifMinimumWithdrawals.mode,
     resolvedRrifMinimumWithdrawals.source === "compatibility_default"
@@ -2877,6 +3044,7 @@ export function deriveCurrentBaseline(
       activeValueSource: config.retirementRequirement.source,
     },
     rrifMinimumWithdrawals: resolvedRrifMinimumWithdrawals,
+    nonRegisteredTaxation: resolvedNonRegisteredTaxation,
     tax: resolvedTax,
     person: {
       currentAge: config.currentAge,
@@ -2916,7 +3084,7 @@ export function deriveCurrentBaseline(
   });
 
   return {
-    schemaVersion: "4.0",
+    schemaVersion: "5.0",
     connection,
     projectionInputs,
     provenance,

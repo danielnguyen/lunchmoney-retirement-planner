@@ -37,6 +37,11 @@ export const baselineWarningCodes = [
   "rrif_minimums_not_modelled",
   "rrif_statutory_minimums_active",
   "non_registered_tax_not_modelled",
+  "non_registered_tax_simplified_active",
+  "non_registered_zero_acb",
+  "non_registered_distribution_yield_review",
+  "non_registered_foreign_tax_credit_not_modelled",
+  "supported_tax_model_complete",
 ] as const;
 
 export type BaselineWarningCode = (typeof baselineWarningCodes)[number];
@@ -191,7 +196,7 @@ export type LunchMoneyMappings = {
 };
 
 export type CurrentBaseline = {
-  schemaVersion: "4.0";
+  schemaVersion: "5.0";
   connection: ConnectionStatus;
   projectionInputs: ProjectionInputs;
   provenance: Record<string, BaselineValue<unknown>>;

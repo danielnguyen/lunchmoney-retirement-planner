@@ -15,6 +15,30 @@ export const CANADIAN_TAX_REFERENCE_URLS = {
     "https://www.canada.ca/en/services/benefits/publicpensions/old-age-security/recovery-tax.html",
   annualRates:
     "https://www.canada.ca/en/revenue-agency/services/tax/individuals/tax-rates-brackets.html",
+  interestIncome:
+    "https://www.canada.ca/en/revenue-agency/services/tax/individuals/topics/about-your-tax-return/tax-return/completing-a-tax-return/personal-income/line-12100-interest-other-investment-income.html",
+  eligibleDividends:
+    "https://www.canada.ca/en/revenue-agency/services/tax/individuals/topics/about-your-tax-return/tax-return/completing-a-tax-return/personal-income/line-12000-taxable-amount-dividends-eligible-other-than-eligible-taxable-canadian-corporations.html",
+  investmentIncomeGuide:
+    "https://www.canada.ca/en/revenue-agency/services/forms-publications/publications/t4015/t5-guide-return-investment-income.html",
+  federalDividendTaxCredit:
+    "https://www.canada.ca/en/revenue-agency/services/tax/individuals/topics/about-your-tax-return/tax-return/completing-a-tax-return/deductions-credits-expenses/line-40425-federal-dividend-tax-credit.html",
+  ontarioDividendTaxCredit:
+    "https://www.ontario.ca/page/ontario-dividend-tax-credit",
+  ontarioTaxCalculation:
+    "https://www.canada.ca/en/revenue-agency/services/forms-publications/tax-packages-years/general-income-tax-benefit-package/ontario/5006-c.html",
+  ontarioTaxationAct:
+    "https://www.ontario.ca/laws/statute/07t11",
+  capitalGains:
+    "https://www.canada.ca/en/department-finance/services/publications/federal-tax-expenditures/2026/part-6.html",
+  capitalGainsTaxExpenditures:
+    "https://www.canada.ca/en/department-finance/services/publications/federal-tax-expenditures/2026/part-2.html",
+  capitalGainsCalculation:
+    "https://www.canada.ca/en/revenue-agency/services/tax/individuals/topics/about-your-tax-return/tax-return/completing-a-tax-return/personal-income/line-12700-capital-gains/calculating-reporting-your-capital-gains-losses.html",
+  adjustedCostBase:
+    "https://www.canada.ca/en/revenue-agency/services/tax/individuals/topics/about-your-tax-return/tax-return/completing-a-tax-return/personal-income/line-12700-capital-gains/calculating-reporting-your-capital-gains-losses/adjusted-cost-base.html",
+  mutualFundTaxTreatment:
+    "https://www.canada.ca/en/revenue-agency/services/tax/individuals/topics/about-your-tax-return/tax-return/completing-a-tax-return/personal-income/line-12700-capital-gains/completing-schedule-3/tax-treatment-mutual-funds.html",
 } as const;
 
 export type CanadianTaxReferenceValueKind =
@@ -34,7 +58,7 @@ export type CanadianTaxReferenceMetadata = {
   province: "ON";
   jurisdiction: "CA";
   effectiveDate: string;
-  retrievedDate: "2026-07-30";
+  retrievedDate: "2026-07-31";
   forecastIndexingRate: number;
   sourceKind: CanadianTaxReferenceSourceKind;
   sourceUrls: string[];
@@ -60,6 +84,9 @@ export type CanadianTaxReferenceSet = {
     };
     pensionIncomeAmountMaximum: 2000;
     nonRefundableCreditRate: 0.14;
+    eligibleDividendGrossUp: 1.38;
+    eligibleDividendTaxCreditRate: 0.150198;
+    capitalGainsInclusionRate: 0.5;
   };
   ontario: {
     brackets: Array<{ threshold: number; rate: number }>;
@@ -71,6 +98,7 @@ export type CanadianTaxReferenceSet = {
     };
     pensionIncomeAmountMaximum: number;
     nonRefundableCreditRate: 0.0505;
+    eligibleDividendTaxCreditRate: 0.1;
     taxReductionBasicAmount: number;
     surtax: {
       firstThreshold: number;
@@ -119,6 +147,9 @@ const BASE: Omit<CanadianTaxReferenceSet, "metadata"> = {
     },
     pensionIncomeAmountMaximum: 2_000,
     nonRefundableCreditRate: 0.14,
+    eligibleDividendGrossUp: 1.38,
+    eligibleDividendTaxCreditRate: 0.150198,
+    capitalGainsInclusionRate: 0.5,
   },
   ontario: {
     brackets: [
@@ -136,6 +167,7 @@ const BASE: Omit<CanadianTaxReferenceSet, "metadata"> = {
     },
     pensionIncomeAmountMaximum: 1_796,
     nonRefundableCreditRate: 0.0505,
+    eligibleDividendTaxCreditRate: 0.1,
     taxReductionBasicAmount: 300,
     surtax: {
       firstThreshold: 5_818,
@@ -166,12 +198,16 @@ const BASE: Omit<CanadianTaxReferenceSet, "metadata"> = {
     "federal.ageAmount": "income_dependent",
     "federal.pensionIncomeAmountMaximum": "fixed",
     "federal.nonRefundableCreditRate": "fixed",
+    "federal.eligibleDividendGrossUp": "fixed",
+    "federal.eligibleDividendTaxCreditRate": "fixed",
+    "federal.capitalGainsInclusionRate": "fixed",
     "ontario.brackets.thresholds": "indexed",
     "ontario.brackets.rates": "fixed",
     "ontario.basicPersonalAmount": "indexed",
     "ontario.ageAmount": "income_dependent",
     "ontario.pensionIncomeAmountMaximum": "indexed",
     "ontario.nonRefundableCreditRate": "fixed",
+    "ontario.eligibleDividendTaxCreditRate": "fixed",
     "ontario.taxReductionBasicAmount": "indexed",
     "ontario.surtax.thresholds": "indexed",
     "ontario.surtax.rates": "fixed",
@@ -204,13 +240,16 @@ export function resolveCanadianTaxReferences(
       province: "ON",
       jurisdiction: "CA",
       effectiveDate: `${requestedYear}-01-01`,
-      retrievedDate: "2026-07-30",
+      retrievedDate: "2026-07-31",
       forecastIndexingRate: futureIndexingRate,
       sourceKind: requestedYear === 2026 ? "published" : "forecast",
       sourceUrls: Object.values(CANADIAN_TAX_REFERENCE_URLS),
       limitations: [
         "The 2026 OAS recovery threshold is an official published estimate until finalized.",
         "Future indexed values are deterministic forecasts from the 2026 reference set.",
+        "Eligible-dividend and capital-gains percentages remain fixed at the 2026 supported reference values in forecast years.",
+        "Budget 2025 confirmed that the proposed two-thirds capital-gains inclusion rate and individual threshold would not proceed; this reference set retains one 50% inclusion rate.",
+        "The supported non-registered model excludes loss carryovers, security-level tax lots, superficial losses, return of capital, commissions, and foreign tax credits.",
       ],
     },
     federal: {

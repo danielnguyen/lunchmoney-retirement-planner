@@ -30,6 +30,13 @@ rrifMinimumWithdrawals:
 tax:
   mode: flat_compatibility
 
+# Omit this block to preserve the same non-registered return and withdrawal
+# behaviour explicitly shown here. Compatibility mode does not require ACB or
+# distribution assumptions and does not calculate investment-income or sale
+# tax.
+nonRegisteredTaxation:
+  mode: not_modelled_compatibility
+
 # To opt in to the 2026 Canada/Ontario annual model, replace the tax block above
 # with the synthetic example below. A mid-year projection must include opening
 # taxable income through the month before the projection begins; these amounts
@@ -50,7 +57,41 @@ tax:
 #       pension: 0
 #       rrspWithdrawals: 0
 #       rrifWithdrawals: 0
+#       interest: 0
+#       eligibleCanadianDividends: 0
+#       foreignIncome: 0
+#       capitalGains: 0
+#       capitalLosses: 0
 #       otherTaxableIncome: 0
+
+# Simplified Canadian non-registered taxation requires the canadian_annual tax
+# mode above and exactly one entry for every included taxable account. Annual
+# distribution yields characterize the existing total return; distributions
+# are reinvested and are not added to the balance a second time. A zero-balance
+# projection-created destination may omit openingAdjustedCostBase and resolves
+# explicitly to zero:
+# nonRegisteredTaxation:
+#   mode: simplified_canadian
+#   accounts:
+#     - accountId: "projection:future-taxable"
+#       annualDistributionYields:
+#         interest: 0.005
+#         eligibleCanadianDividends: 0.01
+#         foreignIncome: 0.01
+#         capitalGains: 0
+#
+# A positive imported taxable account instead requires factual opening ACB
+# evidence dated exactly to the imported opening-balance date:
+#     - accountId: "plaid:synthetic-personal-taxable"
+#       openingAdjustedCostBase:
+#         amount: 75000
+#         effectiveDate: "2026-07-31"
+#         sourceDescription: "Synthetic opening tax book value"
+#       annualDistributionYields:
+#         interest: 0.005
+#         eligibleCanadianDividends: 0.01
+#         foreignIncome: 0.01
+#         capitalGains: 0
 
 # Adjust how the live Lunch Money spending baseline changes over time. These
 # phases are independent of employment income. Ages include startAge and stop

@@ -1,5 +1,5 @@
 export type TaxableWithdrawalSolution = {
-  incomeSource: "rrspWithdrawals" | "rrifWithdrawals";
+  incomeSource: "rrspWithdrawals" | "rrifWithdrawals" | "nonRegisteredDisposition";
   grossWithdrawal: number;
   incrementalTax: number;
   netProceeds: number;
@@ -9,6 +9,45 @@ export type TaxableWithdrawalSolution = {
   oneCentBelowFailed: boolean | null;
   evaluations: number;
 };
+
+export type WithdrawalFundingResult = {
+  unmetNetCash: number;
+  netCashGenerated: number;
+  netCashApplied: number;
+  excessNetCash: number;
+};
+
+export function settleWithdrawalFunding(input: {
+  requestedNetCash: number;
+  netCashGenerated: number;
+}): WithdrawalFundingResult {
+  if (
+    !Number.isFinite(input.requestedNetCash) ||
+    input.requestedNetCash < 0 ||
+    !Number.isFinite(input.netCashGenerated) ||
+    input.netCashGenerated < 0
+  ) {
+    throw new Error(
+      "Withdrawal funding amounts must be finite and non-negative",
+    );
+  }
+  const netCashApplied = Math.min(
+    input.requestedNetCash,
+    input.netCashGenerated,
+  );
+  return {
+    unmetNetCash: Math.max(
+      0,
+      input.requestedNetCash - input.netCashGenerated,
+    ),
+    netCashGenerated: input.netCashGenerated,
+    netCashApplied,
+    excessNetCash: Math.max(
+      0,
+      input.netCashGenerated - input.requestedNetCash,
+    ),
+  };
+}
 
 function cents(value: number): number {
   return Math.max(0, Math.floor((value + 1e-9) * 100));
@@ -23,7 +62,7 @@ function dollars(value: number): number {
 }
 
 export function solveTaxableWithdrawal(input: {
-  incomeSource: "rrspWithdrawals" | "rrifWithdrawals";
+  incomeSource: "rrspWithdrawals" | "rrifWithdrawals" | "nonRegisteredDisposition";
   availableBalance: number;
   requiredNetCash: number;
   incrementalTax: (grossWithdrawal: number) => number;

@@ -41,6 +41,7 @@ import {
   cppClaimRules,
   oasClaimRules,
 } from "@/src/domain/defaults/canadian-public-benefits";
+import { CANADIAN_TAX_REFERENCE_URLS } from "@/src/domain/defaults/canadian-tax-2026";
 import {
   RRSP_EARNED_INCOME_RATE,
   RRSP_ANNUAL_LIMITS,
@@ -64,7 +65,23 @@ import {
   recognizeCanadianProjectionTax,
   type CanadianTaxYearState,
 } from "./canadian-tax-ledger";
-import { solveTaxableWithdrawal } from "./taxable-withdrawal";
+import {
+  settleWithdrawalFunding,
+  solveTaxableWithdrawal,
+  type WithdrawalFundingResult,
+} from "./taxable-withdrawal";
+import {
+  NON_REGISTERED_TAX_LIMITATIONS,
+  cloneNonRegisteredSimulationState,
+  commitNonRegisteredDisposition,
+  createNonRegisteredSimulationState,
+  depositNonRegistered,
+  nonRegisteredAnnualAggregate,
+  nonRegisteredTreatment,
+  previewNonRegisteredDisposition,
+  recordNonRegisteredReturn,
+  type NonRegisteredSimulationState,
+} from "./non-registered-taxation";
 import {
   beginRrifCalendarYear,
   cloneRrifSimulationState,
@@ -83,6 +100,32 @@ import {
 const MONTHS_PER_YEAR = 12;
 const AGE_TOLERANCE = 1e-6;
 const ZERO_ALLOCATION: AssetAllocation = { cash: 0, fixedIncome: 0, equity: 0 };
+
+function resolveTaxCoverage(inputs: ProjectionInputs) {
+  if (inputs.tax.mode === "flat_compatibility") {
+    return {
+      status: "flat_tax_compatibility" as const,
+      supportedComplete: false,
+    };
+  }
+  if (inputs.rrifMinimumWithdrawals.mode !== "statutory") {
+    return {
+      status: "canadian_annual_rrif_compatibility" as const,
+      supportedComplete: false,
+    };
+  }
+  if (inputs.nonRegisteredTaxation.mode !== "simplified_canadian") {
+    return {
+      status:
+        "canadian_annual_rrif_statutory_non_registered_compatibility" as const,
+      supportedComplete: false,
+    };
+  }
+  return {
+    status: "complete_supported_deterministic_model" as const,
+    supportedComplete: true,
+  };
+}
 
 function round(value: number): number {
   return Math.round((value + Number.EPSILON) * 100) / 100;
@@ -1345,6 +1388,7 @@ type RetirementContinuationState = {
   >;
   canadianTaxYearState: CanadianTaxYearState | null;
   rrifState: RrifSimulationState;
+  nonRegisteredState: NonRegisteredSimulationState;
 };
 
 type SimulationOutcome = {
@@ -1364,6 +1408,7 @@ function simulateProjection(
   options: RetirementSimulationOptions = {},
 ): SimulationOutcome {
   const inputs = validateProjectionInputs(rawInputs);
+  const taxCoverage = resolveTaxCoverage(inputs);
   // Solver candidates execute the same monthly financial engine, but they do
   // not build presentation snapshots or bridges that cannot affect pass/fail.
   const evaluationOnly = options.candidateBalancesToday !== undefined;
@@ -1493,6 +1538,29 @@ function simulateProjection(
   let rrifState = continuation
     ? cloneRrifSimulationState(continuation.rrifState)
     : createRrifSimulationState(inputs);
+  let nonRegisteredState = continuation
+    ? cloneNonRegisteredSimulationState(continuation.nonRegisteredState)
+    : createNonRegisteredSimulationState({
+        assumptions: inputs.nonRegisteredTaxation,
+        accounts: inputs.accounts,
+      });
+  if (continuation && options.candidateBalancesToday) {
+    for (const [accountId, state] of nonRegisteredState.accounts) {
+      const projectedMarketValue = state.currentMarketValue;
+      const candidateMarketValue = balances.get(accountId) ?? 0;
+      if (projectedMarketValue === 0 && candidateMarketValue > 0) {
+        throw new Error(
+          `Cannot scale non-registered ACB for ${accountId} from zero projected market value to a positive retirement candidate`,
+        );
+      }
+      state.currentAdjustedCostBase =
+        projectedMarketValue === 0
+          ? 0
+          : candidateMarketValue *
+            (state.currentAdjustedCostBase / projectedMarketValue);
+      state.currentMarketValue = candidateMarketValue;
+    }
+  }
   const nominalSurplusThroughRetirement = emptySurplusTotals();
   const realSurplusThroughRetirement = emptySurplusTotals();
   const nominalSavingsThroughRetirement = emptySavingsTotals();
@@ -1658,6 +1726,7 @@ function simulateProjection(
             pensionIncomeCreditEligible:
               inputs.person.pensionIncomeCreditEligible,
             periodStatus,
+            provisional: !taxCoverage.supportedComplete,
           })
         : {
             mode: "flat_compatibility",
@@ -1681,6 +1750,18 @@ function simulateProjection(
     ) {
       throw new Error(
         `Canadian annual tax failed to reconcile for ${calendarYear}`,
+      );
+    }
+    const annualNonRegisteredTaxation = nonRegisteredAnnualAggregate({
+      state: nonRegisteredState,
+      calendarYear,
+      closingInflationFactor: factor,
+      periodStatus: rrifPeriodStatus,
+    });
+    if (annualTax.mode === "canadian_annual") {
+      annualNonRegisteredTaxation.unusedCurrentYearCapitalLoss = round(
+        annualTax.fullAnnualTax.incomeAdjustments
+          .currentYearExcessCapitalLoss,
       );
     }
     annual.push({
@@ -1715,6 +1796,7 @@ function simulateProjection(
         calendarYear,
         periodStatus: rrifPeriodStatus,
       }),
+      nonRegisteredTaxation: annualNonRegisteredTaxation,
     });
     annualNominalFlow = emptyView();
     annualRealFlow = emptyView();
@@ -1747,6 +1829,18 @@ function simulateProjection(
       );
     }
     const monthlyFlow = emptyView();
+    const depositIntoAccount = (accountId: string, amount: number) => {
+      if (amount <= 0) return;
+      balances.set(accountId, (balances.get(accountId) ?? 0) + amount);
+      depositNonRegistered({
+        state: nonRegisteredState,
+        accountId,
+        calendarYear,
+        inflationFactor: factor,
+        openingInflationFactor: previousFactor,
+        amount,
+      });
+    };
     if (
       inputs.rrifMinimumWithdrawals.mode === "statutory" &&
       calendarMonth === 1
@@ -1773,6 +1867,8 @@ function simulateProjection(
               ? cloneCanadianTaxYearState(canadianTaxYearState)
               : null,
             rrifState: cloneRrifSimulationState(rrifState),
+            nonRegisteredState:
+              cloneNonRegisteredSimulationState(nonRegisteredState),
           }
         : null;
     if (inputs.registeredAccountRoom) {
@@ -1859,7 +1955,67 @@ function simulateProjection(
     ).financialAssets;
     for (const account of inputs.accounts) {
       const current = balances.get(account.id) ?? 0;
-      balances.set(account.id, Math.max(0, current * (1 + monthlyRate(account.annualReturn))));
+      const totalReturnAmount = current * monthlyRate(account.annualReturn);
+      const treatment = nonRegisteredTreatment(
+        inputs.nonRegisteredTaxation,
+        account.id,
+      );
+      if (account.type === "non_registered" && treatment) {
+        const distributions = {
+          interest:
+            current * monthlyRate(treatment.annualDistributionYields.interest),
+          eligibleCanadianDividends:
+            current *
+            monthlyRate(
+              treatment.annualDistributionYields.eligibleCanadianDividends,
+            ),
+          foreignIncome:
+            current *
+            monthlyRate(treatment.annualDistributionYields.foreignIncome),
+          capitalGains:
+            current *
+            monthlyRate(treatment.annualDistributionYields.capitalGains),
+        };
+        recordNonRegisteredReturn({
+          state: nonRegisteredState,
+          accountId: account.id,
+          calendarYear,
+          inflationFactor: factor,
+          openingInflationFactor: previousFactor,
+          totalReturnAmount,
+          distributions,
+        });
+        balances.set(
+          account.id,
+          nonRegisteredState.accounts.get(account.id)!.currentMarketValue,
+        );
+        addCanadianTaxIncome(
+          canadianTaxYearState!,
+          "interest",
+          distributions.interest,
+          false,
+        );
+        addCanadianTaxIncome(
+          canadianTaxYearState!,
+          "eligibleCanadianDividends",
+          distributions.eligibleCanadianDividends,
+          false,
+        );
+        addCanadianTaxIncome(
+          canadianTaxYearState!,
+          "foreignIncome",
+          distributions.foreignIncome,
+          false,
+        );
+        addCanadianTaxIncome(
+          canadianTaxYearState!,
+          "capitalGains",
+          distributions.capitalGains,
+          false,
+        );
+      } else {
+        balances.set(account.id, Math.max(0, current + totalReturnAmount));
+      }
     }
     const balancesAfterReturn = balanceSheet(
       inputs.accounts,
@@ -2063,10 +2219,7 @@ function simulateProjection(
         monthlyFlow.income.other += amount;
         monthlyFlow.income.total += amount;
         if (event.targetAccountId) {
-          balances.set(
-            event.targetAccountId,
-            (balances.get(event.targetAccountId) ?? 0) + amount,
-          );
+          depositIntoAccount(event.targetAccountId, amount);
         } else {
           unassignedEventInflows += amount;
         }
@@ -2179,10 +2332,7 @@ function simulateProjection(
         );
         if (amount <= 0) continue;
         consumeRoom(destination, amount);
-        balances.set(
-          destination.id,
-          (balances.get(destination.id) ?? 0) + amount,
-        );
+        depositIntoAccount(destination.id, amount);
         monthlyFlow.accountContributions[destination.id] =
           (monthlyFlow.accountContributions[destination.id] ?? 0) + amount;
         const destinationDetail = contributionDetail(
@@ -2283,14 +2433,22 @@ function simulateProjection(
     let withdrawalTaxTotal = 0;
     const fundCashNeedFromWithdrawals = (
       requestedNetCash: number,
-    ): number => {
-      let remaining = requestedNetCash;
+    ): WithdrawalFundingResult => {
+      let netCashGenerated = 0;
+      let grossProceedsGenerated = 0;
+      let signedTaxAdjustment = 0;
       for (const account of withdrawalAccounts) {
+        const remaining = Math.max(
+          0,
+          requestedNetCash - netCashGenerated,
+        );
         if (remaining <= 0) break;
         const balance = balances.get(account.id) ?? 0;
         if (balance <= 0) continue;
         let grossWithdrawal = Math.min(balance, remaining);
         let netCash = grossWithdrawal;
+        let withdrawalTaxAdjustment = 0;
+        let committedNonRegisteredDisposition = false;
         if (account.type === "rrsp_rrif") {
           const taxIncomeSource = registeredWithdrawalSource(account);
           let withdrawalTax: number;
@@ -2369,8 +2527,120 @@ function simulateProjection(
           }
           monthlyFlow.outflows.tax += withdrawalTax;
           withdrawalTaxTotal += withdrawalTax;
+          withdrawalTaxAdjustment = withdrawalTax;
+        } else if (
+          account.type === "non_registered" &&
+          inputs.nonRegisteredTaxation.mode === "simplified_canadian"
+        ) {
+          if (inputs.tax.mode !== "canadian_annual") {
+            throw new Error("Simplified non-registered dispositions require Canadian annual tax");
+          }
+          const canadianTax = inputs.tax;
+          const currentPosition = canadianTaxPosition({
+            state: canadianTaxYearState!,
+            tax: canadianTax,
+            ageAtYearEnd: ageAtEndOfTaxYear(calendarYear),
+            pensionIncomeCreditEligible:
+              inputs.person.pensionIncomeCreditEligible,
+          });
+          const solution = solveTaxableWithdrawal({
+            incomeSource: "nonRegisteredDisposition",
+            availableBalance: balance,
+            requiredNetCash: remaining,
+            minimumIncrementalTax: -currentPosition.projectionFundedTax,
+            incrementalTax: (candidate) => {
+              const preview = previewNonRegisteredDisposition({
+                state: nonRegisteredState,
+                accountId: account.id,
+                grossProceeds: candidate,
+              });
+              const candidateTaxState = cloneCanadianTaxYearState(
+                canadianTaxYearState!,
+              );
+              addCanadianTaxIncome(
+                candidateTaxState,
+                "capitalGains",
+                preview.realizedCapitalGain,
+                false,
+              );
+              addCanadianTaxIncome(
+                candidateTaxState,
+                "capitalLosses",
+                preview.realizedCapitalLoss,
+                false,
+              );
+              const candidatePosition = canadianTaxPosition({
+                state: candidateTaxState,
+                tax: canadianTax,
+                ageAtYearEnd: ageAtEndOfTaxYear(calendarYear),
+                pensionIncomeCreditEligible:
+                  inputs.person.pensionIncomeCreditEligible,
+              });
+              return (
+                candidatePosition.projectionFundedTax -
+                currentPosition.projectionFundedTax
+              );
+            },
+          });
+          grossWithdrawal = solution.grossWithdrawal;
+          const preview = previewNonRegisteredDisposition({
+            state: nonRegisteredState,
+            accountId: account.id,
+            grossProceeds: grossWithdrawal,
+          });
+          commitNonRegisteredDisposition({
+            state: nonRegisteredState,
+            preview,
+            calendarYear,
+            inflationFactor: factor,
+            openingInflationFactor: previousFactor,
+          });
+          committedNonRegisteredDisposition = true;
+          addCanadianTaxIncome(
+            canadianTaxYearState!,
+            "capitalGains",
+            preview.realizedCapitalGain,
+            false,
+          );
+          addCanadianTaxIncome(
+            canadianTaxYearState!,
+            "capitalLosses",
+            preview.realizedCapitalLoss,
+            false,
+          );
+          const recognized = recognizeCanadianProjectionTax({
+            state: canadianTaxYearState!,
+            tax: canadianTax,
+            ageAtYearEnd: ageAtEndOfTaxYear(calendarYear),
+            pensionIncomeCreditEligible:
+              inputs.person.pensionIncomeCreditEligible,
+          });
+          const dispositionTax = recognized.newlyRecognizedTax;
+          netCash = grossWithdrawal - dispositionTax;
+          monthlyFlow.outflows.tax += dispositionTax;
+          monthlyFlow.outflows.oasRecoveryTax +=
+            recognized.newlyRecognizedOasRecoveryTax;
+          withdrawalTaxTotal += dispositionTax;
+          withdrawalTaxAdjustment = dispositionTax;
+          if (
+            Math.abs(
+              centDifference(
+                [grossWithdrawal],
+                [dispositionTax, netCash],
+              ),
+            ) > 0.01
+          ) {
+            throw new Error(
+              "Non-registered disposition failed to reconcile gross proceeds, signed tax, and net cash",
+            );
+          }
         }
-        balances.set(account.id, balance - grossWithdrawal);
+        balances.set(
+          account.id,
+          committedNonRegisteredDisposition
+            ? nonRegisteredState.accounts.get(account.id)!.currentMarketValue
+            : balance - grossWithdrawal,
+        );
         if (
           account.type === "rrsp_rrif" &&
           inputs.rrifMinimumWithdrawals.mode === "statutory" &&
@@ -2396,9 +2666,34 @@ function simulateProjection(
               grossWithdrawal,
           );
         }
-        remaining -= netCash;
+        grossProceedsGenerated += grossWithdrawal;
+        signedTaxAdjustment += withdrawalTaxAdjustment;
+        netCashGenerated += netCash;
       }
-      return Math.max(0, remaining);
+      const result = settleWithdrawalFunding({
+        requestedNetCash,
+        netCashGenerated,
+      });
+      const differences = [
+        centDifference(
+          [grossProceedsGenerated],
+          [signedTaxAdjustment, result.netCashGenerated],
+        ),
+        centDifference(
+          [result.netCashGenerated],
+          [result.netCashApplied, result.excessNetCash],
+        ),
+        centDifference(
+          [requestedNetCash],
+          [result.netCashApplied, result.unmetNetCash],
+        ),
+      ];
+      if (differences.some((difference) => Math.abs(difference) > 0.01)) {
+        throw new Error(
+          "Withdrawal funding failed to reconcile gross proceeds, signed tax, generated cash, applied cash, excess cash, and unmet cash",
+        );
+      }
+      return result;
     };
 
     let availableCurrentMonthCash =
@@ -2406,9 +2701,64 @@ function simulateProjection(
     const previewCanadianTaxState = canadianTaxYearState
       ? cloneCanadianTaxYearState(canadianTaxYearState)
       : null;
+    const previewNonRegisteredState =
+      cloneNonRegisteredSimulationState(nonRegisteredState);
     const availableNetWithdrawalCash = withdrawalAccounts.reduce(
       (total, account) => {
         const balance = balances.get(account.id) ?? 0;
+        if (
+          account.type === "non_registered" &&
+          inputs.nonRegisteredTaxation.mode === "simplified_canadian"
+        ) {
+          if (inputs.tax.mode !== "canadian_annual") {
+            throw new Error("Simplified non-registered preview requires Canadian annual tax");
+          }
+          const canadianTax = inputs.tax;
+          const gross = Math.max(
+            0,
+            Math.floor((balance + 1e-9) * 100) / 100,
+          );
+          const before = canadianTaxPosition({
+            state: previewCanadianTaxState!,
+            tax: canadianTax,
+            ageAtYearEnd: ageAtEndOfTaxYear(calendarYear),
+            pensionIncomeCreditEligible:
+              inputs.person.pensionIncomeCreditEligible,
+          });
+          const preview = previewNonRegisteredDisposition({
+            state: previewNonRegisteredState,
+            accountId: account.id,
+            grossProceeds: gross,
+          });
+          addCanadianTaxIncome(
+            previewCanadianTaxState!,
+            "capitalGains",
+            preview.realizedCapitalGain,
+            false,
+          );
+          addCanadianTaxIncome(
+            previewCanadianTaxState!,
+            "capitalLosses",
+            preview.realizedCapitalLoss,
+            false,
+          );
+          const after = canadianTaxPosition({
+            state: previewCanadianTaxState!,
+            tax: canadianTax,
+            ageAtYearEnd: ageAtEndOfTaxYear(calendarYear),
+            pensionIncomeCreditEligible:
+              inputs.person.pensionIncomeCreditEligible,
+          });
+          commitNonRegisteredDisposition({
+            state: previewNonRegisteredState,
+            preview,
+            calendarYear,
+            inflationFactor: factor,
+            openingInflationFactor: previousFactor,
+          });
+          return total + gross -
+            (after.projectionFundedTax - before.projectionFundedTax);
+        }
         if (
           account.type !== "rrsp_rrif" ||
           inputs.tax.mode === "flat_compatibility"
@@ -2500,6 +2850,9 @@ function simulateProjection(
       rrifState = cloneRrifSimulationState(
         ordinaryRetirementMonthOpening.rrifState,
       );
+      nonRegisteredState = cloneNonRegisteredSimulationState(
+        ordinaryRetirementMonthOpening.nonRegisteredState,
+      );
       projectedRetirementLiabilityShortfall = {
         calendarMonth: calendarMonthKey,
         calendarYear,
@@ -2527,12 +2880,14 @@ function simulateProjection(
       requiredLiabilityCashPayment,
     );
     availableCurrentMonthCash -= liabilityPaymentFromCurrentCash;
-    const remainingRequiredLiabilityPayment =
+    const liabilityWithdrawalFunding =
       fundCashNeedFromWithdrawals(
         requiredLiabilityCashPayment -
           liabilityPaymentFromCurrentCash,
       );
-    if (remainingRequiredLiabilityPayment > 0.005) {
+    availableCurrentMonthCash +=
+      liabilityWithdrawalFunding.excessNetCash;
+    if (liabilityWithdrawalFunding.unmetNetCash > 0.005) {
       throw new Error(
         `Required liability payment could not be funded for ${calendarMonthKey}`,
       );
@@ -2594,13 +2949,14 @@ function simulateProjection(
       cashFundedContributions -
       eventOutflows;
     if (cashPosition < 0) {
-      const unmetSpending = fundCashNeedFromWithdrawals(
+      const spendingWithdrawalFunding = fundCashNeedFromWithdrawals(
         -cashPosition,
       );
-      if (unmetSpending > 0) {
-        monthlyFlow.outflows.unmetSpending += unmetSpending;
+      if (spendingWithdrawalFunding.unmetNetCash > 0) {
+        monthlyFlow.outflows.unmetSpending +=
+          spendingWithdrawalFunding.unmetNetCash;
       }
-      cashPosition = 0;
+      cashPosition = spendingWithdrawalFunding.excessNetCash;
     }
 
     if (
@@ -2724,10 +3080,7 @@ function simulateProjection(
           );
           if (amount <= 0) continue;
           consumeRoom(destination, amount);
-          balances.set(
-            destination.id,
-            (balances.get(destination.id) ?? 0) + amount,
-          );
+          depositIntoAccount(destination.id, amount);
           monthlyFlow.accountSurplusAllocations[destination.id] =
             (monthlyFlow.accountSurplusAllocations[destination.id] ?? 0) +
             amount;
@@ -2791,10 +3144,7 @@ function simulateProjection(
           Math.max(0, operatingTarget - operatingBalance),
         );
         if (operatingFunding > 0) {
-          balances.set(
-            simplePolicy.operatingCashAccountId,
-            operatingBalance + operatingFunding,
-          );
+          depositIntoAccount(simplePolicy.operatingCashAccountId, operatingFunding);
           monthlyFlow.accountSurplusAllocations[
             simplePolicy.operatingCashAccountId
           ] =
@@ -2808,10 +3158,7 @@ function simulateProjection(
           Math.max(0, reserveTarget - combinedReserveBalance()),
         );
         if (reserveFunding > 0) {
-          balances.set(
-            reserveRefillAccount.id,
-            (balances.get(reserveRefillAccount.id) ?? 0) + reserveFunding,
-          );
+          depositIntoAccount(reserveRefillAccount.id, reserveFunding);
           monthlyFlow.accountSurplusAllocations[reserveRefillAccount.id] =
             (monthlyFlow.accountSurplusAllocations[
               reserveRefillAccount.id
@@ -2856,10 +3203,9 @@ function simulateProjection(
       if (simplePolicy.unplannedCash === "retain_in_operating_cash") {
         unplannedCashRetained = unplannedCash;
         if (unplannedCashRetained > 0) {
-          balances.set(
+          depositIntoAccount(
             simplePolicy.operatingCashAccountId,
-            (balances.get(simplePolicy.operatingCashAccountId) ?? 0) +
-              unplannedCashRetained,
+            unplannedCashRetained,
           );
           monthlyFlow.accountSurplusAllocations[
             simplePolicy.operatingCashAccountId
@@ -2934,10 +3280,7 @@ function simulateProjection(
       );
       const reserveRefill = Math.min(generated, reserveShortfall);
       if (reserveRefill > 0) {
-        balances.set(
-          reserveRefillAccount.id,
-          (balances.get(reserveRefillAccount.id) ?? 0) + reserveRefill,
-        );
+        depositIntoAccount(reserveRefillAccount.id, reserveRefill);
         monthlyFlow.accountSurplusAllocations[reserveRefillAccount.id] =
           reserveRefill;
       }
@@ -2946,10 +3289,7 @@ function simulateProjection(
       let redirected = 0;
       if (inputs.surplusAllocation.excess.mode === "retain_as_cash") {
         if (excess > 0) {
-          balances.set(
-            reserveRefillAccount.id,
-            (balances.get(reserveRefillAccount.id) ?? 0) + excess,
-          );
+          depositIntoAccount(reserveRefillAccount.id, excess);
           monthlyFlow.accountSurplusAllocations[reserveRefillAccount.id] =
             (monthlyFlow.accountSurplusAllocations[
               reserveRefillAccount.id
@@ -2961,10 +3301,7 @@ function simulateProjection(
         inputs.surplusAllocation.excess.mode === "allocate_to_account"
       ) {
         if (excess > 0) {
-          balances.set(
-            destinationAccount!.id,
-            (balances.get(destinationAccount!.id) ?? 0) + excess,
-          );
+          depositIntoAccount(destinationAccount!.id, excess);
           monthlyFlow.accountSurplusAllocations[destinationAccount!.id] =
             excess;
         }
@@ -2983,10 +3320,7 @@ function simulateProjection(
           );
           if (amount <= 0) continue;
           consumeRoom(waterfallDestination, amount);
-          balances.set(
-            waterfallDestination.id,
-            (balances.get(waterfallDestination.id) ?? 0) + amount,
-          );
+          depositIntoAccount(waterfallDestination.id, amount);
           monthlyFlow.accountSurplusAllocations[waterfallDestination.id] =
             (monthlyFlow.accountSurplusAllocations[
               waterfallDestination.id
@@ -3021,10 +3355,7 @@ function simulateProjection(
           remainingExcess -= amount;
         }
         if (remainingExcess > 0) {
-          balances.set(
-            reserveRefillAccount.id,
-            (balances.get(reserveRefillAccount.id) ?? 0) + remainingExcess,
-          );
+          depositIntoAccount(reserveRefillAccount.id, remainingExcess);
           monthlyFlow.accountSurplusAllocations[reserveRefillAccount.id] =
             (monthlyFlow.accountSurplusAllocations[
               reserveRefillAccount.id
@@ -3206,6 +3537,8 @@ function simulateProjection(
           ? cloneCanadianTaxYearState(canadianTaxYearState)
           : null,
         rrifState: cloneRrifSimulationState(rrifState),
+        nonRegisteredState:
+          cloneNonRegisteredSimulationState(nonRegisteredState),
       };
       if (!evaluationOnly) {
         const retirementRealMonthlyFlow = emptyView();
@@ -3473,6 +3806,28 @@ function simulateProjection(
       age: inputs.person.rrifConversionAge,
     });
   }
+  if (inputs.nonRegisteredTaxation.mode === "simplified_canadian") {
+    observations.push({
+      code: "non_registered_tax_simplified_active",
+      message:
+        "Simplified Canadian non-registered taxation is active with pooled account-level adjusted cost base, reinvested distributions, proportional dispositions, and current-year capital-loss netting.",
+    });
+    for (const period of annual.map((point) => point.nonRegisteredTaxation)) {
+      if (period.unusedCurrentYearCapitalLoss > 0) {
+        observations.push({
+          code: "non_registered_unused_current_year_capital_loss",
+          message: `An unused current-year capital loss remains visible for ${period.calendarYear}; carryback and carryforward are outside the supported model.`,
+          calendarYear: period.calendarYear,
+        });
+      }
+    }
+  } else {
+    observations.push({
+      code: "non_registered_tax_compatibility",
+      message:
+        "Non-registered investment income and taxable dispositions remain unmodelled in compatibility mode.",
+    });
+  }
   observations.push({
     code: "cpp_start",
     message: `CPP begins at age ${inputs.person.cpp.startAge}.`,
@@ -3509,7 +3864,7 @@ function simulateProjection(
   });
 
   const result: CoreProjectionResult = {
-    schemaVersion: "12.0",
+    schemaVersion: "13.0",
     inputs,
     summary: {
       retirementYear,
@@ -3678,7 +4033,9 @@ function simulateProjection(
         inputs.tax.mode === "canadian_annual"
           ? inputs.tax.futureIndexingRate
           : null,
-      provisional: true,
+      provisional: !taxCoverage.supportedComplete,
+      coverageStatus: taxCoverage.status,
+      fullTaxReturnFidelity: false,
       annual: annual.map((point) => point.tax),
       limitations:
         inputs.tax.mode === "canadian_annual"
@@ -3689,7 +4046,64 @@ function simulateProjection(
       inputs,
       state: rrifState,
       annual: annual.map((point) => point.rrif),
+      supportedTaxModelComplete: taxCoverage.supportedComplete,
     }),
+    nonRegisteredTaxation: {
+      mode: inputs.nonRegisteredTaxation.mode,
+      source: inputs.nonRegisteredTaxation.source,
+      provisional: !taxCoverage.supportedComplete,
+      supportedAdjustedCostBaseModel:
+        inputs.nonRegisteredTaxation.mode === "simplified_canadian"
+          ? "pooled_account_portfolio"
+          : "not_modelled",
+      capitalGainsInclusionRate:
+        inputs.nonRegisteredTaxation.mode === "simplified_canadian"
+          ? 0.5
+          : null,
+      eligibleDividendGrossUp:
+        inputs.nonRegisteredTaxation.mode === "simplified_canadian"
+          ? 1.38
+          : null,
+      federalEligibleDividendCreditRate:
+        inputs.nonRegisteredTaxation.mode === "simplified_canadian"
+          ? 0.150198
+          : null,
+      ontarioEligibleDividendCreditRate:
+        inputs.nonRegisteredTaxation.mode === "simplified_canadian"
+          ? 0.1
+          : null,
+      references:
+        inputs.nonRegisteredTaxation.mode === "simplified_canadian"
+          ? {
+              referenceYear: 2026,
+              retrievedDate: "2026-07-31",
+              effectiveDate: "2026-01-01",
+              sourceKind: "published",
+              forecastStatus: "fixed_2026_percentages",
+              sourceUrls: Object.values(CANADIAN_TAX_REFERENCE_URLS),
+            }
+          : null,
+      accounts: inputs.accounts
+        .filter((account) => account.type === "non_registered")
+        .map((account) => {
+          const treatment = nonRegisteredTreatment(
+            inputs.nonRegisteredTaxation,
+            account.id,
+          );
+          return {
+            accountId: account.id,
+            openingAdjustedCostBase:
+              treatment?.openingAdjustedCostBase.amount ?? null,
+            annualDistributionYields:
+              treatment?.annualDistributionYields ?? null,
+          };
+        }),
+      annual: annual.map((point) => point.nonRegisteredTaxation),
+      limitations:
+        inputs.nonRegisteredTaxation.mode === "simplified_canadian"
+          ? [...NON_REGISTERED_TAX_LIMITATIONS]
+          : ["Non-registered investment income and dispositions are not modelled in compatibility mode."],
+    },
     annual,
     observations,
   };
@@ -3710,6 +4124,7 @@ export function calculateProjection(
   }
   const result = ordinary.result;
   const inputs = result.inputs;
+  const supportedTaxModelComplete = !result.taxation.provisional;
   const retirementAccounts = inputs.accounts.map((account) => ({
     accountId: account.id,
     accountType: account.type,
@@ -3740,6 +4155,7 @@ export function calculateProjection(
       inputs.tax.mode === "canadian_annual"
         ? "canadian_annual_federal_ontario_forecast"
         : "flat_retirement_tax_compatibility",
+    provisionalTax: !supportedTaxModelComplete,
     accounts: retirementAccounts,
     initialUpperBoundToday,
     hasRetirementLiabilityOverlap:
@@ -3756,21 +4172,28 @@ export function calculateProjection(
     },
   });
   result.observations.push(
-    inputs.tax.mode === "canadian_annual"
+    supportedTaxModelComplete
       ? {
-          code: "retirement_requirement_tax_provisional",
+          code: "supported_tax_model_complete",
           message:
-            inputs.rrifMinimumWithdrawals.mode === "statutory"
-              ? "The retirement funding requirement uses annual federal and Ontario tax with statutory RRIF minimum withdrawals, but remains provisional because non-registered investment-income taxation and full tax-return fidelity are not modelled."
-              : "The retirement funding requirement uses annual federal and Ontario tax, but remains provisional because RRIF minimum withdrawals and non-registered investment-income taxation are not modelled.",
+            "The retirement funding requirement is complete for the supported deterministic tax model. It remains a planning estimate, not a tax return.",
           age: inputs.person.retirementAge,
         }
-      : {
-          code: "retirement_requirement_tax_compatibility",
-          message:
-            "The retirement funding requirement is provisional under the current flat retirement-tax compatibility assumption.",
-          age: inputs.person.retirementAge,
-        },
+      : inputs.tax.mode === "canadian_annual"
+        ? {
+            code: "retirement_requirement_tax_provisional",
+            message:
+              inputs.rrifMinimumWithdrawals.mode === "statutory"
+                ? "The retirement funding requirement uses annual federal and Ontario tax with statutory RRIF minimum withdrawals, but remains provisional because non-registered investment-income taxation is in compatibility mode."
+                : "The retirement funding requirement uses annual federal and Ontario tax, but remains provisional because statutory RRIF minimum withdrawals are in compatibility mode.",
+            age: inputs.person.retirementAge,
+          }
+        : {
+            code: "retirement_requirement_tax_compatibility",
+            message:
+              "The retirement funding requirement is provisional under the current flat retirement-tax compatibility assumption.",
+            age: inputs.person.retirementAge,
+          },
   );
   if (
     inputs.retirementRequirement.activeValueSource ===

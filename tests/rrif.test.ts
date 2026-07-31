@@ -828,6 +828,98 @@ describe("statutory RRIF lifecycle", () => {
     expect(last.balances.financialAssets).toBe(200_001);
   });
 
+  it("gives RRIF-forced taxable surplus ACB and future taxable distributions", () => {
+    const input = statutoryRrifFixture();
+    input.endAge = 73;
+    input.spendingPhases[0]!.endAge = 73;
+    input.accounts[1]!.openingBalance = 200_000;
+    routeRrifSurplusAwayFromCash(input);
+    const taxable = input.accounts.find(
+      (account) => account.id === "projection:taxable-surplus",
+    )!;
+    taxable.annualReturn = 0.12;
+    input.tax = {
+      mode: "canadian_annual",
+      source: "explicit_configuration",
+      effectiveTaxRate: 0,
+      oasRecoveryThresholdToday: 1_000_000,
+      oasRecoveryRate: 0,
+      province: "ON",
+      referenceYear: 2026,
+      futureIndexingRate: 0,
+      openingTaxYearBeforeProjectionMonth: {
+        calendarYear: 2026,
+        throughMonth: 0,
+        income: {
+          employment: 0,
+          cpp: 0,
+          oas: 0,
+          pension: 0,
+          rrspWithdrawals: 0,
+          rrifWithdrawals: 0,
+          interest: 0,
+          eligibleCanadianDividends: 0,
+          foreignIncome: 0,
+          capitalGains: 0,
+          capitalLosses: 0,
+          otherTaxableIncome: 0,
+        },
+        source: "january_zero",
+      },
+      limitations: [
+        "full_tax_return_deductions_and_refundable_credits_not_modelled",
+      ],
+    };
+    input.person.employmentIncomePhases[0]!.annualTaxableEmploymentIncomeToday =
+      0;
+    input.nonRegisteredTaxation = {
+      mode: "simplified_canadian",
+      source: "explicit_configuration",
+      accounts: [
+        {
+          accountId: taxable.id,
+          openingAdjustedCostBase: {
+            amount: 0,
+            effectiveDate: "2026-01-01",
+            sourceDescription: "Synthetic zero opening taxable balance",
+            source: "projection_zero_balance_default",
+          },
+          annualDistributionYields: {
+            interest: 0.12,
+            eligibleCanadianDividends: 0,
+            foreignIncome: 0,
+            capitalGains: 0,
+          },
+        },
+      ],
+      limitations: [],
+    };
+
+    const result = calculateProjection(input);
+    const depositYear = result.annual.find(
+      (period) => period.calendarYear === 2027,
+    )!;
+    const futureYear = result.annual.find(
+      (period) => period.calendarYear === 2028,
+    )!;
+    expect(depositYear.nonRegisteredTaxation.contributions).toBeGreaterThan(0);
+    expect(depositYear.nonRegisteredTaxation.closingAdjustedCostBase).toBe(
+      depositYear.nonRegisteredTaxation.contributions,
+    );
+    expect(futureYear.nonRegisteredTaxation.interestDistributions).toBeGreaterThan(
+      0,
+    );
+    expect(futureYear.nonRegisteredTaxation.closingAdjustedCostBase).toBeGreaterThan(
+      futureYear.nonRegisteredTaxation.openingAdjustedCostBase,
+    );
+    expect(futureYear.tax.mode).toBe("canadian_annual");
+    if (futureYear.tax.mode !== "canadian_annual") {
+      throw new Error("expected Canadian tax");
+    }
+    expect(futureYear.tax.totalIncome.interest).toBeGreaterThan(0);
+    expect(result.taxation.provisional).toBe(false);
+  });
+
   it("uses the same RRIF engine in exact-cent retirement requirement candidates", () => {
     const statutory = statutoryRrifFixture();
     statutory.accounts[1]!.openingBalance = 500_000;

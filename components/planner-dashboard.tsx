@@ -1653,6 +1653,8 @@ export function PlannerDashboard() {
   const ledgerData = projection ? buildAnnualLedgerData(inputs, projection, mode) : [];
   const latestAnnualTax = projection?.taxation.annual.at(-1) ?? null;
   const latestRrifPeriod = projection?.rrif.annual.at(-1) ?? null;
+  const latestNonRegisteredPeriod =
+    projection?.nonRegisteredTaxation.annual.at(-1) ?? null;
   const milestonePoints = projection?.annual.filter((point) => point.milestones.length > 0) ?? [];
   const selectedAllocationPoint = projection && allocationYear !== null
     ? closestAnnualPoint(projection.annual, allocationYear)
@@ -1962,9 +1964,15 @@ export function PlannerDashboard() {
                 title="Tax status"
                 onExplain={openExplanation}
               />
-              <strong>Provisional</strong>
+              <strong>
+                {projection.taxation.provisional
+                  ? "Provisional"
+                  : "Complete for supported deterministic tax model"}
+              </strong>
               <small>
-                {projection.taxation.mode === "canadian_annual"
+                {!projection.taxation.provisional
+                  ? "Canadian annual tax, statutory RRIF minimums, and simplified non-registered taxation are active. Planning estimate, not a tax return."
+                  : projection.taxation.mode === "canadian_annual"
                   ? projection.rrif.mode === "statutory"
                     ? "Annual federal and Ontario income tax and statutory RRIF minimums are modelled; non-registered investment-income taxation remains incomplete."
                     : "Annual federal and Ontario income tax is modelled; RRIF minimum withdrawals and non-registered investment-income taxation remain incomplete."
@@ -2004,8 +2012,47 @@ export function PlannerDashboard() {
                 <small>
                   Full liability {currency.format(latestAnnualTax.fullAnnualTax.totals.totalTax)} · embedded/outside projection {currency.format(latestAnnualTax.embeddedAnnualTax.totals.totalTax)} · projection-funded {currency.format(latestAnnualTax.projectionFundedTax)}
                 </small>
+                <small>
+                  Eligible dividends: actual {currency.format(latestAnnualTax.totalIncome.eligibleCanadianDividends ?? 0)} · gross-up {currency.format(latestAnnualTax.fullAnnualTax.incomeAdjustments.eligibleDividendGrossUp)} · taxable {currency.format(latestAnnualTax.fullAnnualTax.incomeAdjustments.taxableEligibleDividends)} · federal credit {currency.format(latestAnnualTax.fullAnnualTax.federal.eligibleDividendTaxCredit)} · Ontario credit {currency.format(latestAnnualTax.fullAnnualTax.ontario.eligibleDividendTaxCredit)}
+                </small>
+                <small>
+                  Capital gains {currency.format(latestAnnualTax.totalIncome.capitalGains ?? 0)} · losses {currency.format(latestAnnualTax.totalIncome.capitalLosses ?? 0)} · taxable gain {currency.format(latestAnnualTax.fullAnnualTax.incomeAdjustments.taxableCapitalGain)} · unused current-year loss {currency.format(latestAnnualTax.fullAnnualTax.incomeAdjustments.currentYearExcessCapitalLoss)}
+                </small>
               </article>
             ) : null}
+            <article className="metric-card" role="status">
+              <span>Non-registered taxation</span>
+              <strong>
+                {projection.nonRegisteredTaxation.mode ===
+                "simplified_canadian"
+                  ? "Simplified Canadian mode active"
+                  : "Compatibility mode · not modelled"}
+              </strong>
+              {latestNonRegisteredPeriod &&
+              projection.nonRegisteredTaxation.mode ===
+                "simplified_canadian" ? (
+                <>
+                  <small>
+                    {latestNonRegisteredPeriod.calendarYear} · opening market value {currency.format(mode === "nominal" ? latestNonRegisteredPeriod.openingMarketValue : latestNonRegisteredPeriod.openingMarketValueToday)} · opening ACB {currency.format(mode === "nominal" ? latestNonRegisteredPeriod.openingAdjustedCostBase : latestNonRegisteredPeriod.openingAdjustedCostBaseToday)} · closing market value {currency.format(mode === "nominal" ? latestNonRegisteredPeriod.closingMarketValue : latestNonRegisteredPeriod.closingMarketValueToday)} · closing ACB {currency.format(mode === "nominal" ? latestNonRegisteredPeriod.closingAdjustedCostBase : latestNonRegisteredPeriod.closingAdjustedCostBaseToday)}
+                  </small>
+                  <small>
+                    Interest {currency.format(mode === "nominal" ? latestNonRegisteredPeriod.interestDistributions : latestNonRegisteredPeriod.interestDistributionsToday)} · eligible dividends {currency.format(mode === "nominal" ? latestNonRegisteredPeriod.eligibleCanadianDividends : latestNonRegisteredPeriod.eligibleCanadianDividendsToday)} · foreign income {currency.format(mode === "nominal" ? latestNonRegisteredPeriod.foreignIncomeDistributions : latestNonRegisteredPeriod.foreignIncomeDistributionsToday)} · capital-gain distributions {currency.format(mode === "nominal" ? latestNonRegisteredPeriod.capitalGainDistributions : latestNonRegisteredPeriod.capitalGainDistributionsToday)}
+                  </small>
+                  <small>
+                    Disposition proceeds {currency.format(mode === "nominal" ? latestNonRegisteredPeriod.dispositionProceeds : latestNonRegisteredPeriod.dispositionProceedsToday)} · ACB disposed {currency.format(mode === "nominal" ? latestNonRegisteredPeriod.adjustedCostBaseDisposed : latestNonRegisteredPeriod.adjustedCostBaseDisposedToday)} · realized gains {currency.format(mode === "nominal" ? latestNonRegisteredPeriod.realizedCapitalGains : latestNonRegisteredPeriod.realizedCapitalGainsToday)} · realized losses {currency.format(mode === "nominal" ? latestNonRegisteredPeriod.realizedCapitalLosses : latestNonRegisteredPeriod.realizedCapitalLossesToday)} · closing unrealized gain/loss {currency.format(mode === "nominal" ? latestNonRegisteredPeriod.closingUnrealizedGainOrLoss : latestNonRegisteredPeriod.closingUnrealizedGainOrLossToday)}
+                  </small>
+                  {latestNonRegisteredPeriod.accounts.map((account) => (
+                    <small key={account.accountId}>
+                      {inputs.accounts.find((item) => item.id === account.accountId)?.label ?? "Non-registered account"}: opening market value {currency.format(mode === "nominal" ? account.openingMarketValue : account.openingMarketValueToday)} · opening ACB {currency.format(mode === "nominal" ? account.openingAdjustedCostBase : account.openingAdjustedCostBaseToday)} · closing market value {currency.format(mode === "nominal" ? account.closingMarketValue : account.closingMarketValueToday)} · closing ACB {currency.format(mode === "nominal" ? account.closingAdjustedCostBase : account.closingAdjustedCostBaseToday)}
+                    </small>
+                  ))}
+                </>
+              ) : (
+                <small>
+                  Existing total-return and withdrawal behaviour is preserved; investment-income and disposition tax are unmodelled.
+                </small>
+              )}
+            </article>
             <article className="metric-card" role="status">
               <span>Projection completion</span>
               <strong>
@@ -2602,6 +2649,24 @@ export function PlannerDashboard() {
                   <div><dt>RRIF conversion age</dt><dd>{inputs.person.rrifConversionAge}</dd></div>
                   <div><dt>RRIF minimum mode</dt><dd>{projection.rrif.mode.replaceAll("_", " ")} · {projection.rrif.source.replaceAll("_", " ")}</dd></div>
                   <div><dt>RRIF settlement</dt><dd>{projection.rrif.settlementTiming.replaceAll("_", " ")}</dd></div>
+                  <div><dt>Non-registered taxation</dt><dd>{projection.nonRegisteredTaxation.mode.replaceAll("_", " ")} · {projection.nonRegisteredTaxation.source.replaceAll("_", " ")}</dd></div>
+                  <div><dt>Tax coverage</dt><dd>{projection.taxation.coverageStatus.replaceAll("_", " ")} · full tax-return fidelity: no</dd></div>
+                  {projection.nonRegisteredTaxation.accounts.map((account) => {
+                    const label = inputs.accounts.find(
+                      (item) => item.id === account.accountId,
+                    )?.label ?? "Non-registered account";
+                    return (
+                      <div key={account.accountId}>
+                        <dt>{label} tax assumptions</dt>
+                        <dd>
+                          {account.openingAdjustedCostBase === null ||
+                          account.annualDistributionYields === null
+                            ? "ACB and taxable-distribution assumptions unavailable because compatibility mode is active."
+                            : `Opening ACB ${currency.format(account.openingAdjustedCostBase)} · interest ${percent.format(account.annualDistributionYields.interest)} · eligible dividends ${percent.format(account.annualDistributionYields.eligibleCanadianDividends)} · foreign income ${percent.format(account.annualDistributionYields.foreignIncome)} · capital-gain distributions ${percent.format(account.annualDistributionYields.capitalGains)}`}
+                        </dd>
+                      </div>
+                    );
+                  })}
                 </dl>
               </div>
               {projectionOnlyAccounts.length > 0 ? (
@@ -2663,7 +2728,9 @@ export function PlannerDashboard() {
                       <div>
                         <dt>Canadian tax limitations</dt>
                         <dd>
-                          Provisional · RRIF minimum withdrawals, non-registered investment income, and full-return deductions/refundable credits are not modelled.
+                          {projection.taxation.provisional
+                            ? `Provisional · ${projection.taxation.coverageStatus.replaceAll("_", " ")}. Full-return deductions and refundable credits are not modelled.`
+                            : "Complete for the supported deterministic model · planning estimate, not a tax return. Security-level tax lots, loss carryovers, foreign tax credits, arbitrary deductions, refundable credits, AMT, optimization, and full tax-return preparation remain out of scope."}
                         </dd>
                       </div>
                     </>

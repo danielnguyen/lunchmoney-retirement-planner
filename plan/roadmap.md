@@ -20,7 +20,7 @@ Public planning material, examples, and tests must remain synthetic and must not
 | 6 | Operating-cash target and automatic excess sweep | Completed | [PR #15](https://github.com/danielnguyen/lunchmoney-retirement-planner/pull/15) |
 | 7 | General spending phases | Completed | [PR #16](https://github.com/danielnguyen/lunchmoney-retirement-planner/pull/16) |
 | 8 | Retirement funding requirement and terminal balance | Completed | [PR #24](https://github.com/danielnguyen/lunchmoney-retirement-planner/pull/24) |
-| 9 | RRIF minimum withdrawals and Canadian retirement taxes | In progress | [PR #25](https://github.com/danielnguyen/lunchmoney-retirement-planner/pull/25) annual tax completed; RRIF stage active |
+| 9 | RRIF minimum withdrawals and Canadian retirement taxes | In progress | [PR #25](https://github.com/danielnguyen/lunchmoney-retirement-planner/pull/25) annual tax and [PR #26](https://github.com/danielnguyen/lunchmoney-retirement-planner/pull/26) RRIF completed; simplified non-registered tax final stage active |
 | 10 | Deterministic return paths and sequence-risk scenarios | Planned | — |
 | 11 | Structured housing transitions | Planned | — |
 
@@ -253,7 +253,7 @@ The configured round-number goal remains available as an owner marker but is not
 - Dashboard, explanations, annual results, JSON, and CSV do not present a configured goal as a derived requirement.
 - Synthetic tests cover zero and nonzero terminal balances, different account compositions, mortgage overlap, public-benefit starts, flat-tax compatibility, and unavailable or infeasible scenarios.
 
-## Planned capability: RRIF minimum withdrawals and Canadian retirement taxes
+## Active capability: RRIF minimum withdrawals and Canadian retirement taxes
 
 ### Goal
 

@@ -77,6 +77,11 @@ export type CanadianTaxIncomeConfig = {
   pension: number;
   rrspWithdrawals: number;
   rrifWithdrawals: number;
+  interest?: number;
+  eligibleCanadianDividends?: number;
+  foreignIncome?: number;
+  capitalGains?: number;
+  capitalLosses?: number;
   otherTaxableIncome: number;
 };
 
@@ -109,6 +114,30 @@ export type PlannerRrifMinimumWithdrawalsConfig =
       source: "explicit_configuration";
       ageBasis: "owner_age";
       settlementTiming: "december_true_up";
+    };
+
+export type PlannerNonRegisteredTaxationConfig =
+  | {
+      mode: "not_modelled_compatibility";
+      source: "explicit_configuration" | "compatibility_default";
+    }
+  | {
+      mode: "simplified_canadian";
+      source: "explicit_configuration";
+      accounts: Array<{
+        accountId: string;
+        openingAdjustedCostBase?: {
+          amount?: number;
+          effectiveDate: string;
+          sourceDescription: string;
+        };
+        annualDistributionYields: {
+          interest: number;
+          eligibleCanadianDividends: number;
+          foreignIncome: number;
+          capitalGains: number;
+        };
+      }>;
     };
 
 export type SpendingPhaseConfig = {
@@ -352,6 +381,7 @@ export type PlannerConfig = {
     source: "explicit_configuration" | "compatibility_default";
   };
   rrifMinimumWithdrawals: PlannerRrifMinimumWithdrawalsConfig;
+  nonRegisteredTaxation: PlannerNonRegisteredTaxationConfig;
   tax: PlannerTaxConfig;
   transactionTrailingMonths: number;
   employmentIncomePhases?: EmploymentIncomePhaseConfig[];
