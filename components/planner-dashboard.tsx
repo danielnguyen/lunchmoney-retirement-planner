@@ -157,24 +157,49 @@ export function formatOverviewMonth(value: string): string {
   return date ? overviewMonth.format(date) : value;
 }
 
+export function wholeDollarComparison(differenceToday: number): {
+  direction: "above" | "below" | "equal";
+  amount: string;
+} {
+  const displayedMagnitude = Math.round(Math.abs(differenceToday));
+  if (displayedMagnitude === 0) {
+    return { direction: "equal", amount: currency.format(0) };
+  }
+  return {
+    direction: differenceToday > 0 ? "above" : "below",
+    amount: currency.format(displayedMagnitude),
+  };
+}
+
 export function formatPersonalTargetComparison(
   differenceToday: number,
   targetToday: number,
 ): string {
-  if (differenceToday === 0) {
+  const comparison = wholeDollarComparison(differenceToday);
+  if (comparison.direction === "equal") {
     return `On target for ${currency.format(targetToday)}`;
   }
-  return `${currency.format(Math.abs(differenceToday))} ${
-    differenceToday > 0 ? "above" : "below"
-  } your ${currency.format(targetToday)} target`;
+  return `${comparison.amount} ${comparison.direction} your ${currency.format(targetToday)} target`;
+}
+
+export function formatCalculatedMinimumComparison(
+  differenceToday: number,
+): string {
+  const comparison = wholeDollarComparison(differenceToday);
+  return comparison.direction === "equal"
+    ? "Equal to the minimum needed for this plan"
+    : `${comparison.amount} ${comparison.direction} the minimum needed for this plan`;
 }
 
 export function retirementSavingsDurationLabel(
   depletionAge: number | null,
   completion: ProjectionResult["projectionCompletion"],
 ): string {
-  if (completion.status !== "complete" && depletionAge === null) {
-    return `How long savings last is not established because the projection stopped after ${formatOverviewDate(completion.completedThroughDate)}, at age ${formatProjectedAge(completion.completedThroughAge)}.`;
+  if (completion.status !== "complete") {
+    const stoppedMessage = `The planner stopped after ${formatOverviewDate(completion.completedThroughDate)}, at age ${formatProjectedAge(completion.completedThroughAge)}`;
+    return depletionAge === null
+      ? `How long savings last is not established because the projection stopped after ${formatOverviewDate(completion.completedThroughDate)}, at age ${formatProjectedAge(completion.completedThroughAge)}.`
+      : `Savings reached zero around age ${formatProjectedAge(depletionAge)}. ${stoppedMessage}, so the full plan was not calculated.`;
   }
   if (depletionAge === null) {
     return `Savings remain at age ${completion.plannedTerminalAge}.`;
@@ -1895,7 +1920,9 @@ export function PlannerDashboard() {
 
                 <div
                   className={`personal-target-comparison ${
-                    projection.retirementRequirement.ownerGoalDifferenceToday < 0
+                    wholeDollarComparison(
+                      projection.retirementRequirement.ownerGoalDifferenceToday,
+                    ).direction === "below"
                       ? "below-target"
                       : "at-or-above-target"
                   }`}
@@ -1989,13 +2016,13 @@ export function PlannerDashboard() {
               </article>
             </div>
 
-            <aside className="model-minimum-summary" aria-label="Model-calculated minimum">
+            <aside className="model-minimum-summary" aria-label="Minimum needed for the spending in this plan">
               <div>
                 <ExplainableHeading
                   compact
                   headingLevel="span"
                   target="retirement-requirement"
-                  title="Model-calculated minimum"
+                  title="Minimum needed for the spending in this plan"
                   onExplain={openExplanation}
                 />
                 <strong>
@@ -2012,23 +2039,21 @@ export function PlannerDashboard() {
               </div>
               <div className="model-minimum-explanation">
                 <p>
-                  This is the lowest amount the model calculates for your current spending, benefits, taxes, debts, returns, and planned final age. It is not your personal target or a recommended retirement target.
+                  This is the lowest amount the model calculates for the current assumptions about your spending, benefits, taxes, debts, returns, and planned final age. It is not your personal target or a recommended retirement target.
                 </p>
                 <ExplainableHeading
                   compact
                   headingLevel="span"
                   target="retirement-funding-margin"
-                  title="Compared with this calculated minimum"
+                  title="Compared with this minimum"
                   onExplain={openExplanation}
                 />
                 <strong>
                   {projection.retirementRequirement.fundingMarginToday === null
                     ? "No model comparison is available"
-                    : `${currency.format(Math.abs(projection.retirementRequirement.fundingMarginToday))} ${
-                        projection.retirementRequirement.fundingMarginToday >= 0
-                          ? "above"
-                          : "below"
-                      } the calculated minimum`}
+                    : formatCalculatedMinimumComparison(
+                        projection.retirementRequirement.fundingMarginToday,
+                      )}
                 </strong>
                 <small>
                   Minimum ending balance {currency.format(projection.retirementRequirement.minimumEndingFinancialAssetsToday)} · residence equity excluded

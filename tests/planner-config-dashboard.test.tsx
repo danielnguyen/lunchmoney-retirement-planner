@@ -74,7 +74,9 @@ describe("dashboard config-save baseline transitions", () => {
     expect(outlookView.getByText("Your personal retirement target")).toBeInTheDocument();
     expect(outlookView.getByText(/(above|below) your .* target/)).toBeInTheDocument();
     expect(outlookView.getByText(/Savings (remain|are projected to run out)/)).toBeInTheDocument();
-    expect(outlookView.getByText("Model-calculated minimum")).toBeInTheDocument();
+    expect(
+      outlookView.getByText("Minimum needed for the spending in this plan"),
+    ).toBeInTheDocument();
     expect(
       outlookView.getByText(/It is not your personal target or a recommended retirement target/),
     ).toBeInTheDocument();

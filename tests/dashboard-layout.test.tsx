@@ -7,6 +7,7 @@ import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { afterEach, describe, expect, it } from "vitest";
 import {
   AnnualXAxis,
+  formatCalculatedMinimumComparison,
   formatOverviewDate,
   formatOverviewMonth,
   formatPersonalTargetComparison,
@@ -14,6 +15,7 @@ import {
   LunchMoneyMappingsDrawer,
   PlannerConfigurationDrawer,
   retirementSavingsDurationLabel,
+  wholeDollarComparison,
   YearAgeTick,
   type PlannerDrawerView,
 } from "@/components/planner-dashboard";
@@ -237,7 +239,7 @@ describe("unified planner configuration drawer", () => {
     expect(liabilitiesChart).toContain('title="Liabilities and home equity"');
   });
 
-  it("makes the personal target primary and the model-calculated minimum explicitly secondary", async () => {
+  it("makes the personal target primary and the plan minimum explicitly secondary", async () => {
     const dashboard = await readFile("components/planner-dashboard.tsx", "utf8");
     const outlookStart = dashboard.indexOf('<section id="overview" className="retirement-outlook"');
     const outlook = dashboard.slice(
@@ -251,13 +253,36 @@ describe("unified planner configuration drawer", () => {
     expect(outlook).toContain("Compared with your personal target");
     expect(outlook).toContain("retirementSavingsDurationLabel");
     expect(outlook).toContain("Your personal retirement target");
-    expect(outlook).toContain("Model-calculated minimum");
+    expect(outlook).toContain("Minimum needed for the spending in this plan");
     expect(outlook).toContain("It is not your personal target or a recommended retirement target.");
     expect(outlook.indexOf("Your personal retirement target")).toBeLessThan(
-      outlook.indexOf("Model-calculated minimum"),
+      outlook.indexOf("Minimum needed for the spending in this plan"),
     );
     expect(outlook).not.toContain("Owner goal marker");
     expect(outlook).not.toContain("Owner-goal difference");
+  });
+
+  it("keeps important retirement-outlook labels at or above the typography floor", async () => {
+    const css = await readFile("app/globals.css", "utf8");
+    const outlookStyles = css.slice(
+      css.indexOf(".retirement-outlook"),
+      css.indexOf(".summary-grid"),
+    );
+    const importantLabelSelectors = [
+      ".personal-target-comparison .explainable-title-row > span:first-child",
+      ".personal-target-card .explainable-title-row > span:first-child",
+      ".outlook-supporting-figures .explainable-title-row > span:first-child",
+      ".model-minimum-summary .explainable-title-row > span:first-child",
+    ];
+
+    for (const selector of importantLabelSelectors) {
+      const rule = outlookStyles.slice(
+        outlookStyles.indexOf(selector),
+        outlookStyles.indexOf("}", outlookStyles.indexOf(selector)) + 1,
+      );
+      expect(rule).toContain("font-size: 0.875rem");
+    }
+    expect(outlookStyles).not.toMatch(/font-size:\s*0\.(?:7\d|8[0-6])rem/);
   });
 
   it("uses readable, calendar-safe overview dates", () => {
@@ -277,6 +302,41 @@ describe("unified planner configuration drawer", () => {
     );
     expect(formatPersonalTargetComparison(0, 900000)).toBe(
       "On target for $900,000",
+    );
+    expect(formatPersonalTargetComparison(0.49, 900000)).toBe(
+      "On target for $900,000",
+    );
+    expect(formatPersonalTargetComparison(-0.49, 900000)).toBe(
+      "On target for $900,000",
+    );
+    expect(formatPersonalTargetComparison(0.5, 900000)).toBe(
+      "$1 above your $900,000 target",
+    );
+    expect(formatPersonalTargetComparison(-0.5, 900000)).toBe(
+      "$1 below your $900,000 target",
+    );
+
+    expect(wholeDollarComparison(0)).toEqual({ direction: "equal", amount: "$0" });
+    expect(formatCalculatedMinimumComparison(0)).toBe(
+      "Equal to the minimum needed for this plan",
+    );
+    expect(formatCalculatedMinimumComparison(0.49)).toBe(
+      "Equal to the minimum needed for this plan",
+    );
+    expect(formatCalculatedMinimumComparison(-0.49)).toBe(
+      "Equal to the minimum needed for this plan",
+    );
+    expect(formatCalculatedMinimumComparison(0.5)).toBe(
+      "$1 above the minimum needed for this plan",
+    );
+    expect(formatCalculatedMinimumComparison(-0.5)).toBe(
+      "$1 below the minimum needed for this plan",
+    );
+    expect(formatCalculatedMinimumComparison(25000)).toBe(
+      "$25,000 above the minimum needed for this plan",
+    );
+    expect(formatCalculatedMinimumComparison(-194735)).toBe(
+      "$194,735 below the minimum needed for this plan",
     );
 
     const complete = {
@@ -306,6 +366,9 @@ describe("unified planner configuration drawer", () => {
     };
     expect(retirementSavingsDurationLabel(null, stopped)).toBe(
       "How long savings last is not established because the projection stopped after February 29, 2072, at age 87.7.",
+    );
+    expect(retirementSavingsDurationLabel(84, stopped)).toBe(
+      "Savings reached zero around age 84. The planner stopped after February 29, 2072, at age 87.7, so the full plan was not calculated.",
     );
   });
 

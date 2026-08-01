@@ -83,20 +83,20 @@ main { width: min(1540px, calc(100% - 32px)); margin: 0 auto; padding: 14px 0 56
 .retirement-savings-summary > small { display: block; margin-top: 10px; color: var(--muted); font-size: 0.875rem; }
 .personal-target-comparison { max-width: 760px; padding: 14px 16px; margin-top: 22px; border-left: 4px solid var(--accent); border-radius: 0 12px 12px 0; background: rgba(112, 214, 178, 0.08); }
 .personal-target-comparison.below-target { border-left-color: var(--warning); background: rgba(242, 189, 99, 0.08); }
-.personal-target-comparison .explainable-title-row > span:first-child { color: var(--muted); font-size: 0.8rem; }
+.personal-target-comparison .explainable-title-row > span:first-child { color: var(--muted); font-size: 0.875rem; }
 .personal-target-comparison strong { display: block; margin-top: 7px; font-size: clamp(1.1rem, 2.3vw, 1.45rem); line-height: 1.35; }
 .savings-duration-summary { margin: 18px 0 0; font-size: 1.05rem; font-weight: 800; line-height: 1.45; }
 .personal-target-card { align-self: stretch; padding: 18px; border: 1px solid rgba(112, 214, 178, 0.35); border-radius: 16px; background: rgba(17, 21, 19, 0.5); }
-.personal-target-card .explainable-title-row > span:first-child { color: var(--muted); font-size: 0.8rem; }
+.personal-target-card .explainable-title-row > span:first-child { color: var(--muted); font-size: 0.875rem; }
 .personal-target-card > strong { display: block; margin-top: 12px; font-size: clamp(1.65rem, 3vw, 2.3rem); }
 .personal-target-card > small { display: block; margin-top: 9px; color: var(--muted); line-height: 1.5; }
 .outlook-supporting-figures { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 12px; padding-top: 18px; border-top: 1px solid var(--border); }
 .outlook-supporting-figures article { min-width: 0; padding: 15px; border: 1px solid var(--border); border-radius: 14px; background: rgba(17, 21, 19, 0.45); }
-.outlook-supporting-figures .explainable-title-row > span:first-child { color: var(--muted); font-size: 0.78rem; }
+.outlook-supporting-figures .explainable-title-row > span:first-child { color: var(--muted); font-size: 0.875rem; }
 .outlook-supporting-figures article > strong { display: block; margin-top: 9px; font-size: clamp(1.15rem, 2vw, 1.55rem); }
 .outlook-supporting-figures article > small { display: block; margin-top: 7px; color: var(--muted); line-height: 1.4; }
 .model-minimum-summary { display: grid; grid-template-columns: minmax(220px, 0.7fr) minmax(0, 1.3fr); gap: 20px; padding: 18px; margin-top: 18px; border: 1px solid var(--border); border-radius: 15px; background: rgba(17, 21, 19, 0.72); }
-.model-minimum-summary .explainable-title-row > span:first-child { color: var(--muted); font-size: 0.8rem; }
+.model-minimum-summary .explainable-title-row > span:first-child { color: var(--muted); font-size: 0.875rem; }
 .model-minimum-summary > div:first-child > strong { display: block; margin-top: 9px; font-size: clamp(1.4rem, 2.5vw, 1.9rem); }
 .model-minimum-summary small { display: block; margin-top: 7px; color: var(--muted); line-height: 1.45; }
 .model-minimum-explanation { padding-left: 20px; border-left: 1px solid var(--border); }
