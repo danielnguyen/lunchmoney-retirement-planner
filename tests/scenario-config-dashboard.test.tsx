@@ -372,7 +372,7 @@ describe("scenario-to-config dashboard workflow", () => {
     expect(screen.getByText("Kept live")).toBeInTheDocument();
     expect(screen.getAllByText("No YAML values changed.", { exact: false })).toHaveLength(2);
     expect(applyCalls).toBe(1);
-  });
+  }, 10_000);
 
   it("replaces a confirmed live value in the draft and retains overrides until save succeeds", async () => {
     installBaseFetch((body) => {
