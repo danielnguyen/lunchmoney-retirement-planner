@@ -630,15 +630,15 @@ function goalDocument(context: ExplanationContext): ExplanationDocument {
   );
   return {
     id: "retirement-goal",
-    title: "Owner goal marker",
+    title: "Personal retirement target",
     plainLanguage:
-      "Your configured round-number financial-asset marker. It is retained for personal comparison and is not used to solve the derived retirement requirement.",
+      "Your chosen retirement-savings target. It is the main personal comparison in the outlook and is not used to calculate the model minimum.",
     displayedResult: {
-      label: "Owner goal marker",
+      label: "Personal retirement target",
       value: currency.format(displayed),
       dollarMode: "real",
     },
-    formula: "Active owner-goal input (not a solver input)",
+    formula: "Active personal retirement target (not a model-minimum input)",
     steps: [
       ...(goalEvidence.sourceType === "override"
         ? [{
@@ -650,7 +650,7 @@ function goalDocument(context: ExplanationContext): ExplanationDocument {
           }]
         : []),
       {
-        label: "Goal used by projection",
+        label: "Personal target used for comparison",
         value: exactCurrency.format(displayed),
         rawValue: displayed,
         operation: "result",
@@ -660,8 +660,8 @@ function goalDocument(context: ExplanationContext): ExplanationDocument {
     dataSections: [],
     assumptions: [],
     caveats: [
-      "The goal comparison includes financial assets only.",
-      "The primary residence is included in total net worth but is not available for retirement withdrawals or the retirement goal.",
+      "The personal-target comparison includes financial assets only.",
+      "The primary residence is included in total net worth but is not available for retirement withdrawals or the personal retirement target.",
     ],
     reconciliation: matched(context.inputs.retirementGoalToday, displayed),
   };
@@ -676,25 +676,25 @@ function goalGapDocument(context: ExplanationContext): ExplanationDocument {
   const calculated = round(projected - goal);
   return {
     id: "goal-gap",
-    title: "Owner-goal difference",
+    title: "Difference from your personal target",
     plainLanguage:
-      "This comparison shows projected retirement financial assets minus your owner-configured marker. It remains separate from the derived funding margin or shortfall.",
+      "This comparison shows how far your expected retirement savings are above or below your chosen personal target. It remains separate from the model-calculated minimum.",
     displayedResult: {
-      label: "Owner-goal difference",
+      label: "Difference from your personal target",
       value: currency.format(displayed),
       dollarMode: "real",
     },
-    formula: "Projected at retirement − owner goal marker",
+    formula: "Expected retirement savings − personal retirement target",
     steps: [
       {
-        label: "Projected at retirement",
+        label: "Expected retirement savings",
         value: exactCurrency.format(projected),
         rawValue: projected,
         operation: "input",
         sourceType: "projection",
       },
       {
-        label: "Owner goal marker",
+        label: "Personal retirement target",
         value: exactCurrency.format(goal),
         rawValue: goal,
         operation: "subtract",
@@ -706,7 +706,7 @@ function goalGapDocument(context: ExplanationContext): ExplanationDocument {
         ),
       },
       {
-        label: "Owner-goal difference",
+        label: "Difference from your personal target",
         value: exactCurrency.format(calculated),
         rawValue: calculated,
         operation: "result",
@@ -716,8 +716,8 @@ function goalGapDocument(context: ExplanationContext): ExplanationDocument {
     dataSections: [],
     assumptions: [],
     caveats: [
-      "The owner goal is not used to derive the requirement.",
-      "Use the funding margin or shortfall for the independent requirement comparison.",
+      "The personal target is your chosen comparison and is not used to calculate the model minimum.",
+      "The separate model-minimum comparison shows the difference from the lowest amount calculated for the current plan.",
     ],
     reconciliation: matched(calculated, displayed),
   };
@@ -752,7 +752,7 @@ function retirementRequirementDocument(
   ) {
     return {
       id: "retirement-requirement",
-      title: "Required at retirement",
+      title: "Model-calculated minimum",
       plainLanguage:
         "The derived requirement is unavailable for this scenario.",
       steps: [
@@ -788,11 +788,11 @@ function retirementRequirementDocument(
   }
   return {
     id: "retirement-requirement",
-    title: "Required at retirement",
+    title: "Model-calculated minimum",
     plainLanguage:
       "The lowest exact-cent retirement-boundary financial-assets amount that funds the configured retirement scenario through the terminal age.",
     displayedResult: {
-      label: "Required financial assets at retirement",
+      label: "Model-calculated minimum at retirement",
       value: currency.format(requirement.requiredFinancialAssetsToday),
       dollarMode: "real",
     },
@@ -884,6 +884,7 @@ function retirementRequirementDocument(
           ? "Provisional — statutory RRIF minimums are modelled under the current flat retirement-tax compatibility assumption."
           : "Provisional — calculated using the current flat retirement-tax compatibility assumption; RRIF minimum withdrawals are not modelled.",
       "Residence value, home equity, and other non-financial assets cannot satisfy this requirement.",
+      "This calculated minimum is not your personal retirement target or a recommended retirement target.",
       sourceCaveat,
     ],
   };
@@ -1174,9 +1175,9 @@ function retirementFundingMarginDocument(
   ) {
     return {
       id: "retirement-funding-margin",
-      title: "Margin or shortfall",
+      title: "Difference from the model-calculated minimum",
       plainLanguage:
-        "A funding comparison is unavailable because the requirement could not be calculated.",
+        "A model-minimum comparison is unavailable because the minimum could not be calculated.",
       steps: [],
       dataSections: [],
       assumptions: [],
@@ -1190,23 +1191,23 @@ function retirementFundingMarginDocument(
   );
   return {
     id: "retirement-funding-margin",
-    title: "Margin or shortfall",
+    title: "Difference from the model-calculated minimum",
     plainLanguage:
       requirement.fundingMarginToday >= 0
-        ? "Projected retirement financial assets exceed the derived requirement by this margin."
-        : "Projected retirement financial assets fall below the derived requirement by this shortfall.",
+        ? "Expected retirement savings are above the model-calculated minimum by this amount."
+        : "Expected retirement savings are below the model-calculated minimum by this amount.",
     displayedResult: {
       label:
         requirement.fundingMarginToday >= 0
-          ? "Funding margin"
-          : "Funding shortfall",
+          ? "Above the model-calculated minimum"
+          : "Below the model-calculated minimum",
       value: currency.format(Math.abs(requirement.fundingMarginToday)),
       dollarMode: "real",
     },
-    formula: "Projected at retirement − required at retirement",
+    formula: "Expected retirement savings − model-calculated minimum",
     steps: [
       {
-        label: "Projected at retirement",
+        label: "Expected retirement savings",
         value: exactCurrency.format(
           requirement.projectedFinancialAssetsToday,
         ),
@@ -1215,7 +1216,7 @@ function retirementFundingMarginDocument(
         sourceType: "projection",
       },
       {
-        label: "Required at retirement",
+        label: "Model-calculated minimum",
         value: exactCurrency.format(
           requirement.requiredFinancialAssetsToday,
         ),
@@ -1224,7 +1225,7 @@ function retirementFundingMarginDocument(
         sourceType: "projection",
       },
       {
-        label: "Funding margin or shortfall",
+        label: "Difference from the model-calculated minimum",
         value: exactCurrency.format(calculated),
         rawValue: calculated,
         operation: "result",

@@ -74,6 +74,35 @@ main { width: min(1540px, calc(100% - 32px)); margin: 0 auto; padding: 14px 0 56
 .segmented button.active { color: #062117; background: var(--accent); font-weight: 800; }
 #overview, #retirement-income, #spending, #accounts, #assumptions { scroll-margin-top: 110px; }
 
+.retirement-outlook { padding: 24px; margin-bottom: 18px; border: 1px solid rgba(112, 214, 178, 0.42); border-radius: 22px; background: linear-gradient(145deg, rgba(31, 45, 39, 0.98), rgba(25, 30, 28, 0.98)); box-shadow: 0 16px 42px rgba(0, 0, 0, 0.2); }
+.retirement-outlook-heading { display: flex; align-items: flex-start; justify-content: space-between; gap: 16px; }
+.retirement-outlook-heading h2 { margin: 5px 0 0; font-size: clamp(1.35rem, 2.4vw, 1.75rem); }
+.retirement-outlook-primary { display: grid; grid-template-columns: minmax(0, 1.5fr) minmax(260px, 0.7fr); gap: 24px; align-items: stretch; padding: 22px 0; }
+.retirement-savings-summary > .explainable-heading .explainable-title-row > span:first-child { color: var(--muted); font-size: 1rem; font-weight: 800; }
+.retirement-savings-amount { display: block; margin-top: 10px; font-size: clamp(2.5rem, 6vw, 4.5rem); line-height: 1; letter-spacing: -0.045em; }
+.retirement-savings-summary > small { display: block; margin-top: 10px; color: var(--muted); font-size: 0.875rem; }
+.personal-target-comparison { max-width: 760px; padding: 14px 16px; margin-top: 22px; border-left: 4px solid var(--accent); border-radius: 0 12px 12px 0; background: rgba(112, 214, 178, 0.08); }
+.personal-target-comparison.below-target { border-left-color: var(--warning); background: rgba(242, 189, 99, 0.08); }
+.personal-target-comparison .explainable-title-row > span:first-child { color: var(--muted); font-size: 0.875rem; }
+.personal-target-comparison strong { display: block; margin-top: 7px; font-size: clamp(1.1rem, 2.3vw, 1.45rem); line-height: 1.35; }
+.savings-duration-summary { margin: 18px 0 0; font-size: 1.05rem; font-weight: 800; line-height: 1.45; }
+.personal-target-card { align-self: stretch; padding: 18px; border: 1px solid rgba(112, 214, 178, 0.35); border-radius: 16px; background: rgba(17, 21, 19, 0.5); }
+.personal-target-card .explainable-title-row > span:first-child { color: var(--muted); font-size: 0.875rem; }
+.personal-target-card > strong { display: block; margin-top: 12px; font-size: clamp(1.65rem, 3vw, 2.3rem); }
+.personal-target-card > small { display: block; margin-top: 9px; color: var(--muted); line-height: 1.5; }
+.outlook-supporting-figures { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 12px; padding-top: 18px; border-top: 1px solid var(--border); }
+.outlook-supporting-figures article { min-width: 0; padding: 15px; border: 1px solid var(--border); border-radius: 14px; background: rgba(17, 21, 19, 0.45); }
+.outlook-supporting-figures .explainable-title-row > span:first-child { color: var(--muted); font-size: 0.875rem; }
+.outlook-supporting-figures article > strong { display: block; margin-top: 9px; font-size: clamp(1.15rem, 2vw, 1.55rem); }
+.outlook-supporting-figures article > small { display: block; margin-top: 7px; color: var(--muted); line-height: 1.4; }
+.model-minimum-summary { display: grid; grid-template-columns: minmax(220px, 0.7fr) minmax(0, 1.3fr); gap: 20px; padding: 18px; margin-top: 18px; border: 1px solid var(--border); border-radius: 15px; background: rgba(17, 21, 19, 0.72); }
+.model-minimum-summary .explainable-title-row > span:first-child { color: var(--muted); font-size: 0.875rem; }
+.model-minimum-summary > div:first-child > strong { display: block; margin-top: 9px; font-size: clamp(1.4rem, 2.5vw, 1.9rem); }
+.model-minimum-summary small { display: block; margin-top: 7px; color: var(--muted); line-height: 1.45; }
+.model-minimum-explanation { padding-left: 20px; border-left: 1px solid var(--border); }
+.model-minimum-explanation p { margin: 0 0 12px; color: var(--muted); line-height: 1.5; }
+.model-minimum-explanation > strong { display: block; margin-top: 7px; font-size: 1rem; }
+
 .summary-grid { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 14px; margin-bottom: 18px; }
 .metric-card, .report-card { border: 1px solid var(--border); background: rgba(25, 30, 28, 0.95); box-shadow: 0 12px 32px rgba(0, 0, 0, 0.14); }
 .metric-card { padding: 18px; border-radius: 18px; }
@@ -251,6 +280,9 @@ dd { margin: 0; text-align: right; font-size: 0.78rem; }
 }
 @media (max-width: 900px) {
   .summary-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .retirement-outlook-primary, .model-minimum-summary { grid-template-columns: 1fr; }
+  .outlook-supporting-figures { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .model-minimum-explanation { padding: 18px 0 0; border-top: 1px solid var(--border); border-left: 0; }
   .application-header-row { align-items: flex-start; flex-direction: column; gap: 10px; }
   .application-actions { justify-content: flex-start; }
   #overview, #retirement-income, #spending, #accounts, #assumptions { scroll-margin-top: 12rem; }
@@ -259,6 +291,9 @@ dd { margin: 0; text-align: right; font-size: 0.78rem; }
 @media (max-width: 620px) {
   main { width: min(100% - 14px, 1540px); padding-top: 7px; }
   .summary-grid, .assumption-grid { grid-template-columns: 1fr; }
+  .retirement-outlook { padding: 18px; border-radius: 16px; }
+  .retirement-outlook-primary { gap: 18px; padding: 18px 0; }
+  .outlook-supporting-figures { grid-template-columns: 1fr; }
   .application-header { position: static; border-radius: 9px; }
   .application-header-row { padding: 10px; }
   .application-actions { display: grid; width: 100%; grid-template-columns: repeat(2, minmax(0, 1fr)); }
@@ -300,7 +335,8 @@ dd { margin: 0; text-align: right; font-size: 0.78rem; }
   .application-title-group h1 { color: #111; font-size: 24px; }
   .application-title-group p, .application-status-copy p, .metric-card small, .section-kicker, .pill, .milestone, .observation p, dt { color: #555; }
   .application-status-panel { padding: 8px 0; border-width: 1px 0; background: #fff; }
-  .metric-card, .report-card { break-inside: avoid; box-shadow: none; border-color: #bbb; background: #fff; color: #111; }
+  .retirement-outlook, .metric-card, .report-card { break-inside: avoid; box-shadow: none; border-color: #bbb; background: #fff; color: #111; }
+  .personal-target-card, .outlook-supporting-figures article, .model-minimum-summary { background: #fff; }
   .report-layout, .report-column { display: block; }
   .report-card { margin-bottom: 16px; }
   .two-column { display: grid; grid-template-columns: 1fr 1fr; }
