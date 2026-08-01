@@ -13,7 +13,7 @@ Public tracking must remain generic and must not contain private financial value
 - Open maintenance pull request: None
 - Pull request state: [#29 Clarify the retirement overview](https://github.com/danielnguyen/lunchmoney-retirement-planner/pull/29) is open as a draft; exact live-head hosted validation is retained in the pull-request description
 - Active implementation: Retirement outlook and primary overview hierarchy
-- Status: Implementation and draft publication complete; the requested overview correction pass is locally validated and awaiting exact-head hosted validation
+- Status: Implementation, draft publication, and the requested overview correction pass are complete; exact live-head hosted validation is retained in the pull-request description
 - Implementation branch: `agent/retirement-overview-summary`
 - Starting merged-main SHA: `82b67d442c9de14e5fafa34715919263c265f8a3`
 - Validated implementation commit: `3e671e6d456884e7f81564cc4122f8a6c4459663`
