@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 
 import "@testing-library/jest-dom/vitest";
-import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { PlannerDashboard } from "@/components/planner-dashboard";
 import { calculateProjection } from "@/src/domain/projection/calculate";
@@ -52,7 +52,7 @@ afterEach(() => {
 });
 
 describe("dashboard config-save baseline transitions", () => {
-  it("renders projected, required, margin, owner marker, and provisional tax meaning", async () => {
+  it("leads with personal-target retirement outlook and keeps the model minimum secondary", async () => {
     const projection = calculateProjection(
       currentBaselineFixture.projectionInputs,
     );
@@ -68,7 +68,18 @@ describe("dashboard config-save baseline transitions", () => {
 
     render(<PlannerDashboard />);
 
-    expect(await screen.findByText("Projected at retirement")).toBeInTheDocument();
+    const outlook = await screen.findByRole("region", { name: "Retirement outlook" });
+    const outlookView = within(outlook);
+    expect(outlookView.getByText("Expected retirement savings at age 65")).toBeInTheDocument();
+    expect(outlookView.getByText("Your personal retirement target")).toBeInTheDocument();
+    expect(outlookView.getByText(/(above|below) your .* target/)).toBeInTheDocument();
+    expect(outlookView.getByText(/Savings (remain|are projected to run out)/)).toBeInTheDocument();
+    expect(outlookView.getByText("Model-calculated minimum")).toBeInTheDocument();
+    expect(
+      outlookView.getByText(/It is not your personal target or a recommended retirement target/),
+    ).toBeInTheDocument();
+    expect(outlookView.getByText(/At retirement on [A-Z][a-z]+ \d{1,2}, \d{4}/)).toBeInTheDocument();
+    expect(screen.getByText("Data through July 14, 2026")).toBeInTheDocument();
     expect(screen.getByRole("heading", { name: "Retirement Planner" })).toBeInTheDocument();
     expect(screen.queryByText("Retirement lifecycle report")).not.toBeInTheDocument();
     expect(screen.queryByText("Your live financial baseline, projected forward.")).not.toBeInTheDocument();
@@ -88,13 +99,8 @@ describe("dashboard config-save baseline transitions", () => {
     expect(screen.getByRole("button", { name: "Today's dollars" })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Future dollars" })).toBeInTheDocument();
     expect(screen.getByText("Annual spending projection")).toBeInTheDocument();
-    expect(screen.getByText("Required at retirement")).toBeInTheDocument();
-    expect(screen.getByText("Margin or shortfall")).toBeInTheDocument();
-    expect(screen.getByText("Owner goal marker")).toBeInTheDocument();
-    expect(
-      screen.getByText(/Projected funding (margin|shortfall)/),
-    ).toBeInTheDocument();
-    expect(screen.getByText("Requirement basis")).toBeInTheDocument();
+    expect(screen.queryByText("Owner goal marker")).not.toBeInTheDocument();
+    expect(screen.queryByText("Owner-goal difference")).not.toBeInTheDocument();
     expect(screen.getByText("Tax status")).toBeInTheDocument();
     expect(screen.getByText("Provisional")).toBeInTheDocument();
     expect(
@@ -237,13 +243,13 @@ describe("dashboard config-save baseline transitions", () => {
 
     render(<PlannerDashboard />);
 
-    expect(await screen.findByText("Projected at retirement")).toBeInTheDocument();
-    expect(screen.getAllByText("Unavailable")).toHaveLength(2);
+    const outlook = await screen.findByRole("region", { name: "Retirement outlook" });
+    expect(within(outlook).getByText("Unavailable")).toBeInTheDocument();
     expect(
       screen.getByText("Synthetic projected composition is unavailable."),
     ).toBeInTheDocument();
     expect(
-      screen.getByText("No funding comparison is available"),
+      screen.getByText("No model comparison is available"),
     ).toBeInTheDocument();
   });
 
@@ -301,7 +307,7 @@ describe("dashboard config-save baseline transitions", () => {
     });
     fireEvent.click(screen.getByRole("button", { name: "Save config" }));
 
-    expect(await screen.findByLabelText("Projection summary")).toBeInTheDocument();
+    expect(await screen.findByRole("region", { name: "Retirement outlook" })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Try another plan" })).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "Planner config" })).not.toBeInTheDocument();
     expect(screen.getByRole("dialog", { name: "Planner YAML configuration" })).toHaveAttribute(
@@ -351,7 +357,7 @@ describe("dashboard config-save baseline transitions", () => {
     vi.stubGlobal("fetch", fetchMock);
     render(<PlannerDashboard />);
 
-    expect(await screen.findByLabelText("Projection summary")).toBeInTheDocument();
+    expect(await screen.findByRole("region", { name: "Retirement outlook" })).toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: "Try another plan" }));
     const essential = await screen.findByLabelText("Essential monthly spending");
     fireEvent.change(essential, { target: { value: "4321.67" } });
@@ -370,7 +376,7 @@ describe("dashboard config-save baseline transitions", () => {
     await waitFor(() => {
       expect(projectionInputs.at(-1)?.monthlyEssentialSpendingToday).toBe(3600.25);
     });
-    expect(screen.queryByLabelText("Projection summary")).not.toBeInTheDocument();
+    expect(screen.queryByRole("region", { name: "Retirement outlook" })).not.toBeInTheDocument();
     expect(screen.getByText("Recalculating…")).toBeInTheDocument();
     expect(screen.getByRole("dialog", { name: "Planner YAML configuration" })).toBeInTheDocument();
 
@@ -379,7 +385,7 @@ describe("dashboard config-save baseline transitions", () => {
         jsonResponse(calculateProjection(projectionInputs.at(-1)!)),
       );
     });
-    expect(await screen.findByLabelText("Projection summary")).toBeInTheDocument();
+    expect(await screen.findByRole("region", { name: "Retirement outlook" })).toBeInTheDocument();
     expect(projectionInputs.at(-1)?.monthlyEssentialSpendingToday).toBe(3600.25);
   }, 10_000);
 
@@ -438,7 +444,7 @@ describe("dashboard config-save baseline transitions", () => {
     vi.stubGlobal("fetch", fetchMock);
     render(<PlannerDashboard />);
 
-    expect(await screen.findByLabelText("Projection summary")).toBeInTheDocument();
+    expect(await screen.findByRole("region", { name: "Retirement outlook" })).toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: "Try another plan" }));
     fireEvent.change(await screen.findByLabelText("Essential monthly spending"), {
       target: { value: "4321.67" },
@@ -452,7 +458,7 @@ describe("dashboard config-save baseline transitions", () => {
 
     expect(await screen.findByText("Live baseline required.")).toBeInTheDocument();
     expect(screen.getByText("Synthetic mappings need correction.")).toBeInTheDocument();
-    expect(screen.queryByLabelText("Projection summary")).not.toBeInTheDocument();
+    expect(screen.queryByRole("region", { name: "Retirement outlook" })).not.toBeInTheDocument();
     expect(screen.getByRole("dialog", { name: "Planner YAML configuration" })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Repair planner config" })).toHaveAttribute(
       "aria-controls",
@@ -472,7 +478,7 @@ describe("dashboard config-save baseline transitions", () => {
     fireEvent.click(screen.getByRole("button", { name: "Save config" }));
 
     expect(await screen.findByText("Configuration saved and the active baseline was reloaded.")).toBeInTheDocument();
-    expect(await screen.findByLabelText("Projection summary")).toBeInTheDocument();
+    expect(await screen.findByRole("region", { name: "Retirement outlook" })).toBeInTheDocument();
     expect(projectionInputs.at(-1)?.monthlyEssentialSpendingToday).toBe(3700.5);
     expect(configReads).toBe(1);
   });

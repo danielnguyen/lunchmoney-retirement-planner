@@ -175,7 +175,9 @@ function installBaseFetch(
 }
 
 async function waitForDashboard() {
-  expect(await screen.findByLabelText("Projection summary")).toBeInTheDocument();
+  expect(
+    await screen.findByRole("region", { name: "Retirement outlook" }),
+  ).toBeInTheDocument();
 }
 
 async function overrideInflation(value = "2.5") {
@@ -548,7 +550,9 @@ describe("scenario-to-config dashboard workflow", () => {
     fireEvent.click(screen.getByRole("button", { name: "Save config" }));
 
     expect(await screen.findByText("Synthetic mapping repair required.")).toBeInTheDocument();
-    expect(screen.queryByLabelText("Projection summary")).not.toBeInTheDocument();
+    expect(
+      screen.queryByRole("region", { name: "Retirement outlook" }),
+    ).not.toBeInTheDocument();
     expect(screen.getByRole("dialog", { name: "Planner YAML configuration" })).toBeInTheDocument();
     expect(screen.getByText("Applied config changes")).toBeInTheDocument();
     expect(screen.getByText(

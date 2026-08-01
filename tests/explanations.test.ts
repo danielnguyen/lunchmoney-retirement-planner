@@ -411,13 +411,14 @@ describe("calculation explanations", () => {
     expect(sum).toBe(document.reconciliation?.displayedValue);
   });
 
-  it("keeps the owner-goal difference separate from the funding margin", () => {
+  it("keeps the personal-target difference separate from the model minimum", () => {
     const document = buildExplanation("goal-gap", context());
     const [projected, goal, result] = document.steps.map(
       (step) => step.rawValue!,
     );
 
     expect(Math.round((projected - goal) * 100) / 100).toBe(result);
+    expect(document.title).toBe("Difference from your personal target");
     expect(document.reconciliation?.matched).toBe(true);
   });
 
@@ -433,13 +434,16 @@ describe("calculation explanations", () => {
     expect(requirement.caveats.join(" ")).toContain("Provisional");
     expect(requirement.caveats.join(" ")).toContain("RRIF minimum");
     expect(requirement.caveats.join(" ")).toContain("Residence value");
+    expect(requirement.caveats.join(" ")).toContain("not your personal retirement target");
     expect(
       requirement.steps.find(
         (step) => step.label === "Minimum ending financial assets",
       )?.sourceDescription,
     ).toContain("Explicit planner configuration");
+    expect(requirement.title).toBe("Model-calculated minimum");
+    expect(margin.title).toBe("Difference from the model-calculated minimum");
     expect(margin.formula).toBe(
-      "Projected at retirement − required at retirement",
+      "Expected retirement savings − model-calculated minimum",
     );
     expect(margin.reconciliation?.matched).toBe(true);
   });

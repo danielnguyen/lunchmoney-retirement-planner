@@ -51,7 +51,6 @@ import {
 import type {
   ProjectionInputs,
   ProjectionResult,
-  RetirementRequirementBindingConstraint,
   RetirementRequirementResult,
 } from "@/src/domain/projection/types";
 import {
@@ -94,17 +93,6 @@ const percent = new Intl.NumberFormat("en-CA", {
   maximumFractionDigits: 1,
 });
 
-function requirementBindingLabel(
-  binding: RetirementRequirementBindingConstraint,
-): string {
-  if (binding === "self_funding") return "Retirement cash flow self-funds";
-  if (binding === "terminal_balance") return "Minimum terminal balance";
-  if (binding === "liability_overlap") return "Retirement liability overlap";
-  if (binding === "retirement_cash_flow") return "Retirement cash flow";
-  if (binding === "unavailable_composition") return "Unavailable composition";
-  return "No safe passing upper bound";
-}
-
 function requirementSourceLabel(
   requirement: RetirementRequirementResult,
 ): string {
@@ -133,6 +121,68 @@ const exactCurrency = new Intl.NumberFormat("en-CA", {
 const accountColors = ["#d8bd65", "#d99269", "#8072d7", "#4eb5d2", "#70d6b2", "#a9cf6c"];
 
 const AGE_INTEGER_EPSILON = 0.000001;
+const overviewDate = new Intl.DateTimeFormat("en-CA", {
+  year: "numeric",
+  month: "long",
+  day: "numeric",
+  timeZone: "UTC",
+});
+const overviewMonth = new Intl.DateTimeFormat("en-CA", {
+  year: "numeric",
+  month: "long",
+  timeZone: "UTC",
+});
+
+function parseCalendarDate(value: string): Date | null {
+  const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(value);
+  if (!match) return null;
+  const year = Number(match[1]);
+  const month = Number(match[2]);
+  const day = Number(match[3]);
+  const date = new Date(Date.UTC(year, month - 1, day));
+  return date.getUTCFullYear() === year &&
+    date.getUTCMonth() === month - 1 &&
+    date.getUTCDate() === day
+    ? date
+    : null;
+}
+
+export function formatOverviewDate(value: string): string {
+  const date = parseCalendarDate(value);
+  return date ? overviewDate.format(date) : value;
+}
+
+export function formatOverviewMonth(value: string): string {
+  const date = parseCalendarDate(`${value}-01`);
+  return date ? overviewMonth.format(date) : value;
+}
+
+export function formatPersonalTargetComparison(
+  differenceToday: number,
+  targetToday: number,
+): string {
+  if (differenceToday === 0) {
+    return `On target for ${currency.format(targetToday)}`;
+  }
+  return `${currency.format(Math.abs(differenceToday))} ${
+    differenceToday > 0 ? "above" : "below"
+  } your ${currency.format(targetToday)} target`;
+}
+
+export function retirementSavingsDurationLabel(
+  depletionAge: number | null,
+  completion: ProjectionResult["projectionCompletion"],
+): string {
+  if (completion.status !== "complete" && depletionAge === null) {
+    return `How long savings last is not established because the projection stopped after ${formatOverviewDate(completion.completedThroughDate)}, at age ${formatProjectedAge(completion.completedThroughAge)}.`;
+  }
+  if (depletionAge === null) {
+    return `Savings remain at age ${completion.plannedTerminalAge}.`;
+  }
+  return depletionAge < completion.plannedTerminalAge
+    ? `Savings are projected to run out at age ${formatProjectedAge(depletionAge)}, before your planned final age of ${completion.plannedTerminalAge}.`
+    : `Savings are projected to run out at age ${formatProjectedAge(depletionAge)}.`;
+}
 
 export function formatProjectedAge(age: number): string {
   const nearestInteger = Math.round(age);
@@ -1774,10 +1824,10 @@ export function PlannerDashboard() {
         <div className="application-status-copy">
           <div className="application-status-heading">
             <span className="connection-badge connected">Lunch Money connected · read-only</span>
-            <strong>Data through {baseline.dataThrough}</strong>
+            <strong>Data through {formatOverviewDate(baseline.dataThrough)}</strong>
           </div>
           <p>
-            Using {baseline.recordsAnalyzed.accounts} accounts and {baseline.recordsAnalyzed.transactions} transactions from the past {baseline.transactionWindow.trailingMonths} months ({baseline.transactionWindow.startDate}–{baseline.transactionWindow.endDate}) · {baseline.recordsAnalyzed.recurringItems} recurring items
+            Using {baseline.recordsAnalyzed.accounts} accounts and {baseline.recordsAnalyzed.transactions} transactions from the past {baseline.transactionWindow.trailingMonths} months ({formatOverviewDate(baseline.transactionWindow.startDate)}–{formatOverviewDate(baseline.transactionWindow.endDate)}) · {baseline.recordsAnalyzed.recurringItems} recurring items
           </p>
           {baseline.unmappedAccounts.length > 0 || baseline.unmappedCategories.length > 0 ? (
             <p className="mapping-attention">
@@ -1818,150 +1868,177 @@ export function PlannerDashboard() {
 
       {projection ? (
         <>
-          <section id="overview" className="summary-grid" aria-label="Projection summary">
-            <article className="metric-card">
-              <ExplainableHeading
-                compact
-                headingLevel="span"
-                target="starting-financial-assets"
-                title="Starting financial assets"
-                onExplain={openExplanation}
-              />
-              <strong>{currency.format(importedStartingFinancialAssets)}</strong>
-              <small>Imported balances as of {baseline.dataThrough} · liabilities shown separately</small>
-            </article>
-            <article className="metric-card">
-              <ExplainableHeading
-                compact
-                headingLevel="span"
-                target="assets-at-retirement"
-                title="Projected at retirement"
-                onExplain={openExplanation}
-              />
-              <strong>{currency.format(projection.summary.financialAssetsAtRetirementToday)}</strong>
-              <small>{projection.summary.retirementDate} · retirement-funding accounts only</small>
-            </article>
-            <article className="metric-card">
-              <ExplainableHeading
-                compact
-                headingLevel="span"
-                target="retirement-requirement"
-                title="Required at retirement"
-                onExplain={openExplanation}
-              />
-              <strong>
-                {projection.retirementRequirement.status === "available" &&
-                projection.retirementRequirement.requiredFinancialAssetsToday !== null
-                  ? currency.format(
-                      projection.retirementRequirement
-                        .requiredFinancialAssetsToday,
-                    )
-                  : "Unavailable"}
-              </strong>
-              <small>
-                {projection.retirementRequirement.status === "available"
-                  ? `Through age ${projection.retirementRequirement.terminalAge} · ${requirementBindingLabel(projection.retirementRequirement.bindingConstraint)}`
-                  : projection.retirementRequirement.reason}
-              </small>
-            </article>
-            <article className="metric-card">
-              <ExplainableHeading
-                compact
-                headingLevel="span"
-                target="retirement-funding-margin"
-                title="Margin or shortfall"
-                onExplain={openExplanation}
-              />
-              <strong>
-                {projection.retirementRequirement.fundingMarginToday === null
-                  ? "Unavailable"
-                  : currency.format(
-                      Math.abs(
-                        projection.retirementRequirement.fundingMarginToday,
-                      ),
+          <section id="overview" className="retirement-outlook" aria-labelledby="retirement-outlook-title">
+            <div className="retirement-outlook-heading">
+              <div>
+                <span className="section-kicker">Overview</span>
+                <h2 id="retirement-outlook-title">Retirement outlook</h2>
+              </div>
+              <span className="pill">Savings and targets in today&apos;s dollars</span>
+            </div>
+
+            <div className="retirement-outlook-primary">
+              <div className="retirement-savings-summary">
+                <ExplainableHeading
+                  compact
+                  headingLevel="span"
+                  target="assets-at-retirement"
+                  title={`Expected retirement savings at age ${inputs.person.retirementAge}`}
+                  onExplain={openExplanation}
+                />
+                <strong className="retirement-savings-amount">
+                  {currency.format(projection.summary.financialAssetsAtRetirementToday)}
+                </strong>
+                <small>
+                  At retirement on {formatOverviewDate(projection.summary.retirementDate)} · cash and investment accounts only
+                </small>
+
+                <div
+                  className={`personal-target-comparison ${
+                    projection.retirementRequirement.ownerGoalDifferenceToday < 0
+                      ? "below-target"
+                      : "at-or-above-target"
+                  }`}
+                >
+                  <ExplainableHeading
+                    compact
+                    headingLevel="span"
+                    target="goal-gap"
+                    title="Compared with your personal target"
+                    onExplain={openExplanation}
+                  />
+                  <strong>
+                    {formatPersonalTargetComparison(
+                      projection.retirementRequirement.ownerGoalDifferenceToday,
+                      projection.summary.retirementGoalToday,
                     )}
-              </strong>
-              <small>
-                {projection.retirementRequirement.fundingMarginToday === null
-                  ? "No funding comparison is available"
-                  : projection.retirementRequirement.fundingMarginToday >= 0
-                    ? "Projected funding margin above requirement"
-                    : "Projected funding shortfall below requirement"}
-              </small>
-            </article>
-            <article className="metric-card">
-              <ExplainableHeading
-                compact
-                headingLevel="span"
-                target="home-equity-at-retirement"
-                title="Home equity"
-                onExplain={openExplanation}
-              />
-              <strong>{currency.format(projection.retirementSnapshot[mode].balances.homeEquity)}</strong>
-              <small>Residence less linked mortgage at retirement</small>
-            </article>
-            <article className="metric-card">
-              <ExplainableHeading
-                compact
-                headingLevel="span"
-                target="liabilities-at-retirement"
-                title="Total liabilities"
-                onExplain={openExplanation}
-              />
-              <strong>{currency.format(projection.retirementSnapshot[mode].balances.totalLiabilities)}</strong>
-              <small>
-                {projection.summary.mortgagePayoffDate
-                  ? `Mortgage payoff ${projection.summary.mortgagePayoffDate}`
-                  : "At retirement"}
-              </small>
-            </article>
-            <article className="metric-card">
-              <ExplainableHeading
-                compact
-                headingLevel="span"
-                target="total-net-worth"
-                title="Total net worth"
-                onExplain={openExplanation}
-              />
-              <strong>{currency.format(projection.summary.totalNetWorthAtRetirementToday)}</strong>
-              <small>Financial and non-financial assets less liabilities</small>
-            </article>
-            <article className="metric-card">
-              <ExplainableHeading
-                compact
-                headingLevel="span"
-                target="retirement-goal"
-                title="Owner goal marker"
-                onExplain={openExplanation}
-              />
-              <strong>{currency.format(projection.summary.retirementGoalToday)}</strong>
-              <small>Personal round-number marker · not the derived requirement</small>
-            </article>
-            <article className="metric-card">
-              <ExplainableHeading
-                compact
-                headingLevel="span"
-                target="goal-gap"
-                title="Owner-goal difference"
-                onExplain={openExplanation}
-              />
-              <strong>
-                {currency.format(
-                  projection.retirementRequirement.ownerGoalDifferenceToday,
-                )}
-              </strong>
-              <small>Projected retirement assets minus owner marker</small>
-            </article>
-            <article className="metric-card">
-              <span>Requirement basis</span>
-              <strong>Age {projection.retirementRequirement.terminalAge}</strong>
-              <small>
-                Minimum ending balance {currency.format(projection.retirementRequirement.minimumEndingFinancialAssetsToday)} · projected account weights · residence equity excluded
-              </small>
-              <small>
-                Source: {requirementSourceLabel(projection.retirementRequirement)}
-              </small>
-            </article>
+                  </strong>
+                </div>
+
+                <p className="savings-duration-summary">
+                  {retirementSavingsDurationLabel(
+                    projection.summary.financialAssetsDepletionAge,
+                    projection.projectionCompletion,
+                  )}
+                </p>
+              </div>
+
+              <article className="personal-target-card">
+                <ExplainableHeading
+                  compact
+                  headingLevel="span"
+                  target="retirement-goal"
+                  title="Your personal retirement target"
+                  onExplain={openExplanation}
+                />
+                <strong>{currency.format(projection.summary.retirementGoalToday)}</strong>
+                <small>
+                  Your chosen savings target is the main comparison for this outlook.
+                </small>
+              </article>
+            </div>
+
+            <div className="outlook-supporting-figures" aria-label="Supporting retirement figures">
+              <article>
+                <ExplainableHeading
+                  compact
+                  headingLevel="span"
+                  target="starting-financial-assets"
+                  title="Retirement savings today"
+                  onExplain={openExplanation}
+                />
+                <strong>{currency.format(importedStartingFinancialAssets)}</strong>
+                <small>Imported balances as of {formatOverviewDate(baseline.dataThrough)}</small>
+              </article>
+              <article>
+                <ExplainableHeading
+                  compact
+                  headingLevel="span"
+                  target="home-equity-at-retirement"
+                  title="Home equity at retirement"
+                  onExplain={openExplanation}
+                />
+                <strong>{currency.format(projection.retirementSnapshot[mode].balances.homeEquity)}</strong>
+                <small>Home value less the linked mortgage · {mode === "real" ? "today’s dollars" : "future dollars"}</small>
+              </article>
+              <article>
+                <ExplainableHeading
+                  compact
+                  headingLevel="span"
+                  target="liabilities-at-retirement"
+                  title="Debts at retirement"
+                  onExplain={openExplanation}
+                />
+                <strong>{currency.format(projection.retirementSnapshot[mode].balances.totalLiabilities)}</strong>
+                <small>
+                  {projection.summary.mortgagePayoffDate
+                    ? `Mortgage payoff ${formatOverviewDate(projection.summary.mortgagePayoffDate)}`
+                    : "No later mortgage payoff is projected"} · {mode === "real" ? "today’s dollars" : "future dollars"}
+                </small>
+              </article>
+              <article>
+                <ExplainableHeading
+                  compact
+                  headingLevel="span"
+                  target="total-net-worth"
+                  title="Net worth at retirement"
+                  onExplain={openExplanation}
+                />
+                <strong>{currency.format(projection.retirementSnapshot[mode].balances.totalNetWorth)}</strong>
+                <small>All modelled assets less debts · {mode === "real" ? "today’s dollars" : "future dollars"}</small>
+              </article>
+            </div>
+
+            <aside className="model-minimum-summary" aria-label="Model-calculated minimum">
+              <div>
+                <ExplainableHeading
+                  compact
+                  headingLevel="span"
+                  target="retirement-requirement"
+                  title="Model-calculated minimum"
+                  onExplain={openExplanation}
+                />
+                <strong>
+                  {projection.retirementRequirement.status === "available" &&
+                  projection.retirementRequirement.requiredFinancialAssetsToday !== null
+                    ? currency.format(projection.retirementRequirement.requiredFinancialAssetsToday)
+                    : "Unavailable"}
+                </strong>
+                <small>
+                  {projection.retirementRequirement.status === "available"
+                    ? `Calculated to support this plan through age ${projection.retirementRequirement.terminalAge}.`
+                    : projection.retirementRequirement.reason}
+                </small>
+              </div>
+              <div className="model-minimum-explanation">
+                <p>
+                  This is the lowest amount the model calculates for your current spending, benefits, taxes, debts, returns, and planned final age. It is not your personal target or a recommended retirement target.
+                </p>
+                <ExplainableHeading
+                  compact
+                  headingLevel="span"
+                  target="retirement-funding-margin"
+                  title="Compared with this calculated minimum"
+                  onExplain={openExplanation}
+                />
+                <strong>
+                  {projection.retirementRequirement.fundingMarginToday === null
+                    ? "No model comparison is available"
+                    : `${currency.format(Math.abs(projection.retirementRequirement.fundingMarginToday))} ${
+                        projection.retirementRequirement.fundingMarginToday >= 0
+                          ? "above"
+                          : "below"
+                      } the calculated minimum`}
+                </strong>
+                <small>
+                  Minimum ending balance {currency.format(projection.retirementRequirement.minimumEndingFinancialAssetsToday)} · residence equity excluded
+                </small>
+                <small>Source: {requirementSourceLabel(projection.retirementRequirement)}</small>
+              </div>
+            </aside>
+          </section>
+
+          <section className="summary-grid" aria-label="Projection calculation status">
             <article className="metric-card" role="status">
               <ExplainableHeading
                 compact
@@ -2068,8 +2145,8 @@ export function PlannerDashboard() {
               </strong>
               <small>
                 {projection.projectionCompletion.status === "complete"
-                  ? `Completed through ${projection.projectionCompletion.completedThroughDate}`
-                  : `Completed through ${projection.projectionCompletion.completedThroughDate} at age ${projection.projectionCompletion.completedThroughAge}; stopped before ${projection.projectionCompletion.stoppedBeforeMonth}`}
+                  ? `Completed through ${formatOverviewDate(projection.projectionCompletion.completedThroughDate)}`
+                  : `Completed through ${formatOverviewDate(projection.projectionCompletion.completedThroughDate)} at age ${formatProjectedAge(projection.projectionCompletion.completedThroughAge)}; stopped before ${formatOverviewMonth(projection.projectionCompletion.stoppedBeforeMonth)}`}
               </small>
             </article>
             <article className="metric-card">
@@ -2091,7 +2168,7 @@ export function PlannerDashboard() {
               <small>
                 {projection.projectionCompletion.status === "complete"
                   ? "Cash and investment accounts"
-                  : `Projection stopped early; last completed balance is through ${projection.projectionCompletion.completedThroughDate}`}
+                  : `Projection stopped early; last completed balance is through ${formatOverviewDate(projection.projectionCompletion.completedThroughDate)}`}
               </small>
             </article>
           </section>
