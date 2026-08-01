@@ -37,11 +37,11 @@ main { width: min(1540px, calc(100% - 32px)); margin: 0 auto; padding: 14px 0 56
 .application-header-row { display: flex; min-width: 0; align-items: center; justify-content: space-between; gap: 18px; padding: 11px 13px; }
 .application-title-group { min-width: 0; }
 .application-title-group h1 { margin: 0; font-size: clamp(1.1rem, 2vw, 1.35rem); line-height: 1.2; letter-spacing: -0.02em; }
-.application-title-group p { margin: 3px 0 0; color: var(--muted); font-size: 0.8rem; }
+.application-title-group p { margin: 3px 0 0; color: var(--muted); font-size: 0.875rem; }
 .application-actions { display: flex; flex-shrink: 0; flex-wrap: wrap; justify-content: flex-end; gap: 7px; }
-.application-actions .button, .application-status-controls .button { min-height: 34px; border-radius: 8px; padding: 7px 11px; font-size: 0.78rem; }
+.application-actions .button, .application-status-controls .button, .application-status-controls .segmented button { min-height: 34px; border-radius: 8px; padding: 7px 11px; font-size: 0.875rem; }
 .application-navigation { display: flex; min-width: 0; flex-wrap: wrap; gap: 3px; padding: 0 10px; border-top: 1px solid var(--border); }
-.application-navigation a { position: relative; padding: 9px 10px; color: var(--muted); font-size: 0.8rem; font-weight: 700; text-decoration: none; }
+.application-navigation a { position: relative; padding: 9px 10px; color: var(--muted); font-size: 0.875rem; font-weight: 700; text-decoration: none; }
 .application-navigation a:hover { color: var(--text); }
 .application-navigation a[aria-current="page"] { color: var(--accent); }
 .application-navigation a[aria-current="page"]::after { position: absolute; right: 10px; bottom: -1px; left: 10px; height: 2px; background: var(--accent); content: ""; }
@@ -49,11 +49,11 @@ main { width: min(1540px, calc(100% - 32px)); margin: 0 auto; padding: 14px 0 56
 .application-status-panel { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: center; gap: 16px; padding: 11px 13px; margin-bottom: 10px; border: 1px solid var(--border); border-radius: 10px; background: var(--panel-strong); }
 .application-status-copy { display: grid; min-width: 0; gap: 4px; }
 .application-status-heading { display: flex; min-width: 0; align-items: center; flex-wrap: wrap; gap: 8px; }
-.application-status-heading strong { font-size: 0.87rem; }
-.application-status-copy p { margin: 0; color: var(--muted); font-size: 0.76rem; line-height: 1.4; }
+.application-status-heading strong { font-size: 0.875rem; }
+.application-status-copy p { margin: 0; color: var(--muted); font-size: 0.875rem; line-height: 1.4; }
 .application-status-copy .mapping-attention { color: var(--warning); }
 .application-status-controls { display: flex; min-width: 0; align-items: center; justify-content: flex-end; flex-wrap: wrap; gap: 8px; }
-.connection-badge { display: inline-flex; width: fit-content; padding: 5px 8px; border: 1px solid var(--border); border-radius: 999px; color: var(--muted); background: rgba(17, 21, 19, 0.7); font-size: 0.7rem; font-weight: 800; letter-spacing: 0.04em; text-transform: uppercase; }
+.connection-badge { display: inline-flex; width: fit-content; padding: 5px 8px; border: 1px solid var(--border); border-radius: 999px; color: var(--muted); background: rgba(17, 21, 19, 0.7); font-size: 0.875rem; font-weight: 800; letter-spacing: 0.04em; text-transform: uppercase; }
 .connection-badge.connected { color: var(--accent); border-color: rgba(112, 214, 178, 0.45); }
 .connection-badge.failed { color: var(--danger); border-color: rgba(239, 125, 134, 0.45); }
 .warning-panel { display: grid; gap: 6px; padding: 10px 13px; margin-bottom: 10px; border: 1px solid rgba(242, 189, 99, 0.5); border-radius: 10px; background: rgba(242, 189, 99, 0.08); }
@@ -68,7 +68,7 @@ main { width: min(1540px, calc(100% - 32px)); margin: 0 auto; padding: 14px 0 56
 .mapping-list p { color: var(--muted); font-size: 0.84rem; line-height: 1.5; }
 .mapping-list code { display: block; padding: 9px 11px; border-radius: 9px; color: var(--text); background: #07111f; overflow-wrap: anywhere; }
 
-.status { color: var(--muted); font-size: 0.76rem; }
+.status { color: var(--muted); font-size: 0.875rem; }
 .segmented { display: inline-flex; padding: 3px; border: 1px solid var(--border); border-radius: 9px; background: #111513; }
 .segmented button { border: 0; border-radius: 9px; padding: 7px 11px; color: var(--muted); background: transparent; }
 .segmented button.active { color: #062117; background: var(--accent); font-weight: 800; }
@@ -253,12 +253,13 @@ dd { margin: 0; text-align: right; font-size: 0.78rem; }
   .summary-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .application-header-row { align-items: flex-start; flex-direction: column; gap: 10px; }
   .application-actions { justify-content: flex-start; }
+  #overview, #retirement-income, #spending, #accounts, #assumptions { scroll-margin-top: 12rem; }
   .two-column { grid-template-columns: 1fr; }
 }
 @media (max-width: 620px) {
   main { width: min(100% - 14px, 1540px); padding-top: 7px; }
   .summary-grid, .assumption-grid { grid-template-columns: 1fr; }
-  .application-header { border-radius: 9px; }
+  .application-header { position: static; border-radius: 9px; }
   .application-header-row { padding: 10px; }
   .application-actions { display: grid; width: 100%; grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .application-actions .button { min-width: 0; white-space: normal; }
@@ -268,6 +269,7 @@ dd { margin: 0; text-align: right; font-size: 0.78rem; }
   .application-status-controls { align-items: stretch; flex-direction: column; }
   .application-status-controls .button, .application-status-controls .segmented { width: 100%; }
   .application-status-controls .segmented button { flex: 1; min-width: 0; }
+  #overview, #retirement-income, #spending, #accounts, #assumptions { scroll-margin-top: 1rem; }
   .chart-shell.medium { height: 330px; }
   .chart-shell.tall { height: 390px; }
   .explainable-heading { align-items: flex-start; }

@@ -159,6 +159,37 @@ describe("unified planner configuration drawer", () => {
     expect(dashboard).not.toContain("controls-panel-desktop");
   });
 
+  it("keeps responsive anchor targets clear and critical shell text readable", async () => {
+    const css = await readFile("app/globals.css", "utf8");
+    const tablet = css.slice(
+      css.indexOf("@media (max-width: 900px)"),
+      css.indexOf("@media (max-width: 620px)"),
+    );
+    const mobile = css.slice(
+      css.indexOf("@media (max-width: 620px)"),
+      css.indexOf("@media print"),
+    );
+
+    expect(css).toContain(".application-header { position: sticky;");
+    expect(css).toContain(
+      "#overview, #retirement-income, #spending, #accounts, #assumptions { scroll-margin-top: 110px; }",
+    );
+    expect(tablet).toContain(
+      "#overview, #retirement-income, #spending, #accounts, #assumptions { scroll-margin-top: 12rem; }",
+    );
+    expect(mobile).toContain(".application-header { position: static;");
+    expect(mobile).toContain(
+      "#overview, #retirement-income, #spending, #accounts, #assumptions { scroll-margin-top: 1rem; }",
+    );
+    expect(css).toContain(
+      ".application-actions .button, .application-status-controls .button, .application-status-controls .segmented button { min-height: 34px; border-radius: 8px; padding: 7px 11px; font-size: 0.875rem; }",
+    );
+    expect(css).toContain(".application-navigation a { position: relative; padding: 9px 10px; color: var(--muted); font-size: 0.875rem;");
+    expect(css).toContain(".application-status-copy p { margin: 0; color: var(--muted); font-size: 0.875rem;");
+    expect(css).toContain(".connection-badge { display: inline-flex; width: fit-content; padding: 5px 8px; border: 1px solid var(--border); border-radius: 999px; color: var(--muted); background: rgba(17, 21, 19, 0.7); font-size: 0.875rem;");
+    expect(css).toContain(".status { color: var(--muted); font-size: 0.875rem; }");
+  });
+
   it("mounts exactly one controls tree in the drawer and never in the report column", async () => {
     const dashboard = await readFile("components/planner-dashboard.tsx", "utf8");
     const mountedPanels = dashboard.match(/<ScenarioControlsPanel/g) ?? [];
