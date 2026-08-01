@@ -11,9 +11,9 @@ Public tracking must remain generic and must not contain private financial value
 - Planning status: None
 - Open implementation pull request: [#29 Clarify the retirement overview](https://github.com/danielnguyen/lunchmoney-retirement-planner/pull/29)
 - Open maintenance pull request: None
-- Pull request state: [#29 Clarify the retirement overview](https://github.com/danielnguyen/lunchmoney-retirement-planner/pull/29) is open as a draft; hosted validation is pending
+- Pull request state: [#29 Clarify the retirement overview](https://github.com/danielnguyen/lunchmoney-retirement-planner/pull/29) is open as a draft; exact live-head hosted validation is retained in the pull-request description
 - Active implementation: Retirement outlook and primary overview hierarchy
-- Status: Implementation and synthetic validation complete; draft pull request published
+- Status: Implementation, synthetic validation, and draft publication complete
 - Implementation branch: `agent/retirement-overview-summary`
 - Starting merged-main SHA: `82b67d442c9de14e5fafa34715919263c265f8a3`
 - Validated implementation commit: `3e671e6d456884e7f81564cc4122f8a6c4459663`
@@ -32,7 +32,7 @@ Public tracking must remain generic and must not contain private financial value
 - Last completed synthetic validation: Passed — 41 focused dashboard, configuration, and runtime tests across 4 files; 567 tests across the complete 32-file suite; all required local, container, health, hosted CI, and hosted Docker validation passed on the exact final PR head
 - Last completed private migration: Passed — the operating-cash policy was updated and validated locally without publishing private values
 - Private smoke state: Passed — the unchanged private configuration normalized through non-registered compatibility without reporting values. Simplified private mode was not run because explicit ACB and distribution assumptions are absent.
-- Remaining step: Validate the exact final pull-request head in hosted CI and Docker workflows
+- Remaining step: Keep the pull request draft and unmerged; exact live-head hosted results are retained in the pull-request description because another tracking commit would create a new head recursively
 - Next action: Keep the pull request draft and unmerged; do not begin PR 3 or PR 4 work
 
 ## Planned implementation sequence
