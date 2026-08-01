@@ -9,29 +9,29 @@ Public tracking must remain generic and must not contain private financial value
 - Open roadmap planning pull request: None
 - Planning branch: None
 - Planning status: None
-- Open implementation pull request: [#27 Add simplified non-registered taxation](https://github.com/danielnguyen/lunchmoney-retirement-planner/pull/27)
-- Open maintenance pull request: None
-- Pull request state: Open, draft, mergeable, and unmerged; independent review remains
-- Active implementation: Simplified non-registered investment taxation and final supported-model migration
-- Status: Locally and hosted-validated corrected draft implementation; independent review remains
-- Implementation branch: `agent/add-non-registered-taxation`
-- Starting merged-main SHA: `86d5c2a51618c74d883745cfbc054d0a8fc9fd3c`
-- Correction starting PR head: `ff08bcbab0b0aaa10c74f9027f4e93af4e479d8c`
-- Validated implementation commit: `7e2612c8cb0d89437f2baeb0d308c419e5160609`
+- Open implementation pull request: None
+- Open maintenance pull request: [#28 Compact the retirement planner application shell](https://github.com/danielnguyen/lunchmoney-retirement-planner/pull/28)
+- Pull request state: Open, draft, mergeable, and unmerged; corrected local validation passed and independent review remains
+- Active implementation: Compact application shell, PR 1 of the planned four-PR dashboard redesign
+- Status: Locally and hosted-validated corrected draft maintenance implementation; independent review remains
+- Implementation branch: `agent/compact-application-shell`
+- Starting merged-main SHA: `65348a20f3dd34f5da0fba47573ba06515be172c`
+- Correction starting PR head: `87e21309b8ddb9d71608c2a3a5981a8368186faa`
+- Validated implementation commit: `eb814a0d493b8063d87dc56073ab61e461474ad8`
 - Final tracking head: Determined from the live GitHub PR head after the tracking-only commit; not duplicated here because embedding a commit's own SHA is recursive
-- Correction: The shared withdrawal-funding boundary now retains signed-tax overfunding as explicit generated, applied, excess, and unmet net cash. Liability and lifestyle callers preserve excess for ordinary monthly cash flow and established surplus routing. One shared three-mode coverage decision controls taxation, RRIF, non-registered, and retirement-requirement provisional flags.
-- Synthetic validation: Passed — 257 focused tests across 15 withdrawal-funding, annual-tax, capital-loss disposition, pooled-ACB, liability, surplus-routing, bridge, RRIF, retirement-requirement, dashboard, explanation, JSON allowlist, nominal/real rectangular CSV, and export-privacy files; 566 tests across the complete 32-file suite, including all 557 pre-correction regressions. Typecheck, lint, production build, diff check, Docker build, Compose validation, isolated container startup, schema-aware health smoke, clean planner-container removal, and unchanged private compatibility smoke passed locally. Hosted CI and Docker also passed on the exact live final PR head; immutable run details are retained in the PR description.
-- Latest merged `main`: `86d5c2a51618c74d883745cfbc054d0a8fc9fd3c`
-- Last completed capability stage: RRSP-to-RRIF conversion and statutory minimum withdrawals
-- Last completed pull request: [#26 Add RRIF conversion and minimum withdrawals](https://github.com/danielnguyen/lunchmoney-retirement-planner/pull/26)
-- PR #26 merge commit: `86d5c2a51618c74d883745cfbc054d0a8fc9fd3c`
+- Change: The oversized report hero and fragmented connection/report controls are replaced by one compact semantic application shell. The corrected responsive contract keeps desktop and stacked-tablet anchor targets clear, makes the header non-sticky at 620px and below, and keeps critical shell text at approximately 0.875rem or larger. Existing scenario, mapping, print, JSON export, projection, and presentation behaviour remains shared and unchanged below the shell.
+- Synthetic validation: Passed — 41 focused dashboard, configuration, and runtime tests across 4 files; 567 tests across the complete 32-file suite. Typecheck, lint, production build, diff check, Docker image build, Compose validation, isolated container startup, schema-aware health smoke, and clean container removal passed. Hosted CI and Docker workflow state for the exact live final head is retained in the pull-request description because another tracking commit would create a new head recursively.
+- Latest merged `main`: `65348a20f3dd34f5da0fba47573ba06515be172c`
+- Last completed capability stage: Simplified non-registered taxation and supported-model tax-completeness migration
+- Last completed pull request: [#27 Add simplified non-registered taxation](https://github.com/danielnguyen/lunchmoney-retirement-planner/pull/27)
+- PR #27 merge commit: `65348a20f3dd34f5da0fba47573ba06515be172c`
 - Last completed maintenance correction: Retirement bridge ending precision
 - Last maintenance pull request: [#23 Fix retirement bridge reconciliation against raw balances](https://github.com/danielnguyen/lunchmoney-retirement-planner/pull/23)
 - Last completed synthetic validation: Passed — 396 synthetic tests for the merged retirement bridge ending-precision correction; its one-cent integrity threshold and financial calculations remained unchanged
 - Last completed private migration: Passed — the operating-cash policy was updated and validated locally without publishing private values
 - Private smoke state: Passed — the unchanged private configuration normalized through non-registered compatibility without reporting values. Simplified private mode was not run because explicit ACB and distribution assumptions are absent.
-- Remaining step: independent review of open draft PR #27
-- Next action: review draft PR #27; after merge, begin deterministic return paths and sequence-risk scenarios
+- Remaining step: independent review of draft PR #28
+- Next action: validate and review draft PR #28; after merge, continue the separately scoped dashboard redesign without changing the accepted financial roadmap order
 
 ## Planned implementation sequence
 
@@ -45,7 +45,7 @@ Public tracking must remain generic and must not contain private financial value
 | 6 | Operating-cash target and automatic excess sweep | Surplus allocation and contribution waterfall | Completed | [#15](https://github.com/danielnguyen/lunchmoney-retirement-planner/pull/15) |
 | 7 | General spending phases | Corrected income and cash policies | Completed | [#16](https://github.com/danielnguyen/lunchmoney-retirement-planner/pull/16) |
 | 8 | Retirement funding requirement and terminal balance | Spending phases and retirement projection | Completed | [#24](https://github.com/danielnguyen/lunchmoney-retirement-planner/pull/24) |
-| 9 | RRIF minimum withdrawals and Canadian retirement taxes | Surplus policy, debt model, spending phases, and requirement contract | In progress — annual tax and RRIF stages completed; simplified non-registered tax final stage active | [#25 annual tax](https://github.com/danielnguyen/lunchmoney-retirement-planner/pull/25), [#26 RRIF](https://github.com/danielnguyen/lunchmoney-retirement-planner/pull/26), [#27 non-registered tax](https://github.com/danielnguyen/lunchmoney-retirement-planner/pull/27) |
+| 9 | RRIF minimum withdrawals and Canadian retirement taxes | Surplus policy, debt model, spending phases, and requirement contract | Completed | [#25 annual tax](https://github.com/danielnguyen/lunchmoney-retirement-planner/pull/25), [#26 RRIF](https://github.com/danielnguyen/lunchmoney-retirement-planner/pull/26), [#27 non-registered tax](https://github.com/danielnguyen/lunchmoney-retirement-planner/pull/27) |
 | 10 | Deterministic return paths and sequence-risk scenarios | Reconciled deterministic projection | Planned | — |
 | 11 | Structured housing transitions | Net-worth, debt, spending, and event models | Planned | — |
 
@@ -82,4 +82,4 @@ Planning order is project-management shorthand only. Production names must descr
 
 ## New-conversation handoff
 
-> Read `AGENTS.md`, `plan/roadmap.md`, and `plan/implementation-index.md`. Continue the simplified non-registered taxation and supported-model migration on `agent/add-non-registered-taxation` from merged-main anchor `86d5c2a51618c74d883745cfbc054d0a8fc9fd3c`, using synthetic data only. Confirm compatibility normalization, return characterization, pooled ACB, reinvested distributions, all taxable deposit paths, proportional dispositions, signed exact-cent tax-adjusted withdrawals, rollback, RRIF-surplus routing, retirement-candidate ACB/FMV scaling, supported-model coverage, explanation/dashboard evidence, and JSON/CSV privacy. Deterministic return paths follow only after this capability merges.
+> Read `AGENTS.md`, `plan/roadmap.md`, and `plan/implementation-index.md`. Continue the compact application-shell maintenance work on `agent/compact-application-shell` from merged-main anchor `65348a20f3dd34f5da0fba47573ba06515be172c`, using synthetic data only. Keep the work limited to PR 1 of the four-PR dashboard redesign: compact header, semantic in-page navigation, consolidated connection/report controls, neutral charcoal shell, existing mint accent, responsive wrapping, print-safe controls, and unchanged financial calculations, APIs, schemas, exports, summary content, charts, and section order. The retirement-summary, technical-detail, and full visual/accessibility redesign work remains separately scoped.

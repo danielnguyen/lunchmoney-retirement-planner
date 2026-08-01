@@ -591,7 +591,7 @@ export function PlannerConfigurationDrawer({
       variant="scenario-controls"
       drawerId="scenario-controls-drawer"
       titleId="scenario-controls-title"
-      title={showingControls ? "Scenario controls" : "Planner YAML"}
+      title={showingControls ? "Try another plan" : "Planner YAML"}
       kicker={showingControls ? "Scenario" : "Advanced configuration"}
       dialogLabel={showingControls ? undefined : "Planner YAML configuration"}
       closeLabel="Close planner configuration"
@@ -604,7 +604,7 @@ export function PlannerConfigurationDrawer({
             className="button secondary drawer-view-switch"
             onClick={() => onViewChange(showingControls ? "yaml" : "controls")}
           >
-            {showingControls ? "Edit YAML" : "Back to scenario controls"}
+            {showingControls ? "Edit YAML" : "Back to plan controls"}
           </button>
         ) : null
       }
@@ -628,9 +628,9 @@ export function LunchMoneyMappingsDrawer({
       variant="lunch-money-mappings"
       drawerId="lunch-money-mappings-drawer"
       titleId="lunch-money-mappings-title"
-      title="Lunch Money mappings"
+      title="Connected accounts"
       kicker="Read-only reference"
-      closeLabel="Close Lunch Money mappings"
+      closeLabel="Close connected accounts"
       opener={opener}
       onClose={onClose}
     >
@@ -963,7 +963,7 @@ export function PlannerConfigEditor({
         <div><span>Validation</span><strong>{validationLabel}</strong></div>
       </div>
       <p className="panel-copy">
-        Scenario controls remain temporary until explicitly applied to this draft and saved.
+        Plan controls remain temporary until explicitly applied to this draft and saved.
       </p>
       {draft.appliedSummary ? (
         <AppliedScenarioSummary
@@ -1138,13 +1138,13 @@ function BlockingState({
   const connected = error.connection?.status === "connected";
   return (
     <main>
-      <header className="hero compact-hero">
-        <div>
-          <span className="eyebrow">Retirement lifecycle report</span>
-          <h1>Live baseline required.</h1>
-          <p>The planner will not render projections until Lunch Money and the private mappings are valid.</p>
-        </div>
-        <div className="hero-actions no-print">
+      <header className="application-header blocking-application-header">
+        <div className="application-header-row">
+          <div className="application-title-group">
+            <h1>Retirement Planner</h1>
+            <p>Live baseline required.</p>
+          </div>
+          <div className="application-actions no-print">
           <button
             type="button"
             className="button secondary"
@@ -1154,7 +1154,8 @@ function BlockingState({
           >
             Repair planner config
           </button>
-          <button className="button" onClick={onRefresh}>Try again</button>
+          <button type="button" className="button" onClick={onRefresh}>Try again</button>
+          </div>
         </div>
       </header>
       <section className="blocking-card" role="alert">
@@ -1719,66 +1720,85 @@ export function PlannerDashboard() {
   return (
     <>
     <main>
-      <header className="hero">
-        <div>
-          <span className="eyebrow">Retirement lifecycle report</span>
-          <h1>Your live financial baseline, projected forward.</h1>
-          <p>
-            Lunch Money transactions and balances drive every chart. Private assumptions and temporary overrides remain explicit.
-          </p>
+      <header className="application-header">
+        <div className="application-header-row">
+          <div className="application-title-group">
+            <h1>Retirement Planner</h1>
+          </div>
+          <div className="application-actions no-print">
+            <button
+              type="button"
+              className="button secondary"
+              aria-expanded={plannerDrawer !== null}
+              aria-controls="scenario-controls-drawer"
+              onClick={(event) => openPlannerDrawer(event.currentTarget, "controls")}
+            >
+              Try another plan
+            </button>
+            <button
+              type="button"
+              className="button secondary"
+              aria-expanded={lunchMoneyMappings !== null}
+              aria-controls="lunch-money-mappings-drawer"
+              onClick={(event) => {
+                setActiveExplanation(null);
+                setPlannerDrawer(null);
+                setLunchMoneyMappings({ opener: event.currentTarget });
+              }}
+            >
+              Connected accounts
+            </button>
+            <button type="button" className="button secondary" onClick={() => window.print()}>Print</button>
+            <button
+              type="button"
+              className="button"
+              onClick={() => void download(
+                "/api/v1/exports/projection",
+                projectionJsonFilename(new Date().toISOString()),
+              )}
+            >
+              Export
+            </button>
+          </div>
         </div>
-        <div className="hero-actions no-print">
-          <button
-            type="button"
-            className="button secondary"
-            aria-expanded={plannerDrawer !== null}
-            aria-controls="scenario-controls-drawer"
-            onClick={(event) => openPlannerDrawer(event.currentTarget, "controls")}
-          >
-            Scenario controls
-          </button>
-          <button
-            type="button"
-            className="button secondary"
-            aria-expanded={lunchMoneyMappings !== null}
-            aria-controls="lunch-money-mappings-drawer"
-            onClick={(event) => {
-              setActiveExplanation(null);
-              setPlannerDrawer(null);
-              setLunchMoneyMappings({ opener: event.currentTarget });
-            }}
-          >
-            Lunch Money mappings
-          </button>
-          <button className="button secondary" onClick={() => window.print()}>Print</button>
-          <button
-            className="button"
-            onClick={() => void download(
-              "/api/v1/exports/projection",
-              projectionJsonFilename(new Date().toISOString()),
-            )}
-          >
-            Export JSON
-          </button>
-        </div>
+        <nav className="application-navigation no-print" aria-label="Planner sections">
+          <a href="#overview" aria-current="page">Overview</a>
+          <a href="#retirement-income">Retirement income</a>
+          <a href="#spending">Spending</a>
+          <a href="#accounts">Accounts</a>
+          <a href="#assumptions">Assumptions</a>
+        </nav>
       </header>
 
-      <section className="connection-panel">
-        <div>
-          <span className="connection-badge connected">Lunch Money connected · read-only</span>
-          <strong>Data through {baseline.dataThrough}</strong>
-          <small>
-            {baseline.transactionWindow.startDate}–{baseline.transactionWindow.endDate} · {baseline.transactionWindow.trailingMonths} months
-          </small>
+      <section className="application-status-panel" aria-label="Connection and report controls">
+        <div className="application-status-copy">
+          <div className="application-status-heading">
+            <span className="connection-badge connected">Lunch Money connected · read-only</span>
+            <strong>Data through {baseline.dataThrough}</strong>
+          </div>
+          <p>
+            Using {baseline.recordsAnalyzed.accounts} accounts and {baseline.recordsAnalyzed.transactions} transactions from the past {baseline.transactionWindow.trailingMonths} months ({baseline.transactionWindow.startDate}–{baseline.transactionWindow.endDate}) · {baseline.recordsAnalyzed.recurringItems} recurring items
+          </p>
+          {baseline.unmappedAccounts.length > 0 || baseline.unmappedCategories.length > 0 ? (
+            <p className="mapping-attention">
+              Mapping attention: {baseline.unmappedAccounts.length} unmapped accounts and {baseline.unmappedCategories.length} unmapped categories.
+            </p>
+          ) : null}
         </div>
-        <dl className="connection-stats">
-          <div><dt>Transactions</dt><dd>{baseline.recordsAnalyzed.transactions}</dd></div>
-          <div><dt>Accounts</dt><dd>{baseline.recordsAnalyzed.accounts}</dd></div>
-          <div><dt>Recurring</dt><dd>{baseline.recordsAnalyzed.recurringItems}</dd></div>
-          <div><dt>Unmapped accounts</dt><dd>{baseline.unmappedAccounts.length}</dd></div>
-          <div><dt>Unmapped categories</dt><dd>{baseline.unmappedCategories.length}</dd></div>
-        </dl>
-        <button className="button secondary no-print" onClick={() => void refresh()}>Refresh Lunch Money</button>
+        <div className="application-status-controls no-print">
+          <button type="button" className="button secondary" onClick={() => void refresh()}>Refresh Lunch Money</button>
+          <div className="segmented" aria-label="Dollar display">
+            <button type="button" className={mode === "real" ? "active" : ""} onClick={() => setMode("real")}>
+              Today&apos;s dollars
+            </button>
+            <button type="button" className={mode === "nominal" ? "active" : ""} onClick={() => setMode("nominal")}>
+              Future dollars
+            </button>
+          </div>
+          <span className="status" aria-live="polite">
+            {projectionError || exportStatus || (projecting ? "Recalculating…" : "Live baseline active")}
+          </span>
+        </div>
       </section>
 
       {activeWarnings.length > 0 ? (
@@ -1789,20 +1809,6 @@ export function PlannerDashboard() {
         </section>
       ) : null}
 
-      <section className="toolbar no-print" aria-label="Report controls">
-        <div className="segmented">
-          <button className={mode === "real" ? "active" : ""} onClick={() => setMode("real")}>
-            Today&apos;s dollars
-          </button>
-          <button className={mode === "nominal" ? "active" : ""} onClick={() => setMode("nominal")}>
-            Future dollars
-          </button>
-        </div>
-        <span className="status">
-          {projectionError || exportStatus || (projecting ? "Recalculating…" : "Live baseline active")}
-        </span>
-      </section>
-
       {projectionError ? (
         <section className="blocking-card" role="alert">
           <h2>Projection blocked</h2>
@@ -1812,7 +1818,7 @@ export function PlannerDashboard() {
 
       {projection ? (
         <>
-          <section className="summary-grid" aria-label="Projection summary">
+          <section id="overview" className="summary-grid" aria-label="Projection summary">
             <article className="metric-card">
               <ExplainableHeading
                 compact
@@ -2092,7 +2098,7 @@ export function PlannerDashboard() {
 
           <section className="report-layout">
             <div className="report-column">
-              <article className="report-card wide-chart">
+              <article id="spending" className="report-card wide-chart">
                 <ExplainableHeading
                   kicker="Expenses"
                   target="annual-spending"
@@ -2191,7 +2197,7 @@ export function PlannerDashboard() {
                 </div>
               </article>
 
-              <article className="report-card wide-chart">
+              <article id="retirement-income" className="report-card wide-chart">
                 <ExplainableHeading
                   kicker="Cash inflow"
                   target="annual-funding"
@@ -2306,7 +2312,7 @@ export function PlannerDashboard() {
                 </>
               ) : null}
 
-              <article className="report-card wide-chart">
+              <article id="accounts" className="report-card wide-chart">
                 <ExplainableHeading
                   kicker="Financial assets"
                   target="account-burndown"
@@ -2419,7 +2425,7 @@ export function PlannerDashboard() {
             </div>
           </section>
 
-          <section className="report-card assumptions">
+          <section id="assumptions" className="report-card assumptions">
             <div className="section-heading"><div><span className="section-kicker">Live baseline</span><h2>Resolved inputs and provenance</h2></div></div>
             <div className="assumption-grid">
               <div>
