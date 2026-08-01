@@ -13,14 +13,17 @@ Public tracking must remain generic and must not contain private financial value
 - Open maintenance pull request: None
 - Pull request state: [#29 Clarify the retirement overview](https://github.com/danielnguyen/lunchmoney-retirement-planner/pull/29) is open as a draft; exact live-head hosted validation is retained in the pull-request description
 - Active implementation: Retirement outlook and primary overview hierarchy
-- Status: Implementation, synthetic validation, and draft publication complete
+- Status: Implementation and draft publication complete; one hosted-run timeout correction is locally validated and awaiting exact-head hosted validation
 - Implementation branch: `agent/retirement-overview-summary`
 - Starting merged-main SHA: `82b67d442c9de14e5fafa34715919263c265f8a3`
 - Validated implementation commit: `3e671e6d456884e7f81564cc4122f8a6c4459663`
 - Initial tracking commit: `cd6364211c763aa268382f68c8a011a370a02a31`
+- Correction starting PR head: `5176d79640c41f5d74aeb939063bf137aae4ec36`
+- Validated timeout correction commit: `f902e8aab6c07a3e5886849446ae05b97bfae4ae`
+- Exact final PR head: Retained in the pull-request description because recording a tracking commit's own SHA would recursively create another head
 - Change: Replace the opening projection-summary cards with a prominent retirement outlook led by expected retirement savings, the personal retirement target comparison, savings duration, key supporting figures, and a clearly secondary model-calculated minimum. Overview dates will use human-readable display text. Projection calculations, exports, configuration behaviour, technical-detail organization, and comprehensive visual/accessibility polish remain unchanged.
 - Follow-up boundaries: PR 3 retains the existing technical tax, RRIF, projection-status, and detailed-report organization for a separately reviewed technical-detail reorganization. PR 4 retains comprehensive visual-system, responsive, print, and accessibility polish. Neither follow-up is included in this implementation.
-- Synthetic validation: Passed — 84 focused dashboard and explanation tests across 4 files; 8 focused scenario/configuration workflow tests; 44 focused dashboard, scenario, export-privacy, and runtime-safety tests; and 570 tests across the complete 32-file suite. Typecheck, lint, production build, diff check, Docker image build, Compose validation, isolated container startup, schema-aware health smoke, and clean container removal passed. No private planner configuration or values were accessed.
+- Synthetic validation: Passed — 84 focused dashboard and explanation tests across 4 files; 8 focused scenario/configuration workflow tests; 44 focused dashboard, scenario, export-privacy, and runtime-safety tests; and 570 tests across the complete 32-file suite. Typecheck, lint, production build, diff check, Docker image build, Compose validation, isolated container startup, schema-aware health smoke, and clean container removal passed. After hosted CI run 153 exposed one default-timeout failure in the scenario/configuration workflow suite, the focused 8-test file, complete 570-test suite, typecheck, lint, production build, and diff check all passed with the single-test timeout correction. No private planner configuration or values were accessed.
 - Latest merged `main`: `82b67d442c9de14e5fafa34715919263c265f8a3`
 - Last completed capability stage: Simplified non-registered taxation and supported-model tax-completeness migration
 - Last completed pull request: [#27 Add simplified non-registered taxation](https://github.com/danielnguyen/lunchmoney-retirement-planner/pull/27)
