@@ -37,7 +37,7 @@ function ScenarioHarness() {
           view: "controls",
         })}
       >
-        Scenario controls
+        Try another plan
       </button>
       {drawer ? (
         <PlannerConfigurationDrawer
@@ -112,7 +112,7 @@ function MappingsHarness() {
         aria-controls="lunch-money-mappings-drawer"
         onClick={(event) => setOpener(event.currentTarget)}
       >
-        Lunch Money mappings
+        Connected accounts
       </button>
       {opener ? (
         <LunchMoneyMappingsDrawer
@@ -126,17 +126,13 @@ function MappingsHarness() {
 }
 
 describe("unified planner configuration drawer", () => {
-  it("keeps the report full width and places the sole configuration trigger first", async () => {
+  it("keeps the report full width and places the compact shell actions in order", async () => {
     const css = await readFile("app/globals.css", "utf8");
     const dashboard = await readFile("components/planner-dashboard.tsx", "utf8");
-    const heroActionsStart = dashboard.lastIndexOf('<div className="hero-actions no-print">');
-    const heroActions = dashboard.slice(
-      heroActionsStart,
-      dashboard.indexOf("</div>", heroActionsStart),
-    );
-    const toolbar = dashboard.slice(
-      dashboard.indexOf('<section className="toolbar no-print"'),
-      dashboard.indexOf("</section>", dashboard.indexOf('<section className="toolbar no-print"')),
+    const applicationActionsStart = dashboard.lastIndexOf('<div className="application-actions no-print">');
+    const applicationActions = dashboard.slice(
+      applicationActionsStart,
+      dashboard.indexOf("</div>", applicationActionsStart),
     );
 
     expect(css).toContain(".report-layout { display: block; }");
@@ -144,18 +140,20 @@ describe("unified planner configuration drawer", () => {
     expect(css).not.toContain("controls-panel-desktop");
     expect(css).not.toContain("grid-template-columns: minmax(0, 3fr)");
     expect(css).not.toContain("scenario-controls-trigger");
-    expect(heroActions.indexOf("Scenario controls")).toBeLessThan(
-      heroActions.indexOf("Lunch Money mappings"),
+    expect(applicationActions.indexOf("Try another plan")).toBeLessThan(
+      applicationActions.indexOf("Connected accounts"),
     );
-    expect(heroActions.indexOf("Lunch Money mappings")).toBeLessThan(
-      heroActions.indexOf("Print"),
+    expect(applicationActions.indexOf("Connected accounts")).toBeLessThan(
+      applicationActions.indexOf("Print"),
     );
-    expect(heroActions.indexOf("Print")).toBeLessThan(
-      heroActions.indexOf("Export JSON"),
+    expect(applicationActions.indexOf("Print")).toBeLessThan(
+      applicationActions.indexOf("Export"),
     );
-    expect(toolbar).not.toContain("Scenario controls");
-    expect(toolbar).not.toContain("Lunch Money mappings");
-    expect(heroActions).not.toContain("Planner config");
+    expect(applicationActions).not.toContain("Planner config");
+    expect(dashboard).toContain('<nav className="application-navigation no-print" aria-label="Planner sections">');
+    expect(dashboard).toContain('<a href="#overview" aria-current="page">Overview</a>');
+    expect(dashboard).not.toContain("Retirement lifecycle report");
+    expect(dashboard).not.toContain("Your live financial baseline, projected forward.");
     expect(dashboard.match(/aria-controls="lunch-money-mappings-drawer"/g)).toHaveLength(1);
     expect(dashboard.match(/aria-controls="scenario-controls-drawer"/g)).toHaveLength(2);
     expect(dashboard).not.toContain("controls-panel-desktop");
@@ -166,7 +164,7 @@ describe("unified planner configuration drawer", () => {
     const mountedPanels = dashboard.match(/<ScenarioControlsPanel/g) ?? [];
     const report = dashboard.slice(
       dashboard.indexOf('<section className="report-layout">'),
-      dashboard.indexOf('<section className="report-card assumptions">'),
+      dashboard.indexOf('<section id="assumptions" className="report-card assumptions">'),
     );
     const drawerStart = dashboard.lastIndexOf("{plannerDrawer ? (");
     const drawer = dashboard.slice(
@@ -252,7 +250,7 @@ describe("unified planner configuration drawer", () => {
 
   it("opens guided controls by default and exposes one stable ARIA contract", () => {
     render(<ScenarioHarness />);
-    const opener = screen.getByRole("button", { name: "Scenario controls" });
+    const opener = screen.getByRole("button", { name: "Try another plan" });
 
     expect(opener).toHaveAttribute("aria-expanded", "false");
     expect(opener).toHaveAttribute("aria-controls", "scenario-controls-drawer");
@@ -260,7 +258,7 @@ describe("unified planner configuration drawer", () => {
 
     fireEvent.click(opener);
     expect(opener).toHaveAttribute("aria-expanded", "true");
-    expect(screen.getByRole("dialog", { name: "Scenario controls" })).toHaveAttribute(
+    expect(screen.getByRole("dialog", { name: "Try another plan" })).toHaveAttribute(
       "aria-modal",
       "true",
     );
@@ -274,9 +272,9 @@ describe("unified planner configuration drawer", () => {
 
   it("switches views inside one mounted overlay and preserves both drafts", () => {
     render(<ScenarioHarness />);
-    fireEvent.click(screen.getByRole("button", { name: "Scenario controls" }));
+    fireEvent.click(screen.getByRole("button", { name: "Try another plan" }));
     const overlay = screen.getByTestId("scenario-controls-overlay");
-    const dialog = screen.getByRole("dialog", { name: "Scenario controls" });
+    const dialog = screen.getByRole("dialog", { name: "Try another plan" });
     fireEvent.change(screen.getByLabelText("Synthetic override"), {
       target: { value: "250" },
     });
@@ -290,7 +288,7 @@ describe("unified planner configuration drawer", () => {
       target: { value: "currentAge: 39\n" },
     });
 
-    fireEvent.click(screen.getByRole("button", { name: "Back to scenario controls" }));
+    fireEvent.click(screen.getByRole("button", { name: "Back to plan controls" }));
     expect(screen.getByLabelText("Synthetic override")).toHaveValue("250");
     fireEvent.click(screen.getByRole("button", { name: "Edit YAML" }));
     expect(screen.getByLabelText("Planner YAML")).toHaveValue("currentAge: 39\n");
@@ -298,7 +296,7 @@ describe("unified planner configuration drawer", () => {
 
   it("closes through the close button, Escape, or backdrop and restores focus", () => {
     render(<ScenarioHarness />);
-    const opener = screen.getByRole("button", { name: "Scenario controls" });
+    const opener = screen.getByRole("button", { name: "Try another plan" });
 
     fireEvent.click(opener);
     fireEvent.click(screen.getByRole("button", { name: "Close planner configuration" }));
@@ -318,7 +316,7 @@ describe("unified planner configuration drawer", () => {
 
   it("renders the read-only mappings drawer and preserves its full interaction contract", () => {
     render(<MappingsHarness />);
-    const opener = screen.getByRole("button", { name: "Lunch Money mappings" });
+    const opener = screen.getByRole("button", { name: "Connected accounts" });
 
     expect(opener).toHaveAttribute("aria-expanded", "false");
     expect(opener).toHaveAttribute("aria-controls", "lunch-money-mappings-drawer");
@@ -326,7 +324,7 @@ describe("unified planner configuration drawer", () => {
 
     fireEvent.click(opener);
     expect(opener).toHaveAttribute("aria-expanded", "true");
-    expect(screen.getByRole("dialog", { name: "Lunch Money mappings" })).toHaveAttribute(
+    expect(screen.getByRole("dialog", { name: "Connected accounts" })).toHaveAttribute(
       "aria-modal",
       "true",
     );
@@ -337,7 +335,7 @@ describe("unified planner configuration drawer", () => {
     expect(screen.getByText("Synthetic institution")).toBeInTheDocument();
     expect(screen.getByText("201")).toBeInTheDocument();
     expect(screen.getByText("Synthetic category description")).toBeInTheDocument();
-    const close = screen.getByRole("button", { name: "Close Lunch Money mappings" });
+    const close = screen.getByRole("button", { name: "Close connected accounts" });
     expect(close).toHaveFocus();
     expect(document.body.style.overflow).toBe("hidden");
 
@@ -360,7 +358,7 @@ describe("unified planner configuration drawer", () => {
 
   it("keeps temporary overrides while closed and preserves Reset all", () => {
     render(<ScenarioHarness />);
-    const opener = screen.getByRole("button", { name: "Scenario controls" });
+    const opener = screen.getByRole("button", { name: "Try another plan" });
     fireEvent.click(opener);
     const input = screen.getByLabelText("Synthetic override");
     fireEvent.change(input, { target: { value: "250" } });

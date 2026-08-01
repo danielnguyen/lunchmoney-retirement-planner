@@ -82,7 +82,7 @@ describe("runtime safety regressions", () => {
     const dashboard = await readFile("components/planner-dashboard.tsx", "utf8");
     const routes = `${await readFile("app/api/v1/exports/projection/route.ts", "utf8")}\n${await readFile("app/api/v1/exports/projection-csv/route.ts", "utf8")}`;
 
-    expect(dashboard).toMatch(/>\s*Export JSON\s*</);
+    expect(dashboard).toMatch(/>\s*Export\s*</);
     expect(dashboard).toMatch(/>Export CSV<\/button>/);
     expect(`${dashboard}\n${routes}`).not.toMatch(/share-safe|anonymized/i);
   });
@@ -91,7 +91,7 @@ describe("runtime safety regressions", () => {
     const dashboard = await readFile("components/planner-dashboard.tsx", "utf8");
     const css = await readFile("app/globals.css", "utf8");
     const normalHeaderStart = dashboard.lastIndexOf(
-      '<div className="hero-actions no-print">',
+      '<div className="application-actions no-print">',
     );
     const normalHeader = dashboard.slice(
       normalHeaderStart,
@@ -107,7 +107,7 @@ describe("runtime safety regressions", () => {
     expect(dashboard).not.toContain('variant="planner-config"');
     expect(dashboard).not.toContain('aria-controls="planner-config-drawer"');
     expect(css).not.toMatch(/\.planner-config-(?:overlay|drawer|drawer-content)/);
-    expect(normalHeader).toContain("Scenario controls");
+    expect(normalHeader).toContain("Try another plan");
     expect(normalHeader).not.toContain("Planner config");
   });
 });
