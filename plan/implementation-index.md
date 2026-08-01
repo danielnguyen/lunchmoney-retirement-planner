@@ -13,13 +13,14 @@ Public tracking must remain generic and must not contain private financial value
 - Open maintenance pull request: [#28 Compact the retirement planner application shell](https://github.com/danielnguyen/lunchmoney-retirement-planner/pull/28)
 - Pull request state: Open, draft, mergeable, and unmerged; corrected local validation passed and independent review remains
 - Active implementation: Compact application shell, PR 1 of the planned four-PR dashboard redesign
-- Status: Locally validated corrected draft maintenance implementation; hosted validation and independent review remain
+- Status: Locally and hosted-validated corrected draft maintenance implementation; independent review remains
 - Implementation branch: `agent/compact-application-shell`
 - Starting merged-main SHA: `65348a20f3dd34f5da0fba47573ba06515be172c`
+- Correction starting PR head: `87e21309b8ddb9d71608c2a3a5981a8368186faa`
 - Validated implementation commit: `eb814a0d493b8063d87dc56073ab61e461474ad8`
 - Final tracking head: Determined from the live GitHub PR head after the tracking-only commit; not duplicated here because embedding a commit's own SHA is recursive
 - Change: The oversized report hero and fragmented connection/report controls are replaced by one compact semantic application shell. The corrected responsive contract keeps desktop and stacked-tablet anchor targets clear, makes the header non-sticky at 620px and below, and keeps critical shell text at approximately 0.875rem or larger. Existing scenario, mapping, print, JSON export, projection, and presentation behaviour remains shared and unchanged below the shell.
-- Synthetic validation: Passed — 41 focused dashboard, configuration, and runtime tests across 4 files; 567 tests across the complete 32-file suite. Typecheck, lint, production build, diff check, Docker image build, Compose validation, isolated container startup, schema-aware health smoke, and clean container removal passed. Hosted CI and Docker remain to be validated on the exact corrected final head.
+- Synthetic validation: Passed — 41 focused dashboard, configuration, and runtime tests across 4 files; 567 tests across the complete 32-file suite. Typecheck, lint, production build, diff check, Docker image build, Compose validation, isolated container startup, schema-aware health smoke, and clean container removal passed. Hosted CI and Docker workflow state for the exact live final head is retained in the pull-request description because another tracking commit would create a new head recursively.
 - Latest merged `main`: `65348a20f3dd34f5da0fba47573ba06515be172c`
 - Last completed capability stage: Simplified non-registered taxation and supported-model tax-completeness migration
 - Last completed pull request: [#27 Add simplified non-registered taxation](https://github.com/danielnguyen/lunchmoney-retirement-planner/pull/27)
@@ -29,7 +30,7 @@ Public tracking must remain generic and must not contain private financial value
 - Last completed synthetic validation: Passed — 396 synthetic tests for the merged retirement bridge ending-precision correction; its one-cent integrity threshold and financial calculations remained unchanged
 - Last completed private migration: Passed — the operating-cash policy was updated and validated locally without publishing private values
 - Private smoke state: Passed — the unchanged private configuration normalized through non-registered compatibility without reporting values. Simplified private mode was not run because explicit ACB and distribution assumptions are absent.
-- Remaining step: hosted validation and independent review of draft PR #28
+- Remaining step: independent review of draft PR #28
 - Next action: validate and review draft PR #28; after merge, continue the separately scoped dashboard redesign without changing the accepted financial roadmap order
 
 ## Planned implementation sequence
