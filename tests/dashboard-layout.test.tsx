@@ -156,8 +156,9 @@ describe("unified planner configuration drawer", () => {
       applicationActions.indexOf("Export"),
     );
     expect(applicationActions).not.toContain("Planner config");
-    expect(dashboard).toContain('<nav className="application-navigation no-print" aria-label="Planner sections">');
-    expect(dashboard).toContain('<a href="#overview" aria-current="page">Overview</a>');
+    expect(dashboard).toContain('<nav className="application-navigation no-print" aria-label="Jump to planner section">');
+    expect(dashboard).toContain('<a href="#overview">Overview</a>');
+    expect(dashboard).not.toContain('aria-current="page"');
     expect(dashboard).not.toContain("Retirement lifecycle report");
     expect(dashboard).not.toContain("Your live financial baseline, projected forward.");
     expect(dashboard.match(/aria-controls="lunch-money-mappings-drawer"/g)).toHaveLength(1);
@@ -188,12 +189,135 @@ describe("unified planner configuration drawer", () => {
       "#overview, #retirement-income, #spending, #accounts, #plan-details, #assumptions { scroll-margin-top: 1rem; }",
     );
     expect(css).toContain(
-      ".application-actions .button, .application-status-controls .button, .application-status-controls .segmented button { min-height: 34px; border-radius: 8px; padding: 7px 11px; font-size: 0.875rem; }",
+      ".application-actions .button, .application-status-controls .button, .application-status-controls .segmented button { min-height: 40px;",
     );
-    expect(css).toContain(".application-navigation a { position: relative; padding: 9px 10px; color: var(--muted); font-size: 0.875rem;");
+    expect(css).toContain(".application-navigation a { position: relative; flex: 0 0 auto;");
     expect(css).toContain(".application-status-copy p { margin: 0; color: var(--muted); font-size: 0.875rem;");
     expect(css).toContain(".connection-badge { display: inline-flex; width: fit-content; padding: 5px 8px; border: 1px solid var(--border); border-radius: 999px; color: var(--muted); background: rgba(17, 21, 19, 0.7); font-size: 0.875rem;");
     expect(css).toContain(".status { color: var(--muted); font-size: 0.875rem; }");
+  });
+
+  it("uses one mint-led visual system without turning warnings into the active accent", async () => {
+    const css = await readFile("app/globals.css", "utf8");
+    const dashboard = await readFile("components/planner-dashboard.tsx", "utf8");
+
+    expect(css).toContain("--accent: #70d6b2");
+    expect(css).toContain("--warning: #f2bd63");
+    expect(css).toContain("--radius-control: 8px");
+    expect(css).toContain("--radius-inner: 10px");
+    expect(css).toContain("--radius-section: 14px");
+    const reportCardRuleStart = css.indexOf(".report-card { border: 1px solid var(--border)");
+    const reportCardRule = css.slice(
+      reportCardRuleStart,
+      css.indexOf("}", reportCardRuleStart) + 1,
+    );
+    expect(reportCardRule).toContain("background: var(--surface-1)");
+    expect(reportCardRule).not.toContain("box-shadow");
+    expect(dashboard).toContain("const chartColors = {");
+    expect(dashboard).not.toContain('fill="#d8bd65"');
+    expect(dashboard).not.toContain('stroke="#f2bd63"');
+  });
+
+  it("keeps every user-facing CSS and chart label at the 14px floor", async () => {
+    const css = await readFile("app/globals.css", "utf8");
+    const dashboard = await readFile("components/planner-dashboard.tsx", "utf8");
+    const remSizes = [...css.matchAll(/font(?:-size)?:\s*(0?\.\d+)rem/g)]
+      .map((match) => Number(match[1]));
+    const pixelSizes = [...dashboard.matchAll(/fontSize=(?:"(\d+)"|\{(\d+)\})/g)]
+      .map((match) => Number(match[1] ?? match[2]));
+
+    expect(remSizes.length).toBeGreaterThan(0);
+    expect(Math.min(...remSizes)).toBeGreaterThanOrEqual(0.875);
+    expect(pixelSizes.length).toBeGreaterThan(0);
+    expect(Math.min(...pixelSizes)).toBeGreaterThanOrEqual(14);
+  });
+
+  it("contains navigation, charts, tables, and drawers at narrow and zoomed widths", async () => {
+    const css = await readFile("app/globals.css", "utf8");
+    const mobile = css.slice(
+      css.indexOf("@media (max-width: 620px)"),
+      css.indexOf("@media print"),
+    );
+
+    expect(css).toContain("overflow-x: clip");
+    expect(css).toContain(".application-navigation { display: flex; flex-wrap: nowrap;");
+    expect(css).toContain("overflow-x: auto");
+    expect(css).toContain(".chart-shell { width: 100%; max-width: 100%;");
+    expect(css).toContain(".table-shell { max-width: 100%; overflow: auto;");
+    expect(css).toContain("width: min(720px, 100vw)");
+    expect(mobile).toContain("main { width: min(calc(100% - 16px), 1540px)");
+    expect(mobile).toContain(".outlook-supporting-figures { grid-template-columns: 1fr; }");
+    expect(mobile).toContain(".application-navigation a { flex: 0 0 auto;");
+  });
+
+  it("renders supporting outlook figures as a divided grid rather than four cards", async () => {
+    const css = await readFile("app/globals.css", "utf8");
+    const supportingStart = css.indexOf(".outlook-supporting-figures {");
+    const supportingEnd = css.indexOf(".model-minimum-summary", supportingStart);
+    const supportingStyles = css.slice(supportingStart, supportingEnd);
+    const articleStart = supportingStyles.indexOf(".outlook-supporting-figures article {");
+    const articleRule = supportingStyles.slice(
+      articleStart,
+      supportingStyles.indexOf("}", articleStart) + 1,
+    );
+
+    expect(supportingStyles).toContain("grid-template-columns: repeat(4, minmax(0, 1fr))");
+    expect(supportingStyles).toContain("border-block: 1px solid var(--border)");
+    expect(articleRule).not.toContain("background:");
+    expect(articleRule).not.toContain("border-radius:");
+    expect(articleRule).not.toMatch(/border:\s/);
+  });
+
+  it("connects every primary chart region to its visible heading", async () => {
+    const dashboard = await readFile("components/planner-dashboard.tsx", "utf8");
+    const labelledFigures = dashboard.match(
+      /<figure className="chart-shell [^"]+" aria-labelledby="[^"]+">/g,
+    ) ?? [];
+    const headingIds = dashboard.match(/headingId="[^"]+"/g) ?? [];
+
+    expect(labelledFigures).toHaveLength(9);
+    expect(headingIds).toHaveLength(9);
+    for (const figure of labelledFigures) {
+      const id = figure.match(/aria-labelledby="([^"]+)"/)?.[1];
+      expect(dashboard).toContain(`headingId="${id}"`);
+    }
+  });
+
+  it("prints a readable report without trapping every long section on one page", async () => {
+    const css = await readFile("app/globals.css", "utf8");
+    const print = css.slice(css.indexOf("@media print"));
+
+    expect(print).toContain("@page { margin: 0.55in; }");
+    expect(print).toContain("background: #fff");
+    expect(print).toContain(".plan-details-disclosure > :not(summary) { display: block !important; }");
+    expect(print).toContain("thead { display: table-header-group; }");
+    expect(print).toContain("th, td { border: 1px solid #777;");
+    expect(print).toContain(".report-card, .plan-details, .plan-details-disclosure { break-inside: auto; }");
+    expect(print).not.toContain(".retirement-outlook, .report-card, .plan-details-disclosure { break-inside: avoid;");
+  });
+
+  it("shows focus on the programmatically focusable retirement outlook", async () => {
+    const css = await readFile("app/globals.css", "utf8");
+    const focusRuleStart = css.indexOf(".retirement-outlook:focus-visible");
+    const focusRule = css.slice(
+      focusRuleStart,
+      css.indexOf("}", focusRuleStart) + 1,
+    );
+
+    expect(focusRuleStart).toBeGreaterThan(-1);
+    expect(focusRule).toContain("outline: var(--focus-outline)");
+    expect(focusRule).toContain("outline-offset: 4px");
+  });
+
+  it("prints nested surfaces and dark-theme chart text with light-page contrast", async () => {
+    const css = await readFile("app/globals.css", "utf8");
+    const print = css.slice(css.indexOf("@media print"));
+
+    expect(print).toContain(".connection-badge, .pill, .milestone, .observation, .warning-severity-label, .plan-details-disclosure summary { color: #111; background: #fff; }");
+    expect(print).toContain(".warning-panel { border-color: #777; background: #fff; }");
+    expect(print).toContain(".chart-shell .recharts-text, .chart-shell .recharts-cartesian-axis-tick-value, .chart-shell .recharts-label { fill: #222 !important;");
+    expect(print).toContain('.chart-shell [fill="#aeb8b3"], .chart-shell [fill="#f6f8fb"] { fill: #444 !important; }');
+    expect(print).toContain('.chart-shell [stroke="#aeb8b3"], .chart-shell [stroke="#f6f8fb"] { stroke: #444 !important; }');
   });
 
   it("mounts exactly one controls tree in the drawer and never in the report column", async () => {
@@ -241,7 +365,7 @@ describe("unified planner configuration drawer", () => {
 
   it("makes the personal target primary and the plan minimum explicitly secondary", async () => {
     const dashboard = await readFile("components/planner-dashboard.tsx", "utf8");
-    const outlookStart = dashboard.indexOf('<section id="overview" className="retirement-outlook"');
+    const outlookStart = dashboard.indexOf('id="overview"');
     const outlook = dashboard.slice(
       outlookStart,
       dashboard.indexOf('<section className="report-layout">', outlookStart),
@@ -377,7 +501,7 @@ describe("unified planner configuration drawer", () => {
       "components/planner-dashboard.tsx",
       "utf8",
     );
-    const outlook = dashboard.indexOf('<section id="overview" className="retirement-outlook"');
+    const outlook = dashboard.indexOf('id="overview"');
     const report = dashboard.indexOf('<section className="report-layout">');
     const details = dashboard.indexOf('<section id="plan-details" className="plan-details"');
     const assumptions = dashboard.indexOf('<section id="assumptions" className="report-card assumptions">');
@@ -708,7 +832,7 @@ describe("annual chart year and age axes", () => {
       minTickGap: 28,
       height: 52,
       tickMargin: 8,
-      fontSize: 12,
+      fontSize: 14,
     });
   });
 

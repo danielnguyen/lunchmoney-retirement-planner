@@ -103,11 +103,21 @@ describe("dashboard config-save baseline transitions", () => {
     expect(screen.getByRole("heading", { name: "Retirement Planner" })).toBeInTheDocument();
     expect(screen.queryByText("Retirement lifecycle report")).not.toBeInTheDocument();
     expect(screen.queryByText("Your live financial baseline, projected forward.")).not.toBeInTheDocument();
-    const navigation = screen.getByRole("navigation", { name: "Planner sections" });
-    expect(screen.getByRole("link", { name: "Overview" })).toHaveAttribute("aria-current", "page");
+    const navigation = screen.getByRole("navigation", { name: "Jump to planner section" });
+    const links = within(navigation).getAllByRole("link");
+    expect(links.map((link) => link.textContent)).toEqual([
+      "Overview",
+      "Spending",
+      "Retirement income",
+      "Accounts",
+      "Plan details",
+      "Assumptions",
+    ]);
+    expect(screen.getByRole("link", { name: "Overview" })).not.toHaveAttribute("aria-current");
     expect(screen.getByRole("link", { name: "Retirement income" })).toHaveAttribute("href", "#retirement-income");
     expect(screen.getByRole("link", { name: "Spending" })).toHaveAttribute("href", "#spending");
     expect(screen.getByRole("link", { name: "Accounts" })).toHaveAttribute("href", "#accounts");
+    expect(screen.getByRole("link", { name: "Plan details" })).toHaveAttribute("href", "#plan-details");
     expect(screen.getByRole("link", { name: "Assumptions" })).toHaveAttribute("href", "#assumptions");
     expect(navigation.querySelector("button")).toBeNull();
     expect(screen.getByRole("button", { name: "Try another plan" })).toBeInTheDocument();
@@ -116,9 +126,25 @@ describe("dashboard config-save baseline transitions", () => {
     expect(screen.getByRole("button", { name: "Export" })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Refresh Lunch Money" })).toBeInTheDocument();
     expect(screen.getByText("Lunch Money connected · read-only")).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "Today's dollars" })).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "Future dollars" })).toBeInTheDocument();
+    const adjustedButton = screen.getByRole("button", { name: "Adjusted for inflation" });
+    const futureButton = screen.getByRole("button", { name: "Future dollar amounts" });
+    expect(adjustedButton).toHaveAttribute("aria-pressed", "true");
+    expect(futureButton).toHaveAttribute("aria-pressed", "false");
+    const retirementHeadline = outlook.querySelector(".retirement-savings-amount")?.textContent;
+    expect(retirementHeadline).toBe(
+      renderedCurrency.format(projection.summary.financialAssetsAtRetirementToday),
+    );
+    fireEvent.click(futureButton);
+    expect(adjustedButton).toHaveAttribute("aria-pressed", "false");
+    expect(futureButton).toHaveAttribute("aria-pressed", "true");
+    expect(outlookView.getByText(retirementHeadline!)).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: "Skip to retirement outlook" })).toHaveAttribute("href", "#overview");
+    expect(outlook).toHaveAttribute("id", "overview");
+    expect(outlook).toHaveAttribute("tabindex", "-1");
     expect(screen.getByText("Annual spending projection")).toBeInTheDocument();
+    expect(screen.getByRole("figure", { name: "Annual spending projection" })).toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: "Assumptions and data sources" })).toBeInTheDocument();
+    expect(screen.getByText("Review the values used in this plan and where each value came from.")).toBeInTheDocument();
     expect(screen.queryByText("Owner goal marker")).not.toBeInTheDocument();
     expect(screen.queryByText("Owner-goal difference")).not.toBeInTheDocument();
     const planDetails = await screen.findByRole("region", { name: "Plan details" });

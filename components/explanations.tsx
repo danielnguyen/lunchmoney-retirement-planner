@@ -84,6 +84,7 @@ export function ExplainableHeading({
   target,
   title,
   kicker,
+  headingId,
   headingLevel = "h2",
   compact = false,
   trailing,
@@ -92,6 +93,7 @@ export function ExplainableHeading({
   target: ExplanationTarget;
   title: string;
   kicker?: string;
+  headingId?: string;
   headingLevel?: "h2" | "h3" | "span";
   compact?: boolean;
   trailing?: ReactNode;
@@ -102,7 +104,7 @@ export function ExplainableHeading({
       <div className="explainable-heading-copy">
         {kicker ? <span className="section-kicker">{kicker}</span> : null}
         <div className="explainable-title-row">
-          {createElement(headingLevel, null, title)}
+          {createElement(headingLevel, headingId ? { id: headingId } : null, title)}
           <InfoTooltip target={target} title={title} />
           <ExplainControl target={target} onExplain={onExplain} />
         </div>
@@ -295,8 +297,8 @@ export function ExplanationDrawer({
               {document.displayedResult.dollarMode ? (
                 <small>
                   {document.displayedResult.dollarMode === "real"
-                    ? "Today’s dollars"
-                    : "Future dollars"}
+                    ? "Adjusted for inflation"
+                    : "Future dollar amounts"}
                 </small>
               ) : null}
             </section>
