@@ -9,24 +9,20 @@ Public tracking must remain generic and must not contain private financial value
 - Open roadmap planning pull request: None
 - Planning branch: None
 - Planning status: None
-- Open implementation pull request: None
+- Open implementation pull request: [#31 Polish the retirement planner dashboard](https://github.com/danielnguyen/lunchmoney-retirement-planner/pull/31)
 - Open maintenance pull request: None
-- Pull request state: [#30 Organize technical plan details](https://github.com/danielnguyen/lunchmoney-retirement-planner/pull/30) merged successfully after hosted validation passed on its exact final head
-- Active implementation: None
-- Status: PR 3 is completed and merged; PR 4 remains the next dashboard-redesign stage
-- Implementation branch: None
-- Starting merged-main SHA: `e1989aceaf4ba31ef9154eedb5e2dd6afdb722ff`
-- Initial PR implementation commit: `186d60bf42f9b6d6da3e3d1d5c872803ea10ad3e`
-- Plain-language correction starting head: `b42fb7f8c793a457ecd94a49afd350662d2d9200`
-- Validated plain-language correction commit: `a04f2458dc0a0573ec4ecb17628dca8bd2423c3d`
-- Final accuracy-correction starting head: `6834503cb5810213516b503cc22ad97fcf0e1a75`
-- Validated final accuracy-correction commit: `2753ec44f0e8fb9c8f556b8e9cebdcdcf07b7faa`
+- Pull request state: Open, draft, mergeable, and unmerged; hosted validation is pending on the exact tracking head
+- Active implementation: Final dashboard visual, responsive, print, typography, and accessibility polish
+- Status: PR 4 of 4 is implemented and validated locally; the planned dashboard redesign will be complete after hosted validation and merge
+- Implementation branch: `agent/final-dashboard-polish`
+- Starting synchronized-main SHA: `343e3af4cc689b37e44312ba1507d68a45ec5fc7`
+- Validated implementation commit: `79294d84e3e38f5252a0ccab51890e51fbff0fc8`
 - Exact final PR head: Retained in the pull-request description because recording a tracking commit's own SHA would recursively create another head
-- Change: Let the Retirement outlook flow directly into the main charts and report, then provide existing tax, RRIF, taxable-account, projection-completion, duration, and limitation evidence in five closed native disclosures under `Plan details`. Opened disclosures now organize that evidence into plain-language definition-list groups and an account table instead of reusing the former card copy. Tax evidence distinguishes total tax on all included income, tax already reflected in net income or opening-year context, and additional tax paid from projected cash and savings; the Ontario total explicitly says it includes surtax, and the conditional surtax row says it is included above. RRIF summaries include the conversion age, and the end-of-year RRSP/RRIF value is shown only when its annual projection point matches the RRIF evidence year. Taxable-account evidence explains tax cost/ACB; calculation evidence states coverage, any early-stop reason, the ending-balance rule, residence-equity exclusion, and the rule's plain-language source. Only warnings that call for review or configuration remain in `Action needed`, with visible `Error` and `Review` labels; informational compatibility and calculation notices remain auditable in the detailed section. Existing annual-tax and financial-assets-duration explanation targets are preserved inside disclosure content, and closed disclosure evidence remains available in print.
-- Follow-up boundary: PR 4 retains comprehensive visual-system, responsive, print, typography, and accessibility polish. This PR includes only the focused layout, disclosure, warning, and print-preservation styles required by the technical-detail reorganization.
-- Preserved contracts: Projection and solver calculations, tax calculations, RRIF behaviour, savings policies, configuration behaviour, APIs, schemas, JSON and CSV export structures, export filenames, and exported numeric values are unchanged.
-- Synthetic validation: Passed locally — 87 focused Plan details, dashboard, explanation, typography, and print tests across 3 files; 581 tests across the complete 32-file suite; typecheck, lint, production build, diff check, Docker image build, Compose validation, isolated schema-aware health smoke with the public synthetic example (`5.0` baseline schema and `13.0` projection schema), and clean container removal. Exact live-head hosted CI and Docker results are retained in the pull-request description. No private planner configuration or values were accessed.
-- Latest merged `main`: `b7223466dce4c47faa295aa9555ca40f69623895`
+- Change: Consolidate the application around compact neutral surfaces, mint/teal primary accents, consistent spacing/radius/focus tokens, and a 14px user-facing typography floor. Flatten the Retirement outlook composition, present supporting figures as one divided 4/2/1-column grid, keep the calculated minimum secondary, standardize report and chart presentation, centralize chart colours, and label chart figures from visible headings. Reorder the six same-page navigation destinations, add Plan details, remove static `aria-current`, add a focus-visible skip link, and provide pressed-state semantics for the renamed inflation-adjusted/future-dollar controls. Improve contained responsive tables, viewport-bounded drawers, long-value wrapping, 40/44px interaction targets, reduced-motion handling, Assumptions and data sources wording, and printable disclosure/table behaviour while preserving PR 3 evidence.
+- Browser-validation state: Firefox is installed, but no existing browser automation or screenshot harness can exercise the live-data dashboard, drawers, disclosures, zoom, and print preview. Meaningful browser validation was unavailable without adding a dependency or accessing private configuration; neither was done. Focused jsdom and CSS/source tests cover the structural, interaction, responsive, and print contracts.
+- Preserved contracts: Projection and solver calculations, tax and RRIF behaviour, taxable-account and savings policies, registered room, balances, warning classification and serialization, Lunch Money ingestion, scenario overrides, YAML configuration semantics, APIs, schemas, JSON and CSV export structures, export filenames, and exported numeric values are unchanged.
+- Synthetic validation: Passed locally — 52 focused visual/layout/accessibility/print, dashboard, and explanation tests; 42 focused configuration and drawer tests; 81 focused export/privacy/runtime tests; 587 tests across the complete 32-file suite; typecheck, lint, production build, diff check, Docker image build, Compose validation, isolated schema-aware health smoke with the public synthetic example (`5.0` baseline schema and `13.0` projection schema), and clean container and temporary-file removal. No private planner configuration or values were accessed.
+- Latest merged `main`: `343e3af4cc689b37e44312ba1507d68a45ec5fc7`
 - Last completed dashboard redesign stage: PR 3, [#30 Organize technical plan details](https://github.com/danielnguyen/lunchmoney-retirement-planner/pull/30)
 - PR #30 merge commit: `b7223466dce4c47faa295aa9555ca40f69623895`
 - Previous completed dashboard redesign stage: PR 2, [#29 Clarify the retirement overview](https://github.com/danielnguyen/lunchmoney-retirement-planner/pull/29)
@@ -35,8 +31,8 @@ Public tracking must remain generic and must not contain private financial value
 - PR #28 merge commit: `4dff690e63e567802d220df04c6478010d494307`
 - Last completed private migration: Passed — the operating-cash policy was updated and validated locally without publishing private values
 - Private smoke state: Passed — the unchanged private configuration normalized through non-registered compatibility without reporting values. Simplified private mode was not run because explicit ACB and distribution assumptions are absent.
-- Remaining step: None for PR 3
-- Next action: Begin PR 4 only after a fresh preflight from synchronized `main`
+- Remaining step: Hosted CI and Docker workflows must pass on the exact final PR head; keep PR #31 draft and unmerged
+- Next action: Confirm both hosted workflows pass on the exact final head, then hand off PR #31 for review
 
 ## Planned implementation sequence
 
@@ -87,4 +83,4 @@ Planning order is project-management shorthand only. Production names must descr
 
 ## New-conversation handoff
 
-> Read `AGENTS.md`, `plan/roadmap.md`, and `plan/implementation-index.md`. PRs #28, #29, and [#30](https://github.com/danielnguyen/lunchmoney-retirement-planner/pull/30) completed the compact shell, retirement overview, and Plan details hierarchy. PR 3 merged as `b7223466dce4c47faa295aa9555ca40f69623895`; no implementation pull request is open. PR 4 retains comprehensive visual-system, responsive, print, typography, and accessibility polish and must start from a freshly synchronized `main` after preflight.
+> Read `AGENTS.md`, `plan/roadmap.md`, and `plan/implementation-index.md`. PRs #28, #29, and #30 completed the compact shell, retirement overview, and Plan details hierarchy. Draft [PR #31](https://github.com/danielnguyen/lunchmoney-retirement-planner/pull/31) is PR 4 of 4 and contains the final visual-system, responsive, print, typography, and accessibility polish from synchronized starting commit `343e3af4cc689b37e44312ba1507d68a45ec5fc7`. Local validation passed without private configuration access or financial-contract changes; confirm hosted CI and Docker pass on its exact final head while keeping it draft and unmerged.
