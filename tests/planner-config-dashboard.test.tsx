@@ -139,6 +139,8 @@ describe("dashboard config-save baseline transitions", () => {
     expect(futureButton).toHaveAttribute("aria-pressed", "true");
     expect(outlookView.getByText(retirementHeadline!)).toBeInTheDocument();
     expect(screen.getByRole("link", { name: "Skip to retirement outlook" })).toHaveAttribute("href", "#overview");
+    expect(outlook).toHaveAttribute("id", "overview");
+    expect(outlook).toHaveAttribute("tabindex", "-1");
     expect(screen.getByText("Annual spending projection")).toBeInTheDocument();
     expect(screen.getByRole("figure", { name: "Annual spending projection" })).toBeInTheDocument();
     expect(screen.getByRole("heading", { name: "Assumptions and data sources" })).toBeInTheDocument();

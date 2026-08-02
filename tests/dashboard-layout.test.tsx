@@ -296,6 +296,30 @@ describe("unified planner configuration drawer", () => {
     expect(print).not.toContain(".retirement-outlook, .report-card, .plan-details-disclosure { break-inside: avoid;");
   });
 
+  it("shows focus on the programmatically focusable retirement outlook", async () => {
+    const css = await readFile("app/globals.css", "utf8");
+    const focusRuleStart = css.indexOf(".retirement-outlook:focus-visible");
+    const focusRule = css.slice(
+      focusRuleStart,
+      css.indexOf("}", focusRuleStart) + 1,
+    );
+
+    expect(focusRuleStart).toBeGreaterThan(-1);
+    expect(focusRule).toContain("outline: var(--focus-outline)");
+    expect(focusRule).toContain("outline-offset: 4px");
+  });
+
+  it("prints nested surfaces and dark-theme chart text with light-page contrast", async () => {
+    const css = await readFile("app/globals.css", "utf8");
+    const print = css.slice(css.indexOf("@media print"));
+
+    expect(print).toContain(".connection-badge, .pill, .milestone, .observation, .warning-severity-label, .plan-details-disclosure summary { color: #111; background: #fff; }");
+    expect(print).toContain(".warning-panel { border-color: #777; background: #fff; }");
+    expect(print).toContain(".chart-shell .recharts-text, .chart-shell .recharts-cartesian-axis-tick-value, .chart-shell .recharts-label { fill: #222 !important;");
+    expect(print).toContain('.chart-shell [fill="#aeb8b3"], .chart-shell [fill="#f6f8fb"] { fill: #444 !important; }');
+    expect(print).toContain('.chart-shell [stroke="#aeb8b3"], .chart-shell [stroke="#f6f8fb"] { stroke: #444 !important; }');
+  });
+
   it("mounts exactly one controls tree in the drawer and never in the report column", async () => {
     const dashboard = await readFile("components/planner-dashboard.tsx", "utf8");
     const mountedPanels = dashboard.match(/<ScenarioControlsPanel/g) ?? [];
@@ -341,7 +365,7 @@ describe("unified planner configuration drawer", () => {
 
   it("makes the personal target primary and the plan minimum explicitly secondary", async () => {
     const dashboard = await readFile("components/planner-dashboard.tsx", "utf8");
-    const outlookStart = dashboard.indexOf('<section id="overview" className="retirement-outlook"');
+    const outlookStart = dashboard.indexOf('id="overview"');
     const outlook = dashboard.slice(
       outlookStart,
       dashboard.indexOf('<section className="report-layout">', outlookStart),
@@ -477,7 +501,7 @@ describe("unified planner configuration drawer", () => {
       "components/planner-dashboard.tsx",
       "utf8",
     );
-    const outlook = dashboard.indexOf('<section id="overview" className="retirement-outlook"');
+    const outlook = dashboard.indexOf('id="overview"');
     const report = dashboard.indexOf('<section className="report-layout">');
     const details = dashboard.indexOf('<section id="plan-details" className="plan-details"');
     const assumptions = dashboard.indexOf('<section id="assumptions" className="report-card assumptions">');

@@ -107,6 +107,7 @@ main { width: min(1540px, calc(100% - 32px)); margin: 0 auto; padding: var(--spa
 #overview, #retirement-income, #spending, #accounts, #plan-details, #assumptions { scroll-margin-top: 110px; }
 
 .retirement-outlook { padding: var(--space-5); margin-bottom: var(--space-4); border: 1px solid rgba(112, 214, 178, 0.42); border-radius: var(--radius-section); background: var(--surface-2); }
+.retirement-outlook:focus-visible { outline: var(--focus-outline); outline-offset: 4px; }
 .retirement-outlook-heading { display: flex; align-items: flex-start; justify-content: space-between; gap: 16px; }
 .retirement-outlook-heading h2 { margin: 5px 0 0; font-size: clamp(1.35rem, 2.4vw, 1.75rem); }
 .retirement-outlook-primary { display: grid; grid-template-columns: minmax(0, 1.5fr) minmax(240px, 0.7fr); gap: var(--space-5); align-items: stretch; padding: var(--space-5) 0; }
@@ -429,6 +430,9 @@ code, pre, .mapping-reference-row, .config-editor-meta strong, .assumption-grid 
   .application-title-group p, .application-status-copy p, .plan-details-status, .plan-detail-evidence small, .plan-detail-group > p, .plan-detail-context, .plan-detail-technical-list, .section-kicker, .pill, .milestone, .observation p, dt { color: #555; }
   .application-status-panel { padding: 8px 0; border-width: 1px 0; background: #fff; }
   .retirement-outlook, .plan-details, .plan-details-disclosure, .report-card { box-shadow: none; border-color: #bbb; background: #fff; color: #111; }
+  .connection-badge, .pill, .milestone, .observation, .warning-severity-label, .plan-details-disclosure summary { color: #111; background: #fff; }
+  .warning-panel { border-color: #777; background: #fff; }
+  .warning-panel p, .warning-panel ul, .warning-panel li { color: #111; }
   .retirement-outlook { break-inside: avoid; }
   .report-card, .plan-details, .plan-details-disclosure { break-inside: auto; }
   .section-heading, .explainable-heading, h2, h3 { break-after: avoid; }
@@ -438,6 +442,10 @@ code, pre, .mapping-reference-row, .config-editor-meta strong, .assumption-grid 
   .report-card { margin-bottom: 16px; }
   .two-column { display: grid; grid-template-columns: 1fr 1fr; }
   .chart-shell { height: 280px !important; overflow: visible; break-inside: auto; }
+  .chart-shell .recharts-text, .chart-shell .recharts-cartesian-axis-tick-value, .chart-shell .recharts-label { fill: #222 !important; color: #222 !important; }
+  .chart-shell .recharts-legend-item-text { color: #222 !important; }
+  .chart-shell [fill="#aeb8b3"], .chart-shell [fill="#f6f8fb"] { fill: #444 !important; }
+  .chart-shell [stroke="#aeb8b3"], .chart-shell [stroke="#f6f8fb"] { stroke: #444 !important; }
   .table-shell, .plan-detail-table-shell, .explanation-table-shell { max-height: none; overflow: visible; border-color: #777; }
   table, .plan-detail-table, .explanation-table-shell table { width: 100%; min-width: 0; table-layout: auto; font-size: 10.5pt; }
   thead { display: table-header-group; }

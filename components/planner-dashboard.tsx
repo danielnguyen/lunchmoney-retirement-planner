@@ -1955,7 +1955,12 @@ export function PlannerDashboard() {
 
       {projection ? (
         <>
-          <section id="overview" className="retirement-outlook" aria-labelledby="retirement-outlook-title">
+          <section
+            id="overview"
+            className="retirement-outlook"
+            aria-labelledby="retirement-outlook-title"
+            tabIndex={-1}
+          >
             <div className="retirement-outlook-heading">
               <div>
                 <span className="section-kicker">Overview</span>
