@@ -11,9 +11,9 @@ Public tracking must remain generic and must not contain private financial value
 - Planning status: None
 - Open implementation pull request: [#31 Polish the retirement planner dashboard](https://github.com/danielnguyen/lunchmoney-retirement-planner/pull/31)
 - Open maintenance pull request: None
-- Pull request state: Open, draft, mergeable, and unmerged; hosted validation is pending on the exact tracking head
+- Pull request state: Open, draft, mergeable, and unmerged; exact live-head hosted validation results are retained in the pull-request description
 - Active implementation: Final dashboard visual, responsive, print, typography, and accessibility polish
-- Status: PR 4 of 4 is implemented and validated locally; the planned dashboard redesign will be complete after hosted validation and merge
+- Status: PR 4 of 4 is implemented and validated locally and in hosted workflows; the planned dashboard redesign will be complete after review and merge
 - Implementation branch: `agent/final-dashboard-polish`
 - Starting synchronized-main SHA: `343e3af4cc689b37e44312ba1507d68a45ec5fc7`
 - Validated implementation commit: `79294d84e3e38f5252a0ccab51890e51fbff0fc8`
@@ -31,8 +31,8 @@ Public tracking must remain generic and must not contain private financial value
 - PR #28 merge commit: `4dff690e63e567802d220df04c6478010d494307`
 - Last completed private migration: Passed — the operating-cash policy was updated and validated locally without publishing private values
 - Private smoke state: Passed — the unchanged private configuration normalized through non-registered compatibility without reporting values. Simplified private mode was not run because explicit ACB and distribution assumptions are absent.
-- Remaining step: Hosted CI and Docker workflows must pass on the exact final PR head; keep PR #31 draft and unmerged
-- Next action: Confirm both hosted workflows pass on the exact final head, then hand off PR #31 for review
+- Remaining step: Keep PR #31 draft and unmerged for review
+- Next action: Hand off PR #31 with its exact final head and hosted results retained in the pull-request description
 
 ## Planned implementation sequence
 
@@ -83,4 +83,4 @@ Planning order is project-management shorthand only. Production names must descr
 
 ## New-conversation handoff
 
-> Read `AGENTS.md`, `plan/roadmap.md`, and `plan/implementation-index.md`. PRs #28, #29, and #30 completed the compact shell, retirement overview, and Plan details hierarchy. Draft [PR #31](https://github.com/danielnguyen/lunchmoney-retirement-planner/pull/31) is PR 4 of 4 and contains the final visual-system, responsive, print, typography, and accessibility polish from synchronized starting commit `343e3af4cc689b37e44312ba1507d68a45ec5fc7`. Local validation passed without private configuration access or financial-contract changes; confirm hosted CI and Docker pass on its exact final head while keeping it draft and unmerged.
+> Read `AGENTS.md`, `plan/roadmap.md`, and `plan/implementation-index.md`. PRs #28, #29, and #30 completed the compact shell, retirement overview, and Plan details hierarchy. Draft [PR #31](https://github.com/danielnguyen/lunchmoney-retirement-planner/pull/31) is PR 4 of 4 and contains the final visual-system, responsive, print, typography, and accessibility polish from synchronized starting commit `343e3af4cc689b37e44312ba1507d68a45ec5fc7`. Local and hosted validation passed without private configuration access or financial-contract changes; the exact final head and hosted run results are retained in the pull-request description. Keep the pull request draft and unmerged for review.
