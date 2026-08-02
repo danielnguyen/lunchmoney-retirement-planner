@@ -400,7 +400,7 @@ describe("unified planner configuration drawer", () => {
     }
   });
 
-  it("renders projection completion independently from the derived requirement", async () => {
+  it("renders plain-language calculation coverage independently from the requirement", async () => {
     const dashboard = await readFile(
       "components/planner-dashboard.tsx",
       "utf8",
@@ -409,47 +409,98 @@ describe("unified planner configuration drawer", () => {
       dashboard.indexOf('<span className="plan-details-title">How this plan was calculated</span>'),
       dashboard.indexOf("</details>", dashboard.indexOf('<span className="plan-details-title">How this plan was calculated</span>')),
     );
-    const completionCard = dashboard.slice(
-      dashboard.indexOf("<span>Projection completion</span>"),
-      dashboard.indexOf(
-        "</article>",
-        dashboard.indexOf("<span>Projection completion</span>"),
-      ),
-    );
-    const durationCard = dashboard.slice(
-      dashboard.indexOf('target="financial-assets-duration"'),
-      dashboard.indexOf(
-        "</article>",
-        dashboard.indexOf('target="financial-assets-duration"'),
-      ),
-    );
-
-    expect(completionCard).toContain(
+    expect(calculationDisclosure).toContain(
       'projection.projectionCompletion.status === "complete"',
     );
-    expect(completionCard).toContain("Projected path stopped early");
-    expect(completionCard).toContain("completedThroughDate");
-    expect(completionCard).toContain("stoppedBeforeMonth");
-    expect(durationCard).toContain("Not established");
-    expect(durationCard).toContain("last completed balance");
+    expect(calculationDisclosure).toContain("Planned final age");
+    expect(calculationDisclosure).toContain("Last completed date");
+    expect(calculationDisclosure).toContain("Last completed age");
+    expect(calculationDisclosure).toContain("Stopped early — the full plan was not calculated");
+    expect(calculationDisclosure).toContain("Why it stopped");
+    expect(calculationDisclosure).toContain("Stopped before");
+    expect(calculationDisclosure).toContain("Minimum ending financial assets");
+    expect(calculationDisclosure).toContain("Is home equity excluded from retirement funding?");
+    expect(calculationDisclosure).toContain("Source of this rule");
     expect(calculationDisclosure).toContain('target="financial-assets-duration"');
     expect(dashboard).toContain(
       "projection.retirementRequirement.status === \"available\"",
     );
   });
 
-  it("renders shared RRIF lifecycle and annual minimum evidence", async () => {
+  it("renders RRIF evidence with plain-language rows", async () => {
     const dashboard = await readFile(
       "components/planner-dashboard.tsx",
       "utf8",
     );
     expect(dashboard).toContain('<span className="plan-details-title">RRSP and RRIF withdrawals</span>');
-    expect(dashboard).toContain("<span>RRIF lifecycle</span>");
-    expect(dashboard).toContain("Statutory minimums active");
-    expect(dashboard).toContain("Compatibility milestone only");
+    expect(dashboard).toContain("Required RRIF withdrawals are included from age");
+    expect(dashboard).toContain("RRIF conversion is shown at age");
+    expect(dashboard).toContain("Value at the start of the year");
+    expect(dashboard).toContain("Minimum withdrawal required");
+    expect(dashboard).toContain("Regular withdrawals");
+    expect(dashboard).toContain("Additional year-end withdrawal needed");
+    expect(dashboard).toContain("Minimum still outstanding");
+    expect(dashboard).toContain("Value remaining after withdrawals");
     expect(dashboard).toContain("latestRrifPeriod.minimumRequired");
     expect(dashboard).toContain("latestRrifPeriod.forcedDecemberWithdrawal");
     expect(dashboard).toContain("latestRrifPeriod.remainingMinimum");
+  });
+
+  it("keeps first-level Plan details free of the retired card terminology", async () => {
+    const dashboard = await readFile("components/planner-dashboard.tsx", "utf8");
+    const details = dashboard.indexOf('<section id="plan-details" className="plan-details"');
+    const assumptions = dashboard.indexOf('<section id="assumptions" className="report-card assumptions">');
+    const planDetails = dashboard.slice(details, assumptions);
+    const summaries = [...planDetails.matchAll(/<summary>([\s\S]*?)<\/summary>/g)]
+      .map((match) => match[1])
+      .join("\n");
+    const taxes = planDetails.slice(
+      planDetails.indexOf('<span className="plan-details-title">Taxes included</span>'),
+      planDetails.indexOf("Detailed tax calculation"),
+    );
+    const rrif = planDetails.slice(
+      planDetails.indexOf('<span className="plan-details-title">RRSP and RRIF withdrawals</span>'),
+      planDetails.indexOf("Technical calculation details"),
+    );
+    const taxable = planDetails.slice(
+      planDetails.indexOf('<span className="plan-details-title">Taxable investment account</span>'),
+      planDetails.indexOf("Account-by-account values"),
+    );
+    const firstLevelContent = [summaries, taxes, rrif, taxable].join("\n");
+
+    for (const term of [
+      "deterministic tax model",
+      "Compatibility milestone only",
+      "Statutory minimums active",
+      "Simplified Canadian mode active",
+      "embedded/outside projection",
+      "projection-funded",
+      "owner age basis",
+      "settlement timing",
+      "ACB disposed",
+    ]) {
+      expect(firstLevelContent).not.toContain(term);
+    }
+    expect(planDetails).toContain("Total estimated tax on all income included for the year");
+    expect(planDetails).toContain("Tax already reflected in net income or opening-year context");
+    expect(planDetails).toContain("Additional tax paid from projected cash and savings");
+  });
+
+  it("keeps important Plan details text at or above the typography floor", async () => {
+    const css = await readFile("app/globals.css", "utf8");
+    for (const selector of [
+      ".plan-detail-evidence > span:first-child",
+      ".plan-detail-evidence small",
+      ".plan-detail-explanation-heading .explainable-title-row > span:first-child",
+      ".plan-detail-definition-list dt, .plan-detail-definition-list dd",
+      ".plan-detail-technical-list",
+      ".plan-detail-table th, .plan-detail-table td",
+    ]) {
+      const start = css.indexOf(selector);
+      const rule = css.slice(start, css.indexOf("}", start) + 1);
+      expect(start).toBeGreaterThan(-1);
+      expect(rule).toContain("font-size: 0.875rem");
+    }
   });
 
   it("opens guided controls by default and exposes one stable ARIA contract", () => {
