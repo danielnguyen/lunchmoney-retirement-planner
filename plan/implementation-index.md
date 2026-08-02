@@ -11,9 +11,9 @@ Public tracking must remain generic and must not contain private financial value
 - Planning status: None
 - Open implementation pull request: [#30 Organize technical plan details](https://github.com/danielnguyen/lunchmoney-retirement-planner/pull/30)
 - Open maintenance pull request: None
-- Pull request state: [#30 Organize technical plan details](https://github.com/danielnguyen/lunchmoney-retirement-planner/pull/30) is open as a draft, mergeable, and unmerged; hosted validation is pending on the tracking head
+- Pull request state: [#30 Organize technical plan details](https://github.com/danielnguyen/lunchmoney-retirement-planner/pull/30) is open as a draft, mergeable, and unmerged; exact live-head hosted validation is retained in the pull-request description
 - Active implementation: Technical plan-detail and warning-information hierarchy
-- Status: PR 3 implementation, local validation, and draft publication are complete; hosted validation remains pending
+- Status: PR 3 implementation, validation, and draft publication are complete; exact live-head hosted validation is retained in the pull-request description
 - Implementation branch: `agent/organize-plan-details`
 - Starting merged-main SHA: `e1989aceaf4ba31ef9154eedb5e2dd6afdb722ff`
 - Validated implementation commit: `186d60bf42f9b6d6da3e3d1d5c872803ea10ad3e`
@@ -21,7 +21,7 @@ Public tracking must remain generic and must not contain private financial value
 - Change: Let the Retirement outlook flow directly into the main charts and report, then provide the existing tax, RRIF, taxable-account, projection-completion, duration, and limitation evidence in five closed native disclosures under `Plan details`. Only warnings that call for review or configuration remain in the `Action needed` panel above the outlook; informational compatibility and calculation notices remain auditable in the detailed section. Existing annual-tax and financial-assets-duration explanation targets are preserved inside disclosure content, and closed disclosure evidence remains available in print.
 - Follow-up boundary: PR 4 retains comprehensive visual-system, responsive, print, typography, and accessibility polish. This PR includes only the focused layout, disclosure, warning, and print-preservation styles required by the technical-detail reorganization.
 - Preserved contracts: Projection and solver calculations, tax calculations, RRIF behaviour, savings policies, configuration behaviour, APIs, schemas, JSON and CSV export structures, export filenames, and exported numeric values are unchanged.
-- Synthetic validation: Passed locally — 88 focused dashboard, warning, explanation, and print tests across 4 files; 574 tests across the complete 32-file suite; typecheck, lint, production build, diff check, Docker image build, Compose validation, isolated schema-aware health smoke with the public synthetic example, and clean container removal. No private planner configuration or values were accessed.
+- Synthetic validation: Passed locally — 88 focused dashboard, warning, explanation, and print tests across 4 files; 574 tests across the complete 32-file suite; typecheck, lint, production build, diff check, Docker image build, Compose validation, isolated schema-aware health smoke with the public synthetic example, and clean container removal. Exact live-head hosted CI and Docker results are retained in the pull-request description. No private planner configuration or values were accessed.
 - Latest merged `main`: `e1989aceaf4ba31ef9154eedb5e2dd6afdb722ff`
 - Last completed dashboard redesign stage: PR 2, [#29 Clarify the retirement overview](https://github.com/danielnguyen/lunchmoney-retirement-planner/pull/29)
 - PR #29 merge commit: `e1989aceaf4ba31ef9154eedb5e2dd6afdb722ff`
@@ -29,7 +29,7 @@ Public tracking must remain generic and must not contain private financial value
 - PR #28 merge commit: `4dff690e63e567802d220df04c6478010d494307`
 - Last completed private migration: Passed — the operating-cash policy was updated and validated locally without publishing private values
 - Private smoke state: Passed — the unchanged private configuration normalized through non-registered compatibility without reporting values. Simplified private mode was not run because explicit ACB and distribution assumptions are absent.
-- Remaining step: Push this tracking update, update the pull-request description with the exact final head, and confirm hosted CI and Docker validation on that head
+- Remaining step: Keep PR #30 draft and unmerged; exact live-head hosted results are retained in the pull-request description because another tracking commit would create a new head recursively
 - Next action: Keep PR #30 draft and unmerged; do not begin PR 4 work
 
 ## Planned implementation sequence
