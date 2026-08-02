@@ -9,12 +9,12 @@ Public tracking must remain generic and must not contain private financial value
 - Open roadmap planning pull request: None
 - Planning branch: None
 - Planning status: None
-- Open implementation pull request: [#30 Organize technical plan details](https://github.com/danielnguyen/lunchmoney-retirement-planner/pull/30)
+- Open implementation pull request: None
 - Open maintenance pull request: None
-- Pull request state: [#30 Organize technical plan details](https://github.com/danielnguyen/lunchmoney-retirement-planner/pull/30) is open as a draft, mergeable, and unmerged; exact live-head hosted validation is retained in the pull-request description
-- Active implementation: Technical plan-detail and warning-information hierarchy
-- Status: PR 3 implementation, validation, and draft publication are complete; exact live-head hosted validation is retained in the pull-request description
-- Implementation branch: `agent/organize-plan-details`
+- Pull request state: [#30 Organize technical plan details](https://github.com/danielnguyen/lunchmoney-retirement-planner/pull/30) merged successfully after hosted validation passed on its exact final head
+- Active implementation: None
+- Status: PR 3 is completed and merged; PR 4 remains the next dashboard-redesign stage
+- Implementation branch: None
 - Starting merged-main SHA: `e1989aceaf4ba31ef9154eedb5e2dd6afdb722ff`
 - Initial PR implementation commit: `186d60bf42f9b6d6da3e3d1d5c872803ea10ad3e`
 - Plain-language correction starting head: `b42fb7f8c793a457ecd94a49afd350662d2d9200`
@@ -26,15 +26,17 @@ Public tracking must remain generic and must not contain private financial value
 - Follow-up boundary: PR 4 retains comprehensive visual-system, responsive, print, typography, and accessibility polish. This PR includes only the focused layout, disclosure, warning, and print-preservation styles required by the technical-detail reorganization.
 - Preserved contracts: Projection and solver calculations, tax calculations, RRIF behaviour, savings policies, configuration behaviour, APIs, schemas, JSON and CSV export structures, export filenames, and exported numeric values are unchanged.
 - Synthetic validation: Passed locally — 87 focused Plan details, dashboard, explanation, typography, and print tests across 3 files; 581 tests across the complete 32-file suite; typecheck, lint, production build, diff check, Docker image build, Compose validation, isolated schema-aware health smoke with the public synthetic example (`5.0` baseline schema and `13.0` projection schema), and clean container removal. Exact live-head hosted CI and Docker results are retained in the pull-request description. No private planner configuration or values were accessed.
-- Latest merged `main`: `e1989aceaf4ba31ef9154eedb5e2dd6afdb722ff`
-- Last completed dashboard redesign stage: PR 2, [#29 Clarify the retirement overview](https://github.com/danielnguyen/lunchmoney-retirement-planner/pull/29)
+- Latest merged `main`: `b7223466dce4c47faa295aa9555ca40f69623895`
+- Last completed dashboard redesign stage: PR 3, [#30 Organize technical plan details](https://github.com/danielnguyen/lunchmoney-retirement-planner/pull/30)
+- PR #30 merge commit: `b7223466dce4c47faa295aa9555ca40f69623895`
+- Previous completed dashboard redesign stage: PR 2, [#29 Clarify the retirement overview](https://github.com/danielnguyen/lunchmoney-retirement-planner/pull/29)
 - PR #29 merge commit: `e1989aceaf4ba31ef9154eedb5e2dd6afdb722ff`
 - Previous dashboard redesign stage: PR 1, [#28 Compact the retirement planner application shell](https://github.com/danielnguyen/lunchmoney-retirement-planner/pull/28)
 - PR #28 merge commit: `4dff690e63e567802d220df04c6478010d494307`
 - Last completed private migration: Passed — the operating-cash policy was updated and validated locally without publishing private values
 - Private smoke state: Passed — the unchanged private configuration normalized through non-registered compatibility without reporting values. Simplified private mode was not run because explicit ACB and distribution assumptions are absent.
-- Remaining step: Keep PR #30 draft and unmerged; exact live-head hosted results are retained in the pull-request description because another tracking commit would create a new head recursively
-- Next action: Keep PR #30 draft and unmerged; do not begin PR 4 work
+- Remaining step: None for PR 3
+- Next action: Begin PR 4 only after a fresh preflight from synchronized `main`
 
 ## Planned implementation sequence
 
@@ -85,4 +87,4 @@ Planning order is project-management shorthand only. Production names must descr
 
 ## New-conversation handoff
 
-> Read `AGENTS.md`, `plan/roadmap.md`, and `plan/implementation-index.md`. PRs #28 and #29 completed the compact shell and retirement overview. PR 3 is open as draft [#30](https://github.com/danielnguyen/lunchmoney-retirement-planner/pull/30) on `agent/organize-plan-details` from synchronized `main` at `e1989aceaf4ba31ef9154eedb5e2dd6afdb722ff`. Its scope is limited to the Plan details disclosures and actionable-warning hierarchy. PR 4 retains comprehensive visual-system, responsive, print, typography, and accessibility polish.
+> Read `AGENTS.md`, `plan/roadmap.md`, and `plan/implementation-index.md`. PRs #28, #29, and [#30](https://github.com/danielnguyen/lunchmoney-retirement-planner/pull/30) completed the compact shell, retirement overview, and Plan details hierarchy. PR 3 merged as `b7223466dce4c47faa295aa9555ca40f69623895`; no implementation pull request is open. PR 4 retains comprehensive visual-system, responsive, print, typography, and accessibility polish and must start from a freshly synchronized `main` after preflight.
