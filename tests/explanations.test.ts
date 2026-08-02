@@ -1,5 +1,8 @@
 import { describe, expect, it } from "vitest";
-import { resolveActiveScenarioWarnings } from "@/src/domain/baseline/scenario-warnings";
+import {
+  organizeScenarioWarnings,
+  resolveActiveScenarioWarnings,
+} from "@/src/domain/baseline/scenario-warnings";
 import { buildExplanation } from "@/src/domain/explanations/build";
 import {
   explanationTargets,
@@ -889,6 +892,31 @@ describe("calculation explanations", () => {
       configuredNumeric.baseline,
       configuredNumeric.inputs,
     ).some((warning) => warning.code === "long_live_baseline_income")).toBe(false);
+  });
+
+  it("separates action-needed warnings from calculation notes", () => {
+    const warnings = [
+      {
+        code: "suspicious_employment_income_bases" as const,
+        severity: "warning" as const,
+        message: "Review the configured income bases.",
+      },
+      {
+        code: "canadian_tax_provisional" as const,
+        severity: "warning" as const,
+        message: "Canadian tax coverage is provisional.",
+      },
+      {
+        code: "supported_tax_model_complete" as const,
+        severity: "error" as const,
+        message: "Synthetic error severity remains actionable.",
+      },
+    ];
+
+    expect(organizeScenarioWarnings(warnings)).toEqual({
+      actionRequired: [warnings[0], warnings[2]],
+      calculationNotes: [warnings[1]],
+    });
   });
 
   it("reconciles imported and projection-only financial accounts to the included-account count", () => {

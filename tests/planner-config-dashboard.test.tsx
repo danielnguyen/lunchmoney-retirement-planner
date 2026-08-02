@@ -103,8 +103,24 @@ describe("dashboard config-save baseline transitions", () => {
     expect(screen.getByText("Annual spending projection")).toBeInTheDocument();
     expect(screen.queryByText("Owner goal marker")).not.toBeInTheDocument();
     expect(screen.queryByText("Owner-goal difference")).not.toBeInTheDocument();
-    expect(screen.getByText("Tax status")).toBeInTheDocument();
-    expect(screen.getByText("Provisional")).toBeInTheDocument();
+    const planDetails = await screen.findByRole("region", { name: "Plan details" });
+    const disclosureTitles = [
+      "Taxes included",
+      "RRSP and RRIF withdrawals",
+      "Taxable investment account",
+      "How this plan was calculated",
+      "Calculation notes and limitations",
+    ];
+    for (const title of disclosureTitles) {
+      const disclosure = within(planDetails).getByText(title).closest("details");
+      expect(disclosure).not.toHaveAttribute("open");
+    }
+    expect(within(planDetails).getByText("A simplified flat retirement-tax estimate is used.")).toBeVisible();
+    expect(within(planDetails).getByText("Tax status")).not.toBeVisible();
+    expect(within(planDetails).getByText("Provisional")).not.toBeVisible();
+    fireEvent.click(within(planDetails).getByText("Taxes included").closest("summary")!);
+    expect(within(planDetails).getByText("Tax status")).toBeVisible();
+    expect(within(planDetails).getByText("Provisional")).toBeVisible();
     expect(
       screen.getByText(/progressive Canadian taxes and RRIF minimums/),
     ).toBeInTheDocument();
@@ -161,8 +177,10 @@ describe("dashboard config-save baseline transitions", () => {
 
     render(<PlannerDashboard />);
 
+    const planDetails = await screen.findByRole("region", { name: "Plan details" });
+    fireEvent.click(within(planDetails).getByText("Taxes included").closest("summary")!);
     expect(
-      await screen.findByText("Canadian annual tax · latest modelled period"),
+      within(planDetails).getByText("Canadian annual tax · latest modelled period"),
     ).toBeInTheDocument();
     expect(screen.getAllByText(/Canada \/ Ontario/).length).toBeGreaterThan(0);
     expect(screen.getByText(/Full liability/)).toBeInTheDocument();
@@ -170,6 +188,43 @@ describe("dashboard config-save baseline transitions", () => {
     expect(screen.getByText(/projection-funded/)).toBeInTheDocument();
     expect(screen.getAllByText(/RRIF minimum withdrawals/).length).toBeGreaterThan(0);
     expect(screen.getByText(/Opening tax-year context/)).toBeInTheDocument();
+  });
+
+  it("keeps only actionable warnings above the outlook and moves calculation notes into Plan details", async () => {
+    const baseline = structuredClone(currentBaselineFixture);
+    baseline.warnings = [
+      {
+        code: "suggested_recurring_ignored",
+        severity: "warning",
+        message: "Review synthetic suggested recurring items.",
+      },
+      {
+        code: "supported_tax_model_complete",
+        severity: "warning",
+        message: "Synthetic supported-model calculation note.",
+      },
+    ];
+    const projection = calculateProjection(baseline.projectionInputs);
+    const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
+      const url = requestUrl(input);
+      if (url === "/api/v1/baseline/current") return jsonResponse(baseline);
+      if (url === "/api/v1/projections") return jsonResponse(projection);
+      throw new Error(`Unexpected request: ${url}`);
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    render(<PlannerDashboard />);
+
+    const actionNeeded = await screen.findByRole("region", { name: "Action needed" });
+    expect(within(actionNeeded).getByText("Review synthetic suggested recurring items.")).toBeVisible();
+    expect(within(actionNeeded).queryByText("Synthetic supported-model calculation note.")).not.toBeInTheDocument();
+
+    const planDetails = await screen.findByRole("region", { name: "Plan details" });
+    expect(within(planDetails).getByText("Synthetic supported-model calculation note.")).not.toBeVisible();
+    fireEvent.click(
+      within(planDetails).getByText("Calculation notes and limitations").closest("summary")!,
+    );
+    expect(within(planDetails).getByText("Synthetic supported-model calculation note.")).toBeVisible();
   });
 
   it("shows the active terminal override separately from its compatibility YAML source", async () => {

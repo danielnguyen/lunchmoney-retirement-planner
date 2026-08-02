@@ -178,14 +178,14 @@ describe("unified planner configuration drawer", () => {
 
     expect(css).toContain(".application-header { position: sticky;");
     expect(css).toContain(
-      "#overview, #retirement-income, #spending, #accounts, #assumptions { scroll-margin-top: 110px; }",
+      "#overview, #retirement-income, #spending, #accounts, #plan-details, #assumptions { scroll-margin-top: 110px; }",
     );
     expect(tablet).toContain(
-      "#overview, #retirement-income, #spending, #accounts, #assumptions { scroll-margin-top: 12rem; }",
+      "#overview, #retirement-income, #spending, #accounts, #plan-details, #assumptions { scroll-margin-top: 12rem; }",
     );
     expect(mobile).toContain(".application-header { position: static;");
     expect(mobile).toContain(
-      "#overview, #retirement-income, #spending, #accounts, #assumptions { scroll-margin-top: 1rem; }",
+      "#overview, #retirement-income, #spending, #accounts, #plan-details, #assumptions { scroll-margin-top: 1rem; }",
     );
     expect(css).toContain(
       ".application-actions .button, .application-status-controls .button, .application-status-controls .segmented button { min-height: 34px; border-radius: 8px; padding: 7px 11px; font-size: 0.875rem; }",
@@ -244,7 +244,7 @@ describe("unified planner configuration drawer", () => {
     const outlookStart = dashboard.indexOf('<section id="overview" className="retirement-outlook"');
     const outlook = dashboard.slice(
       outlookStart,
-      dashboard.indexOf('<section className="summary-grid"', outlookStart),
+      dashboard.indexOf('<section className="report-layout">', outlookStart),
     );
 
     expect(outlookStart).toBeGreaterThan(-1);
@@ -266,7 +266,7 @@ describe("unified planner configuration drawer", () => {
     const css = await readFile("app/globals.css", "utf8");
     const outlookStyles = css.slice(
       css.indexOf(".retirement-outlook"),
-      css.indexOf(".summary-grid"),
+      css.indexOf(".report-layout"),
     );
     const importantLabelSelectors = [
       ".personal-target-comparison .explainable-title-row > span:first-child",
@@ -372,10 +372,42 @@ describe("unified planner configuration drawer", () => {
     );
   });
 
+  it("moves technical evidence after the main report into five semantic disclosures", async () => {
+    const dashboard = await readFile(
+      "components/planner-dashboard.tsx",
+      "utf8",
+    );
+    const outlook = dashboard.indexOf('<section id="overview" className="retirement-outlook"');
+    const report = dashboard.indexOf('<section className="report-layout">');
+    const details = dashboard.indexOf('<section id="plan-details" className="plan-details"');
+    const assumptions = dashboard.indexOf('<section id="assumptions" className="report-card assumptions">');
+    const planDetails = dashboard.slice(details, assumptions);
+
+    expect(outlook).toBeLessThan(report);
+    expect(report).toBeLessThan(details);
+    expect(details).toBeLessThan(assumptions);
+    expect(dashboard).not.toContain('className="summary-grid"');
+    expect(planDetails.match(/<details className="plan-details-disclosure">/g)).toHaveLength(5);
+    expect(planDetails).not.toContain("<details open");
+    expect(planDetails).toContain("Taxes included");
+    expect(planDetails).toContain("RRSP and RRIF withdrawals");
+    expect(planDetails).toContain("Taxable investment account");
+    expect(planDetails).toContain("How this plan was calculated");
+    expect(planDetails).toContain("Calculation notes and limitations");
+    for (const summary of planDetails.matchAll(/<summary>([\s\S]*?)<\/summary>/g)) {
+      expect(summary[1]).not.toContain("<button");
+      expect(summary[1]).not.toContain("ExplainableHeading");
+    }
+  });
+
   it("renders projection completion independently from the derived requirement", async () => {
     const dashboard = await readFile(
       "components/planner-dashboard.tsx",
       "utf8",
+    );
+    const calculationDisclosure = dashboard.slice(
+      dashboard.indexOf('<span className="plan-details-title">How this plan was calculated</span>'),
+      dashboard.indexOf("</details>", dashboard.indexOf('<span className="plan-details-title">How this plan was calculated</span>')),
     );
     const completionCard = dashboard.slice(
       dashboard.indexOf("<span>Projection completion</span>"),
@@ -400,6 +432,7 @@ describe("unified planner configuration drawer", () => {
     expect(completionCard).toContain("stoppedBeforeMonth");
     expect(durationCard).toContain("Not established");
     expect(durationCard).toContain("last completed balance");
+    expect(calculationDisclosure).toContain('target="financial-assets-duration"');
     expect(dashboard).toContain(
       "projection.retirementRequirement.status === \"available\"",
     );
@@ -410,6 +443,7 @@ describe("unified planner configuration drawer", () => {
       "components/planner-dashboard.tsx",
       "utf8",
     );
+    expect(dashboard).toContain('<span className="plan-details-title">RRSP and RRIF withdrawals</span>');
     expect(dashboard).toContain("<span>RRIF lifecycle</span>");
     expect(dashboard).toContain("Statutory minimums active");
     expect(dashboard).toContain("Compatibility milestone only");
@@ -578,6 +612,7 @@ describe("unified planner configuration drawer", () => {
     expect(css).not.toContain(".planner-config-drawer");
     expect(print).toContain(".lunch-money-mappings-overlay");
     expect(print).toContain("display: none !important");
+    expect(print).toContain(".plan-details-disclosure > :not(summary) { display: block !important; }");
   });
 });
 
