@@ -118,7 +118,28 @@ const exactCurrency = new Intl.NumberFormat("en-CA", {
   maximumFractionDigits: 2,
 });
 
-const accountColors = ["#d8bd65", "#d99269", "#8072d7", "#4eb5d2", "#70d6b2", "#a9cf6c"];
+const chartColors = {
+  axis: "#aeb8b3",
+  grid: "#39413e",
+  text: "#f6f8fb",
+  mint: "#70d6b2",
+  blue: "#55b8d8",
+  deepBlue: "#5d8fe8",
+  violet: "#9a86e8",
+  coral: "#e08b72",
+  red: "#ef7d86",
+  pink: "#c982c0",
+  slate: "#91a3b0",
+} as const;
+
+const accountColors = [
+  chartColors.blue,
+  chartColors.violet,
+  chartColors.mint,
+  chartColors.coral,
+  chartColors.deepBlue,
+  chartColors.pink,
+];
 
 const AGE_INTEGER_EPSILON = 0.000001;
 const overviewDate = new Intl.DateTimeFormat("en-CA", {
@@ -238,11 +259,11 @@ export function YearAgeTick({
     <g transform={`translate(${x}, ${y})`}>
       <text
         aria-label={`${year}, Age ${formatProjectedAge(row.age)}`}
-        fill="#9eb0c4"
+        fill={chartColors.axis}
         textAnchor="middle"
       >
         <tspan x="0" dy="14">{year}</tspan>
-        <tspan x="0" dy="15" fill="#7f93aa" fontSize="11">
+        <tspan x="0" dy="17" fill={chartColors.axis} fontSize="14">
           Age {formatProjectedAge(row.age)}
         </tspan>
       </text>
@@ -259,11 +280,11 @@ export function AnnualXAxis({
     <XAxis
       className="annual-year-age-axis"
       dataKey="year"
-      stroke="#9eb0c4"
+      stroke={chartColors.axis}
       minTickGap={28}
       height={52}
       tickMargin={8}
-      fontSize={12}
+      fontSize={14}
       tick={<YearAgeTick chartData={chartData} />}
     />
   );
@@ -1823,6 +1844,9 @@ export function PlannerDashboard() {
   return (
     <>
     <main>
+      <a className="skip-link no-print" href="#overview">
+        Skip to retirement outlook
+      </a>
       <header className="application-header">
         <div className="application-header-row">
           <div className="application-title-group">
@@ -1864,11 +1888,12 @@ export function PlannerDashboard() {
             </button>
           </div>
         </div>
-        <nav className="application-navigation no-print" aria-label="Planner sections">
-          <a href="#overview" aria-current="page">Overview</a>
-          <a href="#retirement-income">Retirement income</a>
+        <nav className="application-navigation no-print" aria-label="Jump to planner section">
+          <a href="#overview">Overview</a>
           <a href="#spending">Spending</a>
+          <a href="#retirement-income">Retirement income</a>
           <a href="#accounts">Accounts</a>
+          <a href="#plan-details">Plan details</a>
           <a href="#assumptions">Assumptions</a>
         </nav>
       </header>
@@ -1891,11 +1916,11 @@ export function PlannerDashboard() {
         <div className="application-status-controls no-print">
           <button type="button" className="button secondary" onClick={() => void refresh()}>Refresh Lunch Money</button>
           <div className="segmented" aria-label="Dollar display">
-            <button type="button" className={mode === "real" ? "active" : ""} onClick={() => setMode("real")}>
-              Today&apos;s dollars
+            <button type="button" aria-pressed={mode === "real"} className={mode === "real" ? "active" : ""} onClick={() => setMode("real")}>
+              Adjusted for inflation
             </button>
-            <button type="button" className={mode === "nominal" ? "active" : ""} onClick={() => setMode("nominal")}>
-              Future dollars
+            <button type="button" aria-pressed={mode === "nominal"} className={mode === "nominal" ? "active" : ""} onClick={() => setMode("nominal")}>
+              Future dollar amounts
             </button>
           </div>
           <span className="status" aria-live="polite">
@@ -1905,7 +1930,7 @@ export function PlannerDashboard() {
       </section>
 
       {actionRequired.length > 0 ? (
-        <section className="warning-panel" aria-labelledby="action-needed-title">
+        <section className="warning-panel" aria-labelledby="action-needed-title" aria-live="polite">
           <h2 id="action-needed-title">Action needed</h2>
           <p>Review these items before relying on the plan.</p>
           <ul>
@@ -2105,17 +2130,18 @@ export function PlannerDashboard() {
               <article id="spending" className="report-card wide-chart">
                 <ExplainableHeading
                   kicker="Expenses"
+                  headingId="annual-spending-title"
                   target="annual-spending"
                   title="Annual spending projection"
                   onExplain={openExplanation}
-                  trailing={<span className="pill">{mode === "real" ? "Today’s dollars" : "Future dollars"}</span>}
+                  trailing={<span className="pill">{mode === "real" ? "Adjusted for inflation" : "Future dollar amounts"}</span>}
                 />
-                <div className="chart-shell medium">
+                <figure className="chart-shell medium" aria-labelledby="annual-spending-title">
                   <ResponsiveContainer width="100%" height="100%">
                     <BarChart data={chartData}>
-                      <CartesianGrid stroke="#24364d" strokeDasharray="3 3" vertical={false} />
+                      <CartesianGrid stroke={chartColors.grid} strokeDasharray="3 3" vertical={false} />
                       <AnnualXAxis chartData={chartData} />
-                      <YAxis stroke="#9eb0c4" tickFormatter={compactCurrency} width={72} />
+                      <YAxis stroke={chartColors.axis} tickFormatter={compactCurrency} width={72} />
                       <Tooltip
                         formatter={(value) => currency.format(Number(value))}
                         labelFormatter={(label, payload) =>
@@ -2123,43 +2149,45 @@ export function PlannerDashboard() {
                         }
                       />
                       <Legend />
-                      <Bar dataKey="essential" name="Essential" stackId="expenses" fill="#55b8d8" />
-                      <Bar dataKey="discretionary" name="Discretionary" stackId="expenses" fill="#8c78dd" />
+                      <Bar dataKey="essential" name="Essential" stackId="expenses" fill={chartColors.blue} />
+                      <Bar dataKey="discretionary" name="Discretionary" stackId="expenses" fill={chartColors.violet} />
                     </BarChart>
                   </ResponsiveContainer>
-                </div>
+                </figure>
               </article>
 
               {inputs.registeredAccountRoom ? (
                 <article className="report-card wide-chart">
                   <ExplainableHeading
                     kicker="Registered room"
+                    headingId="registered-room-title"
                     target="registered-account-room"
                     title="Annual registered room and contributions"
                     onExplain={openExplanation}
                     trailing={<span className="pill">Nominal regulatory dollars</span>}
                   />
-                  <div className="chart-shell medium">
+                  <figure className="chart-shell medium" aria-labelledby="registered-room-title">
                     <ResponsiveContainer width="100%" height="100%">
                       <ComposedChart data={chartData}>
-                        <CartesianGrid stroke="#24364d" strokeDasharray="3 3" vertical={false} />
+                        <CartesianGrid stroke={chartColors.grid} strokeDasharray="3 3" vertical={false} />
                         <AnnualXAxis chartData={chartData} />
-                        <YAxis stroke="#9eb0c4" tickFormatter={compactCurrency} width={72} />
+                        <YAxis stroke={chartColors.axis} tickFormatter={compactCurrency} width={72} />
                         <Tooltip formatter={(value) => currency.format(Number(value))} />
                         <Legend />
-                        <Bar dataKey="actualContributions" name="Actual contributions" fill="#70d6b2" />
-                        <Bar dataKey="unallocatedContributions" name="Unallocated" fill="#ef7d86" />
-                        <Line dataKey="tfsaRoomClosing" name="TFSA closing room" stroke="#55b8d8" strokeWidth={2} dot={false} />
-                        <Line dataKey="rrspRoomClosing" name="RRSP closing room" stroke="#d8bd65" strokeWidth={2} dot={false} />
+                        <Bar dataKey="actualContributions" name="Actual contributions" fill={chartColors.mint} />
+                        <Bar dataKey="unallocatedContributions" name="Unallocated" fill={chartColors.red} />
+                        <Line dataKey="tfsaRoomClosing" name="TFSA closing room" stroke={chartColors.blue} strokeWidth={2} dot={false} />
+                        <Line dataKey="rrspRoomClosing" name="RRSP closing room" stroke={chartColors.violet} strokeWidth={2} dot={false} />
                       </ComposedChart>
                     </ResponsiveContainer>
-                  </div>
+                  </figure>
                 </article>
               ) : null}
 
               <article className="report-card wide-chart">
                 <ExplainableHeading
                   kicker="Surplus policy"
+                  headingId="surplus-allocation-title"
                   target="surplus-allocation"
                   title={
                     inputs.savingsPolicy.mode === "simple"
@@ -2168,12 +2196,12 @@ export function PlannerDashboard() {
                   }
                   onExplain={openExplanation}
                 />
-                <div className="chart-shell medium">
+                <figure className="chart-shell medium" aria-labelledby="surplus-allocation-title">
                   <ResponsiveContainer width="100%" height="100%">
                     <ComposedChart data={chartData}>
-                      <CartesianGrid stroke="#24364d" strokeDasharray="3 3" vertical={false} />
+                      <CartesianGrid stroke={chartColors.grid} strokeDasharray="3 3" vertical={false} />
                       <AnnualXAxis chartData={chartData} />
-                      <YAxis stroke="#9eb0c4" tickFormatter={compactCurrency} width={72} />
+                      <YAxis stroke={chartColors.axis} tickFormatter={compactCurrency} width={72} />
                       <Tooltip
                         formatter={(value) => currency.format(Number(value))}
                         labelFormatter={(label, payload) =>
@@ -2183,37 +2211,38 @@ export function PlannerDashboard() {
                       <Legend />
                       {inputs.savingsPolicy.mode === "simple" ? (
                         <>
-                          <Bar dataKey="reserveCashRetained" name="Reserve plan retained" fill="#55b8d8" />
-                          <Bar dataKey="reservePlanRedirected" name="Reserve plan invested" fill="#8c78dd" />
-                          <Bar dataKey="unplannedCashRetained" name="Unplanned cash retained" fill="#70d6b2" />
-                          <Bar dataKey="unplannedCashSwept" name="Unplanned cash swept" fill="#d99269" />
-                          <Line dataKey="operatingCashTarget" name="Operating cash target" stroke="#ef7d86" strokeWidth={2} dot={false} />
+                          <Bar dataKey="reserveCashRetained" name="Reserve plan retained" fill={chartColors.blue} />
+                          <Bar dataKey="reservePlanRedirected" name="Reserve plan invested" fill={chartColors.violet} />
+                          <Bar dataKey="unplannedCashRetained" name="Unplanned cash retained" fill={chartColors.mint} />
+                          <Bar dataKey="unplannedCashSwept" name="Unplanned cash swept" fill={chartColors.coral} />
+                          <Line dataKey="operatingCashTarget" name="Operating cash target" stroke={chartColors.red} strokeWidth={2} dot={false} />
                         </>
                       ) : (
                         <>
-                          <Bar dataKey="surplusRetainedAsCash" name="Retained as cash" fill="#55b8d8" />
-                          <Bar dataKey="surplusRedirected" name="Redirected" fill="#8c78dd" />
+                          <Bar dataKey="surplusRetainedAsCash" name="Retained as cash" fill={chartColors.blue} />
+                          <Bar dataKey="surplusRedirected" name="Redirected" fill={chartColors.violet} />
                         </>
                       )}
-                      <Line dataKey="surplusReserveTarget" name="Active reserve target" stroke="#f2bd63" strokeWidth={2} dot={false} />
+                      <Line dataKey="surplusReserveTarget" name="Active reserve target" stroke={chartColors.coral} strokeWidth={2} dot={false} />
                     </ComposedChart>
                   </ResponsiveContainer>
-                </div>
+                </figure>
               </article>
 
               <article id="retirement-income" className="report-card wide-chart">
                 <ExplainableHeading
                   kicker="Cash inflow"
+                  headingId="annual-funding-title"
                   target="annual-funding"
                   title="How each year is funded"
                   onExplain={openExplanation}
                 />
-                <div className="chart-shell tall">
+                <figure className="chart-shell tall" aria-labelledby="annual-funding-title">
                   <ResponsiveContainer width="100%" height="100%">
                     <ComposedChart data={chartData}>
-                      <CartesianGrid stroke="#24364d" strokeDasharray="3 3" vertical={false} />
+                      <CartesianGrid stroke={chartColors.grid} strokeDasharray="3 3" vertical={false} />
                       <AnnualXAxis chartData={chartData} />
-                      <YAxis stroke="#9eb0c4" tickFormatter={compactCurrency} width={72} />
+                      <YAxis stroke={chartColors.axis} tickFormatter={compactCurrency} width={72} />
                       <Tooltip
                         formatter={(value) => currency.format(Number(value))}
                         labelFormatter={(label, payload) =>
@@ -2221,33 +2250,34 @@ export function PlannerDashboard() {
                         }
                       />
                       <Legend />
-                      <Bar dataKey="employmentNetCash" name="Employment (net deposited cash)" stackId="inflow" fill="#3f78c5" />
-                      <Bar dataKey="cpp" name="CPP" stackId="inflow" fill="#4eb5d2" />
-                      <Bar dataKey="oas" name="OAS" stackId="inflow" fill="#77d2b2" />
-                      <Bar dataKey="pension" name="Pension" stackId="inflow" fill="#a9cf6c" />
-                      <Bar dataKey="cashWithdrawal" name="Cash" stackId="inflow" fill="#d8bd65" />
-                      <Bar dataKey="nonRegisteredWithdrawal" name="Non-registered" stackId="inflow" fill="#d99269" />
-                      <Bar dataKey="rrspWithdrawal" name="RRSP / RRIF" stackId="inflow" fill="#b978b8" />
-                      <Bar dataKey="tfsaWithdrawal" name="TFSA" stackId="inflow" fill="#8072d7" />
-                      <Line dataKey="tax" name="Simplified retirement tax" stroke="#ef7d86" strokeWidth={2} dot={false} />
+                      <Bar dataKey="employmentNetCash" name="Employment (net deposited cash)" stackId="inflow" fill={chartColors.deepBlue} />
+                      <Bar dataKey="cpp" name="CPP" stackId="inflow" fill={chartColors.blue} />
+                      <Bar dataKey="oas" name="OAS" stackId="inflow" fill={chartColors.mint} />
+                      <Bar dataKey="pension" name="Pension" stackId="inflow" fill={chartColors.slate} />
+                      <Bar dataKey="cashWithdrawal" name="Cash" stackId="inflow" fill={chartColors.text} />
+                      <Bar dataKey="nonRegisteredWithdrawal" name="Non-registered" stackId="inflow" fill={chartColors.coral} />
+                      <Bar dataKey="rrspWithdrawal" name="RRSP / RRIF" stackId="inflow" fill={chartColors.pink} />
+                      <Bar dataKey="tfsaWithdrawal" name="TFSA" stackId="inflow" fill={chartColors.violet} />
+                      <Line dataKey="tax" name="Simplified retirement tax" stroke={chartColors.red} strokeWidth={2} dot={false} />
                     </ComposedChart>
                   </ResponsiveContainer>
-                </div>
+                </figure>
               </article>
 
               <article className="report-card wide-chart">
                 <ExplainableHeading
                   kicker="Cash outflow"
+                  headingId="annual-outflows-title"
                   target="annual-outflows"
                   title="Spending, liability payments, taxes, and contributions"
                   onExplain={openExplanation}
                 />
-                <div className="chart-shell medium">
+                <figure className="chart-shell medium" aria-labelledby="annual-outflows-title">
                   <ResponsiveContainer width="100%" height="100%">
                     <BarChart data={chartData}>
-                      <CartesianGrid stroke="#24364d" strokeDasharray="3 3" vertical={false} />
+                      <CartesianGrid stroke={chartColors.grid} strokeDasharray="3 3" vertical={false} />
                       <AnnualXAxis chartData={chartData} />
-                      <YAxis stroke="#9eb0c4" tickFormatter={compactCurrency} width={72} />
+                      <YAxis stroke={chartColors.axis} tickFormatter={compactCurrency} width={72} />
                       <Tooltip
                         formatter={(value) => currency.format(Number(value))}
                         labelFormatter={(label, payload) =>
@@ -2255,15 +2285,15 @@ export function PlannerDashboard() {
                         }
                       />
                       <Legend />
-                      <Bar dataKey="essential" name="Essential" stackId="outflow" fill="#55b8d8" />
-                      <Bar dataKey="discretionary" name="Discretionary" stackId="outflow" fill="#8c78dd" />
-                      <Bar dataKey="oneTime" name="One-time events" stackId="outflow" fill="#d99269" />
-                      <Bar dataKey="liabilityCashPayment" name="Liability payments" stackId="outflow" fill="#d8bd65" />
-                      <Bar dataKey="tax" name="Simplified retirement tax" stackId="outflow" fill="#ef7d86" />
-                      <Bar dataKey="contributions" name="Cash-funded contributions" stackId="outflow" fill="#70d6b2" />
+                      <Bar dataKey="essential" name="Essential" stackId="outflow" fill={chartColors.blue} />
+                      <Bar dataKey="discretionary" name="Discretionary" stackId="outflow" fill={chartColors.violet} />
+                      <Bar dataKey="oneTime" name="One-time events" stackId="outflow" fill={chartColors.coral} />
+                      <Bar dataKey="liabilityCashPayment" name="Liability payments" stackId="outflow" fill={chartColors.slate} />
+                      <Bar dataKey="tax" name="Simplified retirement tax" stackId="outflow" fill={chartColors.red} />
+                      <Bar dataKey="contributions" name="Cash-funded contributions" stackId="outflow" fill={chartColors.mint} />
                     </BarChart>
                   </ResponsiveContainer>
-                </div>
+                </figure>
               </article>
 
               {inputs.nonFinancialAssets.length > 0 ||
@@ -2272,46 +2302,48 @@ export function PlannerDashboard() {
                   <article className="report-card wide-chart">
                     <ExplainableHeading
                       kicker="Balance sheet"
+                      headingId="total-net-worth-title"
                       target="total-net-worth"
                       title="Assets and total net worth"
                       onExplain={openExplanation}
                     />
-                    <div className="chart-shell medium">
+                    <figure className="chart-shell medium" aria-labelledby="total-net-worth-title">
                       <ResponsiveContainer width="100%" height="100%">
                         <ComposedChart data={chartData}>
-                          <CartesianGrid stroke="#24364d" strokeDasharray="3 3" vertical={false} />
+                          <CartesianGrid stroke={chartColors.grid} strokeDasharray="3 3" vertical={false} />
                           <AnnualXAxis chartData={chartData} />
-                          <YAxis stroke="#9eb0c4" tickFormatter={compactCurrency} width={72} />
+                          <YAxis stroke={chartColors.axis} tickFormatter={compactCurrency} width={72} />
                           <Tooltip formatter={(value) => currency.format(Number(value))} />
                           <Legend />
-                          <Line dataKey="financialAssets" name="Retirement funding assets" stroke="#55b8d8" strokeWidth={2} dot={false} />
-                          <Line dataKey="residenceValue" name="Residence value" stroke="#d8bd65" strokeWidth={2} dot={false} />
-                          <Line dataKey="totalNetWorth" name="Total net worth" stroke="#f6f8fb" strokeWidth={3} dot={false} />
+                          <Line dataKey="financialAssets" name="Retirement funding assets" stroke={chartColors.blue} strokeWidth={2} dot={false} />
+                          <Line dataKey="residenceValue" name="Residence value" stroke={chartColors.violet} strokeWidth={2} dot={false} />
+                          <Line dataKey="totalNetWorth" name="Total net worth" stroke={chartColors.text} strokeWidth={3} dot={false} />
                         </ComposedChart>
                       </ResponsiveContainer>
-                    </div>
+                    </figure>
                   </article>
                   <article className="report-card wide-chart">
                     <ExplainableHeading
                       kicker="Home and liabilities"
+                      headingId="liability-schedule-title"
                       target="liability-schedule"
                       title="Liabilities and home equity"
                       onExplain={openExplanation}
                     />
-                    <div className="chart-shell medium">
+                    <figure className="chart-shell medium" aria-labelledby="liability-schedule-title">
                       <ResponsiveContainer width="100%" height="100%">
                         <ComposedChart data={chartData}>
-                          <CartesianGrid stroke="#24364d" strokeDasharray="3 3" vertical={false} />
+                          <CartesianGrid stroke={chartColors.grid} strokeDasharray="3 3" vertical={false} />
                           <AnnualXAxis chartData={chartData} />
-                          <YAxis stroke="#9eb0c4" tickFormatter={compactCurrency} width={72} />
+                          <YAxis stroke={chartColors.axis} tickFormatter={compactCurrency} width={72} />
                           <Tooltip formatter={(value) => currency.format(Number(value))} />
                           <Legend />
-                          <Area dataKey="homeEquity" name="Home equity" fill="#70d6b2" stroke="#70d6b2" />
-                          <Line dataKey="mortgageBalance" name="Mortgage balance" stroke="#ef7d86" strokeWidth={3} dot={false} />
-                          <Line dataKey="totalLiabilities" name="Total liabilities" stroke="#d99269" strokeWidth={2} dot={false} />
+                          <Area dataKey="homeEquity" name="Home equity" fill={chartColors.mint} stroke={chartColors.mint} />
+                          <Line dataKey="mortgageBalance" name="Mortgage balance" stroke={chartColors.red} strokeWidth={3} dot={false} />
+                          <Line dataKey="totalLiabilities" name="Total liabilities" stroke={chartColors.coral} strokeWidth={2} dot={false} />
                         </ComposedChart>
                       </ResponsiveContainer>
-                    </div>
+                    </figure>
                   </article>
                 </>
               ) : null}
@@ -2319,16 +2351,17 @@ export function PlannerDashboard() {
               <article id="accounts" className="report-card wide-chart">
                 <ExplainableHeading
                   kicker="Financial assets"
+                  headingId="account-burndown-title"
                   target="account-burndown"
                   title="Account-level burndown"
                   onExplain={openExplanation}
                 />
-                <div className="chart-shell tall">
+                <figure className="chart-shell tall" aria-labelledby="account-burndown-title">
                   <ResponsiveContainer width="100%" height="100%">
                     <ComposedChart data={chartData}>
-                      <CartesianGrid stroke="#24364d" strokeDasharray="3 3" vertical={false} />
+                      <CartesianGrid stroke={chartColors.grid} strokeDasharray="3 3" vertical={false} />
                       <AnnualXAxis chartData={chartData} />
-                      <YAxis stroke="#9eb0c4" tickFormatter={compactCurrency} width={72} />
+                      <YAxis stroke={chartColors.axis} tickFormatter={compactCurrency} width={72} />
                       <Tooltip
                         formatter={(value) => currency.format(Number(value))}
                         labelFormatter={(label, payload) =>
@@ -2346,14 +2379,14 @@ export function PlannerDashboard() {
                           stroke={accountColors[index % accountColors.length]}
                         />
                       ))}
-                      <Line dataKey="financialAssets" name="Financial assets" stroke="#f6f8fb" strokeWidth={3} dot={false} />
-                      <Line dataKey="goal" name="Goal" stroke="#f2bd63" strokeWidth={2} strokeDasharray="7 6" dot={false} />
+                      <Line dataKey="financialAssets" name="Financial assets" stroke={chartColors.text} strokeWidth={3} dot={false} />
+                      <Line dataKey="goal" name="Goal" stroke={chartColors.coral} strokeWidth={2} strokeDasharray="7 6" dot={false} />
                       {milestonePoints.slice(0, 10).map((point) => (
-                        <ReferenceLine key={`${point.calendarYear}-${point.milestones.join("-")}`} x={point.calendarYear} stroke="#9eb0c4" strokeDasharray="4 4" />
+                        <ReferenceLine key={`${point.calendarYear}-${point.milestones.join("-")}`} x={point.calendarYear} stroke={chartColors.axis} strokeDasharray="4 4" />
                       ))}
                     </ComposedChart>
                   </ResponsiveContainer>
-                </div>
+                </figure>
                 <div className="milestone-list">
                   {milestonePoints.map((point) => (
                     <span className="milestone" key={`${point.calendarYear}-${point.milestones.join("-")}`}>
@@ -2367,11 +2400,12 @@ export function PlannerDashboard() {
                 <article className="report-card">
                   <ExplainableHeading
                     kicker="Allocation"
+                    headingId="asset-allocation-title"
                     target="asset-allocation"
                     title={`Asset allocation in ${selectedAllocationPoint?.calendarYear ?? "selected year"}`}
                     onExplain={openExplanation}
                   />
-                  <div className="chart-shell compact">
+                  <figure className="chart-shell compact" aria-labelledby="asset-allocation-title">
                     <ResponsiveContainer width="100%" height="100%">
                       <PieChart>
                         <Pie data={allocationData} dataKey="value" nameKey="name" innerRadius="48%" outerRadius="78%" paddingAngle={2} label={({ name, percent: share }) => `${name} ${Math.round((share ?? 0) * 100)}%`}>
@@ -2380,7 +2414,7 @@ export function PlannerDashboard() {
                         <Tooltip formatter={(value) => currency.format(Number(value))} />
                       </PieChart>
                     </ResponsiveContainer>
-                  </div>
+                  </figure>
                   {allocationYear !== null ? (
                     <label className="allocation-slider no-print">
                       Year {allocationYear}
@@ -2731,7 +2765,15 @@ export function PlannerDashboard() {
           </section>
 
           <section id="assumptions" className="report-card assumptions">
-            <div className="section-heading"><div><span className="section-kicker">Live baseline</span><h2>Resolved inputs and provenance</h2></div></div>
+            <div className="section-heading">
+              <div>
+                <span className="section-kicker">Live baseline</span>
+                <h2>Assumptions and data sources</h2>
+              </div>
+            </div>
+            <p className="panel-copy">
+              Review the values used in this plan and where each value came from.
+            </p>
             <div className="assumption-grid">
               <div>
                 <h3>Cash flow</h3>
