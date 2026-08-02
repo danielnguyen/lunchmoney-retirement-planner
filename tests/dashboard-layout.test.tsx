@@ -440,7 +440,10 @@ describe("unified planner configuration drawer", () => {
     expect(dashboard).toContain("Regular withdrawals");
     expect(dashboard).toContain("Additional year-end withdrawal needed");
     expect(dashboard).toContain("Minimum still outstanding");
-    expect(dashboard).toContain("Value remaining after withdrawals");
+    expect(dashboard).toContain("RRSP/RRIF value at end of year");
+    expect(dashboard).toContain(
+      "latestProjectionPeriod.calendarYear === latestRrifPeriod.calendarYear",
+    );
     expect(dashboard).toContain("latestRrifPeriod.minimumRequired");
     expect(dashboard).toContain("latestRrifPeriod.forcedDecemberWithdrawal");
     expect(dashboard).toContain("latestRrifPeriod.remainingMinimum");

@@ -1734,7 +1734,10 @@ export function PlannerDashboard() {
   const latestNonRegisteredPeriod =
     projection?.nonRegisteredTaxation.annual.at(-1) ?? null;
   const latestProjectionPeriod = projection?.annual.at(-1) ?? null;
-  const latestRrspRrifValue = latestProjectionPeriod
+  const latestRrspRrifValue =
+    latestProjectionPeriod &&
+    latestRrifPeriod &&
+    latestProjectionPeriod.calendarYear === latestRrifPeriod.calendarYear
     ? inputs.accounts
         .filter((account) => account.type === "rrsp_rrif")
         .reduce(
@@ -2478,9 +2481,9 @@ export function PlannerDashboard() {
                         <h3 id="estimated-taxes-title">Estimated taxes</h3>
                         <dl className="plan-detail-definition-list">
                           <div><dt>Federal income tax</dt><dd>{currency.format(latestCanadianTax.fullAnnualTax.totals.federalTax)}</dd></div>
-                          <div><dt>Ontario income tax</dt><dd>{currency.format(latestCanadianTax.fullAnnualTax.totals.ontarioTax)}</dd></div>
+                          <div><dt>Ontario income tax, including surtax</dt><dd>{currency.format(latestCanadianTax.fullAnnualTax.totals.ontarioTax)}</dd></div>
                           {latestCanadianTax.fullAnnualTax.ontario.surtax !== 0 ? (
-                            <div><dt>Ontario surtax</dt><dd>{currency.format(latestCanadianTax.fullAnnualTax.ontario.surtax)}</dd></div>
+                            <div><dt>Ontario surtax included above</dt><dd>{currency.format(latestCanadianTax.fullAnnualTax.ontario.surtax)}</dd></div>
                           ) : null}
                           <div><dt>Ontario health premium</dt><dd>{currency.format(latestCanadianTax.fullAnnualTax.totals.ontarioHealthPremium)}</dd></div>
                           <div><dt>OAS repayment</dt><dd>{currency.format(latestCanadianTax.fullAnnualTax.totals.oasRecoveryTax)}</dd></div>
@@ -2546,7 +2549,7 @@ export function PlannerDashboard() {
                           <div><dt>Additional year-end withdrawal needed</dt><dd>{currency.format(mode === "nominal" ? latestRrifPeriod.forcedDecemberWithdrawal : latestRrifPeriod.forcedDecemberWithdrawalToday)}</dd></div>
                           <div><dt>Minimum still outstanding</dt><dd>{currency.format(mode === "nominal" ? latestRrifPeriod.remainingMinimum : latestRrifPeriod.remainingMinimumToday)}</dd></div>
                           {latestRrspRrifValue !== null ? (
-                            <div><dt>Value remaining after withdrawals</dt><dd>{currency.format(latestRrspRrifValue)}</dd></div>
+                            <div><dt>RRSP/RRIF value at end of year</dt><dd>{currency.format(latestRrspRrifValue)}</dd></div>
                           ) : null}
                         </>
                       ) : null}

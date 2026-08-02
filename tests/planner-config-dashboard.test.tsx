@@ -51,6 +51,18 @@ function requestUrl(input: RequestInfo | URL): string {
   return typeof input === "string" ? input : input instanceof URL ? input.href : input.url;
 }
 
+function statutoryRrifBaseline() {
+  const baseline = structuredClone(currentBaselineFixture);
+  baseline.projectionInputs.rrifMinimumWithdrawals = {
+    mode: "statutory",
+    source: "explicit_configuration",
+    ageBasis: "owner_age",
+    settlementTiming: "december_true_up",
+    supportedRrifClass: "all_other_rrifs",
+  };
+  return baseline;
+}
+
 afterEach(() => {
   cleanup();
   vi.unstubAllGlobals();
@@ -174,6 +186,7 @@ describe("dashboard config-save baseline transitions", () => {
     for (const phase of baseline.projectionInputs.person.employmentIncomePhases) {
       phase.annualTaxableEmploymentIncomeToday = 100_000;
     }
+    baseline.projectionInputs.person.annualPensionToday = 250_000;
     const projection = calculateProjection(baseline.projectionInputs);
     const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
       const url = requestUrl(input);
@@ -197,7 +210,8 @@ describe("dashboard config-save baseline transitions", () => {
     expect(taxDetails.getByText("Capital losses")).toBeVisible();
     expect(taxDetails.getByText("Estimated taxes")).toBeVisible();
     expect(taxDetails.getByText("Federal income tax")).toBeVisible();
-    expect(taxDetails.getByText("Ontario income tax")).toBeVisible();
+    expect(taxDetails.getByText("Ontario income tax, including surtax")).toBeVisible();
+    expect(taxDetails.getByText("Ontario surtax included above")).toBeVisible();
     expect(taxDetails.getByText("Ontario health premium")).toBeVisible();
     expect(taxDetails.getByText("OAS repayment")).toBeVisible();
     expect(taxDetails.getByText("Total estimated tax")).toBeVisible();
@@ -213,6 +227,13 @@ describe("dashboard config-save baseline transitions", () => {
     const latestTax = projection.taxation.annual.at(-1);
     expect(latestTax?.mode).toBe("canadian_annual");
     if (latestTax?.mode !== "canadian_annual") throw new Error("Expected Canadian annual tax evidence");
+    expect(latestTax.fullAnnualTax.ontario.surtax).toBeGreaterThan(0);
+    expect(taxDetails.getByText("Ontario income tax, including surtax").parentElement).toHaveTextContent(
+      renderedCurrency.format(latestTax.fullAnnualTax.totals.ontarioTax),
+    );
+    expect(taxDetails.getByText("Ontario surtax included above").parentElement).toHaveTextContent(
+      renderedCurrency.format(latestTax.fullAnnualTax.ontario.surtax),
+    );
     expect(taxDetails.getByText("Total estimated tax").parentElement).toHaveTextContent(
       renderedCurrency.format(latestTax.fullAnnualTax.totals.totalTax),
     );
@@ -225,14 +246,7 @@ describe("dashboard config-save baseline transitions", () => {
   });
 
   it("shows the RRIF conversion age and plain-language withdrawal evidence", async () => {
-    const baseline = structuredClone(currentBaselineFixture);
-    baseline.projectionInputs.rrifMinimumWithdrawals = {
-      mode: "statutory",
-      source: "explicit_configuration",
-      ageBasis: "owner_age",
-      settlementTiming: "december_true_up",
-      supportedRrifClass: "all_other_rrifs",
-    };
+    const baseline = statutoryRrifBaseline();
     const projection = calculateProjection(baseline.projectionInputs);
     const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
       const url = requestUrl(input);
@@ -255,7 +269,7 @@ describe("dashboard config-save baseline transitions", () => {
       "Regular withdrawals",
       "Additional year-end withdrawal needed",
       "Minimum still outstanding",
-      "Value remaining after withdrawals",
+      "RRSP/RRIF value at end of year",
     ]) {
       expect(within(planDetails).getAllByText(label)[0]).toBeVisible();
     }
@@ -263,6 +277,34 @@ describe("dashboard config-save baseline transitions", () => {
     expect(within(planDetails).queryByText("owner age basis")).not.toBeInTheDocument();
     expect(within(planDetails).queryByText("settlement timing")).not.toBeInTheDocument();
   });
+
+  it.each(["mismatched", "unavailable"] as const)(
+    "omits the ending RRSP/RRIF value when the projection year is %s",
+    async (alignment) => {
+      const baseline = statutoryRrifBaseline();
+      const projection = calculateProjection(baseline.projectionInputs);
+      if (alignment === "mismatched") {
+        const latestRrifPeriod = projection.rrif.annual.at(-1);
+        if (!latestRrifPeriod) throw new Error("Expected RRIF evidence");
+        latestRrifPeriod.calendarYear += 1;
+      } else {
+        projection.rrif.annual = [];
+      }
+      const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
+        const url = requestUrl(input);
+        if (url === "/api/v1/baseline/current") return jsonResponse(baseline);
+        if (url === "/api/v1/projections") return jsonResponse(projection);
+        throw new Error(`Unexpected request: ${url}`);
+      });
+      vi.stubGlobal("fetch", fetchMock);
+
+      render(<PlannerDashboard />);
+
+      const planDetails = await screen.findByRole("region", { name: "Plan details" });
+      fireEvent.click(within(planDetails).getByText("RRSP and RRIF withdrawals").closest("summary")!);
+      expect(within(planDetails).queryByText("RRSP/RRIF value at end of year")).not.toBeInTheDocument();
+    },
+  );
 
   it("structures taxable-account values, income, sales, and per-account evidence", async () => {
     const baseline = structuredClone(currentBaselineFixture);
