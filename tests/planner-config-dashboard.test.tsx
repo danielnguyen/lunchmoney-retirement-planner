@@ -8,6 +8,12 @@ import { calculateProjection } from "@/src/domain/projection/calculate";
 import type { ProjectionInputs } from "@/src/domain/projection/types";
 import { currentBaselineFixture } from "./fixtures/projection";
 
+const renderedCurrency = new Intl.NumberFormat("en-CA", {
+  style: "currency",
+  currency: "CAD",
+  maximumFractionDigits: 0,
+});
+
 vi.mock("recharts", () => {
   const EmptyChart = () => null;
   return {
@@ -43,6 +49,18 @@ function deferred<T>() {
 
 function requestUrl(input: RequestInfo | URL): string {
   return typeof input === "string" ? input : input instanceof URL ? input.href : input.url;
+}
+
+function statutoryRrifBaseline() {
+  const baseline = structuredClone(currentBaselineFixture);
+  baseline.projectionInputs.rrifMinimumWithdrawals = {
+    mode: "statutory",
+    source: "explicit_configuration",
+    ageBasis: "owner_age",
+    settlementTiming: "december_true_up",
+    supportedRrifClass: "all_other_rrifs",
+  };
+  return baseline;
 }
 
 afterEach(() => {
@@ -103,18 +121,38 @@ describe("dashboard config-save baseline transitions", () => {
     expect(screen.getByText("Annual spending projection")).toBeInTheDocument();
     expect(screen.queryByText("Owner goal marker")).not.toBeInTheDocument();
     expect(screen.queryByText("Owner-goal difference")).not.toBeInTheDocument();
-    expect(screen.getByText("Tax status")).toBeInTheDocument();
-    expect(screen.getByText("Provisional")).toBeInTheDocument();
-    expect(
-      screen.getByText(/progressive Canadian taxes and RRIF minimums/),
-    ).toBeInTheDocument();
+    const planDetails = await screen.findByRole("region", { name: "Plan details" });
+    const disclosureTitles = [
+      "Taxes included",
+      "RRSP and RRIF withdrawals",
+      "Taxable investment account",
+      "How this plan was calculated",
+      "Calculation notes and limitations",
+    ];
+    for (const title of disclosureTitles) {
+      const disclosure = within(planDetails).getByText(title).closest("details");
+      expect(disclosure).not.toHaveAttribute("open");
+    }
+    expect(within(planDetails).getByText("A simplified flat retirement-tax estimate is used.")).toBeVisible();
+    expect(within(planDetails).getByText("About this tax estimate")).not.toBeVisible();
+    fireEvent.click(within(planDetails).getByText("Taxes included").closest("summary")!);
+    expect(within(planDetails).getByText("About this tax estimate")).toBeVisible();
+    expect(within(planDetails).getByText("This is a retirement-planning estimate, not a tax return.")).toBeVisible();
+    expect(within(planDetails).getByText("Estimated taxes")).toBeVisible();
+    expect(within(planDetails).getByText("Tax paid from projected cash and savings")).toBeVisible();
+    expect(within(planDetails).getByText("Effective tax rate used")).toBeVisible();
+    fireEvent.click(within(planDetails).getByText("How this plan was calculated").closest("summary")!);
+    expect(within(planDetails).getByText("Completed through the planned final age")).toBeVisible();
+    expect(within(planDetails).getByText("Minimum ending financial assets")).toBeVisible();
+    expect(within(planDetails).getByText("Saved in the planner configuration")).toBeVisible();
+    expect(within(planDetails).getByText("Yes — only cash and investment accounts can fund retirement spending.")).toBeVisible();
 
     fireEvent.click(screen.getByRole("button", { name: "Connected accounts" }));
     expect(screen.getByRole("dialog", { name: "Connected accounts" })).toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: "Close connected accounts" }));
   });
 
-  it("renders shared Canadian annual tax evidence and its provisional limits", async () => {
+  it("structures Canadian tax evidence with verified payment meanings", async () => {
     const baseline = structuredClone(currentBaselineFixture);
     baseline.projectionInputs.tax = {
       mode: "canadian_annual",
@@ -148,6 +186,7 @@ describe("dashboard config-save baseline transitions", () => {
     for (const phase of baseline.projectionInputs.person.employmentIncomePhases) {
       phase.annualTaxableEmploymentIncomeToday = 100_000;
     }
+    baseline.projectionInputs.person.annualPensionToday = 250_000;
     const projection = calculateProjection(baseline.projectionInputs);
     const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
       const url = requestUrl(input);
@@ -161,15 +200,306 @@ describe("dashboard config-save baseline transitions", () => {
 
     render(<PlannerDashboard />);
 
-    expect(
-      await screen.findByText("Canadian annual tax · latest modelled period"),
-    ).toBeInTheDocument();
-    expect(screen.getAllByText(/Canada \/ Ontario/).length).toBeGreaterThan(0);
-    expect(screen.getByText(/Full liability/)).toBeInTheDocument();
-    expect(screen.getByText(/embedded\/outside projection/)).toBeInTheDocument();
-    expect(screen.getByText(/projection-funded/)).toBeInTheDocument();
-    expect(screen.getAllByText(/RRIF minimum withdrawals/).length).toBeGreaterThan(0);
-    expect(screen.getByText(/Opening tax-year context/)).toBeInTheDocument();
+    const planDetails = await screen.findByRole("region", { name: "Plan details" });
+    fireEvent.click(within(planDetails).getByText("Taxes included").closest("summary")!);
+    const taxDetails = within(planDetails);
+    expect(taxDetails.getByText("Income used for the estimate")).toBeVisible();
+    expect(taxDetails.getByText("Taxable income")).toBeVisible();
+    expect(taxDetails.getByText("Eligible Canadian dividends")).toBeVisible();
+    expect(taxDetails.getByText("Capital gains")).toBeVisible();
+    expect(taxDetails.getByText("Capital losses")).toBeVisible();
+    expect(taxDetails.getByText("Estimated taxes")).toBeVisible();
+    expect(taxDetails.getByText("Federal income tax")).toBeVisible();
+    expect(taxDetails.getByText("Ontario income tax, including surtax")).toBeVisible();
+    expect(taxDetails.getByText("Ontario surtax included above")).toBeVisible();
+    expect(taxDetails.getByText("Ontario health premium")).toBeVisible();
+    expect(taxDetails.getByText("OAS repayment")).toBeVisible();
+    expect(taxDetails.getByText("Total estimated tax")).toBeVisible();
+    expect(taxDetails.getByText("Effective tax rate")).toBeVisible();
+    expect(taxDetails.getByText("How tax is paid in this projection")).toBeVisible();
+    expect(taxDetails.getByText("Total estimated tax on all income included for the year")).toBeVisible();
+    expect(taxDetails.getByText("Tax already reflected in net income or opening-year context")).toBeVisible();
+    expect(taxDetails.getByText("Additional tax paid from projected cash and savings")).toBeVisible();
+    expect(taxDetails.getByText("Detailed tax calculation")).toBeVisible();
+    expect(taxDetails.getByText("Eligible-dividend gross-up")).toBeVisible();
+    expect(taxDetails.getByText("Unused current-year capital loss")).toBeVisible();
+    expect(taxDetails.getByText("This is a retirement-planning estimate, not a tax return.")).toBeVisible();
+    const latestTax = projection.taxation.annual.at(-1);
+    expect(latestTax?.mode).toBe("canadian_annual");
+    if (latestTax?.mode !== "canadian_annual") throw new Error("Expected Canadian annual tax evidence");
+    expect(latestTax.fullAnnualTax.ontario.surtax).toBeGreaterThan(0);
+    expect(taxDetails.getByText("Ontario income tax, including surtax").parentElement).toHaveTextContent(
+      renderedCurrency.format(latestTax.fullAnnualTax.totals.ontarioTax),
+    );
+    expect(taxDetails.getByText("Ontario surtax included above").parentElement).toHaveTextContent(
+      renderedCurrency.format(latestTax.fullAnnualTax.ontario.surtax),
+    );
+    expect(taxDetails.getByText("Total estimated tax").parentElement).toHaveTextContent(
+      renderedCurrency.format(latestTax.fullAnnualTax.totals.totalTax),
+    );
+    expect(taxDetails.getByText("Tax already reflected in net income or opening-year context").parentElement).toHaveTextContent(
+      renderedCurrency.format(latestTax.embeddedAnnualTax.totals.totalTax),
+    );
+    expect(taxDetails.getByText("Additional tax paid from projected cash and savings").parentElement).toHaveTextContent(
+      renderedCurrency.format(latestTax.projectionFundedTax),
+    );
+  });
+
+  it("shows the RRIF conversion age and plain-language withdrawal evidence", async () => {
+    const baseline = statutoryRrifBaseline();
+    const projection = calculateProjection(baseline.projectionInputs);
+    const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
+      const url = requestUrl(input);
+      if (url === "/api/v1/baseline/current") return jsonResponse(baseline);
+      if (url === "/api/v1/projections") return jsonResponse(projection);
+      throw new Error(`Unexpected request: ${url}`);
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    render(<PlannerDashboard />);
+
+    const planDetails = await screen.findByRole("region", { name: "Plan details" });
+    expect(within(planDetails).getByText("Required RRIF withdrawals are included from age 71.")).toBeVisible();
+    fireEvent.click(within(planDetails).getByText("RRSP and RRIF withdrawals").closest("summary")!);
+    for (const label of [
+      "Conversion age",
+      "Calendar year",
+      "Value at the start of the year",
+      "Minimum withdrawal required",
+      "Regular withdrawals",
+      "Additional year-end withdrawal needed",
+      "Minimum still outstanding",
+      "RRSP/RRIF value at end of year",
+    ]) {
+      expect(within(planDetails).getAllByText(label)[0]).toBeVisible();
+    }
+    expect(within(planDetails).getByText("Technical calculation details")).toBeVisible();
+    expect(within(planDetails).queryByText("owner age basis")).not.toBeInTheDocument();
+    expect(within(planDetails).queryByText("settlement timing")).not.toBeInTheDocument();
+  });
+
+  it.each(["mismatched", "unavailable"] as const)(
+    "omits the ending RRSP/RRIF value when the projection year is %s",
+    async (alignment) => {
+      const baseline = statutoryRrifBaseline();
+      const projection = calculateProjection(baseline.projectionInputs);
+      if (alignment === "mismatched") {
+        const latestRrifPeriod = projection.rrif.annual.at(-1);
+        if (!latestRrifPeriod) throw new Error("Expected RRIF evidence");
+        latestRrifPeriod.calendarYear += 1;
+      } else {
+        projection.rrif.annual = [];
+      }
+      const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
+        const url = requestUrl(input);
+        if (url === "/api/v1/baseline/current") return jsonResponse(baseline);
+        if (url === "/api/v1/projections") return jsonResponse(projection);
+        throw new Error(`Unexpected request: ${url}`);
+      });
+      vi.stubGlobal("fetch", fetchMock);
+
+      render(<PlannerDashboard />);
+
+      const planDetails = await screen.findByRole("region", { name: "Plan details" });
+      fireEvent.click(within(planDetails).getByText("RRSP and RRIF withdrawals").closest("summary")!);
+      expect(within(planDetails).queryByText("RRSP/RRIF value at end of year")).not.toBeInTheDocument();
+    },
+  );
+
+  it("structures taxable-account values, income, sales, and per-account evidence", async () => {
+    const baseline = structuredClone(currentBaselineFixture);
+    baseline.projectionInputs.accounts[1]!.type = "non_registered";
+    baseline.projectionInputs.accounts[1]!.label = "Synthetic taxable portfolio";
+    baseline.projectionInputs.tax = {
+      mode: "canadian_annual",
+      source: "explicit_configuration",
+      effectiveTaxRate: 0.2,
+      oasRecoveryThresholdToday: 90_000,
+      oasRecoveryRate: 0.15,
+      province: "ON",
+      referenceYear: 2026,
+      futureIndexingRate: 0.02,
+      openingTaxYearBeforeProjectionMonth: {
+        calendarYear: 2026,
+        throughMonth: 6,
+        income: {
+          employment: 40_000,
+          cpp: 0,
+          oas: 0,
+          pension: 0,
+          rrspWithdrawals: 0,
+          rrifWithdrawals: 0,
+          interest: 0,
+          eligibleCanadianDividends: 0,
+          foreignIncome: 0,
+          capitalGains: 0,
+          capitalLosses: 0,
+          otherTaxableIncome: 0,
+        },
+        source: "explicit_configuration",
+      },
+      limitations: [
+        "rrif_minimum_withdrawals_not_modelled",
+        "full_tax_return_deductions_and_refundable_credits_not_modelled",
+      ],
+    };
+    for (const phase of baseline.projectionInputs.person.employmentIncomePhases) {
+      phase.annualTaxableEmploymentIncomeToday = 100_000;
+    }
+    baseline.projectionInputs.nonRegisteredTaxation = {
+      mode: "simplified_canadian",
+      source: "explicit_configuration",
+      accounts: [
+        {
+          accountId: "manual:2",
+          openingAdjustedCostBase: {
+            amount: 125_000,
+            effectiveDate: "2026-07-14",
+            sourceDescription: "Synthetic opening tax cost",
+            source: "explicit_configuration",
+          },
+          annualDistributionYields: {
+            interest: 0.01,
+            eligibleCanadianDividends: 0.02,
+            foreignIncome: 0.005,
+            capitalGains: 0.005,
+          },
+        },
+      ],
+      limitations: [],
+    };
+    const projection = calculateProjection(baseline.projectionInputs);
+    const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
+      const url = requestUrl(input);
+      if (url === "/api/v1/baseline/current") return jsonResponse(baseline);
+      if (url === "/api/v1/projections") return jsonResponse(projection);
+      throw new Error(`Unexpected request: ${url}`);
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    render(<PlannerDashboard />);
+
+    const planDetails = await screen.findByRole("region", { name: "Plan details" });
+    const taxableDisclosure = within(planDetails).getByText("Taxable investment account").closest("details")!;
+    fireEvent.click(taxableDisclosure.querySelector("summary")!);
+    const taxableDetails = within(taxableDisclosure);
+    expect(taxableDetails.getByText("Account values")).toBeVisible();
+    expect(taxableDetails.getByText("Tax cost means adjusted cost base (ACB), which is generally the amount used to calculate a capital gain or loss.")).toBeVisible();
+    for (const label of [
+      "Value at start of year",
+      "Value at end of year",
+      "Starting tax cost",
+      "Ending tax cost",
+      "Interest",
+      "Eligible Canadian dividends",
+      "Foreign income",
+      "Capital-gain distributions",
+      "Sale proceeds",
+      "Tax cost of investments sold",
+      "Realized capital gains",
+      "Realized capital losses",
+      "Unrealized gain or loss remaining",
+    ]) {
+      expect(taxableDetails.getAllByText(label)[0]).toBeVisible();
+    }
+    expect(taxableDetails.getByText("Investment income")).toBeVisible();
+    expect(taxableDetails.getByText("Investments sold")).toBeVisible();
+    expect(taxableDetails.getByText("Account-by-account values")).toBeVisible();
+    expect(taxableDetails.getByRole("table")).toHaveTextContent("Synthetic taxable portfolio");
+    expect(taxableDetails.queryByText("ACB disposed")).not.toBeInTheDocument();
+    const latestTaxablePeriod = projection.nonRegisteredTaxation.annual.at(-1);
+    expect(latestTaxablePeriod).toBeDefined();
+    expect(taxableDetails.getByText("Value at start of year").parentElement).toHaveTextContent(
+      renderedCurrency.format(latestTaxablePeriod!.openingMarketValueToday),
+    );
+    expect(taxableDetails.getByText("Tax cost of investments sold").parentElement).toHaveTextContent(
+      renderedCurrency.format(latestTaxablePeriod!.adjustedCostBaseDisposedToday),
+    );
+  });
+
+  it("shows early-stop calculation evidence without repeating the outlook answer", async () => {
+    const baseline = structuredClone(currentBaselineFixture);
+    const projection = calculateProjection(baseline.projectionInputs);
+    projection.projectionCompletion = {
+      ...projection.projectionCompletion,
+      status: "stopped_unfunded_liability",
+      completedThroughDate: "2072-02-29",
+      completedThroughAge: 87.7,
+      stoppedBeforeMonth: "2072-03",
+      reason: "A synthetic liability could not be funded.",
+    };
+    const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
+      const url = requestUrl(input);
+      if (url === "/api/v1/baseline/current") return jsonResponse(baseline);
+      if (url === "/api/v1/projections") return jsonResponse(projection);
+      throw new Error(`Unexpected request: ${url}`);
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    render(<PlannerDashboard />);
+
+    const planDetails = await screen.findByRole("region", { name: "Plan details" });
+    fireEvent.click(within(planDetails).getByText("How this plan was calculated").closest("summary")!);
+    expect(within(planDetails).getByText("Planned final age")).toBeVisible();
+    expect(within(planDetails).getByText("Last completed date")).toBeVisible();
+    expect(within(planDetails).getByText("February 29, 2072")).toBeVisible();
+    expect(within(planDetails).getByText("Last completed age")).toBeVisible();
+    expect(within(planDetails).getByText("87.7")).toBeVisible();
+    expect(within(planDetails).getByText("Stopped early — the full plan was not calculated")).toBeVisible();
+    expect(within(planDetails).getByText("Why it stopped")).toBeVisible();
+    expect(within(planDetails).getByText("A synthetic liability could not be funded.")).toBeVisible();
+    expect(within(planDetails).getByText("Stopped before")).toBeVisible();
+    expect(within(planDetails).getByText("March 2072")).toBeVisible();
+    expect(within(planDetails).getByText("Minimum ending financial assets")).toBeVisible();
+    expect(within(planDetails).getByText("Is home equity excluded from retirement funding?")).toBeVisible();
+    expect(within(planDetails).getByText("Source of this rule")).toBeVisible();
+    expect(within(planDetails).getByText("Saved in the planner configuration")).toBeVisible();
+    expect(within(planDetails).queryByText("Savings remain at age 95.")).not.toBeInTheDocument();
+  });
+
+  it("keeps only actionable warnings above the outlook and moves calculation notes into Plan details", async () => {
+    const baseline = structuredClone(currentBaselineFixture);
+    baseline.warnings = [
+      {
+        code: "negative_derived_total",
+        severity: "error",
+        message: "Correct the synthetic scenario input.",
+      },
+      {
+        code: "suggested_recurring_ignored",
+        severity: "warning",
+        message: "Review synthetic suggested recurring items.",
+      },
+      {
+        code: "supported_tax_model_complete",
+        severity: "warning",
+        message: "Synthetic supported-model calculation note.",
+      },
+    ];
+    const projection = calculateProjection(baseline.projectionInputs);
+    const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
+      const url = requestUrl(input);
+      if (url === "/api/v1/baseline/current") return jsonResponse(baseline);
+      if (url === "/api/v1/projections") return jsonResponse(projection);
+      throw new Error(`Unexpected request: ${url}`);
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    render(<PlannerDashboard />);
+
+    const actionNeeded = await screen.findByRole("region", { name: "Action needed" });
+    expect(within(actionNeeded).getByText("Error")).toBeVisible();
+    expect(within(actionNeeded).getByText("Correct the synthetic scenario input.")).toBeVisible();
+    expect(within(actionNeeded).getAllByText("Review").length).toBeGreaterThan(0);
+    expect(within(actionNeeded).getByText("Review synthetic suggested recurring items.")).toBeVisible();
+    expect(within(actionNeeded).queryByText("Synthetic supported-model calculation note.")).not.toBeInTheDocument();
+
+    const planDetails = await screen.findByRole("region", { name: "Plan details" });
+    expect(within(planDetails).getByText("Synthetic supported-model calculation note.")).not.toBeVisible();
+    fireEvent.click(
+      within(planDetails).getByText("Calculation notes and limitations").closest("summary")!,
+    );
+    expect(within(planDetails).getByText("Synthetic supported-model calculation note.")).toBeVisible();
   });
 
   it("shows the active terminal override separately from its compatibility YAML source", async () => {
@@ -200,7 +530,7 @@ describe("dashboard config-save baseline transitions", () => {
 
     expect(
       await screen.findByText(
-        "Source: Compatibility default · retirementRequirement omitted from YAML",
+        "Source: Planner default because this setting is not in the configuration",
       ),
     ).toBeInTheDocument();
     fireEvent.click(
@@ -215,7 +545,7 @@ describe("dashboard config-save baseline transitions", () => {
 
     expect(
       await screen.findByText(
-        "Source: Temporary scenario override · YAML baseline: compatibility default (block omitted)",
+        "Source: Temporary value from Try another plan",
       ),
     ).toBeInTheDocument();
   });

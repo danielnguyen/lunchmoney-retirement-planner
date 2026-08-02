@@ -29,7 +29,10 @@ import {
   ExplainableHeading,
   ExplanationDrawer,
 } from "@/components/explanations";
-import { resolveActiveScenarioWarnings } from "@/src/domain/baseline/scenario-warnings";
+import {
+  organizeScenarioWarnings,
+  resolveActiveScenarioWarnings,
+} from "@/src/domain/baseline/scenario-warnings";
 import type { CurrentBaseline } from "@/src/domain/baseline/types";
 import { buildExplanation } from "@/src/domain/explanations/build";
 import type { ExplanationTarget } from "@/src/domain/explanations/types";
@@ -100,15 +103,12 @@ function requirementSourceLabel(
     requirement.minimumEndingBalanceActiveValueSource ===
     "scenario_override"
   ) {
-    return requirement.minimumEndingBalanceBaselineSource ===
-      "compatibility_default"
-      ? "Temporary scenario override · YAML baseline: compatibility default (block omitted)"
-      : "Temporary scenario override · YAML baseline: explicit configuration";
+    return "Temporary value from Try another plan";
   }
   return requirement.minimumEndingBalanceBaselineSource ===
     "compatibility_default"
-    ? "Compatibility default · retirementRequirement omitted from YAML"
-    : "Explicit planner configuration";
+    ? "Planner default because this setting is not in the configuration"
+    : "Saved in the planner configuration";
 }
 
 const exactCurrency = new Intl.NumberFormat("en-CA", {
@@ -1728,9 +1728,35 @@ export function PlannerDashboard() {
   const chartData = projection ? buildAnnualChartData(inputs, projection, mode) : [];
   const ledgerData = projection ? buildAnnualLedgerData(inputs, projection, mode) : [];
   const latestAnnualTax = projection?.taxation.annual.at(-1) ?? null;
+  const latestCanadianTax =
+    latestAnnualTax?.mode === "canadian_annual" ? latestAnnualTax : null;
   const latestRrifPeriod = projection?.rrif.annual.at(-1) ?? null;
   const latestNonRegisteredPeriod =
     projection?.nonRegisteredTaxation.annual.at(-1) ?? null;
+  const latestProjectionPeriod = projection?.annual.at(-1) ?? null;
+  const latestRrspRrifValue =
+    latestProjectionPeriod &&
+    latestRrifPeriod &&
+    latestProjectionPeriod.calendarYear === latestRrifPeriod.calendarYear
+    ? inputs.accounts
+        .filter((account) => account.type === "rrsp_rrif")
+        .reduce(
+          (total, account) =>
+            total + (latestProjectionPeriod[mode].accountBalances[account.id] ?? 0),
+          0,
+        )
+    : null;
+  // canadianTaxPosition defines these as tax on all annual income, tax on
+  // opening/embedded income already reflected outside planner funding, and
+  // the non-negative difference that the projection must fund, respectively.
+  const latestTaxPayment = latestCanadianTax
+    ? {
+        totalEstimatedTax: latestCanadianTax.fullAnnualTax.totals.totalTax,
+        alreadyReflectedTax:
+          latestCanadianTax.embeddedAnnualTax.totals.totalTax,
+        additionalTaxPaidByProjection: latestCanadianTax.projectionFundedTax,
+      }
+    : null;
   const milestonePoints = projection?.annual.filter((point) => point.milestones.length > 0) ?? [];
   const selectedAllocationPoint = projection && allocationYear !== null
     ? closestAnnualPoint(projection.annual, allocationYear)
@@ -1750,6 +1776,8 @@ export function PlannerDashboard() {
   const activeMonthlyIncome = monthlyEmploymentNetCash(inputs);
   const activeMonthlyContributions = monthlyInvestmentContributions(inputs);
   const activeWarnings = resolveActiveScenarioWarnings(baseline, inputs);
+  const { actionRequired, calculationNotes } =
+    organizeScenarioWarnings(activeWarnings);
   const surplusTotals =
     projection?.surplusAllocation.throughRetirement[mode];
   const savingsTotals =
@@ -1876,11 +1904,20 @@ export function PlannerDashboard() {
         </div>
       </section>
 
-      {activeWarnings.length > 0 ? (
-        <section className="warning-panel" aria-label="Baseline warnings">
-          {activeWarnings.map((warning, index) => (
-            <p key={`${warning.code}-${index}`}>{warning.message}</p>
-          ))}
+      {actionRequired.length > 0 ? (
+        <section className="warning-panel" aria-labelledby="action-needed-title">
+          <h2 id="action-needed-title">Action needed</h2>
+          <p>Review these items before relying on the plan.</p>
+          <ul>
+            {actionRequired.map((warning, index) => (
+              <li key={`${warning.code}-${index}`}>
+                <strong className="warning-severity-label">
+                  {warning.severity === "error" ? "Error" : "Review"}
+                </strong>
+                <span>{warning.message}</span>
+              </li>
+            ))}
+          </ul>
         </section>
       ) : null}
 
@@ -2061,141 +2098,6 @@ export function PlannerDashboard() {
                 <small>Source: {requirementSourceLabel(projection.retirementRequirement)}</small>
               </div>
             </aside>
-          </section>
-
-          <section className="summary-grid" aria-label="Projection calculation status">
-            <article className="metric-card" role="status">
-              <ExplainableHeading
-                compact
-                headingLevel="span"
-                target="annual-tax"
-                title="Tax status"
-                onExplain={openExplanation}
-              />
-              <strong>
-                {projection.taxation.provisional
-                  ? "Provisional"
-                  : "Complete for supported deterministic tax model"}
-              </strong>
-              <small>
-                {!projection.taxation.provisional
-                  ? "Canadian annual tax, statutory RRIF minimums, and simplified non-registered taxation are active. Planning estimate, not a tax return."
-                  : projection.taxation.mode === "canadian_annual"
-                  ? projection.rrif.mode === "statutory"
-                    ? "Annual federal and Ontario income tax and statutory RRIF minimums are modelled; non-registered investment-income taxation remains incomplete."
-                    : "Annual federal and Ontario income tax is modelled; RRIF minimum withdrawals and non-registered investment-income taxation remain incomplete."
-                  : projection.rrif.mode === "statutory"
-                    ? "Statutory RRIF minimums are active with the flat retirement-tax compatibility assumption."
-                    : "Calculated using the flat retirement-tax compatibility assumption; progressive Canadian taxes and RRIF minimums are not active."}
-              </small>
-            </article>
-            <article className="metric-card" role="status">
-              <span>RRIF lifecycle</span>
-              <strong>
-                {projection.rrif.mode === "statutory"
-                  ? "Statutory minimums active"
-                  : "Compatibility milestone only"}
-              </strong>
-              <small>
-                Conversion age {projection.rrif.conversionAge} · {projection.rrif.ownerAgeBasis.replaceAll("_", " ")} · {projection.rrif.settlementTiming.replaceAll("_", " ")}
-              </small>
-              {latestRrifPeriod ? (
-                <small>
-                  {latestRrifPeriod.calendarYear} {latestRrifPeriod.periodStatus.replaceAll("_", " ")} · opening {currency.format(mode === "nominal" ? latestRrifPeriod.openingFairMarketValue : latestRrifPeriod.openingFairMarketValueToday)} · minimum {currency.format(mode === "nominal" ? latestRrifPeriod.minimumRequired : latestRrifPeriod.minimumRequiredToday)} · ordinary {currency.format(mode === "nominal" ? latestRrifPeriod.ordinaryWithdrawals : latestRrifPeriod.ordinaryWithdrawalsToday)} · forced {currency.format(mode === "nominal" ? latestRrifPeriod.forcedDecemberWithdrawal : latestRrifPeriod.forcedDecemberWithdrawalToday)} · remaining {currency.format(mode === "nominal" ? latestRrifPeriod.remainingMinimum : latestRrifPeriod.remainingMinimumToday)}
-                </small>
-              ) : null}
-            </article>
-            {latestAnnualTax?.mode === "canadian_annual" ? (
-              <article className="metric-card" role="status">
-                <span>Canadian annual tax · latest modelled period</span>
-                <strong>
-                  {latestAnnualTax.taxYear} · Canada / Ontario
-                </strong>
-                <small>
-                  {latestAnnualTax.periodStatus.replaceAll("_", " ")} · taxable income {currency.format(latestAnnualTax.fullAnnualTax.taxableIncomeBasis)} · effective rate {percent.format(latestAnnualTax.fullAnnualTax.totals.effectiveTaxRate)}
-                </small>
-                <small>
-                  Federal {currency.format(latestAnnualTax.fullAnnualTax.totals.federalTax)} · Ontario net tax including surtax {currency.format(latestAnnualTax.fullAnnualTax.totals.ontarioTax)} · surtax component {currency.format(latestAnnualTax.fullAnnualTax.ontario.surtax)} · health premium {currency.format(latestAnnualTax.fullAnnualTax.totals.ontarioHealthPremium)} · OAS recovery {currency.format(latestAnnualTax.fullAnnualTax.totals.oasRecoveryTax)}
-                </small>
-                <small>
-                  Full liability {currency.format(latestAnnualTax.fullAnnualTax.totals.totalTax)} · embedded/outside projection {currency.format(latestAnnualTax.embeddedAnnualTax.totals.totalTax)} · projection-funded {currency.format(latestAnnualTax.projectionFundedTax)}
-                </small>
-                <small>
-                  Eligible dividends: actual {currency.format(latestAnnualTax.totalIncome.eligibleCanadianDividends ?? 0)} · gross-up {currency.format(latestAnnualTax.fullAnnualTax.incomeAdjustments.eligibleDividendGrossUp)} · taxable {currency.format(latestAnnualTax.fullAnnualTax.incomeAdjustments.taxableEligibleDividends)} · federal credit {currency.format(latestAnnualTax.fullAnnualTax.federal.eligibleDividendTaxCredit)} · Ontario credit {currency.format(latestAnnualTax.fullAnnualTax.ontario.eligibleDividendTaxCredit)}
-                </small>
-                <small>
-                  Capital gains {currency.format(latestAnnualTax.totalIncome.capitalGains ?? 0)} · losses {currency.format(latestAnnualTax.totalIncome.capitalLosses ?? 0)} · taxable gain {currency.format(latestAnnualTax.fullAnnualTax.incomeAdjustments.taxableCapitalGain)} · unused current-year loss {currency.format(latestAnnualTax.fullAnnualTax.incomeAdjustments.currentYearExcessCapitalLoss)}
-                </small>
-              </article>
-            ) : null}
-            <article className="metric-card" role="status">
-              <span>Non-registered taxation</span>
-              <strong>
-                {projection.nonRegisteredTaxation.mode ===
-                "simplified_canadian"
-                  ? "Simplified Canadian mode active"
-                  : "Compatibility mode · not modelled"}
-              </strong>
-              {latestNonRegisteredPeriod &&
-              projection.nonRegisteredTaxation.mode ===
-                "simplified_canadian" ? (
-                <>
-                  <small>
-                    {latestNonRegisteredPeriod.calendarYear} · opening market value {currency.format(mode === "nominal" ? latestNonRegisteredPeriod.openingMarketValue : latestNonRegisteredPeriod.openingMarketValueToday)} · opening ACB {currency.format(mode === "nominal" ? latestNonRegisteredPeriod.openingAdjustedCostBase : latestNonRegisteredPeriod.openingAdjustedCostBaseToday)} · closing market value {currency.format(mode === "nominal" ? latestNonRegisteredPeriod.closingMarketValue : latestNonRegisteredPeriod.closingMarketValueToday)} · closing ACB {currency.format(mode === "nominal" ? latestNonRegisteredPeriod.closingAdjustedCostBase : latestNonRegisteredPeriod.closingAdjustedCostBaseToday)}
-                  </small>
-                  <small>
-                    Interest {currency.format(mode === "nominal" ? latestNonRegisteredPeriod.interestDistributions : latestNonRegisteredPeriod.interestDistributionsToday)} · eligible dividends {currency.format(mode === "nominal" ? latestNonRegisteredPeriod.eligibleCanadianDividends : latestNonRegisteredPeriod.eligibleCanadianDividendsToday)} · foreign income {currency.format(mode === "nominal" ? latestNonRegisteredPeriod.foreignIncomeDistributions : latestNonRegisteredPeriod.foreignIncomeDistributionsToday)} · capital-gain distributions {currency.format(mode === "nominal" ? latestNonRegisteredPeriod.capitalGainDistributions : latestNonRegisteredPeriod.capitalGainDistributionsToday)}
-                  </small>
-                  <small>
-                    Disposition proceeds {currency.format(mode === "nominal" ? latestNonRegisteredPeriod.dispositionProceeds : latestNonRegisteredPeriod.dispositionProceedsToday)} · ACB disposed {currency.format(mode === "nominal" ? latestNonRegisteredPeriod.adjustedCostBaseDisposed : latestNonRegisteredPeriod.adjustedCostBaseDisposedToday)} · realized gains {currency.format(mode === "nominal" ? latestNonRegisteredPeriod.realizedCapitalGains : latestNonRegisteredPeriod.realizedCapitalGainsToday)} · realized losses {currency.format(mode === "nominal" ? latestNonRegisteredPeriod.realizedCapitalLosses : latestNonRegisteredPeriod.realizedCapitalLossesToday)} · closing unrealized gain/loss {currency.format(mode === "nominal" ? latestNonRegisteredPeriod.closingUnrealizedGainOrLoss : latestNonRegisteredPeriod.closingUnrealizedGainOrLossToday)}
-                  </small>
-                  {latestNonRegisteredPeriod.accounts.map((account) => (
-                    <small key={account.accountId}>
-                      {inputs.accounts.find((item) => item.id === account.accountId)?.label ?? "Non-registered account"}: opening market value {currency.format(mode === "nominal" ? account.openingMarketValue : account.openingMarketValueToday)} · opening ACB {currency.format(mode === "nominal" ? account.openingAdjustedCostBase : account.openingAdjustedCostBaseToday)} · closing market value {currency.format(mode === "nominal" ? account.closingMarketValue : account.closingMarketValueToday)} · closing ACB {currency.format(mode === "nominal" ? account.closingAdjustedCostBase : account.closingAdjustedCostBaseToday)}
-                    </small>
-                  ))}
-                </>
-              ) : (
-                <small>
-                  Existing total-return and withdrawal behaviour is preserved; investment-income and disposition tax are unmodelled.
-                </small>
-              )}
-            </article>
-            <article className="metric-card" role="status">
-              <span>Projection completion</span>
-              <strong>
-                {projection.projectionCompletion.status === "complete"
-                  ? `Complete through age ${projection.projectionCompletion.plannedTerminalAge}`
-                  : "Projected path stopped early"}
-              </strong>
-              <small>
-                {projection.projectionCompletion.status === "complete"
-                  ? `Completed through ${formatOverviewDate(projection.projectionCompletion.completedThroughDate)}`
-                  : `Completed through ${formatOverviewDate(projection.projectionCompletion.completedThroughDate)} at age ${formatProjectedAge(projection.projectionCompletion.completedThroughAge)}; stopped before ${formatOverviewMonth(projection.projectionCompletion.stoppedBeforeMonth)}`}
-              </small>
-            </article>
-            <article className="metric-card">
-              <ExplainableHeading
-                compact
-                headingLevel="span"
-                target="financial-assets-duration"
-                title="Financial assets duration"
-                onExplain={openExplanation}
-              />
-              <strong>
-                {projection.projectionCompletion.status !== "complete" &&
-                projection.summary.financialAssetsDepletionAge === null
-                  ? "Not established"
-                  : projection.summary.financialAssetsDepletionAge === null
-                  ? `Past age ${inputs.endAge}`
-                  : `To age ${projection.summary.financialAssetsDepletionAge}`}
-              </strong>
-              <small>
-                {projection.projectionCompletion.status === "complete"
-                  ? "Cash and investment accounts"
-                  : `Projection stopped early; last completed balance is through ${formatOverviewDate(projection.projectionCompletion.completedThroughDate)}`}
-              </small>
-            </article>
           </section>
 
           <section className="report-layout">
@@ -2524,6 +2426,307 @@ export function PlannerDashboard() {
                   </table>
                 </div>
               </article>
+            </div>
+          </section>
+
+          <section id="plan-details" className="plan-details" aria-labelledby="plan-details-title">
+            <div className="section-heading">
+              <div>
+                <span className="section-kicker">Technical details</span>
+                <h2 id="plan-details-title">Plan details</h2>
+              </div>
+            </div>
+            <p className="plan-details-introduction">
+              See how taxes, withdrawals, taxable investments, and calculation limits are handled in this plan.
+            </p>
+
+            <div className="plan-details-list">
+              <details className="plan-details-disclosure">
+                <summary>
+                  <span className="plan-details-title">Taxes included</span>
+                  <span className="plan-details-status">
+                    {projection.taxation.mode === "canadian_annual"
+                      ? projection.taxation.provisional
+                        ? "Canadian federal and Ontario income tax are included with noted limits."
+                        : "Canadian federal and Ontario income tax are included in this estimate."
+                      : "A simplified flat retirement-tax estimate is used."}
+                  </span>
+                </summary>
+                <div className="plan-details-content">
+                  <div className="plan-detail-explanation-heading">
+                    <ExplainableHeading
+                      compact
+                      headingLevel="span"
+                      target="annual-tax"
+                      title="About this tax estimate"
+                      onExplain={openExplanation}
+                    />
+                  </div>
+                  <p className="plan-detail-disclaimer">
+                    This is a retirement-planning estimate, not a tax return.
+                  </p>
+                  {latestCanadianTax && latestTaxPayment ? (
+                    <>
+                      <section className="plan-detail-group" aria-labelledby="tax-income-title">
+                        <h3 id="tax-income-title">Income used for the estimate</h3>
+                        <dl className="plan-detail-definition-list">
+                          <div><dt>Tax year</dt><dd>{latestCanadianTax.taxYear}</dd></div>
+                          <div><dt>Taxable income</dt><dd>{currency.format(latestCanadianTax.fullAnnualTax.taxableIncomeBasis)}</dd></div>
+                          <div><dt>Eligible Canadian dividends</dt><dd>{currency.format(latestCanadianTax.totalIncome.eligibleCanadianDividends ?? 0)}</dd></div>
+                          <div><dt>Capital gains</dt><dd>{currency.format(latestCanadianTax.totalIncome.capitalGains ?? 0)}</dd></div>
+                          <div><dt>Capital losses</dt><dd>{currency.format(latestCanadianTax.totalIncome.capitalLosses ?? 0)}</dd></div>
+                        </dl>
+                      </section>
+                      <section className="plan-detail-group" aria-labelledby="estimated-taxes-title">
+                        <h3 id="estimated-taxes-title">Estimated taxes</h3>
+                        <dl className="plan-detail-definition-list">
+                          <div><dt>Federal income tax</dt><dd>{currency.format(latestCanadianTax.fullAnnualTax.totals.federalTax)}</dd></div>
+                          <div><dt>Ontario income tax, including surtax</dt><dd>{currency.format(latestCanadianTax.fullAnnualTax.totals.ontarioTax)}</dd></div>
+                          {latestCanadianTax.fullAnnualTax.ontario.surtax !== 0 ? (
+                            <div><dt>Ontario surtax included above</dt><dd>{currency.format(latestCanadianTax.fullAnnualTax.ontario.surtax)}</dd></div>
+                          ) : null}
+                          <div><dt>Ontario health premium</dt><dd>{currency.format(latestCanadianTax.fullAnnualTax.totals.ontarioHealthPremium)}</dd></div>
+                          <div><dt>OAS repayment</dt><dd>{currency.format(latestCanadianTax.fullAnnualTax.totals.oasRecoveryTax)}</dd></div>
+                          <div><dt>Total estimated tax</dt><dd>{currency.format(latestTaxPayment.totalEstimatedTax)}</dd></div>
+                          <div><dt>Effective tax rate</dt><dd>{percent.format(latestCanadianTax.fullAnnualTax.totals.effectiveTaxRate)}</dd></div>
+                        </dl>
+                      </section>
+                      <section className="plan-detail-group" aria-labelledby="tax-payment-title">
+                        <h3 id="tax-payment-title">How tax is paid in this projection</h3>
+                        <dl className="plan-detail-definition-list">
+                          <div><dt>Total estimated tax on all income included for the year</dt><dd>{currency.format(latestTaxPayment.totalEstimatedTax)}</dd></div>
+                          <div><dt>Tax already reflected in net income or opening-year context</dt><dd>{currency.format(latestTaxPayment.alreadyReflectedTax)}</dd></div>
+                          <div><dt>Additional tax paid from projected cash and savings</dt><dd>{currency.format(latestTaxPayment.additionalTaxPaidByProjection)}</dd></div>
+                        </dl>
+                      </section>
+                      <section className="plan-detail-group plan-detail-subsection" aria-labelledby="detailed-tax-title">
+                        <h3 id="detailed-tax-title">Detailed tax calculation</h3>
+                        <dl className="plan-detail-definition-list">
+                          <div><dt>Eligible-dividend gross-up</dt><dd>{currency.format(latestCanadianTax.fullAnnualTax.incomeAdjustments.eligibleDividendGrossUp)}</dd></div>
+                          <div><dt>Taxable eligible dividends</dt><dd>{currency.format(latestCanadianTax.fullAnnualTax.incomeAdjustments.taxableEligibleDividends)}</dd></div>
+                          <div><dt>Federal dividend tax credit</dt><dd>{currency.format(latestCanadianTax.fullAnnualTax.federal.eligibleDividendTaxCredit)}</dd></div>
+                          <div><dt>Ontario dividend tax credit</dt><dd>{currency.format(latestCanadianTax.fullAnnualTax.ontario.eligibleDividendTaxCredit)}</dd></div>
+                          <div><dt>Taxable capital gain after current-year losses</dt><dd>{currency.format(latestCanadianTax.fullAnnualTax.incomeAdjustments.taxableCapitalGain)}</dd></div>
+                          <div><dt>Unused current-year capital loss</dt><dd>{currency.format(latestCanadianTax.fullAnnualTax.incomeAdjustments.currentYearExcessCapitalLoss)}</dd></div>
+                        </dl>
+                      </section>
+                    </>
+                  ) : latestAnnualTax?.mode === "flat_compatibility" ? (
+                    <section className="plan-detail-group" aria-labelledby="flat-tax-title">
+                      <h3 id="flat-tax-title">Estimated taxes</h3>
+                      <dl className="plan-detail-definition-list">
+                        <div><dt>Tax year</dt><dd>{latestAnnualTax.taxYear}</dd></div>
+                        <div><dt>Tax paid from projected cash and savings</dt><dd>{currency.format(latestAnnualTax.projectionFundedTax)}</dd></div>
+                        <div><dt>Effective tax rate used</dt><dd>{percent.format(latestAnnualTax.effectiveTaxRate)}</dd></div>
+                      </dl>
+                    </section>
+                  ) : (
+                    <p>No annual tax period is available.</p>
+                  )}
+                </div>
+              </details>
+
+              <details className="plan-details-disclosure">
+                <summary>
+                  <span className="plan-details-title">RRSP and RRIF withdrawals</span>
+                  <span className="plan-details-status">
+                    {projection.rrif.mode === "statutory"
+                      ? `Required RRIF withdrawals are included from age ${projection.rrif.conversionAge}.`
+                      : `RRIF conversion is shown at age ${projection.rrif.conversionAge}, but required minimum withdrawals are not calculated.`}
+                  </span>
+                </summary>
+                <div className="plan-details-content">
+                  <section className="plan-detail-group" aria-labelledby="rrif-withdrawal-details-title">
+                    <h3 id="rrif-withdrawal-details-title">Withdrawal details</h3>
+                    <dl className="plan-detail-definition-list">
+                      <div><dt>Conversion age</dt><dd>{projection.rrif.conversionAge}</dd></div>
+                      {latestRrifPeriod ? (
+                        <>
+                          <div><dt>Calendar year</dt><dd>{latestRrifPeriod.calendarYear}</dd></div>
+                          <div><dt>Value at the start of the year</dt><dd>{currency.format(mode === "nominal" ? latestRrifPeriod.openingFairMarketValue : latestRrifPeriod.openingFairMarketValueToday)}</dd></div>
+                          <div><dt>Minimum withdrawal required</dt><dd>{currency.format(mode === "nominal" ? latestRrifPeriod.minimumRequired : latestRrifPeriod.minimumRequiredToday)}</dd></div>
+                          <div><dt>Regular withdrawals</dt><dd>{currency.format(mode === "nominal" ? latestRrifPeriod.ordinaryWithdrawals : latestRrifPeriod.ordinaryWithdrawalsToday)}</dd></div>
+                          <div><dt>Additional year-end withdrawal needed</dt><dd>{currency.format(mode === "nominal" ? latestRrifPeriod.forcedDecemberWithdrawal : latestRrifPeriod.forcedDecemberWithdrawalToday)}</dd></div>
+                          <div><dt>Minimum still outstanding</dt><dd>{currency.format(mode === "nominal" ? latestRrifPeriod.remainingMinimum : latestRrifPeriod.remainingMinimumToday)}</dd></div>
+                          {latestRrspRrifValue !== null ? (
+                            <div><dt>RRSP/RRIF value at end of year</dt><dd>{currency.format(latestRrspRrifValue)}</dd></div>
+                          ) : null}
+                        </>
+                      ) : null}
+                    </dl>
+                  </section>
+                  <section className="plan-detail-group plan-detail-subsection" aria-labelledby="rrif-technical-details-title">
+                    <h3 id="rrif-technical-details-title">Technical calculation details</h3>
+                    {projection.rrif.mode === "statutory" ? (
+                      <ul className="plan-detail-technical-list">
+                        <li>The required minimum uses the owner&apos;s age at the beginning of each calendar year.</li>
+                        <li>If regular withdrawals do not meet the minimum, the remaining amount is withdrawn at year end.</li>
+                        {latestRrifPeriod ? (
+                          <li>
+                            {latestRrifPeriod.periodStatus === "complete_calendar_year"
+                              ? "The latest figures cover a complete calendar year."
+                              : latestRrifPeriod.periodStatus === "partial_period"
+                                ? "The latest figures cover part of a calendar year."
+                                : "The latest figures are incomplete because the projection stopped early."}
+                          </li>
+                        ) : null}
+                      </ul>
+                    ) : (
+                      <p>Required minimum withdrawals are not calculated; only the planned conversion age is shown.</p>
+                    )}
+                  </section>
+                </div>
+              </details>
+
+              <details className="plan-details-disclosure">
+                <summary>
+                  <span className="plan-details-title">Taxable investment account</span>
+                  <span className="plan-details-status">
+                    {projection.nonRegisteredTaxation.mode === "simplified_canadian"
+                      ? "Investment income and sales taxes are estimated."
+                      : "Investment income and sales taxes are not included."}
+                  </span>
+                </summary>
+                <div className="plan-details-content">
+                  {latestNonRegisteredPeriod &&
+                  projection.nonRegisteredTaxation.mode === "simplified_canadian" ? (
+                    <>
+                      <p className="plan-detail-context">Figures below are for calendar year {latestNonRegisteredPeriod.calendarYear}.</p>
+                      <section className="plan-detail-group" aria-labelledby="taxable-account-values-title">
+                        <h3 id="taxable-account-values-title">Account values</h3>
+                        <p>Tax cost means adjusted cost base (ACB), which is generally the amount used to calculate a capital gain or loss.</p>
+                        <dl className="plan-detail-definition-list">
+                          <div><dt>Value at start of year</dt><dd>{currency.format(mode === "nominal" ? latestNonRegisteredPeriod.openingMarketValue : latestNonRegisteredPeriod.openingMarketValueToday)}</dd></div>
+                          <div><dt>Value at end of year</dt><dd>{currency.format(mode === "nominal" ? latestNonRegisteredPeriod.closingMarketValue : latestNonRegisteredPeriod.closingMarketValueToday)}</dd></div>
+                          <div><dt>Starting tax cost</dt><dd>{currency.format(mode === "nominal" ? latestNonRegisteredPeriod.openingAdjustedCostBase : latestNonRegisteredPeriod.openingAdjustedCostBaseToday)}</dd></div>
+                          <div><dt>Ending tax cost</dt><dd>{currency.format(mode === "nominal" ? latestNonRegisteredPeriod.closingAdjustedCostBase : latestNonRegisteredPeriod.closingAdjustedCostBaseToday)}</dd></div>
+                        </dl>
+                      </section>
+                      <section className="plan-detail-group" aria-labelledby="taxable-investment-income-title">
+                        <h3 id="taxable-investment-income-title">Investment income</h3>
+                        <dl className="plan-detail-definition-list">
+                          <div><dt>Interest</dt><dd>{currency.format(mode === "nominal" ? latestNonRegisteredPeriod.interestDistributions : latestNonRegisteredPeriod.interestDistributionsToday)}</dd></div>
+                          <div><dt>Eligible Canadian dividends</dt><dd>{currency.format(mode === "nominal" ? latestNonRegisteredPeriod.eligibleCanadianDividends : latestNonRegisteredPeriod.eligibleCanadianDividendsToday)}</dd></div>
+                          <div><dt>Foreign income</dt><dd>{currency.format(mode === "nominal" ? latestNonRegisteredPeriod.foreignIncomeDistributions : latestNonRegisteredPeriod.foreignIncomeDistributionsToday)}</dd></div>
+                          <div><dt>Capital-gain distributions</dt><dd>{currency.format(mode === "nominal" ? latestNonRegisteredPeriod.capitalGainDistributions : latestNonRegisteredPeriod.capitalGainDistributionsToday)}</dd></div>
+                        </dl>
+                      </section>
+                      <section className="plan-detail-group" aria-labelledby="taxable-investments-sold-title">
+                        <h3 id="taxable-investments-sold-title">Investments sold</h3>
+                        <dl className="plan-detail-definition-list">
+                          <div><dt>Sale proceeds</dt><dd>{currency.format(mode === "nominal" ? latestNonRegisteredPeriod.dispositionProceeds : latestNonRegisteredPeriod.dispositionProceedsToday)}</dd></div>
+                          <div><dt>Tax cost of investments sold</dt><dd>{currency.format(mode === "nominal" ? latestNonRegisteredPeriod.adjustedCostBaseDisposed : latestNonRegisteredPeriod.adjustedCostBaseDisposedToday)}</dd></div>
+                          <div><dt>Realized capital gains</dt><dd>{currency.format(mode === "nominal" ? latestNonRegisteredPeriod.realizedCapitalGains : latestNonRegisteredPeriod.realizedCapitalGainsToday)}</dd></div>
+                          <div><dt>Realized capital losses</dt><dd>{currency.format(mode === "nominal" ? latestNonRegisteredPeriod.realizedCapitalLosses : latestNonRegisteredPeriod.realizedCapitalLossesToday)}</dd></div>
+                          <div><dt>Unrealized gain or loss remaining</dt><dd>{currency.format(mode === "nominal" ? latestNonRegisteredPeriod.closingUnrealizedGainOrLoss : latestNonRegisteredPeriod.closingUnrealizedGainOrLossToday)}</dd></div>
+                        </dl>
+                      </section>
+                      <section className="plan-detail-group plan-detail-subsection" aria-labelledby="taxable-account-evidence-title">
+                        <h3 id="taxable-account-evidence-title">Account-by-account values</h3>
+                        <div className="plan-detail-table-shell">
+                          <table className="plan-detail-table">
+                            <thead>
+                              <tr><th>Account</th><th>Value at start</th><th>Starting tax cost</th><th>Value at end</th><th>Ending tax cost</th></tr>
+                            </thead>
+                            <tbody>
+                              {latestNonRegisteredPeriod.accounts.map((account) => (
+                                <tr key={account.accountId}>
+                                  <th scope="row">{inputs.accounts.find((item) => item.id === account.accountId)?.label ?? "Taxable investment account"}</th>
+                                  <td>{currency.format(mode === "nominal" ? account.openingMarketValue : account.openingMarketValueToday)}</td>
+                                  <td>{currency.format(mode === "nominal" ? account.openingAdjustedCostBase : account.openingAdjustedCostBaseToday)}</td>
+                                  <td>{currency.format(mode === "nominal" ? account.closingMarketValue : account.closingMarketValueToday)}</td>
+                                  <td>{currency.format(mode === "nominal" ? account.closingAdjustedCostBase : account.closingAdjustedCostBaseToday)}</td>
+                                </tr>
+                              ))}
+                            </tbody>
+                          </table>
+                        </div>
+                      </section>
+                    </>
+                  ) : (
+                    <p>
+                      Investment income and taxes on investment sales are not calculated for this plan. Existing total-return and withdrawal behaviour is unchanged.
+                    </p>
+                  )}
+                </div>
+              </details>
+
+              <details className="plan-details-disclosure">
+                <summary>
+                  <span className="plan-details-title">How this plan was calculated</span>
+                  <span className="plan-details-status">
+                    {projection.projectionCompletion.status === "complete"
+                      ? `The plan was calculated through age ${projection.projectionCompletion.plannedTerminalAge}.`
+                      : `The calculation stopped at age ${formatProjectedAge(projection.projectionCompletion.completedThroughAge)}.`}
+                  </span>
+                </summary>
+                <div className="plan-details-content">
+                  <section className="plan-detail-group" aria-labelledby="calculation-coverage-title">
+                    <h3 id="calculation-coverage-title">Calculation coverage</h3>
+                    <dl className="plan-detail-definition-list">
+                      <div><dt>Planned final age</dt><dd>{projection.projectionCompletion.plannedTerminalAge}</dd></div>
+                      <div><dt>Last completed date</dt><dd>{formatOverviewDate(projection.projectionCompletion.completedThroughDate)}</dd></div>
+                      <div><dt>Last completed age</dt><dd>{formatProjectedAge(projection.projectionCompletion.completedThroughAge)}</dd></div>
+                      <div>
+                        <dt>Calculation status</dt>
+                        <dd>
+                          {projection.projectionCompletion.status === "complete"
+                            ? "Completed through the planned final age"
+                            : "Stopped early — the full plan was not calculated"}
+                        </dd>
+                      </div>
+                      {projection.projectionCompletion.status !== "complete" && projection.projectionCompletion.reason ? (
+                        <div><dt>Why it stopped</dt><dd>{projection.projectionCompletion.reason}</dd></div>
+                      ) : null}
+                      {projection.projectionCompletion.status !== "complete" && projection.projectionCompletion.stoppedBeforeMonth ? (
+                        <div><dt>Stopped before</dt><dd>{formatOverviewMonth(projection.projectionCompletion.stoppedBeforeMonth)}</dd></div>
+                      ) : null}
+                    </dl>
+                  </section>
+                  <section className="plan-detail-group" aria-labelledby="ending-balance-rule-title">
+                    <h3 id="ending-balance-rule-title">Ending-balance rule</h3>
+                    <dl className="plan-detail-definition-list">
+                      <div><dt>Minimum ending financial assets</dt><dd>{currency.format(projection.retirementRequirement.minimumEndingFinancialAssetsToday)}</dd></div>
+                      <div><dt>Is home equity excluded from retirement funding?</dt><dd>Yes — only cash and investment accounts can fund retirement spending.</dd></div>
+                      <div><dt>Source of this rule</dt><dd>{requirementSourceLabel(projection.retirementRequirement)}</dd></div>
+                    </dl>
+                  </section>
+                  <section className="plan-detail-group plan-detail-subsection" aria-labelledby="savings-duration-method-title">
+                    <ExplainableHeading
+                      compact
+                      headingLevel="h3"
+                      target="financial-assets-duration"
+                      title="How savings duration is checked"
+                      onExplain={openExplanation}
+                    />
+                    <p>
+                      The planner checks cash and investment-account balances in each completed projection period. Home equity is not counted as retirement funding.
+                    </p>
+                  </section>
+                </div>
+              </details>
+
+              <details className="plan-details-disclosure">
+                <summary>
+                  <span className="plan-details-title">Calculation notes and limitations</span>
+                  <span className="plan-details-status">
+                    {calculationNotes.length === 0
+                      ? "No additional calculation notes are active."
+                      : `${calculationNotes.length} ${calculationNotes.length === 1 ? "note" : "notes"} about assumptions and calculation limits.`}
+                  </span>
+                </summary>
+                <div className="plan-details-content">
+                  {calculationNotes.length > 0 ? (
+                    <ul className="calculation-notes-list">
+                      {calculationNotes.map((warning, index) => (
+                        <li key={`${warning.code}-${index}`}>{warning.message}</li>
+                      ))}
+                    </ul>
+                  ) : (
+                    <p>No additional calculation notes or limitations apply to this plan.</p>
+                  )}
+                </div>
+              </details>
             </div>
           </section>
 

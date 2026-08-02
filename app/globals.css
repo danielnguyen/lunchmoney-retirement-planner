@@ -56,8 +56,12 @@ main { width: min(1540px, calc(100% - 32px)); margin: 0 auto; padding: 14px 0 56
 .connection-badge { display: inline-flex; width: fit-content; padding: 5px 8px; border: 1px solid var(--border); border-radius: 999px; color: var(--muted); background: rgba(17, 21, 19, 0.7); font-size: 0.875rem; font-weight: 800; letter-spacing: 0.04em; text-transform: uppercase; }
 .connection-badge.connected { color: var(--accent); border-color: rgba(112, 214, 178, 0.45); }
 .connection-badge.failed { color: var(--danger); border-color: rgba(239, 125, 134, 0.45); }
-.warning-panel { display: grid; gap: 6px; padding: 10px 13px; margin-bottom: 10px; border: 1px solid rgba(242, 189, 99, 0.5); border-radius: 10px; background: rgba(242, 189, 99, 0.08); }
-.warning-panel p { margin: 0; color: #f5d79f; font-size: 0.82rem; line-height: 1.45; }
+.warning-panel { display: grid; gap: 6px; padding: 12px 14px; margin-bottom: 10px; border: 1px solid rgba(242, 189, 99, 0.5); border-radius: 10px; background: rgba(242, 189, 99, 0.08); }
+.warning-panel h2 { margin: 0; font-size: 1rem; }
+.warning-panel p { margin: 0; color: #f5d79f; font-size: 0.875rem; line-height: 1.45; }
+.warning-panel ul { display: grid; gap: 5px; margin: 2px 0 0; padding-left: 20px; color: #f5d79f; font-size: 0.875rem; line-height: 1.45; }
+.warning-panel li { padding-left: 3px; }
+.warning-severity-label { display: inline-block; min-width: 56px; margin-right: 7px; color: var(--text); font-size: 0.875rem; }
 .blocking-card { max-width: 980px; padding: 28px; margin: 8vh auto 0; border: 1px solid rgba(239, 125, 134, 0.5); border-radius: 16px; background: var(--panel); box-shadow: 0 18px 48px rgba(0, 0, 0, 0.2); }
 .blocking-card h1, .blocking-card h2 { margin: 16px 0 8px; }
 .blocking-card > p { color: var(--muted); line-height: 1.55; }
@@ -72,7 +76,7 @@ main { width: min(1540px, calc(100% - 32px)); margin: 0 auto; padding: 14px 0 56
 .segmented { display: inline-flex; padding: 3px; border: 1px solid var(--border); border-radius: 9px; background: #111513; }
 .segmented button { border: 0; border-radius: 9px; padding: 7px 11px; color: var(--muted); background: transparent; }
 .segmented button.active { color: #062117; background: var(--accent); font-weight: 800; }
-#overview, #retirement-income, #spending, #accounts, #assumptions { scroll-margin-top: 110px; }
+#overview, #retirement-income, #spending, #accounts, #plan-details, #assumptions { scroll-margin-top: 110px; }
 
 .retirement-outlook { padding: 24px; margin-bottom: 18px; border: 1px solid rgba(112, 214, 178, 0.42); border-radius: 22px; background: linear-gradient(145deg, rgba(31, 45, 39, 0.98), rgba(25, 30, 28, 0.98)); box-shadow: 0 16px 42px rgba(0, 0, 0, 0.2); }
 .retirement-outlook-heading { display: flex; align-items: flex-start; justify-content: space-between; gap: 16px; }
@@ -103,16 +107,45 @@ main { width: min(1540px, calc(100% - 32px)); margin: 0 auto; padding: 14px 0 56
 .model-minimum-explanation p { margin: 0 0 12px; color: var(--muted); line-height: 1.5; }
 .model-minimum-explanation > strong { display: block; margin-top: 7px; font-size: 1rem; }
 
-.summary-grid { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 14px; margin-bottom: 18px; }
-.metric-card, .report-card { border: 1px solid var(--border); background: rgba(25, 30, 28, 0.95); box-shadow: 0 12px 32px rgba(0, 0, 0, 0.14); }
-.metric-card { padding: 18px; border-radius: 18px; }
-.metric-card .explainable-title-row > span:first-child { color: var(--muted); font-size: 0.76rem; letter-spacing: 0.08em; text-transform: uppercase; }
-.metric-card strong { display: block; margin-top: 9px; font-size: clamp(1.35rem, 2.6vw, 2rem); }
-.metric-card small { display: block; margin-top: 7px; color: var(--muted); }
+.report-card { border: 1px solid var(--border); background: rgba(25, 30, 28, 0.95); box-shadow: 0 12px 32px rgba(0, 0, 0, 0.14); }
 
 .report-layout { display: block; }
 .report-column { display: grid; gap: 18px; min-width: 0; }
 .report-card { padding: 20px; border-radius: 22px; }
+.plan-details { padding: 20px; margin-top: 18px; border: 1px solid var(--border); border-radius: 22px; background: rgba(25, 30, 28, 0.95); box-shadow: 0 12px 32px rgba(0, 0, 0, 0.14); }
+.plan-details .section-heading { margin-bottom: 7px; }
+.plan-details-introduction { margin: 0 0 16px; color: var(--muted); font-size: 0.9rem; line-height: 1.5; }
+.plan-details-list { display: grid; gap: 9px; }
+.plan-details-disclosure { border: 1px solid var(--border); border-radius: 13px; background: var(--panel-soft); overflow: hidden; }
+.plan-details-disclosure summary { padding: 14px 16px; cursor: pointer; }
+.plan-details-disclosure summary::marker { color: var(--accent); }
+.plan-details-disclosure summary:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
+.plan-details-title { display: inline-block; width: calc(45% - 16px); margin-right: 16px; font-size: 1rem; font-weight: 800; }
+.plan-details-status { color: var(--muted); font-size: 0.875rem; line-height: 1.45; }
+.plan-details-content { display: grid; gap: 12px; padding: 0 16px 16px; border-top: 1px solid var(--border); }
+.plan-details-content-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+.plan-detail-evidence { min-width: 0; padding-top: 14px; }
+.plan-detail-evidence > span:first-child, .plan-detail-evidence .explainable-title-row > span:first-child { color: var(--muted); font-size: 0.875rem; font-weight: 800; letter-spacing: 0.06em; text-transform: uppercase; }
+.plan-detail-evidence strong { display: block; margin-top: 8px; font-size: 1.05rem; }
+.plan-detail-evidence small { display: block; margin-top: 7px; color: var(--muted); font-size: 0.875rem; line-height: 1.5; }
+.plan-detail-explanation-heading { padding-top: 14px; }
+.plan-detail-explanation-heading .explainable-title-row > span:first-child { font-size: 0.875rem; }
+.plan-detail-disclaimer { margin: 0; font-size: 0.95rem; font-weight: 800; line-height: 1.5; }
+.plan-detail-context { margin: 14px 0 0; color: var(--muted); font-size: 0.875rem; line-height: 1.5; }
+.plan-detail-group { min-width: 0; padding-top: 14px; }
+.plan-detail-group + .plan-detail-group { border-top: 1px solid var(--border); }
+.plan-detail-group h3 { margin: 0 0 9px; font-size: 1rem; }
+.plan-detail-group > p { margin: 0 0 10px; color: var(--muted); font-size: 0.875rem; line-height: 1.5; }
+.plan-detail-definition-list div { align-items: baseline; }
+.plan-detail-definition-list dt, .plan-detail-definition-list dd { font-size: 0.875rem; line-height: 1.45; }
+.plan-detail-definition-list dd { font-weight: 800; }
+.plan-detail-technical-list { display: grid; gap: 7px; margin: 0; padding-left: 20px; color: var(--muted); font-size: 0.875rem; line-height: 1.5; }
+.plan-detail-table-shell { overflow-x: auto; border: 1px solid var(--border); border-radius: 10px; }
+.plan-detail-table { min-width: 720px; font-size: 0.875rem; }
+.plan-detail-table th, .plan-detail-table td { font-size: 0.875rem; }
+.plan-detail-table tbody th { color: var(--text); background: transparent; }
+.calculation-notes-list { display: grid; gap: 8px; margin: 14px 0 0; padding-left: 20px; color: var(--muted); font-size: 0.875rem; line-height: 1.5; }
+.plan-details-content > p { margin: 14px 0 0; color: var(--muted); font-size: 0.875rem; line-height: 1.5; }
 .section-heading { display: flex; align-items: center; justify-content: space-between; gap: 16px; margin-bottom: 14px; }
 .section-heading h2 { margin: 4px 0 0; font-size: 1.17rem; }
 .explainable-heading { display: flex; align-items: center; justify-content: space-between; gap: 16px; margin-bottom: 14px; min-width: 0; }
@@ -279,18 +312,19 @@ dd { margin: 0; text-align: right; font-size: 0.78rem; }
   .application-status-controls { justify-content: flex-start; }
 }
 @media (max-width: 900px) {
-  .summary-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .retirement-outlook-primary, .model-minimum-summary { grid-template-columns: 1fr; }
   .outlook-supporting-figures { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .model-minimum-explanation { padding: 18px 0 0; border-top: 1px solid var(--border); border-left: 0; }
   .application-header-row { align-items: flex-start; flex-direction: column; gap: 10px; }
   .application-actions { justify-content: flex-start; }
-  #overview, #retirement-income, #spending, #accounts, #assumptions { scroll-margin-top: 12rem; }
+  #overview, #retirement-income, #spending, #accounts, #plan-details, #assumptions { scroll-margin-top: 12rem; }
   .two-column { grid-template-columns: 1fr; }
 }
 @media (max-width: 620px) {
   main { width: min(100% - 14px, 1540px); padding-top: 7px; }
-  .summary-grid, .assumption-grid { grid-template-columns: 1fr; }
+  .assumption-grid, .plan-details-content-grid { grid-template-columns: 1fr; }
+  .plan-details-title, .plan-details-status { display: block; width: auto; margin-right: 0; }
+  .plan-details-status { margin-top: 5px; }
   .retirement-outlook { padding: 18px; border-radius: 16px; }
   .retirement-outlook-primary { gap: 18px; padding: 18px 0; }
   .outlook-supporting-figures { grid-template-columns: 1fr; }
@@ -304,7 +338,7 @@ dd { margin: 0; text-align: right; font-size: 0.78rem; }
   .application-status-controls { align-items: stretch; flex-direction: column; }
   .application-status-controls .button, .application-status-controls .segmented { width: 100%; }
   .application-status-controls .segmented button { flex: 1; min-width: 0; }
-  #overview, #retirement-income, #spending, #accounts, #assumptions { scroll-margin-top: 1rem; }
+  #overview, #retirement-income, #spending, #accounts, #plan-details, #assumptions { scroll-margin-top: 1rem; }
   .chart-shell.medium { height: 330px; }
   .chart-shell.tall { height: 390px; }
   .explainable-heading { align-items: flex-start; }
@@ -333,9 +367,11 @@ dd { margin: 0; text-align: right; font-size: 0.78rem; }
   .application-header { position: static; border: 0; box-shadow: none; background: #fff; }
   .application-header-row { padding: 0 0 12px; }
   .application-title-group h1 { color: #111; font-size: 24px; }
-  .application-title-group p, .application-status-copy p, .metric-card small, .section-kicker, .pill, .milestone, .observation p, dt { color: #555; }
+  .application-title-group p, .application-status-copy p, .plan-details-status, .plan-detail-evidence small, .plan-detail-group > p, .plan-detail-context, .plan-detail-technical-list, .section-kicker, .pill, .milestone, .observation p, dt { color: #555; }
   .application-status-panel { padding: 8px 0; border-width: 1px 0; background: #fff; }
-  .retirement-outlook, .metric-card, .report-card { break-inside: avoid; box-shadow: none; border-color: #bbb; background: #fff; color: #111; }
+  .retirement-outlook, .plan-details, .plan-details-disclosure, .report-card { box-shadow: none; border-color: #bbb; background: #fff; color: #111; }
+  .retirement-outlook, .report-card, .plan-details-disclosure { break-inside: avoid; }
+  .plan-details-disclosure > :not(summary) { display: block !important; }
   .personal-target-card, .outlook-supporting-figures article, .model-minimum-summary { background: #fff; }
   .report-layout, .report-column { display: block; }
   .report-card { margin-bottom: 16px; }

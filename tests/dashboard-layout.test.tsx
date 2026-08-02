@@ -178,14 +178,14 @@ describe("unified planner configuration drawer", () => {
 
     expect(css).toContain(".application-header { position: sticky;");
     expect(css).toContain(
-      "#overview, #retirement-income, #spending, #accounts, #assumptions { scroll-margin-top: 110px; }",
+      "#overview, #retirement-income, #spending, #accounts, #plan-details, #assumptions { scroll-margin-top: 110px; }",
     );
     expect(tablet).toContain(
-      "#overview, #retirement-income, #spending, #accounts, #assumptions { scroll-margin-top: 12rem; }",
+      "#overview, #retirement-income, #spending, #accounts, #plan-details, #assumptions { scroll-margin-top: 12rem; }",
     );
     expect(mobile).toContain(".application-header { position: static;");
     expect(mobile).toContain(
-      "#overview, #retirement-income, #spending, #accounts, #assumptions { scroll-margin-top: 1rem; }",
+      "#overview, #retirement-income, #spending, #accounts, #plan-details, #assumptions { scroll-margin-top: 1rem; }",
     );
     expect(css).toContain(
       ".application-actions .button, .application-status-controls .button, .application-status-controls .segmented button { min-height: 34px; border-radius: 8px; padding: 7px 11px; font-size: 0.875rem; }",
@@ -244,7 +244,7 @@ describe("unified planner configuration drawer", () => {
     const outlookStart = dashboard.indexOf('<section id="overview" className="retirement-outlook"');
     const outlook = dashboard.slice(
       outlookStart,
-      dashboard.indexOf('<section className="summary-grid"', outlookStart),
+      dashboard.indexOf('<section className="report-layout">', outlookStart),
     );
 
     expect(outlookStart).toBeGreaterThan(-1);
@@ -266,7 +266,7 @@ describe("unified planner configuration drawer", () => {
     const css = await readFile("app/globals.css", "utf8");
     const outlookStyles = css.slice(
       css.indexOf(".retirement-outlook"),
-      css.indexOf(".summary-grid"),
+      css.indexOf(".report-layout"),
     );
     const importantLabelSelectors = [
       ".personal-target-comparison .explainable-title-row > span:first-child",
@@ -372,50 +372,138 @@ describe("unified planner configuration drawer", () => {
     );
   });
 
-  it("renders projection completion independently from the derived requirement", async () => {
+  it("moves technical evidence after the main report into five semantic disclosures", async () => {
     const dashboard = await readFile(
       "components/planner-dashboard.tsx",
       "utf8",
     );
-    const completionCard = dashboard.slice(
-      dashboard.indexOf("<span>Projection completion</span>"),
-      dashboard.indexOf(
-        "</article>",
-        dashboard.indexOf("<span>Projection completion</span>"),
-      ),
-    );
-    const durationCard = dashboard.slice(
-      dashboard.indexOf('target="financial-assets-duration"'),
-      dashboard.indexOf(
-        "</article>",
-        dashboard.indexOf('target="financial-assets-duration"'),
-      ),
-    );
+    const outlook = dashboard.indexOf('<section id="overview" className="retirement-outlook"');
+    const report = dashboard.indexOf('<section className="report-layout">');
+    const details = dashboard.indexOf('<section id="plan-details" className="plan-details"');
+    const assumptions = dashboard.indexOf('<section id="assumptions" className="report-card assumptions">');
+    const planDetails = dashboard.slice(details, assumptions);
 
-    expect(completionCard).toContain(
+    expect(outlook).toBeLessThan(report);
+    expect(report).toBeLessThan(details);
+    expect(details).toBeLessThan(assumptions);
+    expect(dashboard).not.toContain('className="summary-grid"');
+    expect(planDetails.match(/<details className="plan-details-disclosure">/g)).toHaveLength(5);
+    expect(planDetails).not.toContain("<details open");
+    expect(planDetails).toContain("Taxes included");
+    expect(planDetails).toContain("RRSP and RRIF withdrawals");
+    expect(planDetails).toContain("Taxable investment account");
+    expect(planDetails).toContain("How this plan was calculated");
+    expect(planDetails).toContain("Calculation notes and limitations");
+    for (const summary of planDetails.matchAll(/<summary>([\s\S]*?)<\/summary>/g)) {
+      expect(summary[1]).not.toContain("<button");
+      expect(summary[1]).not.toContain("ExplainableHeading");
+    }
+  });
+
+  it("renders plain-language calculation coverage independently from the requirement", async () => {
+    const dashboard = await readFile(
+      "components/planner-dashboard.tsx",
+      "utf8",
+    );
+    const calculationDisclosure = dashboard.slice(
+      dashboard.indexOf('<span className="plan-details-title">How this plan was calculated</span>'),
+      dashboard.indexOf("</details>", dashboard.indexOf('<span className="plan-details-title">How this plan was calculated</span>')),
+    );
+    expect(calculationDisclosure).toContain(
       'projection.projectionCompletion.status === "complete"',
     );
-    expect(completionCard).toContain("Projected path stopped early");
-    expect(completionCard).toContain("completedThroughDate");
-    expect(completionCard).toContain("stoppedBeforeMonth");
-    expect(durationCard).toContain("Not established");
-    expect(durationCard).toContain("last completed balance");
+    expect(calculationDisclosure).toContain("Planned final age");
+    expect(calculationDisclosure).toContain("Last completed date");
+    expect(calculationDisclosure).toContain("Last completed age");
+    expect(calculationDisclosure).toContain("Stopped early — the full plan was not calculated");
+    expect(calculationDisclosure).toContain("Why it stopped");
+    expect(calculationDisclosure).toContain("Stopped before");
+    expect(calculationDisclosure).toContain("Minimum ending financial assets");
+    expect(calculationDisclosure).toContain("Is home equity excluded from retirement funding?");
+    expect(calculationDisclosure).toContain("Source of this rule");
+    expect(calculationDisclosure).toContain('target="financial-assets-duration"');
     expect(dashboard).toContain(
       "projection.retirementRequirement.status === \"available\"",
     );
   });
 
-  it("renders shared RRIF lifecycle and annual minimum evidence", async () => {
+  it("renders RRIF evidence with plain-language rows", async () => {
     const dashboard = await readFile(
       "components/planner-dashboard.tsx",
       "utf8",
     );
-    expect(dashboard).toContain("<span>RRIF lifecycle</span>");
-    expect(dashboard).toContain("Statutory minimums active");
-    expect(dashboard).toContain("Compatibility milestone only");
+    expect(dashboard).toContain('<span className="plan-details-title">RRSP and RRIF withdrawals</span>');
+    expect(dashboard).toContain("Required RRIF withdrawals are included from age");
+    expect(dashboard).toContain("RRIF conversion is shown at age");
+    expect(dashboard).toContain("Value at the start of the year");
+    expect(dashboard).toContain("Minimum withdrawal required");
+    expect(dashboard).toContain("Regular withdrawals");
+    expect(dashboard).toContain("Additional year-end withdrawal needed");
+    expect(dashboard).toContain("Minimum still outstanding");
+    expect(dashboard).toContain("RRSP/RRIF value at end of year");
+    expect(dashboard).toContain(
+      "latestProjectionPeriod.calendarYear === latestRrifPeriod.calendarYear",
+    );
     expect(dashboard).toContain("latestRrifPeriod.minimumRequired");
     expect(dashboard).toContain("latestRrifPeriod.forcedDecemberWithdrawal");
     expect(dashboard).toContain("latestRrifPeriod.remainingMinimum");
+  });
+
+  it("keeps first-level Plan details free of the retired card terminology", async () => {
+    const dashboard = await readFile("components/planner-dashboard.tsx", "utf8");
+    const details = dashboard.indexOf('<section id="plan-details" className="plan-details"');
+    const assumptions = dashboard.indexOf('<section id="assumptions" className="report-card assumptions">');
+    const planDetails = dashboard.slice(details, assumptions);
+    const summaries = [...planDetails.matchAll(/<summary>([\s\S]*?)<\/summary>/g)]
+      .map((match) => match[1])
+      .join("\n");
+    const taxes = planDetails.slice(
+      planDetails.indexOf('<span className="plan-details-title">Taxes included</span>'),
+      planDetails.indexOf("Detailed tax calculation"),
+    );
+    const rrif = planDetails.slice(
+      planDetails.indexOf('<span className="plan-details-title">RRSP and RRIF withdrawals</span>'),
+      planDetails.indexOf("Technical calculation details"),
+    );
+    const taxable = planDetails.slice(
+      planDetails.indexOf('<span className="plan-details-title">Taxable investment account</span>'),
+      planDetails.indexOf("Account-by-account values"),
+    );
+    const firstLevelContent = [summaries, taxes, rrif, taxable].join("\n");
+
+    for (const term of [
+      "deterministic tax model",
+      "Compatibility milestone only",
+      "Statutory minimums active",
+      "Simplified Canadian mode active",
+      "embedded/outside projection",
+      "projection-funded",
+      "owner age basis",
+      "settlement timing",
+      "ACB disposed",
+    ]) {
+      expect(firstLevelContent).not.toContain(term);
+    }
+    expect(planDetails).toContain("Total estimated tax on all income included for the year");
+    expect(planDetails).toContain("Tax already reflected in net income or opening-year context");
+    expect(planDetails).toContain("Additional tax paid from projected cash and savings");
+  });
+
+  it("keeps important Plan details text at or above the typography floor", async () => {
+    const css = await readFile("app/globals.css", "utf8");
+    for (const selector of [
+      ".plan-detail-evidence > span:first-child",
+      ".plan-detail-evidence small",
+      ".plan-detail-explanation-heading .explainable-title-row > span:first-child",
+      ".plan-detail-definition-list dt, .plan-detail-definition-list dd",
+      ".plan-detail-technical-list",
+      ".plan-detail-table th, .plan-detail-table td",
+    ]) {
+      const start = css.indexOf(selector);
+      const rule = css.slice(start, css.indexOf("}", start) + 1);
+      expect(start).toBeGreaterThan(-1);
+      expect(rule).toContain("font-size: 0.875rem");
+    }
   });
 
   it("opens guided controls by default and exposes one stable ARIA contract", () => {
@@ -578,6 +666,7 @@ describe("unified planner configuration drawer", () => {
     expect(css).not.toContain(".planner-config-drawer");
     expect(print).toContain(".lunch-money-mappings-overlay");
     expect(print).toContain("display: none !important");
+    expect(print).toContain(".plan-details-disclosure > :not(summary) { display: block !important; }");
   });
 });
 
