@@ -2805,7 +2805,7 @@ function simulateProjection(
           false,
         );
         const after = canadianTaxPosition({
-          state: previewCanadianTaxYearState!,
+          state: previewCanadianTaxState!,
           tax: inputs.tax,
           ageAtYearEnd: ageAtEndOfTaxYear(calendarYear),
           pensionIncomeCreditEligible:
