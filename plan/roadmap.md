@@ -20,13 +20,14 @@ Public planning material, examples, and tests must remain synthetic and must not
 | 6 | Operating-cash target and automatic excess sweep | Completed | [PR #15](https://github.com/danielnguyen/lunchmoney-retirement-planner/pull/15) |
 | 7 | General spending phases | Completed | [PR #16](https://github.com/danielnguyen/lunchmoney-retirement-planner/pull/16) |
 | 8 | Retirement funding requirement and terminal balance | Completed | [PR #24](https://github.com/danielnguyen/lunchmoney-retirement-planner/pull/24) |
-| 9 | RRIF minimum withdrawals and Canadian retirement taxes | In progress | [PR #25](https://github.com/danielnguyen/lunchmoney-retirement-planner/pull/25) annual tax and [PR #26](https://github.com/danielnguyen/lunchmoney-retirement-planner/pull/26) RRIF completed; simplified non-registered tax final stage active |
-| 10 | Deterministic return paths and sequence-risk scenarios | Planned | — |
-| 11 | Structured housing transitions | Planned | — |
+| 9 | RRIF minimum withdrawals and Canadian retirement taxes | Completed | [#25 annual tax](https://github.com/danielnguyen/lunchmoney-retirement-planner/pull/25), [#26 RRIF](https://github.com/danielnguyen/lunchmoney-retirement-planner/pull/26), [#27 non-registered tax](https://github.com/danielnguyen/lunchmoney-retirement-planner/pull/27) |
+| 10 | Deterministic return paths and sequence-risk scenarios | Next | — |
+| 11 | Tax-aware retirement withdrawal strategies | Planned | — |
+| 12 | Structured housing transitions | Planned | — |
 
 Status and delivery metadata for the active implementation belongs in [`implementation-index.md`](./implementation-index.md). The numbered order above is planning shorthand only; product and implementation names must describe their financial capability.
 
-The accepted order is ranked by trustworthiness value and dependency. Known semantic correctness defects come before new modelling breadth. Explicit cash policy comes before interpreting projected asset totals. Spending phases define the retirement cash-flow path required by the funding-requirement calculation. The retirement requirement must remain visibly provisional under compatibility tax assumptions until the Canadian retirement-tax capability lands. Deterministic shock paths remain distinct from probability-of-success reporting.
+The accepted order is ranked by trustworthiness value and dependency. Known semantic correctness defects come before new modelling breadth. Explicit cash policy comes before interpreting projected asset totals. Spending phases define the retirement cash-flow path required by the funding-requirement calculation. The retirement requirement is complete for the supported deterministic tax boundary only when annual Canadian tax, statutory RRIF minimums, and simplified Canadian non-registered taxation are explicitly active; compatibility combinations remain provisional. Deterministic shock paths remain distinct from probability-of-success reporting. Tax-aware retirement withdrawals follow sequence-risk modelling so strategy comparisons can use the same explicit return paths, annual tax ledger, RRIF rules, and non-registered tax state without silently reinterpreting account withdrawal priority.
 
 ## Completed foundation
 
@@ -215,7 +216,7 @@ This capability does not add:
 - Synthetic tests cover boundary months, gaps, overlaps, independent multipliers, global inflation, partial years, compatibility, privacy, and reconciliation.
 - No personal transition is inferred automatically.
 
-## Next capability: Retirement funding requirement and terminal balance
+## Completed capability: Retirement funding requirement and terminal balance
 
 ### Goal
 
@@ -253,7 +254,7 @@ The configured round-number goal remains available as an owner marker but is not
 - Dashboard, explanations, annual results, JSON, and CSV do not present a configured goal as a derived requirement.
 - Synthetic tests cover zero and nonzero terminal balances, different account compositions, mortgage overlap, public-benefit starts, flat-tax compatibility, and unavailable or infeasible scenarios.
 
-## Active capability: RRIF minimum withdrawals and Canadian retirement taxes
+## Completed capability: RRIF minimum withdrawals and Canadian retirement taxes
 
 ### Goal
 
@@ -316,7 +317,7 @@ Dashboard, explanations, annual rows, JSON, and rectangular CSV must use the sam
 - Tax rules, dated references, simplifications, and forecasts remain visible in provenance, explanations, and exports.
 - The flat-rate model remains only as explicitly labelled deterministic compatibility or is removed through a documented migration.
 
-## Planned capability: Deterministic return paths and sequence-risk scenarios
+## Next capability: Deterministic return paths and sequence-risk scenarios
 
 ### Goal
 
@@ -336,6 +337,55 @@ Test explicitly configured adverse return sequences without presenting a probabi
 - Return-path boundaries, partial years, account-specific paths, rebalancing assumptions, and retirement transitions are tested with synthetic data.
 - Monthly balances, annual rows, bridges, explanations, JSON, and CSV consume the same path-driven returns and reconcile within one cent.
 - Results are labelled deterministic scenarios, not probabilities, confidence levels, or forecasts.
+
+## Planned capability: Tax-aware retirement withdrawal strategies
+
+### Goal
+
+Evaluate deliberate retirement withdrawals across cash, TFSA, RRSP/RRIF, and non-registered accounts using the existing annual Canadian tax, RRIF, contribution-room, surplus-routing, and retirement-requirement engines, without silently replacing the owner's configured withdrawal order.
+
+The public planning intent is summarized in [`docs/retirement-strategy.md`](../docs/retirement-strategy.md). Exact personal strategy parameters remain private configuration.
+
+### Model contract
+
+- Existing static `withdrawalPriority` remains a deterministic baseline and compatibility path. Enabling tax-aware behaviour requires an explicit resolved strategy.
+- A strategy may make taxable registered withdrawals above the net cash immediately required for spending when an explicitly configured retirement-income target or tax constraint calls for them.
+- Every deliberate RRSP or RRIF withdrawal enters the same annual tax ledger as spending-driven withdrawals and affects later RRIF balances, minimums, credits, and OAS recovery.
+- After-tax cash above current required outflows is never discarded or assumed spent. It follows an explicit destination policy through available TFSA room, taxable investment, reserve replenishment, or retained cash, reusing the established surplus and contribution-room boundaries.
+- A converted RRIF never receives a contribution back from its own withdrawal surplus.
+- Strategy comparison uses identical spending, benefits, liabilities, return path, inflation, account returns, tax references, and terminal criteria. Only the withdrawal strategy changes unless another input is explicitly overridden.
+- The retirement-requirement solver resumes the same withdrawal strategy used by the ordinary projection rather than solving against a different account-order assumption.
+- A strategy objective must be explicit. The planner must not label a strategy "optimal" merely because it pays less tax in one year.
+
+### Strategy comparison outputs
+
+For each deterministic withdrawal strategy, expose at least:
+
+- gross and after-tax withdrawals by account type and tax year;
+- taxable income by source;
+- federal and provincial tax, OAS recovery tax, and total modelled tax;
+- RRSP/RRIF, TFSA, taxable, and cash balances at material boundaries;
+- RRIF balance at conversion and mandatory-withdrawal amounts afterward;
+- terminal financial assets and retirement-funding margin or shortfall;
+- any unfunded required outflow or early projection stop; and
+- the active deterministic return path used for the comparison.
+
+The dashboard and exports may compare named strategies, but the projection engine remains the only place where withdrawal, tax, account, and routing arithmetic is performed.
+
+### Acceptance criteria
+
+- An omitted tax-aware strategy preserves the existing static-priority projection numerically and visibly.
+- A deliberate registered withdrawal may exceed immediate spending need, but its gross amount, incremental tax, after-tax cash, destination, and later balance effects reconcile within one cent.
+- TFSA recycling never exceeds modelled room and next-year TFSA withdrawal restoration remains consistent with the existing room ledger.
+- Later CPP, OAS, pension, RRIF minimum, and OAS recovery interactions use the existing annual tax result rather than a separate optimizer-only tax approximation.
+- A strategy that lowers bridge-year tax but raises lifetime modelled tax or reduces terminal assets does not receive a hidden success label; the trade-off remains visible.
+- Static-priority, alternative-priority, and deliberate registered-income synthetic cases can be compared under both constant and adverse deterministic return paths.
+- Retirement-requirement candidates, annual rows, explanations, JSON, and CSV consume the same strategy-driven withdrawals and reconcile within one cent.
+- No global optimum, probability of success, or personalized recommendation is claimed unless a future implementation defines and proves the corresponding objective and search boundary.
+
+### Non-goals
+
+This capability does not add household or spouse tax allocation, pension splitting, full tax-return preparation, arbitrary deductions, AMT optimization, probabilistic returns, inferred withdrawal ages, or an automatic instruction to empty registered accounts early.
 
 ## Planned capability: Structured housing transitions
 
@@ -416,6 +466,7 @@ The accepted deterministic roadmap is complete when an accurately configured sce
 - projected retirement funding is compared with a derived requirement using explicit terminal criteria and account composition;
 - RRIF minimums and annual Canadian retirement taxes are modelled consistently;
 - configured adverse return paths use the same reconciled projection without probability claims;
+- tax-aware retirement withdrawal strategies use the same annual tax, RRIF, room, routing, and requirement engines and expose their lifetime trade-offs;
 - structured housing transitions realize home equity only through explicit transactions;
 - starting assets, accumulation, retirement balances, withdrawals, spending, taxes, liabilities, and ending assets reconcile;
 - every major result traces to Lunch Money evidence, local configuration, dated public reference data, or a temporary override;
@@ -433,7 +484,6 @@ The following remain separate later capabilities:
 - historical rolling-return analysis;
 - probability-of-success reporting;
 - household and spouse modelling;
-- tax-optimized withdrawal strategies;
 - automatic career, spending, or life-event forecasting; and
 - full tax-return fidelity.
 
