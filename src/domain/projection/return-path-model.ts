@@ -47,20 +47,24 @@ function monthKey(year: number, month: number): string {
   return `${year}-${String(month).padStart(2, "0")}`;
 }
 
-function validatePath(input: {
-  path: DeterministicReturnPath | DeterministicInflationPath;
+function assertRate(
+  value: number,
+  field: string,
+  min: number,
+  max: number,
+): void {
+  if (!Number.isFinite(value) || value < min || value > max) {
+    throw new Error(`${field} must be between ${min} and ${max}`);
+  }
+}
+
+function validateReturnPath(input: {
+  path: DeterministicReturnPath;
   field: string;
   startYear: number;
   startMonthKey: string;
   endYear: number;
   endMonthKey: string;
-  rateField:
-    | "annualReturn"
-    | "monthlyReturn"
-    | "annualInflation"
-    | "monthlyInflation";
-  min: number;
-  max: number;
 }): void {
   if (input.path.source !== "explicit_configuration") {
     throw new Error(`${input.field}.source must be explicit_configuration`);
@@ -68,53 +72,137 @@ function validatePath(input: {
   if (input.path.entries.length === 0) {
     throw new Error(`${input.field}.entries must not be empty`);
   }
-  let previous: number | string | undefined;
-  for (const [index, entry] of input.path.entries.entries()) {
-    const candidate = entry as unknown as Record<string, unknown>;
-    const rate = candidate[input.rateField];
-    if (
-      typeof rate !== "number" ||
-      !Number.isFinite(rate) ||
-      rate < input.min ||
-      rate > input.max
-    ) {
-      throw new Error(
-        `${input.field}.entries[${index}].${input.rateField} must be between ${input.min} and ${input.max}`,
+  if (input.path.mode === "annual") {
+    let previousYear: number | undefined;
+    for (const [index, entry] of input.path.entries.entries()) {
+      assertRate(
+        entry.annualReturn,
+        `${input.field}.entries[${index}].annualReturn`,
+        -0.99,
+        1,
       );
-    }
-    const key =
-      input.path.mode === "annual"
-        ? candidate.calendarYear
-        : candidate.calendarMonth;
-    if (
-      (typeof key !== "number" && typeof key !== "string") ||
-      (previous !== undefined && key <= previous)
-    ) {
-      throw new Error(
-        `${input.field}.entries must be unique and strictly increasing by date`,
-      );
-    }
-    if (input.path.mode === "annual") {
       if (
-        !Number.isInteger(key) ||
-        (key as number) < input.startYear ||
-        (key as number) > input.endYear
+        !Number.isInteger(entry.calendarYear) ||
+        entry.calendarYear < input.startYear ||
+        entry.calendarYear > input.endYear
       ) {
         throw new Error(
           `${input.field}.entries[${index}].calendarYear must fall within the projection`,
         );
       }
-    } else if (
-      typeof key !== "string" ||
-      !/^\d{4}-\d{2}$/.test(key) ||
-      key < input.startMonthKey ||
-      key > input.endMonthKey
+      if (
+        previousYear !== undefined &&
+        entry.calendarYear <= previousYear
+      ) {
+        throw new Error(
+          `${input.field}.entries must be unique and strictly increasing by date`,
+        );
+      }
+      previousYear = entry.calendarYear;
+    }
+    return;
+  }
+
+  let previousMonth: string | undefined;
+  for (const [index, entry] of input.path.entries.entries()) {
+    assertRate(
+      entry.monthlyReturn,
+      `${input.field}.entries[${index}].monthlyReturn`,
+      -0.99,
+      1,
+    );
+    if (
+      !/^\d{4}-\d{2}$/.test(entry.calendarMonth) ||
+      entry.calendarMonth < input.startMonthKey ||
+      entry.calendarMonth > input.endMonthKey
     ) {
       throw new Error(
         `${input.field}.entries[${index}].calendarMonth must fall within the projection`,
       );
     }
-    previous = key;
+    if (
+      previousMonth !== undefined &&
+      entry.calendarMonth <= previousMonth
+    ) {
+      throw new Error(
+        `${input.field}.entries must be unique and strictly increasing by date`,
+      );
+    }
+    previousMonth = entry.calendarMonth;
+  }
+}
+
+function validateInflationPath(input: {
+  path: DeterministicInflationPath;
+  field: string;
+  startYear: number;
+  startMonthKey: string;
+  endYear: number;
+  endMonthKey: string;
+}): void {
+  if (input.path.source !== "explicit_configuration") {
+    throw new Error(`${input.field}.source must be explicit_configuration`);
+  }
+  if (input.path.entries.length === 0) {
+    throw new Error(`${input.field}.entries must not be empty`);
+  }
+  if (input.path.mode === "annual") {
+    let previousYear: number | undefined;
+    for (const [index, entry] of input.path.entries.entries()) {
+      assertRate(
+        entry.annualInflation,
+        `${input.field}.entries[${index}].annualInflation`,
+        -0.2,
+        0.5,
+      );
+      if (
+        !Number.isInteger(entry.calendarYear) ||
+        entry.calendarYear < input.startYear ||
+        entry.calendarYear > input.endYear
+      ) {
+        throw new Error(
+          `${input.field}.entries[${index}].calendarYear must fall within the projection`,
+        );
+      }
+      if (
+        previousYear !== undefined &&
+        entry.calendarYear <= previousYear
+      ) {
+        throw new Error(
+          `${input.field}.entries must be unique and strictly increasing by date`,
+        );
+      }
+      previousYear = entry.calendarYear;
+    }
+    return;
+  }
+
+  let previousMonth: string | undefined;
+  for (const [index, entry] of input.path.entries.entries()) {
+    assertRate(
+      entry.monthlyInflation,
+      `${input.field}.entries[${index}].monthlyInflation`,
+      -0.2,
+      0.5,
+    );
+    if (
+      !/^\d{4}-\d{2}$/.test(entry.calendarMonth) ||
+      entry.calendarMonth < input.startMonthKey ||
+      entry.calendarMonth > input.endMonthKey
+    ) {
+      throw new Error(
+        `${input.field}.entries[${index}].calendarMonth must fall within the projection`,
+      );
+    }
+    if (
+      previousMonth !== undefined &&
+      entry.calendarMonth <= previousMonth
+    ) {
+      throw new Error(
+        `${input.field}.entries must be unique and strictly increasing by date`,
+      );
+    }
+    previousMonth = entry.calendarMonth;
   }
 }
 
@@ -159,34 +247,23 @@ export function validateReturnPathProjectionInputs(
   }
 
   for (const account of accountPaths) {
-    const path = account.returnPath!;
-    validatePath({
-      path,
+    validateReturnPath({
+      path: account.returnPath!,
       field: `accounts.${account.id}.returnPath`,
       startYear,
       startMonthKey,
       endYear,
       endMonthKey,
-      rateField: path.mode === "annual" ? "annualReturn" : "monthlyReturn",
-      min: -0.99,
-      max: 1,
     });
   }
-  const inflationPath = input.returnScenario?.inflationPath;
-  if (inflationPath) {
-    validatePath({
-      path: inflationPath,
+  if (input.returnScenario?.inflationPath) {
+    validateInflationPath({
+      path: input.returnScenario.inflationPath,
       field: "returnScenario.inflationPath",
       startYear,
       startMonthKey,
       endYear,
       endMonthKey,
-      rateField:
-        inflationPath.mode === "annual"
-          ? "annualInflation"
-          : "monthlyInflation",
-      min: -0.2,
-      max: 0.5,
     });
   }
   return input;
