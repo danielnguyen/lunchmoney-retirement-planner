@@ -8,6 +8,7 @@ import {
 } from "@/src/integrations/lunchmoney/read-service";
 import type { CurrentBaseline } from "./types";
 import { deriveCurrentBaseline } from "./derive";
+import { attachReturnScenarioToBaseline } from "./return-path";
 
 function isoDate(date: Date): string {
   return date.toISOString().slice(0, 10);
@@ -51,7 +52,10 @@ export async function loadCurrentBaseline(options: {
     window.endDate,
     categories,
   );
-  return deriveCurrentBaseline(config, data, window, now.toISOString());
+  return attachReturnScenarioToBaseline(
+    deriveCurrentBaseline(config, data, window, now.toISOString()),
+    config,
+  );
 }
 
 export async function getLunchMoneyStatus(reader?: LunchMoneyReader) {
