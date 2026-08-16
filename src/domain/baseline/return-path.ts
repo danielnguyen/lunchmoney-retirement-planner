@@ -1,4 +1,8 @@
-import type { PlannerConfig, ReturnPathConfig } from "@/src/config/types";
+import type {
+  InflationPathConfig,
+  PlannerConfig,
+  ReturnPathConfig,
+} from "@/src/config/types";
 import type { CurrentBaseline } from "./types";
 import type {
   DeterministicInflationPath,
@@ -13,26 +17,36 @@ function resolvedReturnPath(
   path: ReturnPathConfig | undefined,
 ): DeterministicReturnPath | undefined {
   if (!path) return undefined;
+  if (path.mode === "annual") {
+    return {
+      mode: "annual",
+      source: "explicit_configuration",
+      entries: path.entries.map((entry) => ({ ...entry })),
+    };
+  }
   return {
-    ...path,
+    mode: "monthly",
     source: "explicit_configuration",
-    entries: path.entries.map((entry) => ({ ...entry })) as never,
-  } as DeterministicReturnPath;
+    entries: path.entries.map((entry) => ({ ...entry })),
+  };
 }
 
 function resolvedInflationPath(
-  path: PlannerConfig["returnScenario"] extends infer Scenario
-    ? Scenario extends { inflationPath?: infer Path }
-      ? Path
-      : never
-    : never,
+  path: InflationPathConfig | undefined,
 ): DeterministicInflationPath | undefined {
   if (!path) return undefined;
+  if (path.mode === "annual") {
+    return {
+      mode: "annual",
+      source: "explicit_configuration",
+      entries: path.entries.map((entry) => ({ ...entry })),
+    };
+  }
   return {
-    ...path,
+    mode: "monthly",
     source: "explicit_configuration",
-    entries: path.entries.map((entry) => ({ ...entry })) as never,
-  } as DeterministicInflationPath;
+    entries: path.entries.map((entry) => ({ ...entry })),
+  };
 }
 
 function importedPath(
@@ -45,7 +59,10 @@ function importedPath(
   const baselineAccount = baseline.derived.accountBalances.find(
     (account) => account.id === accountId,
   );
-  if (baselineAccount?.lunchMoneyId === null || baselineAccount?.lunchMoneyId === undefined) {
+  if (
+    baselineAccount?.lunchMoneyId === null ||
+    baselineAccount?.lunchMoneyId === undefined
+  ) {
     return undefined;
   }
   const matchingIdCount = baseline.derived.accountBalances.filter(
@@ -61,9 +78,10 @@ export function attachReturnScenarioToBaseline(
 ): CurrentBaseline {
   if (!config.returnScenario) return baseline;
 
-  const projectionInputs = baseline.projectionInputs as ProjectionInputsWithReturnPaths;
-  const accounts: FinancialAccountWithReturnPath[] = projectionInputs.accounts.map(
-    (account) => {
+  const projectionInputs =
+    baseline.projectionInputs as ProjectionInputsWithReturnPaths;
+  const accounts: FinancialAccountWithReturnPath[] =
+    projectionInputs.accounts.map((account) => {
       const configuredPath =
         account.origin === "projection_configuration"
           ? config.projectionAccounts?.[account.id]?.returnPath
@@ -78,8 +96,7 @@ export function attachReturnScenarioToBaseline(
         effectiveDate: baseline.dataThrough,
       };
       return { ...account, returnPath };
-    },
-  );
+    });
 
   const inflationPath = resolvedInflationPath(
     config.returnScenario.inflationPath,
