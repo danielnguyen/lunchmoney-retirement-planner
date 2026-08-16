@@ -6,24 +6,23 @@ Public tracking must remain generic and must not contain private financial value
 
 ## Current position
 
-- Open roadmap planning pull request: None
-- Planning branch: None
-- Planning status: None
+- Open roadmap planning pull request: [#32 Plan sequence risk and tax-aware retirement drawdown](https://github.com/danielnguyen/lunchmoney-retirement-planner/pull/32)
+- Planning branch: `agent/plan-retirement-risk-and-drawdown`
+- Planning status: In progress — roadmap and public-safe retirement strategy are under review
 - Open implementation pull request: None
 - Open maintenance pull request: None
-- Pull request state: [#31 Polish the retirement planner dashboard](https://github.com/danielnguyen/lunchmoney-retirement-planner/pull/31) merged successfully after hosted validation passed on its exact final head
+- Pull request state: PR #32 is open, draft, unmerged, and planning-only; no roadmap implementation pull request is open
 - Active implementation: None
-- Status: PR 4 is completed and merged; the planned four-PR dashboard redesign is complete
+- Status: PR #32 keeps deterministic return paths and sequence-risk scenarios as the next implementation capability, promotes tax-aware retirement withdrawal strategies to follow them, moves structured housing transitions after both, and records the public strategy boundary without personal financial values
 - Implementation branch: None
-- Starting synchronized-main SHA: `343e3af4cc689b37e44312ba1507d68a45ec5fc7`
-- Validated implementation commit: `79294d84e3e38f5252a0ccab51890e51fbff0fc8`
-- Accessibility and print-contrast correction commit: `59e5c0da316ff2e29094e1c6803950e510538bb0`
-- Exact final PR head: Retained in the pull-request description because recording a tracking commit's own SHA would recursively create another head
-- Change: Consolidate the application around compact neutral surfaces, mint/teal primary accents, consistent spacing/radius/focus tokens, and a 14px user-facing typography floor. Flatten the Retirement outlook composition, present supporting figures as one divided 4/2/1-column grid, keep the calculated minimum secondary, standardize report and chart presentation, centralize chart colours, and label chart figures from visible headings. Reorder the six same-page navigation destinations, add Plan details, remove static `aria-current`, add a focus-visible skip link whose Retirement outlook target receives programmatic fragment focus, and provide pressed-state semantics for the renamed inflation-adjusted/future-dollar controls. Improve contained responsive tables, viewport-bounded drawers, long-value wrapping, 40/44px interaction targets, reduced-motion handling, Assumptions and data sources wording, and printable disclosure/table behaviour. The final correction gives visible nested report surfaces light print backgrounds and makes chart text plus the light screen series visible on white paper while preserving PR 3 evidence and the established screen palette.
-- Browser-validation state: Firefox is installed, but no existing browser automation or screenshot harness can exercise the live-data dashboard, drawers, disclosures, zoom, and print preview. Meaningful browser validation was unavailable without adding a dependency or accessing private configuration; neither was done. Focused jsdom and CSS/source tests cover the structural, interaction, responsive, and print contracts.
-- Preserved contracts: Projection and solver calculations, tax and RRIF behaviour, taxable-account and savings policies, registered room, balances, warning classification and serialization, Lunch Money ingestion, scenario overrides, YAML configuration semantics, APIs, schemas, JSON and CSV export structures, export filenames, and exported numeric values are unchanged.
-- Synthetic validation: Passed locally — 54 focused visual/layout/accessibility/print, dashboard, and explanation tests; 42 focused configuration and drawer tests; 81 focused export/privacy/runtime tests; 589 tests across the complete 32-file suite; typecheck, lint, production build, diff check, Docker image build, Compose validation, isolated schema-aware health smoke with the public synthetic example (`5.0` baseline schema and `13.0` projection schema), and clean container and temporary-file removal. No private planner configuration or values were accessed.
-- Latest merged `main`: `376d0a5912ac6e7070eed91bcdb5ef5982358385`
+- Starting synchronized-main SHA: `c10e8c255fd8d7a0370be547e64b350f310db386`
+- Validated implementation commit: None — this pull request changes planning/documentation only
+- Exact final PR head: Determined from GitHub rather than duplicated here so tracking updates do not recursively obsolete their own recorded head
+- Change: Refresh roadmap status after the completed Canadian annual tax, RRIF, and simplified non-registered tax work; define deterministic sequence-risk as the next runtime capability; add a distinct tax-aware retirement-withdrawal contract that preserves static withdrawal priority as a compatibility baseline; and add `docs/retirement-strategy.md` as a generic public reference for accumulation, bridge years, stress paths, registered drawdown, spending, benefits, and housing boundaries
+- Browser-validation state: Not applicable to this planning-only change
+- Preserved contracts: Projection and solver calculations, tax and RRIF behaviour, non-registered taxation, taxable-account and savings policies, registered room, balances, withdrawal priority, warning classification and serialization, Lunch Money ingestion, scenario overrides, YAML configuration semantics, APIs, schemas, JSON and CSV export structures, export filenames, and exported numeric values are unchanged
+- Synthetic validation: Runtime tests were not run because PR #32 changes documentation/planning only and this session has no local checkout or GitHub CLI. Connector comparison confirmed the branch started from current `main`; committed content is limited to roadmap/strategy/tracking documentation and contains no private planner values.
+- Latest synchronized `main` at planning start: `c10e8c255fd8d7a0370be547e64b350f310db386`
 - Last completed dashboard redesign stage: PR 4, [#31 Polish the retirement planner dashboard](https://github.com/danielnguyen/lunchmoney-retirement-planner/pull/31)
 - PR #31 merge commit: `376d0a5912ac6e7070eed91bcdb5ef5982358385`
 - Previous completed dashboard redesign stage: PR 3, [#30 Organize technical plan details](https://github.com/danielnguyen/lunchmoney-retirement-planner/pull/30)
@@ -34,8 +33,8 @@ Public tracking must remain generic and must not contain private financial value
 - PR #28 merge commit: `4dff690e63e567802d220df04c6478010d494307`
 - Last completed private migration: Passed — the operating-cash policy was updated and validated locally without publishing private values
 - Private smoke state: Passed — the unchanged private configuration normalized through non-registered compatibility without reporting values. Simplified private mode was not run because explicit ACB and distribution assumptions are absent.
-- Remaining step: None for the four-PR dashboard redesign
-- Next action: Begin deterministic return paths and sequence-risk scenarios only after a fresh preflight from synchronized `main`
+- Remaining step: Review and merge planning PR #32 before beginning the next roadmap implementation
+- Next action: After PR #32 merges, begin deterministic return paths and sequence-risk scenarios from a freshly synchronized `main`; begin tax-aware retirement withdrawal strategies only after that implementation merges
 
 ## Planned implementation sequence
 
@@ -51,7 +50,8 @@ Public tracking must remain generic and must not contain private financial value
 | 8 | Retirement funding requirement and terminal balance | Spending phases and retirement projection | Completed | [#24](https://github.com/danielnguyen/lunchmoney-retirement-planner/pull/24) |
 | 9 | RRIF minimum withdrawals and Canadian retirement taxes | Surplus policy, debt model, spending phases, and requirement contract | Completed | [#25 annual tax](https://github.com/danielnguyen/lunchmoney-retirement-planner/pull/25), [#26 RRIF](https://github.com/danielnguyen/lunchmoney-retirement-planner/pull/26), [#27 non-registered tax](https://github.com/danielnguyen/lunchmoney-retirement-planner/pull/27) |
 | 10 | Deterministic return paths and sequence-risk scenarios | Reconciled deterministic projection | Next | — |
-| 11 | Structured housing transitions | Net-worth, debt, spending, and event models | Planned | — |
+| 11 | Tax-aware retirement withdrawal strategies | Annual Canadian tax, RRIF, non-registered tax, retirement requirement, and deterministic return paths | Planned | — |
+| 12 | Structured housing transitions | Net-worth, debt, spending, and event models | Planned | — |
 
 ## Delivery rules
 
@@ -86,4 +86,4 @@ Planning order is project-management shorthand only. Production names must descr
 
 ## New-conversation handoff
 
-> Read `AGENTS.md`, `plan/roadmap.md`, and `plan/implementation-index.md`. PRs [#28](https://github.com/danielnguyen/lunchmoney-retirement-planner/pull/28), [#29](https://github.com/danielnguyen/lunchmoney-retirement-planner/pull/29), [#30](https://github.com/danielnguyen/lunchmoney-retirement-planner/pull/30), and [#31](https://github.com/danielnguyen/lunchmoney-retirement-planner/pull/31) completed the compact shell, Retirement outlook, Plan details hierarchy, and final visual/responsive/print/accessibility polish. PR 4 merged as `376d0a5912ac6e7070eed91bcdb5ef5982358385`; no implementation pull request is open. Deterministic return paths and sequence-risk scenarios are next and must start from a freshly synchronized `main` after preflight.
+> Read `AGENTS.md`, `plan/roadmap.md`, `plan/implementation-index.md`, and `docs/retirement-strategy.md`. Draft planning PR [#32](https://github.com/danielnguyen/lunchmoney-retirement-planner/pull/32) is open on `agent/plan-retirement-risk-and-drawdown`; it keeps deterministic return paths and sequence-risk scenarios as the next implementation capability and promotes tax-aware retirement withdrawal strategies to follow them before structured housing transitions. The public strategy document contains no personal financial values and private YAML remains authoritative for real parameters. Do not begin implementation until PR #32 is reviewed and merged. After merge, start deterministic return paths and sequence-risk scenarios from a freshly synchronized `main`; tax-aware drawdown follows only after that implementation merges.
