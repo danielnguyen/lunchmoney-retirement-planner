@@ -1,4 +1,4 @@
-import { loadPlannerConfig } from "@/src/config/loader";
+import { loadPlannerConfigWithReturnPaths } from "@/src/config/return-path-loader";
 import type { PlannerConfig } from "@/src/config/types";
 import {
   createLunchMoneyReadService,
@@ -8,6 +8,7 @@ import {
 } from "@/src/integrations/lunchmoney/read-service";
 import type { CurrentBaseline } from "./types";
 import { deriveCurrentBaseline } from "./derive";
+import { attachReturnScenarioToBaseline } from "./return-path";
 
 function isoDate(date: Date): string {
   return date.toISOString().slice(0, 10);
@@ -42,7 +43,7 @@ export async function loadCurrentBaseline(options: {
   } catch (error) {
     throw sanitizeLunchMoneyError(error);
   }
-  const config = options.config ?? (await loadPlannerConfig());
+  const config = options.config ?? (await loadPlannerConfigWithReturnPaths());
   const now = options.now ?? new Date();
   const window = trailingWindow(now, config.transactionTrailingMonths);
   const data = await readLunchMoneyData(
@@ -51,7 +52,10 @@ export async function loadCurrentBaseline(options: {
     window.endDate,
     categories,
   );
-  return deriveCurrentBaseline(config, data, window, now.toISOString());
+  return attachReturnScenarioToBaseline(
+    deriveCurrentBaseline(config, data, window, now.toISOString()),
+    config,
+  );
 }
 
 export async function getLunchMoneyStatus(reader?: LunchMoneyReader) {

@@ -96,6 +96,11 @@ import {
   rrifLifecycleForAccount,
   type RrifSimulationState,
 } from "./rrif";
+import {
+  buildInflationFactors,
+  resolveMonthlyReturn,
+} from "./return-path";
+import { validateReturnPathProjectionInputs } from "./return-path-model";
 
 const MONTHS_PER_YEAR = 12;
 const AGE_TOLERANCE = 1e-6;
@@ -1407,10 +1412,10 @@ function simulateProjection(
   rawInputs: ProjectionInputs,
   options: RetirementSimulationOptions = {},
 ): SimulationOutcome {
-  const inputs = validateProjectionInputs(rawInputs);
+  const inputs = validateReturnPathProjectionInputs(
+    validateProjectionInputs(rawInputs),
+  );
   const taxCoverage = resolveTaxCoverage(inputs);
-  // Solver candidates execute the same monthly financial engine, but they do
-  // not build presentation snapshots or bridges that cannot affect pass/fail.
   const evaluationOnly = options.candidateBalancesToday !== undefined;
   const benefits = governmentBenefitSummary(inputs);
   const startYear = Number(inputs.startDate.slice(0, 4));
@@ -1421,6 +1426,13 @@ function simulateProjection(
       (MONTHS_PER_YEAR - startMonth + 1)) /
       MONTHS_PER_YEAR;
   const totalMonths = Math.round((inputs.endAge - inputs.person.currentAge) * MONTHS_PER_YEAR);
+  const inflationFactors = buildInflationFactors({
+    fallbackAnnualInflation: inputs.annualInflation,
+    path: inputs.returnScenario?.inflationPath,
+    startYear,
+    startMonth,
+    totalMonths,
+  });
   const retirementMonth = Math.round(
     (inputs.person.retirementAge - inputs.person.currentAge) * MONTHS_PER_YEAR,
   );
@@ -1633,7 +1645,7 @@ function simulateProjection(
   }
 
   function snapshot(month: number, previousMonth: number, calendarYear: number): void {
-    const factor = indexedFactor(inputs.annualInflation, month);
+    const factor = inflationFactors[month]!;
     const age = inputs.person.currentAge + month / MONTHS_PER_YEAR;
     const nominal = snapshotView(
       annualNominalFlow,
@@ -1811,8 +1823,8 @@ function simulateProjection(
     month <= totalMonths;
     month += 1
   ) {
-    const previousFactor = indexedFactor(inputs.annualInflation, month - 1);
-    const factor = indexedFactor(inputs.annualInflation, month);
+    const previousFactor = inflationFactors[month - 1]!;
+    const factor = inflationFactors[month]!;
     const workingAge = inputs.person.currentAge + (month - 1) / MONTHS_PER_YEAR;
     const age = inputs.person.currentAge + month / MONTHS_PER_YEAR;
     const calendarMonthIndex = startMonth - 1 + month - 1;
@@ -1955,7 +1967,14 @@ function simulateProjection(
     ).financialAssets;
     for (const account of inputs.accounts) {
       const current = balances.get(account.id) ?? 0;
-      const totalReturnAmount = current * monthlyRate(account.annualReturn);
+      const totalReturnAmount =
+        current *
+        resolveMonthlyReturn({
+          fallbackAnnualReturn: account.annualReturn,
+          path: account.returnPath,
+          calendarYear,
+          calendarMonth,
+        }).monthlyReturn;
       const treatment = nonRegisteredTreatment(
         inputs.nonRegisteredTaxation,
         account.id,
@@ -3760,6 +3779,13 @@ function simulateProjection(
       })()
     : null;
 
+  if (inputs.returnScenario) {
+    observations.push({
+      code: "deterministic_return_scenario_active",
+      message:
+        "An explicit deterministic return or inflation path is active. This is a stress scenario, not a forecast, probability of success, or confidence level.",
+    });
+  }
   observations.push({
     code: "retirement",
     message: `Retirement begins after ${retirementSnapshot.calendarDate}.`,
