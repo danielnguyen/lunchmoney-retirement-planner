@@ -1,4 +1,4 @@
-import { loadPlannerConfig } from "@/src/config/loader";
+import { loadPlannerConfigWithReturnPaths } from "@/src/config/return-path-loader";
 import type { PlannerConfig } from "@/src/config/types";
 import {
   createLunchMoneyReadService,
@@ -42,7 +42,7 @@ export async function loadCurrentBaseline(options: {
   } catch (error) {
     throw sanitizeLunchMoneyError(error);
   }
-  const config = options.config ?? (await loadPlannerConfig());
+  const config = options.config ?? (await loadPlannerConfigWithReturnPaths());
   const now = options.now ?? new Date();
   const window = trailingWindow(now, config.transactionTrailingMonths);
   const data = await readLunchMoneyData(
