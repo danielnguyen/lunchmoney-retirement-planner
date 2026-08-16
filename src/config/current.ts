@@ -1,10 +1,8 @@
 import { createHash, randomUUID } from "node:crypto";
 import { readFile, rename, stat, unlink, writeFile } from "node:fs/promises";
 import { basename, dirname, extname, join } from "node:path";
-import {
-  parseAndValidatePlannerConfig,
-  plannerConfigPath,
-} from "@/src/config/loader";
+import { plannerConfigPath } from "@/src/config/loader";
+import { parseAndValidatePlannerConfigWithReturnPaths } from "@/src/config/return-path-loader";
 import { PlannerRuntimeError } from "@/src/runtime/errors";
 
 export type ConfigFileOperations = {
@@ -91,7 +89,11 @@ export async function readCurrentPlannerConfig(): Promise<CurrentPlannerConfig> 
 }
 
 export function validateCurrentPlannerConfig(contents: string): void {
-  parseAndValidatePlannerConfig(contents, "YAML", "provided to the editor");
+  parseAndValidatePlannerConfigWithReturnPaths(
+    contents,
+    "YAML",
+    "provided to the editor",
+  );
 }
 
 async function prepareAtomicWrite(
