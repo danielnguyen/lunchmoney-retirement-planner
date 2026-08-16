@@ -29,7 +29,7 @@ Public tracking must remain generic and must not contain private financial value
 - Previous completed dashboard redesign stage: PR 3, [#30 Organize technical plan details](https://github.com/danielnguyen/lunchmoney-retirement-planner/pull/30)
 - PR #30 merge commit: `b7223466dce4c47faa295aa9555ca40f69623895`
 - Previous completed dashboard redesign stage: PR 2, [#29 Clarify the retirement overview](https://github.com/danielnguyen/lunchmoney-retirement-planner/pull/29)
-- PR #29 merge commit: `e1989aceaf4ba31ef9154eed91bcdb722ff`
+- PR #29 merge commit: `e1989aceaf4ba31ef9154eedb5e2dd6afdb722ff`
 - Previous dashboard redesign stage: PR 1, [#28 Compact the retirement planner application shell](https://github.com/danielnguyen/lunchmoney-retirement-planner/pull/28)
 - PR #28 merge commit: `4dff690e63e567802d220df04c6478010d494307`
 - Last completed private migration: Passed — the operating-cash policy was updated and validated locally without publishing private values
