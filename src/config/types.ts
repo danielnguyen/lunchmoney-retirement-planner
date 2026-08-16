@@ -48,6 +48,49 @@ export const accountRoles = [
 
 export type AccountRole = (typeof accountRoles)[number];
 
+export type AnnualReturnPathConfig = {
+  mode: "annual";
+  entries: Array<{
+    calendarYear: number;
+    annualReturn: number;
+  }>;
+};
+
+export type MonthlyReturnPathConfig = {
+  mode: "monthly";
+  entries: Array<{
+    calendarMonth: string;
+    monthlyReturn: number;
+  }>;
+};
+
+export type ReturnPathConfig = AnnualReturnPathConfig | MonthlyReturnPathConfig;
+
+export type AnnualInflationPathConfig = {
+  mode: "annual";
+  entries: Array<{
+    calendarYear: number;
+    annualInflation: number;
+  }>;
+};
+
+export type MonthlyInflationPathConfig = {
+  mode: "monthly";
+  entries: Array<{
+    calendarMonth: string;
+    monthlyInflation: number;
+  }>;
+};
+
+export type InflationPathConfig =
+  | AnnualInflationPathConfig
+  | MonthlyInflationPathConfig;
+
+export type ReturnScenarioConfig = {
+  label: string;
+  inflationPath?: InflationPathConfig;
+};
+
 export type EmploymentIncomePhaseConfig = {
   id: string;
   label: string;
@@ -167,6 +210,7 @@ export type AccountMapping = {
   contributionFunding?: ContributionFunding;
   contributionPhases?: ContributionPhaseConfig[];
   annualReturn?: number;
+  returnPath?: ReturnPathConfig;
   annualAppreciation?: number;
   withdrawalPriority?: number;
   allocation?: AssetAllocation;
@@ -228,6 +272,7 @@ export type ProjectionAccountConfig = {
   label: string;
   type: Exclude<PlannerAccountType, "debt" | "exclude" | "real_estate">;
   annualReturn: number;
+  returnPath?: ReturnPathConfig;
   withdrawalPriority: number;
   allocation: AssetAllocation;
   contributionPhases: ContributionPhaseConfig[];
@@ -386,6 +431,7 @@ export type PlannerConfig = {
   transactionTrailingMonths: number;
   employmentIncomePhases?: EmploymentIncomePhaseConfig[];
   spendingPhases?: SpendingPhaseConfig[];
+  returnScenario?: ReturnScenarioConfig;
   accountMappings: Record<string, AccountMapping>;
   registeredRoom?: RegisteredRoomConfig;
   savingsPolicy?: SavingsPolicyConfig;
