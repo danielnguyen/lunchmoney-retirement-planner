@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 
 import "@testing-library/jest-dom/vitest";
-import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { PlannerDashboard } from "@/components/planner-dashboard";
 import { calculateProjection } from "@/src/domain/projection/calculate";
@@ -437,26 +437,29 @@ describe("scenario-to-config dashboard workflow", () => {
     render(<PlannerDashboard />);
     await waitForDashboard();
     await overrideInflation();
-    fireEvent.click(screen.getByRole("button", { name: "Apply scenario to config" }));
-    expect(await screen.findByText("Applied config changes")).toBeInTheDocument();
-    fireEvent.change(screen.getByLabelText("Planner YAML"), {
+    // Search the open drawer, not every accessible element in the projection
+    // tables behind it. Keep the real dashboard/engine and the five-second limit.
+    const drawer = within(screen.getByTestId("scenario-controls-overlay"));
+    fireEvent.click(drawer.getByRole("button", { name: "Apply scenario to config" }));
+    expect(await drawer.findByText("Applied config changes")).toBeInTheDocument();
+    fireEvent.change(drawer.getByLabelText("Planner YAML"), {
       target: {
-        value: `${(screen.getByLabelText("Planner YAML") as HTMLTextAreaElement).value}# manual repair\n`,
+        value: `${(drawer.getByLabelText("Planner YAML") as HTMLTextAreaElement).value}# manual repair\n`,
       },
     });
-    expect(screen.getByText(
+    expect(drawer.getByText(
       "The YAML draft has been edited since this scenario was applied. Review the YAML as the source of truth.",
     )).toBeInTheDocument();
-    fireEvent.click(screen.getByRole("button", { name: "Save config" }));
+    fireEvent.click(drawer.getByRole("button", { name: "Save config" }));
 
-    expect(await screen.findByText("The planner configuration changed on disk. Revert changes first.")).toBeInTheDocument();
-    expect((screen.getByLabelText("Planner YAML") as HTMLTextAreaElement).value)
+    expect(await drawer.findByText("The planner configuration changed on disk. Revert changes first.")).toBeInTheDocument();
+    expect((drawer.getByLabelText("Planner YAML") as HTMLTextAreaElement).value)
       .toContain("0.025");
-    expect(screen.getByText("Applied config changes")).toBeInTheDocument();
-    expect(screen.getByText(
+    expect(drawer.getByText("Applied config changes")).toBeInTheDocument();
+    expect(drawer.getByText(
       "The YAML draft has been edited since this scenario was applied. Review the YAML as the source of truth.",
     )).toBeInTheDocument();
-    fireEvent.click(screen.getByRole("button", { name: "Close planner configuration" }));
+    fireEvent.click(drawer.getByRole("button", { name: "Close planner configuration" }));
     fireEvent.click(screen.getByRole("button", { name: "Try another plan" }));
     expect(await screen.findByLabelText("Inflation")).toHaveValue(2.5);
   });

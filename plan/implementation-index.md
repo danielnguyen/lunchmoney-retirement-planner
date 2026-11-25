@@ -91,3 +91,22 @@ and independent exact-head review remain required before readiness.
 - Final checks after effective-assumption display changes: 15 focused inverse/API/dashboard tests passed; lint, typecheck and production build passed again. The earlier complete suite passed 669/669 tests, including existing synthetic tax, benefit, liability, return-path and export-privacy regressions.
 - Required Docker check attempted both normally and with local sudo: socket permission denied, then BuildKit bind-mount operation not permitted. Existing PR Docker CI is the pending validation path; this draft is not ready until it passes and independent review completes.
 - Built-server regression: `node --import tsx tests/export-http.ts` passed all eight synthetic HTTP/export boundary checks after the final build.
+
+## PR #41 CI correction
+
+- Resumed the clean `openhands/issue-35` checkout at requested head
+  `b1b64b3fd7b0b68ea48922826aa627b3229b2756`; GitHub confirmed the same draft head.
+- Read current reviews, inline comments, discussion and check results. No submitted
+  reviews or inline findings existed; discussion deferred review until CI completed.
+- Failed validate run `45723700058`: save-conflict dashboard test exceeded its
+  existing 5-second limit (668 other tests passed). Hosted Docker run `45723699994`
+  passed on that head. Shared policy remains at the previously read revision
+  `07079695e12e52afe374cd754a7295817e957e1e`.
+- Bounded correction: scope the failing test's queries to the open configuration
+  drawer, avoiding full dashboard scans. Retain all assertions, actual dashboard
+  and projection engine, timeout, retry limits and CI workflow. No product changes.
+- Focused test passed before and after the correction (2.69s and 2.24s locally).
+  Full validation of the correction and independent review of its new head follow.
+- Correction validation: all 669 tests in 39 files passed; typecheck, lint,
+  production build, Compose config and eight built-server HTTP export checks passed.
+  Hosted checks and independent review must confirm the new exact head.
