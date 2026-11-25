@@ -427,3 +427,95 @@ Pushes to `main` and manual workflow runs publish:
 ## License
 
 MIT
+
+### Configured scenario comparison
+
+An optional `scenarioComparison` list in the existing planner YAML enables the
+side-by-side dashboard. Omit it or use `scenarioComparison: []` to keep the existing
+dashboard and projection behavior. There are no generated scenarios or spending
+tiers. Every scenario starts with the same refreshed baseline and shared temporary
+controls, then applies its own named phase selections. Refresh and Save config
+reload the definitions; comparison edits and Reset comparison edits affect only
+the current browser session. Persist definitions through Edit YAML / Save config.
+
+This example is **entirely fictional**. It references the explicit phase IDs in
+`config/planner.example.yaml`; replace IDs and amounts with deliberate inputs in
+your own local editor. Do not copy private configuration into repository files.
+
+```yaml
+scenarioComparison:
+  - id: fictional-budget-option
+    label: Fictional budget option
+    contributionPolicy: cash_constrained
+    spending:
+      - phaseId: current-lifestyle
+        adjustment:
+          mode: annual_lifestyle_budget
+          annualAmountToday: 54000
+    personalContributions:
+      - target:
+          mode: personal_investing
+        phaseId: current-personal-saving
+        monthlyAmountToday: 750
+  - id: fictional-multiplier-option
+    label: Fictional multiplier option
+    contributionPolicy: configured_fixed_plan
+    spending:
+      - phaseId: current-lifestyle
+        adjustment:
+          mode: multipliers
+          essentialMultiplier: 1
+          discretionaryMultiplier: 0.8
+    personalContributions: []
+```
+
+Both arrays and `contributionPolicy` are required for each scenario; empty arrays
+inherit all corresponding active baseline values. IDs must be unique, labels must
+be nonblank, and amounts/multipliers must be finite, non-negative and within JavaScript’s safe cent precision. Unknown
+fields, duplicate phase selections and missing phase references are rejected.
+Only explicit working-life spending phases ending by retirement can be selected.
+Their existing boundaries and indexing semantics remain unchanged. Retirement age,
+terminal age, all unselected phases, income, return paths, tax assumptions and
+liability schedules come from the active plan and its existing temporary controls.
+
+An annual lifestyle budget is total essential plus discretionary spending in
+today's dollars. It preserves the selected phase's essential multiplier and solves
+only for its discretionary multiplier. A budget below essential spending is
+unavailable; a positive discretionary budget cannot scale a zero discretionary
+baseline. Explicit `multipliers` deliberately sets both multipliers. This does not
+create career events or new spending phases.
+
+In simple mode `target: { mode: personal_investing }` selects the personal savings
+policy phase by ID. In advanced mode use
+`target: { mode: account, accountId: "projection:fictional-investment" }` with an
+existing included account or projection-account ID and a cash-funded contribution
+phase. Income-withheld workplace phases cannot be overridden as personal savings.
+There is no generic YAML-path override mechanism.
+
+`cash_constrained` caps personal contributions after lifestyle, tax, events and
+configured liability payments, and protects the configured indexed reserve target
+(and the simple policy's operating-cash target). It uses the existing contribution
+waterfall and room limits. It never draws reserves to fund the contribution.
+Existing reserve-building and excess-cash policies still apply. The fixed-plan
+option preserves the canonical plan: advanced fixed routes can require asset
+withdrawals, while the established simple policy already caps actual deposits.
+In either mode the proposed plan remains visible, and any unallocated contribution,
+unfunded outflow or working-life asset withdrawal is marked infeasible. Reserve
+target shortfalls are also disclosed.
+
+The ledger distinguishes planned contributions, investing funded by current cash,
+gross deposits, deposits financed by withdrawals, withheld workplace contributions,
+regular and extra debt payments, other outflows, taxes, cash retained and targeted
+event deposits. Current cash is assigned to required outflows before investments;
+this is an explicit allocation convention, not a claim about bank transfers.
+Withheld workplace contributions are not charged against net deposited income.
+Each month reconciles within one cent before a result is shown. Annual allocation
+sums only working months, including partial years, in today's dollars; trajectories
+and milestones use the canonical projection results. Fixed-plan asset balances are
+not evidence that a plan is affordable. Projection errors and incomplete liability
+funding are surfaced, and unavailable terminal assets remain unavailable.
+
+Maximum sustainable spending is labelled **Not calculated** until the real #35
+solver exists. This feature adds no inverse solver, tax optimizer, probabilistic
+success score, mortgage quote, renewal assumption or prepayment schedule. Existing
+JSON/CSV exports are unchanged and do not export comparison definitions or results.

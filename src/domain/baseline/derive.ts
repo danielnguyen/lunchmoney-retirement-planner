@@ -3085,6 +3085,7 @@ export function deriveCurrentBaseline(
 
   return {
     schemaVersion: "5.0",
+    ...(config.scenarioComparison ? { scenarioComparison: structuredClone(config.scenarioComparison) } : {}),
     connection,
     projectionInputs,
     provenance,

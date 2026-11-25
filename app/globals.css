@@ -453,3 +453,13 @@ code, pre, .mapping-reference-row, .config-editor-meta strong, .assumption-grid 
   th { position: static; color: #333; background: #eee; }
   th, td { border: 1px solid #777; white-space: normal; overflow-wrap: anywhere; }
 }
+
+.comparison-panel { margin: 1rem 0; padding: 1.25rem; border: 1px solid #c5ccd3; border-radius: 12px; background: var(--surface, #fff); }
+.comparison-cards { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 320px), 1fr)); gap: 1rem; margin: 1rem 0; }
+.comparison-cards > * { min-width: 0; padding: 1rem; border: 1px solid #c5ccd3; border-radius: 8px; }
+.comparison-cards label { display: grid; gap: .25rem; margin: .75rem 0; }
+.comparison-cards input, .comparison-cards select { width: 100%; max-width: 100%; padding: .5rem; }
+.comparison-table { overflow-x: auto; margin: 1rem 0; }
+.comparison-panel table { border-collapse: collapse; width: 100%; }
+.comparison-panel th, .comparison-panel td { padding: .65rem; text-align: left; border-bottom: 1px solid #c5ccd3; }
+.comparison-panel summary { cursor: pointer; padding: .5rem 0; }

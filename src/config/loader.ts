@@ -1,3 +1,4 @@
+import { parseComparisonScenarios, validateComparisonReferences } from "./scenario-comparison";
 import { access, readFile } from "node:fs/promises";
 import { constants } from "node:fs";
 import { extname } from "node:path";
@@ -2984,6 +2985,10 @@ export function validatePlannerConfig(value: unknown): PlannerConfig {
       config.currentAge,
       "governmentBenefits.oas.startAge",
     );
+  }
+  if (item.scenarioComparison !== undefined) {
+    config.scenarioComparison = parseComparisonScenarios(item.scenarioComparison);
+    validateComparisonReferences(config.scenarioComparison, config);
   }
   validateEmploymentPhaseRanges(config);
   validateSpendingPhaseRanges(config);

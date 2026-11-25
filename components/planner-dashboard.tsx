@@ -1,5 +1,7 @@
 "use client";
 
+import { ScenarioComparison } from "@/components/scenario-comparison";
+
 import {
   useCallback,
   useEffect,
@@ -1952,6 +1954,8 @@ export function PlannerDashboard() {
           <p>{projectionError}</p>
         </section>
       ) : null}
+
+      {baseline.scenarioComparison?.length ? <ScenarioComparison key={baseline.connection.checkedAt} inputs={inputs} definitions={baseline.scenarioComparison} /> : null}
 
       {projection ? (
         <>

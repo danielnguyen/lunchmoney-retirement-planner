@@ -1367,7 +1367,20 @@ type CoreProjectionResult = Omit<
   "retirementRequirement"
 >;
 
-type RetirementSimulationOptions = {
+export type ComparisonProjectionOptions = {
+  cashConstrainedPersonalContributions?: boolean;
+  onMonth?: (month: {
+    date: string;
+    age: number;
+    working: boolean;
+    inflationFactor: number;
+    flow: ProjectionView;
+    targetedEventDeposits: number;
+    reserveShortfall: number;
+  }) => void;
+};
+
+type RetirementSimulationOptions = ComparisonProjectionOptions & {
   candidateBalancesToday?: ReadonlyMap<string, number>;
   continuation?: RetirementContinuationState;
 };
@@ -2953,9 +2966,26 @@ function simulateProjection(
     monthlyFlow.outflows.liabilityCashPayment =
       liabilityCashPayment;
 
+    // Comparison is opt-in. Existing projections retain their funding policy.
+    const reserveDeficit = () => {
+      const reserveBalance = inputs.surplusAllocation.reserveAccountIds.reduce(
+        (total, id) => total + (balances.get(id) ?? 0), 0,
+      );
+      const reserveGap = Math.max(0, monthlyFlow.surplusAllocation.reserveTarget - reserveBalance);
+      if (!simplePolicy?.operatingCashTarget) return reserveGap;
+      const operatingGap = Math.max(0,
+        simplePolicy.operatingCashTarget.targetToday * indexedFactor(simplePolicy.operatingCashTarget.indexingRate, month) -
+        (balances.get(simplePolicy.operatingCashAccountId) ?? 0),
+      );
+      return simplePolicy.reserveAccountIds.includes(simplePolicy.operatingCashAccountId)
+        ? Math.max(reserveGap, operatingGap) : reserveGap + operatingGap;
+    };
     if (!simplePolicy) {
       for (const route of inputs.contributionWaterfall.routes) {
-        processContributionRoute(route, Number.POSITIVE_INFINITY);
+        const available = options.cashConstrainedPersonalContributions
+          ? Math.max(0, availableCurrentMonthCash - essential - discretionary - regularTax - recoveryTax - eventOutflows - cashFundedContributions - reserveDeficit())
+          : Number.POSITIVE_INFINITY;
+        processContributionRoute(route, available);
       }
     }
 
@@ -3072,7 +3102,9 @@ function simulateProjection(
       if (personalRoute) {
         const personal = processContributionRoute(
           personalRoute,
-          positiveCashAvailable,
+          options.cashConstrainedPersonalContributions
+            ? Math.max(0, positiveCashAvailable - reserveDeficit())
+            : positiveCashAvailable,
         );
         monthlyFlow.savingsPolicy.personalPlanned = personal.planned;
         monthlyFlow.savingsPolicy.personalAllowed = personal.deposited;
@@ -3523,6 +3555,17 @@ function simulateProjection(
       inputs.liabilities,
       liabilityBalances,
     );
+    if (!evaluationOnly && options.onMonth) {
+      const flow = structuredClone(monthlyFlow);
+      flow.balances = currentBalances;
+      options.onMonth({
+        date: calendarMonthKey, age: workingAge,
+        working: workingAge < inputs.person.retirementAge - AGE_TOLERANCE,
+        inflationFactor: factor, flow,
+        targetedEventDeposits: eventInflows - unassignedEventInflows,
+        reserveShortfall: reserveDeficit(),
+      });
+    }
     if (financialAssetsDepletionAge === null && currentBalances.financialAssets <= 0.01) {
       financialAssetsDepletionAge = age;
     }
@@ -4143,8 +4186,9 @@ function simulateProjection(
 
 export function calculateProjection(
   rawInputs: ProjectionInputs,
+  comparisonOptions: ComparisonProjectionOptions = {},
 ): ProjectionResult {
-  const ordinary = simulateProjection(rawInputs);
+  const ordinary = simulateProjection(rawInputs, comparisonOptions);
   if (!ordinary.result) {
     throw new Error("The ordinary projection result was not captured");
   }

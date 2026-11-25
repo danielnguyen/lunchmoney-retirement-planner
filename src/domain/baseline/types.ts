@@ -1,3 +1,4 @@
+import type { ComparisonScenarioConfig } from "@/src/config/types";
 import type { BaselineValue } from "@/src/domain/defaults/types";
 import type {
   ContributionFunding,
@@ -196,6 +197,7 @@ export type LunchMoneyMappings = {
 };
 
 export type CurrentBaseline = {
+  scenarioComparison?: ComparisonScenarioConfig[];
   schemaVersion: "5.0";
   connection: ConnectionStatus;
   projectionInputs: ProjectionInputs;
