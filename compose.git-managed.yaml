@@ -1,0 +1,7 @@
+# Opt in with: docker compose -f compose.yaml -f compose.git-managed.yaml up
+services:
+  planner:
+    environment:
+      PLANNER_CONFIG_WRITE_ENABLED: "false"
+    volumes:
+      - ${PLANNER_ACTIVE_CONFIG_DIR:-./config}:/app/config:ro,Z

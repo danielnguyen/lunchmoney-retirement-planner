@@ -8,6 +8,7 @@ services:
       LUNCHMONEY_API_TOKEN: ${LUNCHMONEY_API_TOKEN:-}
       PLANNER_CONFIG_PATH: /app/config/planner.local.yaml
       PLANNER_CONFIG_WRITE_ENABLED: ${PLANNER_CONFIG_WRITE_ENABLED:-false}
+      PLANNER_EXPORT_TOKEN: ${PLANNER_EXPORT_TOKEN:-}
       NEXT_PUBLIC_APP_NAME: ${NEXT_PUBLIC_APP_NAME:-Retirement Planner}
     volumes:
       - ./config:/app/config:rw,Z

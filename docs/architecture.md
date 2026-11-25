@@ -143,3 +143,21 @@ The comparison is local dashboard data, outside the existing typed export
 allowlist. No storage, new export route, separate solver, background job or
 financial defaults are introduced. #35's spending-capacity metric remains explicitly
 not calculated; #36's withdrawal-strategy scope is unchanged.
+
+## Host-side configuration sync and saved-plan retrieval
+
+`scripts/sync-planner-config.ts` runs only on the deployment host, using the
+application source revision matching the running service. It fetches an approved
+upstream branch from an existing private checkout, resolves a commit, reads its
+regular YAML blob and invokes the existing complete configuration validator before
+an atomic active-file replacement. Git and private checkout credentials never
+enter the planner container. A directory bind mount lets each fresh baseline
+request observe the new inode; Git-managed deployments disable dashboard writes.
+
+The opt-in GET on `/api/v1/exports/projection` checks its dedicated bearer credential
+before loading any baseline data. It rejects caller inputs, reloads the saved plan
+and live baseline, then uses the ordinary calculation and snapshot allowlist with
+empty overrides. It is uncached and sanitizes failures. Browser POST JSON and CSV
+exports retain their contracts. This credential protects only that GET operation;
+external connections must be restricted to that exact method and path. See the
+[operator guide](git-managed-planner.md) for the deployment boundary.
