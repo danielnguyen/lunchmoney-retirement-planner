@@ -1,5 +1,5 @@
 import { execFile } from "node:child_process";
-import { rename, mkdtemp, mkdir, readFile, readdir, rm, symlink, writeFile } from "node:fs/promises";
+import { chmod, rename, mkdtemp, mkdir, readFile, readdir, rm, symlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { promisify } from "node:util";
@@ -95,6 +95,17 @@ describe("manual Git configuration sync", () => {
     if (operation === "write") vi.mocked(writeFile).mockRejectedValueOnce(new Error("private path"));
     else vi.mocked(rename).mockRejectedValueOnce(new Error("private path"));
     await expect(syncPlannerConfig(options)).rejects.toThrow("Sync failed; active configuration was not replaced.");
+    expect(await readFile(options.active, "utf8")).toBe(initial);
+    expect((await readdir(directory)).some((name) => name.endsWith(".tmp"))).toBe(false);
+  });
+
+  it("preserves the active file when access-attribute preservation fails", async () => {
+    const commands = join(directory, "commands");
+    await mkdir(commands);
+    await writeFile(join(commands, "cp"), "#!/bin/sh\nexit 1\n");
+    await chmod(join(commands, "cp"), 0o755);
+    vi.stubEnv("PATH", `${commands}:${process.env.PATH}`);
+    await expect(syncPlannerConfig(options)).rejects.toThrow("Sync failed");
     expect(await readFile(options.active, "utf8")).toBe(initial);
     expect((await readdir(directory)).some((name) => name.endsWith(".tmp"))).toBe(false);
   });

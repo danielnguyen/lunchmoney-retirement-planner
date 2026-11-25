@@ -1,6 +1,6 @@
 import { execFile } from "node:child_process";
 import { randomUUID } from "node:crypto";
-import { chmod, lstat, rename, unlink, writeFile } from "node:fs/promises";
+import { lstat, rename, unlink, writeFile } from "node:fs/promises";
 import { basename, dirname, extname, join, resolve } from "node:path";
 import { pathToFileURL } from "node:url";
 import { parseArgs, promisify } from "node:util";
@@ -49,9 +49,16 @@ export async function syncPlannerConfig(options: SyncOptions): Promise<string> {
     const info = await lstat(active);
     if (!info.isFile()) throw new Error();
     temporary = join(dirname(active), `.${basename(active)}.${randomUUID()}.tmp`);
-    await writeFile(temporary, contents, { flag: "wx", mode: info.mode & 0o777 });
-    // Preserve readability even when the operator has a stricter umask.
-    await chmod(temporary, info.mode & 0o777);
+    await writeFile(temporary, contents, { flag: "wx", mode: 0o600 });
+    // GNU cp's mode preservation includes POSIX access ACLs. A mode-only
+    // chmod would lose named-user ACLs and a new inode may inherit another group.
+    // Attribute-copy failures must happen before replacing the active file.
+    await execute("cp", ["--attributes-only", "--preserve=mode,ownership", "--", active, temporary], {
+      timeout: 60_000,
+    });
+    const prepared = await lstat(temporary);
+    if (prepared.uid !== info.uid || prepared.gid !== info.gid ||
+        (prepared.mode & 0o777) !== (info.mode & 0o777)) throw new Error();
     await rename(temporary, active);
     temporary = undefined;
     return commit;

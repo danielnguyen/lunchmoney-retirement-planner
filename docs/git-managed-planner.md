@@ -9,7 +9,7 @@ receives Git credentials. This procedure does not configure OpenHands Git Sync.
 
 Use a host-side application source checkout at **the exact revision of the running
 planner**, with its lockfile-installed development dependencies (`npm ci`) and
-Node 22 or later. `npm run config:sync` uses `tsx` to run the same complete YAML
+Node 22 or later, Git, and GNU coreutils `cp`. `npm run config:sync` uses `tsx` to run the same complete YAML
 validator as that version's editor, including return paths and comparison
 configuration. Do not run a newer application's validator against an older service.
 Record the deployed application revision in the deployment record and update the
@@ -42,7 +42,12 @@ file bind mount can continue pointing at the old inode after atomic replacement.
 The existing standalone Compose file keeps its write setting and mount behaviour.
 Keep the active directory writable only by the owner/sync operator; the container
 user (UID 1001 in the supplied image) must retain read access to the replaced file.
-Run sync as the same host user that owns the active file. Save stays disabled;
+Run sync as the same host user that owns the active file, with membership in its
+existing group. Before renaming, the helper uses GNU `cp --attributes-only
+--preserve=mode,ownership` to copy the original owner, group, permissions and POSIX
+access ACL to the prepared file. This keeps file-specific grants to a separate
+service identity. Missing GNU cp or inability to preserve those attributes rejects
+the sync before replacement; it never silently changes the access policy. Save stays disabled;
 Validate, temporary scenario controls, and in-browser YAML drafts still work.
 
 ## Edit, activate, refresh
@@ -116,3 +121,14 @@ unchanged and must remain behind the deployment's existing access boundary.
 This repository makes the planner ready for a later private authenticated client.
 Actual credential provisioning, private data access, gateway configuration,
 service exposure, and deployment require separate owner-approved operations.
+
+## Synthetic access-preservation validation
+
+`npm test` covers ordinary sync failures, including inability to copy access
+attributes. The separate `tests/posix-config-sync.ts` test requires root, Linux
+`setpriv`, Python 3, and an ACL-capable temporary filesystem. Run
+`sudo node --import tsx tests/posix-config-sync.ts` only in a disposable validation
+environment, never on a production host. It copies public code/dependencies (no
+private config) into a temporary directory, uses distinct numeric sync and service
+identities, and verifies group access, file-specific ACL access, and rejection
+when the operator cannot preserve the original group. It removes its fixtures.
