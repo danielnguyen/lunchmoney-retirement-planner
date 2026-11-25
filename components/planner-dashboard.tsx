@@ -1,5 +1,6 @@
 "use client";
 
+import { SpendingCapacity } from "@/components/spending-capacity";
 import { ScenarioComparison } from "@/components/scenario-comparison";
 
 import {
@@ -1955,6 +1956,7 @@ export function PlannerDashboard() {
         </section>
       ) : null}
 
+      <SpendingCapacity inputs={inputs} />
       {baseline.scenarioComparison?.length ? <ScenarioComparison key={baseline.connection.checkedAt} inputs={inputs} definitions={baseline.scenarioComparison} /> : null}
 
       {projection ? (
