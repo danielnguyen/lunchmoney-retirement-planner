@@ -107,3 +107,39 @@ Applying a scenario previews classifications first and, after any combined live-
 - Connected: a complete live baseline and projection are displayed.
 - Configuration required: Lunch Money responded, but private configuration is incomplete; mapping details are displayed and charts are hidden.
 - Connection failed: the token is missing, invalid, or an API request failed; the sanitized error is displayed and charts are hidden.
+
+## Configured scenario comparison
+
+`PlannerConfig.scenarioComparison` is an optional list validated through the same
+YAML loader as the rest of the plan. `src/config/scenario-comparison.ts` parses
+explicit spending and contribution selectors and checks their identities against
+the configured financial phases. The baseline carries these definitions separately
+from projection inputs. Missing and empty lists add no dashboard requests or
+scenario presets. The existing projections route accepts an optional comparison
+list; normal projection requests and exports retain their existing contracts.
+
+`src/domain/scenario/comparison.ts` clones the active inputs for each definition,
+resolves named phase changes, preserves essential spending for annual budgets, and
+calls `calculateProjection`. Resolved phase values, source descriptions, original
+contribution amounts and the baseline date accompany each result. Unsupported
+references, zero-base budget translations and engine failures produce explicit
+unavailable results rather than guessed values. Browser changes are temporary; the
+existing YAML editor and Save config remain the only persistence mechanism.
+
+The shared projection engine exposes an optional comparison month observer and an
+opt-in contribution cap. The cap runs inside the existing contribution routing,
+using actual remaining cash after required outflows and the configured reserve
+shortfall. Income-withheld funding retains its existing separate treatment. No
+comparison option changes ordinary projections or the retirement-only solver
+continuation. The observer sees completed monthly flows; comparison composition
+reconciles inflows plus withdrawals and unmet outflows against requested spending,
+tax, debt, investment deposits and retained/targeted cash. It keeps current-cash
+investing separate from gross deposits financed by withdrawals. Annual working-life
+rows sum deflated monthly values; retirement and terminal milestones and trajectory
+points come directly from the shared projection result. React renders these domain
+values and does not perform financial calculations.
+
+The comparison is local dashboard data, outside the existing typed export
+allowlist. No storage, new export route, separate solver, background job or
+financial defaults are introduced. #35's spending-capacity metric remains explicitly
+not calculated; #36's withdrawal-strategy scope is unchanged.

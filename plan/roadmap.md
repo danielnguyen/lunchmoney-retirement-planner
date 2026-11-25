@@ -488,3 +488,23 @@ The following remain separate later capabilities:
 - full tax-return fidelity.
 
 These items may be promoted as priorities evolve, but probabilistic modelling must remain distinct from deterministic projection confidence.
+## Configurable scenario comparison (Issue #37)
+
+Compare an owner-configured list of named scenarios using the same refreshed baseline
+and canonical monthly engine. Explicit selectors reference existing working-life
+spending phases and cash-funded personal contribution phases. Annual lifestyle
+budgets preserve essential spending; multiplier changes are explicit. No presets,
+financial defaults, new events, mortgage offers or independent solver are inferred.
+
+An opt-in cash-constrained policy protects configured reserves and caps personal
+contributions using actual remaining cash. Fixed plans retain their configured
+amounts and disclose infeasibility. Monthly cash reconciliation, annual working-life
+allocation, funded versus withdrawal-financed deposits, real-dollar asset paths,
+retirement/terminal balances, debt payoff and funding shortfalls are domain results.
+The dashboard shows active inputs, sources, temporary edits and unavailable results.
+
+Definitions live only in the existing optional YAML section and browser edits;
+persistence uses the existing Save config action. Exports remain allowlisted and
+exclude comparison data. The inverse spending result remains unavailable until #35
+exists; #36 remains separate. Synthetic configuration, engine, dashboard/API and
+privacy regressions plus the repository's full validation commands gate review.

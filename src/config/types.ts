@@ -410,7 +410,25 @@ export type GovernmentBenefitsConfig = {
   };
 };
 
+export type ComparisonScenarioConfig = {
+  id: string;
+  label: string;
+  spending: Array<{
+    phaseId: string;
+    adjustment:
+      | { mode: "annual_lifestyle_budget"; annualAmountToday: number }
+      | { mode: "multipliers"; essentialMultiplier: number; discretionaryMultiplier: number };
+  }>;
+  personalContributions: Array<{
+    target: { mode: "personal_investing" } | { mode: "account"; accountId: string };
+    phaseId: string;
+    monthlyAmountToday: number;
+  }>;
+  contributionPolicy: "configured_fixed_plan" | "cash_constrained";
+};
+
 export type PlannerConfig = {
+  scenarioComparison?: ComparisonScenarioConfig[];
   configurationMode: "simple" | "advanced";
   currentAge: number;
   retirementAge: number;
