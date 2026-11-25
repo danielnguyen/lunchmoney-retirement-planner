@@ -42,7 +42,12 @@ export async function GET(request: Request) {
   if (!timingSafeEqual(digest(authorization), digest(`Bearer ${token}`))) {
     return refuse(401, "unauthorized");
   }
-  if (new URL(request.url).search || request.body !== null) {
+  // Next's GET/HEAD adapter drops the body stream. Retained framing headers
+  // must also be checked so body-bearing requests never trigger baseline reads.
+  const contentLength = request.headers.get("content-length");
+  if (new URL(request.url).search || request.body !== null ||
+      request.headers.has("transfer-encoding") ||
+      (contentLength !== null && contentLength !== "0")) {
     return refuse(400, "saved_export_inputs_not_allowed");
   }
   try {

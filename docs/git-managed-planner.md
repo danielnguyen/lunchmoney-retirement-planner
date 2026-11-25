@@ -132,3 +132,8 @@ environment, never on a production host. It copies public code/dependencies (no
 private config) into a temporary directory, uses distinct numeric sync and service
 identities, and verifies group access, file-specific ACL access, and rejection
 when the operator cannot preserve the original group. It removes its fixtures.
+
+After `npm run build`, run `node --import tsx tests/export-http.ts` to verify the
+built standalone HTTP boundary with synthetic credentials and no upstream token.
+It includes Content-Length and chunked GET bodies: Next omits GET body streams,
+so the route rejects body-bearing framing headers before loading the baseline.

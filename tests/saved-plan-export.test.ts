@@ -37,6 +37,18 @@ describe("saved-plan export", () => {
     expect(load).not.toHaveBeenCalled();
   });
 
+  it.each([
+    ["content-length", "2"], ["transfer-encoding", "chunked"],
+  ])("rejects body framing before baseline access: %s", async (header, value) => {
+    const response = await GET(new Request(url, {
+      headers: { authorization: `Bearer ${token}`, [header]: value },
+    }));
+    expect(response.status).toBe(400);
+    expect(response.headers.get("cache-control")).toBe("no-store");
+    expect(await response.json()).toEqual({ error: "saved_export_inputs_not_allowed" });
+    expect(load).not.toHaveBeenCalled();
+  });
+
   it("matches the ordinary no-overrides export and excludes additional private fields", async () => {
     const baseline = structuredClone(currentBaselineFixture);
     Object.assign(baseline, { credentials: token, comparisonOnly: "synthetic-comparison-secret" });
