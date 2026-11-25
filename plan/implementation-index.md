@@ -7,21 +7,22 @@ Public tracking must remain generic and must not contain private financial value
 ## Current position
 
 - Open roadmap planning pull request: None
-- Active implementation: Configurable scenario comparison (Issue #37)
-- Implementation branch: `openhands/issue-37`
-- Starting main SHA: `a8f4c8d` (PR #34 merged)
-- Status: Implementation complete; npm validation passes, Docker build blocked by container mount permissions; draft review required
-- Open implementation pull request: [#38 Configurable side-by-side retirement scenario comparison](https://github.com/danielnguyen/lunchmoney-retirement-planner/pull/38), draft
-- Change: Optional typed YAML definitions, stable financial-phase selectors, shared-engine cash-constrained contributions and monthly reconciliation, accessible comparison scorecards/charts and temporary edits
-- Review correction: Direct surplus deposits now enter comparison reconciliation and investment allocation once; six synthetic regressions cover both contribution policies, reserve refill, all surplus modes, canonical parity, and source immutability
-- Preserved contracts: Ordinary projection behavior without comparison, existing YAML persistence, typed export allowlist, liability schedules, tax strategy and retirement solver scope
-- Synthetic validation: `npm test`: 626 tests passed across 35 files, including 28 comparison tests; `npm run typecheck`, `npm run lint`, `npm run build`, and `docker compose config --quiet` passed
-- Browser-validation state: Synthetic jsdom dashboard/API integration passes; no real-browser automation available in this session
-- Docker validation: Build attempted; container denies BuildKit bind mounts. Compose configuration validation passed. No validation waiver is implied.
-- Private-data state: No private planner files or financial exports accessed
-- Independent review: Required on the exact pushed head; draft PR receives `openhands-review` after the final tracking commit is pushed
-- Last completed modelling capability: Deterministic return paths, PR [#33](https://github.com/danielnguyen/lunchmoney-retirement-planner/pull/33), confirmed merged on GitHub
-- Remaining step: Independent review of the exact PR head and Docker build in a capable environment remain required before readiness; no merge or deployment
+- Active implementation: Private-Git planner YAML sync and saved-plan JSON retrieval (Issue #39)
+- Implementation branch: `openhands/issue-39`
+- Starting main SHA: `7ec7ed5e884891023cbcf82dbc7c1ee1e7c87682` (PR #38 merged)
+- Status: Implementation and synthetic validation complete; draft independent review and hosted Docker validation required
+- Open implementation pull request: Issue #39 draft on `openhands/issue-39`; use GitHub for its current URL and exact head
+- Change: Explicit host-side Git revision activation through the existing YAML validator, atomic replacement, opt-in read-only Compose wiring, and a dedicated authenticated GET for the standard saved-plan JSON export
+- Preserved contracts: Standalone config editing, temporary browser scenarios, browser JSON POST/CSV exports, shared baseline/projection logic, and typed privacy allowlist; no modelling changes
+- Synthetic validation: `npm test` passed (651 tests across 37 files), including Git revisions/dirty checkout/failure preservation/rollback/CLI status, refresh through the real baseline loader, saved-plan export authentication/freshness/parity/privacy, and existing disabled-write/temporary-scenario regressions
+- Production HTTP smoke: Built standalone server passed missing/wrong credential, query rejection, sanitized upstream failure and no-store checks with fake export credentials and no Lunch Money token
+- Other validation: `npm run typecheck`, `npm run lint`, `npm run build`, default and Git-managed `docker compose config --quiet` passed; resolved Git-managed Compose also verified forced disabled writes and one read-only directory mount
+- Docker validation: Local build attempted; ordinary user lacks socket permission, and the local daemon with sudo cannot perform BuildKit bind mounts. Hosted image build must pass; this is not a waiver.
+- Private-data state: Only synthetic repositories, YAML, baseline readers, and fake export credentials used; no private configuration or deployment accessed
+- Independent review: Required on the exact pushed head through `openhands-review`; GitHub owns current review findings and CI evidence
+- Shared instructions read: `AGENTS.md`, `WORKFLOW.md`, `AUTHORITY.md`, `ENGINEERING.md`, and `integrations/openhands.md` at shared revision `07079695e12e52afe374cd754a7295817e957e1e`
+- Last completed capability: Configurable scenario comparison, [PR #38](https://github.com/danielnguyen/lunchmoney-retirement-planner/pull/38), confirmed merged at `7ec7ed5e884891023cbcf82dbc7c1ee1e7c87682`; approved independent review on its final head and hosted CI/Docker success are recorded there
+- Remaining step: Independent exact-head review and hosted Docker evidence, followed by owner merge decision; private Git setup, export connection provisioning, merge and deployment remain separate owner actions
 
 ## Planned implementation sequence
 
@@ -40,7 +41,7 @@ Public tracking must remain generic and must not contain private financial value
 | 11 | Tax-aware retirement withdrawal strategies | Annual Canadian tax, RRIF, non-registered tax, retirement requirement, and deterministic return paths | Planned | — |
 | 12 | Structured housing transitions | Net-worth, debt, spending, and event models | Planned | — |
 
-| — | Configurable scenario comparison (#37) | Shared monthly projection and configured phases | In progress | [#38](https://github.com/danielnguyen/lunchmoney-retirement-planner/pull/38) |
+| — | Configurable scenario comparison (#37) | Shared monthly projection and configured phases | Completed | [#38](https://github.com/danielnguyen/lunchmoney-retirement-planner/pull/38) |
 
 ## Delivery rules
 
@@ -75,9 +76,9 @@ Planning order is project-management shorthand only. Production names must descr
 
 ## New-conversation handoff
 
-Read `AGENTS.md`, the roadmap, this index and the scenario comparison documentation
-in README/architecture. PR #33 has merged. Issue #37 is the current independent
-comparison capability on `openhands/issue-37`; #35 and #36 remain separate. Use
-GitHub for the exact draft PR head and review state. Do not begin another roadmap
-implementation while this draft is open. Docker build remains blocked by container
-mount permissions and must pass in a capable validation environment before readiness.
+Read `AGENTS.md`, the roadmap, this index and `docs/git-managed-planner.md`.
+PR #38 is merged; its comparison capability is complete. Issue #39 is the active
+bounded delivery on `openhands/issue-39`; #35 and #36 remain separate. Recover the
+exact draft head, checks and independent review from GitHub. Do not begin another
+roadmap implementation while this draft is open. Local Docker build is limited by
+container mount permissions; verify hosted Docker evidence before readiness.

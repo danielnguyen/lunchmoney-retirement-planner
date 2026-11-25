@@ -378,6 +378,13 @@ Every normal JSON and CSV export is automatically anonymized; there is no raw or
 
 Schema `13.0` JSON is the complete analysis document and uses a typed allowlist with export-local aliases; it never recursively copies source objects. JSON retains typed non-financial assets, liabilities and schedules, debt-payment evidence, lifestyle-spending phases, balance sheets, financial-assets and net-worth bridges, the retirement requirement and anonymized account composition, annual tax evidence, non-registered ACB and distribution evidence, room ledgers, routes, and policy results with sanitized references. ACB source descriptions are replaced with generic share-safe text. The flat CSV keeps one row per annual period with stable scalar coverage, investment-income, ACB, requirement, tax, composition, balance-sheet, liability-flow, explicit-plan, unplanned-cash, room, contribution, and deterministic per-account fields. It never embeds schedules, role lists, route arrays, phase arrays, maps, JSON, or delimited lists in cells. Nominal and real modes remain rectangular and both formats remain automatically anonymized.
 
+## Git-managed saved plans and read-only retrieval
+
+For deliberate one-way sync from an authorized private checkout, rollback,
+read-only Compose wiring, and the opt-in authenticated saved-plan JSON GET, see
+[the operator guide](docs/git-managed-planner.md). Permanent changes live in Git;
+dashboard controls remain available for temporary what-if plans.
+
 ## Docker Compose
 
 Create the private files before starting Compose:
