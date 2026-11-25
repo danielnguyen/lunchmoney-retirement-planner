@@ -231,3 +231,32 @@ it("reuses annual tax, statutory RRIF and deterministic paths without a second s
   expect(result.status, result.warnings.join(" ")).not.toBe("unavailable");
   expect(result.summary).not.toBeNull();
 });
+
+describe.each(["configured_fixed_plan", "cash_constrained"] as const)("%s surplus accounting", (contributionPolicy) => {
+  it.each(["allocate_to_account", "allocate_through_contribution_waterfall", "retain_as_cash"] as const)("reconciles %s once and preserves canonical results", (mode) => {
+    const input = cashCase(3400, 19500);
+    const destination = { ...structuredClone(input.accounts[1]), id: "synthetic-surplus", type: "non_registered" as const, openingBalance: 0, contributionPhases: [] };
+    input.accounts.push(destination);
+    input.surplusAllocation.excess = mode === "allocate_to_account"
+      ? { mode, destinationAccountId: destination.id }
+      : { mode };
+    input.contributionWaterfall.mode = "canonical";
+    input.contributionWaterfall.surplusDestinationAccountIds = [destination.id];
+    const before = structuredClone(input);
+    const canonical = calculateProjection(structuredClone(input));
+    const [result] = calculateComparison(input, [{ ...scenario(), contributionPolicy }]);
+    expect(result.status, result.warnings.join(" ")).toBe("calculated");
+    const allocation = result.annual[0];
+    const deposits = mode === "retain_as_cash" ? 1000 : 1700;
+    expect(allocation.plannedPersonal).toBeCloseTo(1000, 2);
+    expect(allocation.personalDeposits).toBeCloseTo(deposits, 2);
+    expect(allocation.actualPersonal).toBeCloseTo(deposits, 2);
+    expect(allocation.withdrawalFundedPersonal).toBe(0);
+    expect(allocation.retained).toBeCloseTo(mode === "retain_as_cash" ? 1200 : 500, 2);
+    expect(allocation.takeHome).toBeCloseTo(allocation.lifestyle + allocation.personalDeposits + allocation.retained, 2);
+    expect(allocation.reconciliationDifference).toBeCloseTo(0, 2);
+    expect(result.summary).toEqual(canonical.summary);
+    expect(result.trajectory).toEqual(canonical.annual.map((row) => ({ age: row.age, financialAssetsToday: row.real.balances.financialAssets })));
+    expect(input).toEqual(before);
+  });
+});

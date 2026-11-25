@@ -113,8 +113,14 @@ export function calculateComparison(baseline: ProjectionInputs, scenarios: Compa
           if (working && reserveShortfall > 0.005 && !result.warnings.includes("The configured cash reserve target is not fully funded in every working month.")) {
             result.warnings.push("The configured cash reserve target is not fully funded in every working month.");
           }
+          // Direct surplus allocations are deposits outside the contribution
+          // ledger. Waterfall allocations already belong to cashFunded.
+          const directSurplusDeposits = inputs.savingsPolicy.mode === "advanced" &&
+            inputs.surplusAllocation.excess.mode === "allocate_to_account"
+            ? flow.surplusAllocation.redirected : 0;
+          const personalDeposits = flow.contributions.cashFunded + directSurplusDeposits;
           const difference = flow.income.total + flow.withdrawals.total + unfunded -
-            (out.essential + out.discretionary + out.liabilityCashPayment + out.oneTime + out.tax + flow.contributions.cashFunded + flow.surplusAllocation.retainedAsCash + targetedEventDeposits);
+            (out.essential + out.discretionary + out.liabilityCashPayment + out.oneTime + out.tax + personalDeposits + flow.surplusAllocation.retainedAsCash + targetedEventDeposits);
           if (Math.abs(difference) > 0.01) throw new Error("Monthly comparison cash flow did not reconcile within one cent.");
           if (!working) return;
           const year = Number(date.slice(0, 4));
@@ -134,10 +140,10 @@ export function calculateComparison(baseline: ProjectionInputs, scenarios: Compa
           // saving funded by the current month's income.
           const currentCashForInvesting = Math.max(0, flow.income.total - targetedEventDeposits -
             out.essential - out.discretionary - out.liabilityCashPayment - out.oneTime - out.tax);
-          const fundedPersonal = Math.min(flow.contributions.cashFunded, currentCashForInvesting);
+          const fundedPersonal = Math.min(personalDeposits, currentCashForInvesting);
           annual.actualPersonal += fundedPersonal / factor;
-          annual.personalDeposits += flow.contributions.cashFunded / factor;
-          annual.withdrawalFundedPersonal += (flow.contributions.cashFunded - fundedPersonal) / factor;
+          annual.personalDeposits += personalDeposits / factor;
+          annual.withdrawalFundedPersonal += (personalDeposits - fundedPersonal) / factor;
           annual.withheld += flow.contributions.incomeWithheld / factor;
           annual.withdrawals += flow.withdrawals.total / factor;
           annual.tax += out.tax / factor;

@@ -13,8 +13,9 @@ Public tracking must remain generic and must not contain private financial value
 - Status: Implementation complete; npm validation passes, Docker build blocked by container mount permissions; draft review required
 - Open implementation pull request: [#38 Configurable side-by-side retirement scenario comparison](https://github.com/danielnguyen/lunchmoney-retirement-planner/pull/38), draft
 - Change: Optional typed YAML definitions, stable financial-phase selectors, shared-engine cash-constrained contributions and monthly reconciliation, accessible comparison scorecards/charts and temporary edits
+- Review correction: Direct surplus deposits now enter comparison reconciliation and investment allocation once; six synthetic regressions cover both contribution policies, reserve refill, all surplus modes, canonical parity, and source immutability
 - Preserved contracts: Ordinary projection behavior without comparison, existing YAML persistence, typed export allowlist, liability schedules, tax strategy and retirement solver scope
-- Synthetic validation: `npm test`: 620 tests passed across 35 files, including 22 comparison tests; `npm run typecheck`, `npm run lint`, `npm run build`, and `docker compose config --quiet` passed
+- Synthetic validation: `npm test`: 626 tests passed across 35 files, including 28 comparison tests; `npm run typecheck`, `npm run lint`, `npm run build`, and `docker compose config --quiet` passed
 - Browser-validation state: Synthetic jsdom dashboard/API integration passes; no real-browser automation available in this session
 - Docker validation: Build attempted; container denies BuildKit bind mounts. Compose configuration validation passed. No validation waiver is implied.
 - Private-data state: No private planner files or financial exports accessed
