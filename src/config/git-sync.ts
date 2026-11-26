@@ -54,11 +54,14 @@ export async function syncConfiguredGit(settings: NonNullable<ReturnType<typeof 
     const base = `/repos/${settings.repository}`;
     const revision = await githubJson(`${base}/commits/${encodeURIComponent(settings.branch)}`, settings.token, signal);
     if (typeof revision.sha !== "string" || !/^[a-f0-9]{40}$/.test(revision.sha)) throw new Error();
+    const commit = revision.commit as { tree?: { sha?: unknown } } | undefined;
+    const treeSha = commit?.tree?.sha;
+    if (typeof treeSha !== "string" || !/^[a-f0-9]{40}$/.test(treeSha)) throw new Error();
     const file = await githubJson(`${base}/contents/${settings.path.split("/").map(encodeURIComponent).join("/")}?ref=${revision.sha}`, settings.token, signal);
     if (file.type !== "file" || file.encoding !== "base64" || typeof file.content !== "string" ||
         file.submodule_git_url || file.target || typeof file.size !== "number" || file.size > 4 * 1024 * 1024) throw new Error();
     // Contents API may dereference symlinks; check the immutable Git tree entry too.
-    const tree = await githubJson(`${base}/git/trees/${revision.sha}?recursive=1`, settings.token, signal);
+    const tree = await githubJson(`${base}/git/trees/${treeSha}?recursive=1`, settings.token, signal);
     if (tree.truncated || !Array.isArray(tree.tree)) throw new Error();
     const entry = tree.tree.find((item) => item.path === settings.path);
     if (!entry || entry.type !== "blob" || !["100644", "100755"].includes(entry.mode) || entry.sha !== file.sha) throw new Error();

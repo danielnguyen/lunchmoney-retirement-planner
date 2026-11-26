@@ -28,10 +28,15 @@ let upstreamHold: Promise<void> | undefined;
 let baselineGoals: number[];
 let failBaseline: boolean;
 const revision = "a".repeat(40);
+const treeSha = "d".repeat(40);
 beforeEach(async () => {
   directory = await mkdtemp(join(tmpdir(), "browser-sync-dashboard-"));
   active = join(directory, "active.yaml");
-  original = await readFile("config/planner.example.yaml", "utf8");
+  // The drawer test needs a retirement transition, a real activation and a
+  // refreshed baseline. The multi-decade tail belongs in projection tests.
+  original = (await readFile("config/planner.example.yaml", "utf8"))
+    .replace(/^projectionEndAge: 95$/m, "projectionEndAge: 67")
+    .replace(/^    endAge: 95$/m, "    endAge: 67");
   candidate = original.replace("retirementGoal: 0", "retirementGoal: 2468");
   upstreamHold = undefined;
   baselineGoals = [];
@@ -58,8 +63,8 @@ beforeEach(async () => {
       return response;
     }
     if (url === "/api/v1/projections") return Response.json(calculateProjection((JSON.parse(init!.body as string) as { inputs: ProjectionInputs }).inputs));
-    if (url.includes("/commits/")) { await upstreamHold; return Response.json({ sha: revision }); }
-    if (url.includes("/git/trees/")) return Response.json({ tree: [{ path: "plan.yaml", mode: "100644", type: "blob", sha: "b".repeat(40) }] });
+    if (url.includes("/commits/")) { await upstreamHold; return Response.json({ sha: revision, commit: { tree: { sha: treeSha } } }); }
+    if (url.endsWith(`/git/trees/${treeSha}?recursive=1`)) return Response.json({ tree: [{ path: "plan.yaml", mode: "100644", type: "blob", sha: "b".repeat(40) }] });
     if (url.includes("/contents/")) return Response.json({ type: "file", encoding: "base64", size: Buffer.byteLength(candidate), sha: "b".repeat(40), content: Buffer.from(candidate).toString("base64") });
     throw new Error("Unexpected synthetic request");
   }));

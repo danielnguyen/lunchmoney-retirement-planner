@@ -14,13 +14,14 @@ let active: string;
 let original: string;
 let candidate: string;
 let revision: string;
+const treeSha = "d".repeat(40);
 const request = (options: RequestInit = {}, query = "") => new Request(`https://planner.example.invalid/api/v1/config/sync${query}`, {
   method: "POST", headers: { origin: "https://planner.example.invalid", "x-planner-sync": "1" }, ...options,
 });
 function upstream() {
   return vi.fn(async (input: string | URL | Request) => {
     const url = String(input);
-    if (url.includes("/commits/")) return Response.json({ sha: revision });
+    if (url.includes("/commits/")) return Response.json({ sha: revision, commit: { tree: { sha: treeSha } } });
     if (url.includes("/git/trees/")) return Response.json({ tree: [{ path: "plans/plan.yaml", mode: "100644", type: "blob", sha: "b".repeat(40) }] });
     return Response.json({ type: "file", encoding: "base64", size: Buffer.byteLength(candidate), sha: "b".repeat(40), content: Buffer.from(candidate).toString("base64") });
   });
@@ -44,6 +45,7 @@ describe("browser sync server boundary", () => {
     expect(await readFile(active, "utf8")).toBe(candidate);
     const calls = vi.mocked(fetch).mock.calls;
     expect(calls[1][0]).toBe(`https://api.github.com/repos/synthetic/config/contents/plans/plan.yaml?ref=${revision}`);
+    expect(calls[2][0]).toBe(`https://api.github.com/repos/synthetic/config/git/trees/${treeSha}?recursive=1`);
     expect(calls[0][1]).toMatchObject({ redirect: "error", headers: { Authorization: "Bearer fake-read-secret" } });
     expect((await POST(request())).status).toBe(200);
     candidate = original;
@@ -72,15 +74,16 @@ describe("browser sync server boundary", () => {
     expect(await response.text()).not.toMatch(/fake-read-secret|synthetic\/config|arbitrary|forged|private"/);
   });
 
-  it.each(["invalid YAML", "invalid config", "invalid revision", "network", "timeout", "upstream error", "rename", "symlink"])("preserves active config and sanitizes %s failures", async (scenario) => {
+  it.each(["invalid YAML", "invalid config", "invalid revision", "invalid tree", "network", "timeout", "upstream error", "rename", "symlink"])("preserves active config and sanitizes %s failures", async (scenario) => {
     if (scenario === "invalid YAML") candidate = "private: [";
     if (scenario === "invalid config") candidate = "currentAge: private";
     if (scenario === "invalid revision") revision = "private-invalid-ref";
+    if (scenario === "invalid tree") vi.mocked(fetch).mockResolvedValueOnce(Response.json({ sha: revision, commit: { tree: { sha: "private-invalid-tree" } } }));
     if (scenario === "network" || scenario === "timeout") vi.mocked(fetch).mockRejectedValueOnce(new Error("private upstream credential"));
     if (scenario === "upstream error") vi.mocked(fetch).mockResolvedValueOnce(new Response("private upstream error", { status: 403 }));
     if (scenario === "rename") vi.mocked(rename).mockRejectedValueOnce(new Error("private path"));
     if (scenario === "symlink") {
-      vi.mocked(fetch).mockResolvedValueOnce(Response.json({ sha: revision })).mockResolvedValueOnce(Response.json({ type: "symlink", target: "private" }));
+      vi.mocked(fetch).mockResolvedValueOnce(Response.json({ sha: revision, commit: { tree: { sha: treeSha } } })).mockResolvedValueOnce(Response.json({ type: "symlink", target: "private" }));
     }
     const response = await POST(request());
     expect(response.status).toBe(502);
@@ -98,7 +101,7 @@ describe("browser sync server boundary", () => {
     expect(fetch).toHaveBeenCalledTimes(1);
     vi.stubEnv("PLANNER_CONFIG_WRITE_ENABLED", "true");
     await expect(saveCurrentPlannerConfig(original, "anything")).rejects.toMatchObject({ code: "planner_config_write_disabled" });
-    release(Response.json({ sha: revision }));
+    release(Response.json({ sha: revision, commit: { tree: { sha: treeSha } } }));
     expect((await pending).status).toBe(200);
   });
   it("passes the bounded deadline to upstream fetch and preserves the file on abort", async () => {

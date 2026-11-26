@@ -6,8 +6,9 @@ globalThis.fetch = async (input) => {
   const url = new URL(typeof input === "string" ? input : input.url ?? String(input));
   const fixture = JSON.parse(readFileSync(fixturePath, "utf8"));
   if (url.hostname === "api.github.com") {
-    if (url.pathname.includes("/commits/")) return Response.json({ sha: fixture.revision });
-    if (url.pathname.includes("/git/trees/")) return Response.json({ tree: [{ path: "plan.yaml", mode: "100644", type: "blob", sha: "b".repeat(40) }] });
+    const treeSha = "d".repeat(40);
+    if (url.pathname.includes("/commits/")) return Response.json({ sha: fixture.revision, commit: { tree: { sha: treeSha } } });
+    if (url.pathname.endsWith(`/git/trees/${treeSha}`)) return Response.json({ tree: [{ path: "plan.yaml", mode: "100644", type: "blob", sha: "b".repeat(40) }] });
     if (url.pathname.includes("/contents/")) return Response.json({ type: "file", encoding: "base64", size: Buffer.byteLength(fixture.yaml), sha: "b".repeat(40), content: Buffer.from(fixture.yaml).toString("base64") });
   }
   if (url.hostname === "api.lunchmoney.dev") {
