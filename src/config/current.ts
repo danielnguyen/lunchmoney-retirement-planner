@@ -42,7 +42,8 @@ export type CurrentPlannerConfig = {
 };
 
 export function plannerConfigWriteEnabled(): boolean {
-  return process.env.PLANNER_CONFIG_WRITE_ENABLED === "true";
+  return process.env.PLANNER_CONFIG_WRITE_ENABLED === "true" &&
+    process.env.PLANNER_GIT_SYNC_ENABLED !== "true";
 }
 
 export function plannerConfigVersion(contents: string): string {

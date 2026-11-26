@@ -36,8 +36,15 @@ async function main() {
     await chmod(directory, 0o755);
     // Isolate only public code/dependencies from private workspace parent modes.
     await mkdir(toolDirectory);
-    for (const path of ["src", "scripts", "node_modules", "tsconfig.json", "package.json"]) {
+    for (const path of ["src", "scripts", "tsconfig.json", "package.json"]) {
       await cp(path, join(toolDirectory, path), { recursive: true });
+    }
+    // Copy only the CLI runtime dependencies; the dashboard/build toolchain is
+    // unrelated to this distinct-identity activation check.
+    for (const name of ["tsx", "esbuild", "@esbuild/linux-x64", "get-tsconfig", "resolve-pkg-maps", "yaml"]) {
+      const destination = join(toolDirectory, "node_modules", name);
+      await mkdir(join(destination, ".."), { recursive: true });
+      await cp(join("node_modules", name), destination, { recursive: true });
     }
     for (const path of [source, checkout, activeDirectory]) {
       await mkdir(path);

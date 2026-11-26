@@ -107,7 +107,7 @@ describe("runtime safety regressions", () => {
     expect(dashboard).not.toContain('variant="planner-config"');
     expect(dashboard).not.toContain('aria-controls="planner-config-drawer"');
     expect(css).not.toMatch(/\.planner-config-(?:overlay|drawer|drawer-content)/);
-    expect(normalHeader).toContain("Try another plan");
+    expect(normalHeader).toContain("Planner Config");
     expect(normalHeader).not.toContain("Planner config");
   });
 });

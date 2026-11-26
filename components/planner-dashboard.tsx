@@ -1,5 +1,6 @@
 "use client";
 
+import { usePlannerConfigSync } from "./planner-config-sync";
 import { SpendingCapacity } from "@/components/spending-capacity";
 import { ScenarioComparison } from "@/components/scenario-comparison";
 
@@ -106,7 +107,7 @@ function requirementSourceLabel(
     requirement.minimumEndingBalanceActiveValueSource ===
     "scenario_override"
   ) {
-    return "Temporary value from Try another plan";
+    return "Temporary value from Planner Config";
   }
   return requirement.minimumEndingBalanceBaselineSource ===
     "compatibility_default"
@@ -676,6 +677,8 @@ export function PlannerConfigurationDrawer({
   opener,
   onClose,
   children,
+  syncControl,
+  syncStatus,
 }: {
   view: PlannerDrawerView;
   controlsAvailable: boolean;
@@ -683,6 +686,8 @@ export function PlannerConfigurationDrawer({
   opener: HTMLButtonElement | null;
   onClose: () => void;
   children: ReactNode;
+  syncControl?: ReactNode;
+  syncStatus?: ReactNode;
 }) {
   const showingControls = view === "controls";
   return (
@@ -690,24 +695,28 @@ export function PlannerConfigurationDrawer({
       variant="scenario-controls"
       drawerId="scenario-controls-drawer"
       titleId="scenario-controls-title"
-      title={showingControls ? "Try another plan" : "Planner YAML"}
+      title={showingControls ? "Planner Config" : "Planner YAML"}
       kicker={showingControls ? "Scenario" : "Advanced configuration"}
       dialogLabel={showingControls ? undefined : "Planner YAML configuration"}
       closeLabel="Close planner configuration"
       opener={opener}
       onClose={onClose}
       headerAction={
-        controlsAvailable ? (
-          <button
-            type="button"
-            className="button secondary drawer-view-switch"
-            onClick={() => onViewChange(showingControls ? "yaml" : "controls")}
-          >
-            {showingControls ? "Edit YAML" : "Back to plan controls"}
-          </button>
-        ) : null
+        <>
+          {showingControls || !controlsAvailable ? syncControl : null}
+          {controlsAvailable ? (
+            <button
+              type="button"
+              className="button secondary drawer-view-switch"
+              onClick={() => onViewChange(showingControls ? "yaml" : "controls")}
+            >
+              {showingControls ? "Edit YAML" : "Back to plan controls"}
+            </button>
+          ) : null}
+        </>
       }
     >
+      {syncStatus}
       {children}
     </RightSideDrawer>
   );
@@ -1541,6 +1550,8 @@ export function PlannerDashboard() {
     return { ok: true };
   }, [refreshGeneration]);
 
+  const configSync = usePlannerConfigSync(reloadBaselineAfterConfigSave);
+
   async function ensurePlannerConfigDraft(): Promise<PlannerConfigDraftState | null> {
     if (configDraft.document) return configDraft;
     return loadPlannerConfigDraft(false);
@@ -1736,6 +1747,8 @@ export function PlannerDashboard() {
       />
       {plannerDrawer ? (
         <PlannerConfigurationDrawer
+          syncControl={configSync.button}
+          syncStatus={configSync.status}
           view="yaml"
           controlsAvailable={false}
           onViewChange={changePlannerDrawerView}
@@ -1863,7 +1876,7 @@ export function PlannerDashboard() {
               aria-controls="scenario-controls-drawer"
               onClick={(event) => openPlannerDrawer(event.currentTarget, "controls")}
             >
-              Try another plan
+              Planner Config
             </button>
             <button
               type="button"
@@ -1917,7 +1930,7 @@ export function PlannerDashboard() {
           ) : null}
         </div>
         <div className="application-status-controls no-print">
-          <button type="button" className="button secondary" onClick={() => void refresh()}>Refresh Lunch Money</button>
+          <button type="button" className="button secondary" disabled={configSync.busy} onClick={() => void refresh()}>Refresh Lunch Money</button>
           <div className="segmented" aria-label="Dollar display">
             <button type="button" aria-pressed={mode === "real"} className={mode === "real" ? "active" : ""} onClick={() => setMode("real")}>
               Adjusted for inflation
@@ -3132,6 +3145,8 @@ export function PlannerDashboard() {
       ) : null}
       {plannerDrawer ? (
         <PlannerConfigurationDrawer
+          syncControl={configSync.button}
+          syncStatus={configSync.status}
           view={plannerDrawer.view}
           controlsAvailable
           onViewChange={changePlannerDrawerView}

@@ -1,9 +1,86 @@
 # Git-managed saved plans
 
 The owner edits permanent settings in an already-authorized private Git repository,
-then deliberately activates one revision on the deployment host. Browser controls
-remain temporary what-if inputs. The planner never clones, fetches, pushes, or
-receives Git credentials. This procedure does not configure OpenHands Git Sync.
+then taps **Sync now** beside **Edit YAML** in **Planner Config** to activate that
+revision. Browser calculator controls remain temporary what-if inputs. Browser sync
+is opt-in; the host helper below remains available for recovery and existing callers.
+This procedure does not configure OpenHands Git Sync.
+
+## Enable browser sync once (owner only)
+
+Keep the existing owner-only VPN/private browser access boundary. This feature does
+not add user authentication or expose a service. Do not enable it on a public or
+shared dashboard. The export-only connection must still deny every operation
+except its existing export GET; its credential does not authorize browser sync.
+
+In the existing Portainer stack/Compose deployment, set these private environment
+values (no browser inputs select the source):
+
+- `PLANNER_GIT_SYNC_ENABLED=true`
+- `PLANNER_GIT_REPOSITORY`: the approved GitHub `owner/repository`
+- `PLANNER_GIT_BRANCH`: the branch with committed permanent settings
+- `PLANNER_GIT_PATH`: relative YAML file path within that repository
+- `PLANNER_GIT_READ_TOKEN`: a fine-grained GitHub credential restricted to that one
+  repository with **Contents: read-only** (and required metadata read access)
+- `PLANNER_BROWSER_ORIGIN`: the exact origin used by the phone browser, including
+  scheme and any nondefault port, with no trailing slash or path
+
+Store the token only in the private server deployment environment; never in YAML,
+Git, a URL, a `NEXT_PUBLIC_` variable, screenshots or logs. Provisioning it and
+updating the service are owner operations. HTTPS is preferred within the existing
+private access boundary. No Git executable or private checkout is needed in the
+container. It contacts only `https://api.github.com`, refuses redirects, resolves
+the configured branch to a commit and reads/validates that immutable revision.
+
+Use `compose.yaml`, `compose.git-managed.yaml`, then `compose.browser-sync.yaml`.
+The last override enables browser sync, forces permanent Save off, and mounts only
+the dedicated active-config directory read/write. Standard standalone Save and the
+host-only read-only override remain available independently. Validate without
+printing resolved secrets:
+
+```bash
+docker compose -f compose.yaml -f compose.git-managed.yaml -f compose.browser-sync.yaml config --quiet
+```
+
+Keep only the active `planner.local.yaml` in that directory; mount the directory,
+not the individual file. Preserve an initial private backup outside it. For the
+supplied image, the owner must prepare the directory and active file for UID/GID
+1001 (or the chosen service identity). Restrict directory access to that identity
+and the owner. Browser sync must be able to create/remove a temporary file and
+lock there, read the active file, preserve its owner/group/mode/ACL, and rename
+within the directory. Never solve this by running the app as root or granting
+write access to other host directories. GNU coreutils is included in the image
+for the same permission safeguards used by the recovery helper.
+
+Before using real configuration, the owner should run a disposable copy of the
+stack with synthetic YAML and the actual service UID/GID and volume permissions:
+verify a valid revision applies, an invalid revision leaves the file unchanged,
+and the service can still read the replacement. A rejected permission preflight
+must be fixed privately before rollout. `tests/posix-config-sync.ts` separately
+exercises the shared activation code with distinct writer/reader identities.
+
+On the phone over the existing VPN, open **Planner Config**. **Sync now** sits next
+to **Edit YAML**, remains disabled until the source is configured, and prevents
+repeated taps while active. After committing a small deliberate change in GitHub,
+tap Sync now and compare the reported full commit with GitHub. The dashboard loads
+the saved baseline again and clears temporary controls. Check the intended result.
+Existing unsaved YAML drafts remain drafts; use Revert to load the new saved YAML.
+If baseline/Lunch Money retrieval fails after activation, the drawer distinguishes
+that failure from an unapplied sync; retry Refresh Lunch Money.
+
+To roll back through the browser, revert the YAML change in GitHub on the configured
+branch, commit it, and tap Sync now again. Verify the new revert commit and restored
+baseline. The exact-ref host procedure below remains another recovery option.
+Invalid YAML, upstream timeouts and failed permission preservation/replacement
+leave the active file untouched. No configuration or upstream error contents are
+returned in sync status. If a network disconnect obscures the result, refresh the
+baseline and repeat sync to confirm the revision.
+
+A lock beside the active file coordinates server workers and the host helper.
+Do not manually edit the active file or use standalone Save in another process
+against it. If the process crashes, a `.sync.lock` file may remain: only after the
+owner verifies all sync processes have stopped, remove that lock and retry. Do
+not remove it while a sync might still be active.
 
 ## Prepare once (owner only)
 
@@ -137,3 +214,25 @@ After `npm run build`, run `node --import tsx tests/export-http.ts` to verify th
 built standalone HTTP boundary with synthetic credentials and no upstream token.
 It includes Content-Length and chunked GET bodies: Next omits GET body streams,
 so the route rejects body-bearing framing headers before loading the baseline.
+
+Browser sync acceptance uses only synthetic data:
+
+```bash
+npm test
+node --import tsx tests/browser-sync-http.ts
+```
+
+Run the second command after `npm run build`, with Chromium installed (or set
+`CHROMIUM_BINARY` to its executable). It starts a disposable built server and a
+375px browser, mocks only upstream GitHub/Lunch Money responses, and exercises
+keyboard sync, the real HTTP route, atomic write, baseline refresh, invalid YAML,
+Git revert rollback, repeat sync, CSRF/input refusal and export-token separation.
+The screenshot is written to `/tmp/planner-sync-mobile.png`; temporary service and
+browser fixtures are removed. A synthetic example is shown below.
+
+![Planner Config with successful sync at phone width](planner-config-mobile.png)
+
+Independent review must cover the exact PR head before owner merge. Hosted Docker
+validation is required if local Docker cannot build. Real credential provisioning,
+private deployment, permission preflight and the first phone/VPN verification
+remain owner operations after deployment; synthetic checks do not claim those ran.
