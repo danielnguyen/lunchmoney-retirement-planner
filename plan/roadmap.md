@@ -21,7 +21,8 @@ Public planning material, examples, and tests must remain synthetic and must not
 | 7 | General spending phases | Completed | [PR #16](https://github.com/danielnguyen/lunchmoney-retirement-planner/pull/16) |
 | 8 | Retirement funding requirement and terminal balance | Completed | [PR #24](https://github.com/danielnguyen/lunchmoney-retirement-planner/pull/24) |
 | 9 | RRIF minimum withdrawals and Canadian retirement taxes | Completed | [#25 annual tax](https://github.com/danielnguyen/lunchmoney-retirement-planner/pull/25), [#26 RRIF](https://github.com/danielnguyen/lunchmoney-retirement-planner/pull/26), [#27 non-registered tax](https://github.com/danielnguyen/lunchmoney-retirement-planner/pull/27) |
-| 10 | Deterministic return paths and sequence-risk scenarios | Next | — |
+| 10 | Deterministic return paths and sequence-risk scenarios | Completed | [#33](https://github.com/danielnguyen/lunchmoney-retirement-planner/pull/33) |
+| — | Inverse retirement spending capacity (#35) | In progress | — |
 | 11 | Tax-aware retirement withdrawal strategies | Planned | — |
 | 12 | Structured housing transitions | Planned | — |
 
@@ -505,6 +506,44 @@ The dashboard shows active inputs, sources, temporary edits and unavailable resu
 
 Definitions live only in the existing optional YAML section and browser edits;
 persistence uses the existing Save config action. Exports remain allowlisted and
-exclude comparison data. The inverse spending result remains unavailable until #35
-exists; #36 remains separate. Synthetic configuration, engine, dashboard/API and
+exclude comparison data. Optional inverse spending capacity is implemented separately
+in #35; withdrawal optimization in #36 remains separate. Synthetic configuration, engine, dashboard/API and
 privacy regressions plus the repository's full validation commands gate review.
+
+## Inverse retirement discretionary spending capacity (#35)
+
+Purpose: quantify affordable retirement lifestyle spending under the active
+deterministic scenario using projected retirement assets and the existing
+retirement candidate evaluator. The analysis is optional and temporary.
+
+Scope: projection domain types/solver and existing monthly engine seams, the
+projection API, a dashboard analysis component, focused synthetic tests, README,
+architecture documentation and this implementation index. Private configuration,
+credentials, CI permissions, dependencies, persistence, withdrawal optimization,
+Monte Carlo, housing transitions and deployment are excluded.
+
+Select explicit spending phases entirely within retirement. Preserve essentials,
+unselected phases and relative discretionary proportions. Search in cents of the
+largest selected configured monthly discretionary amount; apply its common scale
+to every selected phase. Display each phase's today-dollar monthly lifestyle and
+delta, since a single monthly amount cannot describe a shaped spending path.
+Reject empty, zero-base, overlapping-working-life or missing selections. Zero
+spending infeasibility, missing finite bounds, numerical failure and observed
+nonmonotonic behavior produce explicit statuses, never an invented capacity.
+The monotone search is deterministic, with sampled monotonicity checks and an
+adjacent-cent boundary check; it is not a global optimization proof for arbitrary
+discontinuous tax paths, a probability of success or a safe withdrawal rate.
+
+Reuse the retirement continuation (including tax-year state, liabilities, benefits,
+RRIF, contribution room and nonregistered cost basis) without rescaling assets.
+The active terminal floor, ages, return/inflation path and static withdrawal order
+remain authoritative. Compatibility tax modes remain visibly provisional.
+Existing saved-plan and browser JSON/CSV exports continue to describe configured
+forward projections, excluding temporary capacity analysis and its private phase
+identifiers. No capacity calculation occurs unless requested.
+
+Validation: synthetic analytical and adjacent-cent cases, engine parity, phase
+shape/essential preservation, lifecycle and scenario changes, negative cases,
+dashboard/API and export privacy regressions; npm test/typecheck/lint/build,
+Docker build and Compose config. Independent review is required on the pushed
+head; merge and deployment remain owner actions.

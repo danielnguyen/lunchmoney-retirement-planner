@@ -1,3 +1,4 @@
+import { parseSpendingCapacityRequest, scaleRetirementSpending, solveSpendingCapacity, type SpendingEvaluation } from "./spending-capacity";
 import type {
   AccountType,
   AnnualTaxResult,
@@ -35,7 +36,6 @@ import type {
 import { validateProjectionInputs } from "./types";
 import {
   solveRetirementRequirement,
-  type RetirementCandidateEvaluation,
 } from "./retirement-requirement";
 import {
   cppClaimRules,
@@ -1413,7 +1413,7 @@ type SimulationOutcome = {
   result: CoreProjectionResult | null;
   retirementState: RawRetirementState;
   retirementContinuation: RetirementContinuationState;
-  candidateEvaluation: RetirementCandidateEvaluation | null;
+  candidateEvaluation: SpendingEvaluation | null;
 };
 
 function restoreMap<K, V>(target: Map<K, V>, source: ReadonlyMap<K, V>): void {
@@ -1545,6 +1545,8 @@ function simulateProjection(
     : 0;
   let retirementUnmetRequiredOutflow = 0;
   let retirementUnmetSpending = 0;
+  let firstShortfallAge: number | null = null;
+  let depletionAge: number | null = null;
   let projectedRetirementLiabilityShortfall: {
     calendarMonth: string;
     calendarYear: number;
@@ -2848,6 +2850,7 @@ function simulateProjection(
       }
       retirementUnmetRequiredOutflow +=
         anticipatedRequiredLiabilityShortfall;
+      firstShortfallAge ??= inputs.person.currentAge + month / MONTHS_PER_YEAR;
       if (evaluationOnly) break projectionMonths;
       if (!ordinaryRetirementMonthOpening) {
         throw new Error(
@@ -3434,6 +3437,12 @@ function simulateProjection(
       retirementUnmetRequiredOutflow +=
         monthlyFlow.outflows.unmetRequiredOutflow;
       retirementUnmetSpending += monthlyFlow.outflows.unmetSpending;
+      if (retirementUnmetRequiredOutflow > 0.000001 || retirementUnmetSpending > 0.000001) {
+        firstShortfallAge ??= inputs.person.currentAge + month / MONTHS_PER_YEAR;
+      }
+      if (balanceSheet(inputs.accounts, balances).financialAssets <= 0.000001) {
+        depletionAge ??= inputs.person.currentAge + month / MONTHS_PER_YEAR;
+      }
     }
     monthlyFlow.registeredAccountRoom.tfsa.closingRoom = tfsaRoom;
     monthlyFlow.registeredAccountRoom.rrsp.closingRoom = rrspRoom;
@@ -3724,6 +3733,8 @@ function simulateProjection(
     const terminalMinimum =
       inputs.retirementRequirement.minimumEndingFinancialAssetsToday;
     const candidateEvaluation = {
+      firstShortfallAge,
+      depletionAge,
       passes:
         retirementUnmetRequiredOutflow <= 0.000001 &&
         retirementUnmetSpending <= 0.000001 &&
@@ -4292,4 +4303,42 @@ export function calculateProjection(
     ...result,
     retirementRequirement,
   };
+}
+
+/** Optional inverse analysis; ordinary projections and exports never invoke it. */
+export function calculateSpendingCapacity(rawInputs: ProjectionInputs, selection: unknown) {
+  const request = parseSpendingCapacityRequest(selection);
+  const ordinary = simulateProjection(structuredClone(rawInputs));
+  if (!ordinary.result) throw new Error("Ordinary projection was not captured");
+  const inputs = validateReturnPathProjectionInputs(ordinary.result.inputs);
+  const balancesToday = new Map(inputs.accounts.map((account) => [
+    account.id,
+    (ordinary.retirementState.accountBalances.get(account.id) ?? 0) /
+      ordinary.retirementState.inflationFactor,
+  ]));
+  return solveSpendingCapacity(inputs, request, {
+    effectiveDate: inputs.startDate,
+    retirementAge: inputs.person.retirementAge,
+    terminalAge: inputs.endAge,
+    minimumEndingFinancialAssetsToday: inputs.retirementRequirement.minimumEndingFinancialAssetsToday,
+    terminalFloorSource: inputs.retirementRequirement.activeValueSource,
+    projectedRetirementAssetsToday: ordinary.retirementState.financialAssetsToday,
+    taxMode: inputs.tax.mode,
+    provisionalTax: ordinary.result.taxation.provisional,
+    returnPath: inputs.returnScenario ? "Active explicit deterministic return/inflation path" : "Configured constant account returns and inflation",
+    annualInflation: inputs.annualInflation,
+    inflationPath: inputs.returnScenario?.inflationPath ?? null,
+    accounts: inputs.accounts.map((account) => ({
+      accountType: account.type, withdrawalPriority: account.withdrawalPriority,
+      annualReturn: account.annualReturn, returnPath: account.returnPath ?? null,
+    })),
+    withdrawalStrategy: "configured_static_priority",
+  }, (scale) => {
+    const candidate = simulateProjection(scaleRetirementSpending(inputs, request.phaseIds, scale), {
+      candidateBalancesToday: balancesToday,
+      continuation: ordinary.retirementContinuation,
+    }).candidateEvaluation;
+    if (!candidate) throw new Error("Spending candidate evaluation was not captured");
+    return candidate;
+  });
 }

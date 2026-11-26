@@ -6,24 +6,16 @@ Public tracking must remain generic and must not contain private financial value
 
 ## Current position
 
-- Open roadmap planning pull request: None
-- Active implementation: Private-Git planner YAML sync and saved-plan JSON retrieval (Issue #39)
-- Implementation branch: `openhands/issue-39`
-- Starting main SHA: `7ec7ed5e884891023cbcf82dbc7c1ee1e7c87682` (PR #38 merged)
-- Status: Implementation and synthetic validation complete; draft independent review and hosted Docker validation required
-- Open implementation pull request: Issue #39 draft on `openhands/issue-39`; use GitHub for its current URL and exact head
-- Change: Explicit host-side Git revision activation through the existing YAML validator, atomic replacement, opt-in read-only Compose wiring, and a dedicated authenticated GET for the standard saved-plan JSON export
-- Preserved contracts: Standalone config editing, temporary browser scenarios, browser JSON POST/CSV exports, shared baseline/projection logic, and typed privacy allowlist; no modelling changes
-- Synthetic validation: `npm test` passed (654 tests across 37 files), including Git revisions/dirty checkout/failure preservation/rollback/CLI status, refresh through the real baseline loader, saved-plan export authentication/freshness/parity/privacy, and existing disabled-write/temporary-scenario regressions
-- Production HTTP regression: `node --import tsx tests/export-http.ts` passed eight built-server cases, including disabled access, missing/wrong credentials, query rejection, Content-Length and chunked GET body refusal, sanitized upstream failure and no-store. Retained HTTP framing is checked because Next omits GET body streams; unit tests also prove zero baseline reads on refusal.
-- Access-preservation correction: GNU cp preserves owner/group/mode and file-specific POSIX ACLs before rename; preservation failure keeps the active inode. `sudo node --import tsx tests/posix-config-sync.ts` passed three independent-identity cases: group read access, named-user ACL access, and rejection when the sync identity cannot restore the original group. Only public code and synthetic files are copied into the disposable fixture.
-- Other validation: `npm run typecheck`, `npm run lint`, `npm run build`, default and Git-managed `docker compose config --quiet` passed; resolved Git-managed Compose also verified forced disabled writes and one read-only directory mount
-- Docker validation: Local build attempted; ordinary user lacks socket permission, and the local daemon with sudo cannot perform BuildKit bind mounts. Hosted image build passed on the initial implementation head; verify the current head in GitHub after corrections. This is not a waiver.
-- Private-data state: Only synthetic repositories, YAML, baseline readers, and fake export credentials used; no private configuration or deployment accessed
-- Independent review: Required on the exact pushed head through `openhands-review`; GitHub owns current review findings and CI evidence
-- Shared instructions read: `AGENTS.md`, `WORKFLOW.md`, `AUTHORITY.md`, `ENGINEERING.md`, and `integrations/openhands.md` at shared revision `07079695e12e52afe374cd754a7295817e957e1e`
-- Last completed capability: Configurable scenario comparison, [PR #38](https://github.com/danielnguyen/lunchmoney-retirement-planner/pull/38), confirmed merged at `7ec7ed5e884891023cbcf82dbc7c1ee1e7c87682`; approved independent review on its final head and hosted CI/Docker success are recorded there
-- Remaining step: Independent exact-head review and hosted Docker evidence, followed by owner merge decision; private Git setup, export connection provisioning, merge and deployment remain separate owner actions
+- Active implementation: inverse retirement discretionary spending capacity (#35)
+- Branch: `openhands/issue-35`, starting main `37b39bf12f38719d75252ee6e3e423d750c5419d`
+- Predecessor: #39 completed in merged [PR #40](https://github.com/danielnguyen/lunchmoney-retirement-planner/pull/40); no open PR at start
+- Status: implementation and synthetic validation complete; draft exact-head review and hosted Docker validation required
+- Change: optional common-scale inverse search through the existing monthly retirement continuation and validation; dashboard selection, today-dollar phase capacities, effective assumptions and explicit unavailable states
+- Preserved: essentials, unselected spending, static withdrawal priority, mandatory RRIF rules, forward projection and JSON/CSV contracts; no private configuration accessed
+- Validation: `npm test` passed 669 tests in 39 files; typecheck, lint, production build and Compose config passed. Final targeted checks are recorded below.
+- Local Docker build: ordinary user lacks socket permission; sudo BuildKit fails because container bind mounts are not permitted. Hosted Docker validation is required before readiness; no waiver requested.
+- Independent review: pending through `openhands-review` on the pushed head. GitHub owns current head and checks.
+- Merge, deployment and private-data operations remain owner actions. #36 remains separate and depends on this work.
 
 ## Planned implementation sequence
 
@@ -42,6 +34,7 @@ Public tracking must remain generic and must not contain private financial value
 | 11 | Tax-aware retirement withdrawal strategies | Annual Canadian tax, RRIF, non-registered tax, retirement requirement, and deterministic return paths | Planned | — |
 | 12 | Structured housing transitions | Net-worth, debt, spending, and event models | Planned | — |
 
+| — | Inverse retirement spending capacity (#35) | Shared monthly engine and retirement requirement | In progress | — |
 | — | Configurable scenario comparison (#37) | Shared monthly projection and configured phases | Completed | [#38](https://github.com/danielnguyen/lunchmoney-retirement-planner/pull/38) |
 
 ## Delivery rules
@@ -77,9 +70,43 @@ Planning order is project-management shorthand only. Production names must descr
 
 ## New-conversation handoff
 
-Read `AGENTS.md`, the roadmap, this index and `docs/git-managed-planner.md`.
-PR #38 is merged; its comparison capability is complete. Issue #39 is the active
-bounded delivery on `openhands/issue-39`; #35 and #36 remain separate. Recover the
-exact draft head, checks and independent review from GitHub. Do not begin another
-roadmap implementation while this draft is open. Local Docker build is limited by
-container mount permissions; verify hosted Docker evidence before readiness.
+Read `AGENTS.md`, the roadmap, this index and relevant projection code. #39 is
+merged in PR #40. #35 is the current bounded delivery; recover its exact draft head,
+checks and independent review from GitHub. Do not begin #36 until this PR is merged.
+Local Docker validation is blocked by container mount permissions; hosted Docker
+and independent exact-head review remain required before readiness.
+
+## Issue #35 execution record
+
+- Predecessor #39 completed in merged PR #40; main baseline
+  `37b39bf12f38719d75252ee6e3e423d750c5419d`. No open PR at start.
+- Active work: optional inverse retirement discretionary spending capacity on
+  `openhands/issue-35`; scope and validation contract recorded in roadmap before code.
+- Read repository AGENTS.md, roadmap, implementation index, Git-managed plan guide,
+  projection/requirement/comparison code and synthetic tests.
+- Read shared AGENTS.md, WORKFLOW.md, AUTHORITY.md, ENGINEERING.md and
+  integrations/openhands.md at `07079695e12e52afe374cd754a7295817e957e1e`.
+- Issue body SHA-256 matched the trusted dispatch contract. Only synthetic data
+  permitted; no private planner files accessed. Validation and review pending.
+- Final checks after effective-assumption display changes: 15 focused inverse/API/dashboard tests passed; lint, typecheck and production build passed again. The earlier complete suite passed 669/669 tests, including existing synthetic tax, benefit, liability, return-path and export-privacy regressions.
+- Required Docker check attempted both normally and with local sudo: socket permission denied, then BuildKit bind-mount operation not permitted. Existing PR Docker CI is the pending validation path; this draft is not ready until it passes and independent review completes.
+- Built-server regression: `node --import tsx tests/export-http.ts` passed all eight synthetic HTTP/export boundary checks after the final build.
+
+## PR #41 CI correction
+
+- Resumed the clean `openhands/issue-35` checkout at requested head
+  `b1b64b3fd7b0b68ea48922826aa627b3229b2756`; GitHub confirmed the same draft head.
+- Read current reviews, inline comments, discussion and check results. No submitted
+  reviews or inline findings existed; discussion deferred review until CI completed.
+- Failed validate run `45723700058`: save-conflict dashboard test exceeded its
+  existing 5-second limit (668 other tests passed). Hosted Docker run `45723699994`
+  passed on that head. Shared policy remains at the previously read revision
+  `07079695e12e52afe374cd754a7295817e957e1e`.
+- Bounded correction: scope the failing test's queries to the open configuration
+  drawer, avoiding full dashboard scans. Retain all assertions, actual dashboard
+  and projection engine, timeout, retry limits and CI workflow. No product changes.
+- Focused test passed before and after the correction (2.69s and 2.24s locally).
+  Full validation of the correction and independent review of its new head follow.
+- Correction validation: all 669 tests in 39 files passed; typecheck, lint,
+  production build, Compose config and eight built-server HTTP export checks passed.
+  Hosted checks and independent review must confirm the new exact head.

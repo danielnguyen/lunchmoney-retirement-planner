@@ -161,3 +161,30 @@ empty overrides. It is uncached and sanitizes failures. Browser POST JSON and CS
 exports retain their contracts. This credential protects only that GET operation;
 external connections must be restricted to that exact method and path. See the
 [operator guide](git-managed-planner.md) for the deployment boundary.
+
+## Inverse retirement spending analysis
+
+`calculateSpendingCapacity` in the projection domain captures the ordinary
+retirement continuation and evaluates discretionary spending scales through
+`simulateProjection`. Candidate balances are the unrounded projected account
+balances in today dollars, not reallocated or increased assets. Continuation
+preserves tax-year income, RRIF state, nonregistered ACB, liabilities, contribution
+room and benefit timing. The shared `candidateEvaluation` applies the same unmet
+cash-flow and terminal-floor tolerances as `solveRetirementRequirement`.
+
+`spending-capacity.ts` validates selected explicit retirement phases, preserves
+all essential/unselected spending and searches an integer-cent reference amount
+with one common scale. It brackets a failure up to a documented implementation
+limit of $1 billion monthly reference spending, probes 16 bracket subdivisions,
+bisects to adjacent cents, then reevaluates both boundary candidates. Observed
+pass/fail reversals or increasing terminal assets (over a cent among completed,
+funded candidates) reject the result. This assumes monotone feasibility; sampling
+is not a global proof for arbitrary discontinuities. A solver exception produces
+an unavailable result with no computed amount. Input/schema errors remain API 400s.
+
+The dashboard sends an optional `spendingCapacity: { phaseIds: string[] }` request
+to the existing projection POST endpoint. It keys responses to all active inputs,
+so old amounts disappear during recalculation. No persistence or export contract
+changes are introduced: existing JSON/CSV allowlists exclude this temporary
+analysis. Synthetic tests cover the numerical boundary, engine parity, lifecycle
+changes, input selection, dashboard semantics and export compatibility/privacy.

@@ -1,6 +1,6 @@
 import { parseComparisonScenarios } from "@/src/config/scenario-comparison";
 import { calculateComparison } from "@/src/domain/scenario/comparison";
-import { calculateProjection } from "@/src/domain/projection/calculate";
+import { calculateProjection, calculateSpendingCapacity } from "@/src/domain/projection/calculate";
 import { validateProjectionInputs } from "@/src/domain/projection/types";
 
 export async function POST(request: Request) {
@@ -10,6 +10,9 @@ export async function POST(request: Request) {
       throw new Error("Projection request must contain inputs");
     }
     const inputs = validateProjectionInputs((payload as { inputs: unknown }).inputs);
+    if ("spendingCapacity" in payload) {
+      return Response.json(calculateSpendingCapacity(inputs, payload.spendingCapacity));
+    }
     if ("scenarioComparison" in payload) {
       return Response.json(calculateComparison(inputs, parseComparisonScenarios(payload.scenarioComparison)));
     }

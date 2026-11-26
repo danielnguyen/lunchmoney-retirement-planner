@@ -526,3 +526,31 @@ Maximum sustainable spending is labelled **Not calculated** until the real #35
 solver exists. This feature adds no inverse solver, tax optimizer, probabilistic
 success score, mortgage quote, renewal assumption or prepayment schedule. Existing
 JSON/CSV exports are unchanged and do not export comparison definitions or results.
+
+### Optional retirement spending capacity
+
+Enable **Calculate spending capacity** in the dashboard and select explicit
+spending phases entirely within retirement. The analysis estimates the largest
+supported monthly discretionary spending path in today's dollars, preserving
+essential spending and the relative shape of selected phases. It shows total
+monthly lifestyle capacity and the difference from configured spending for each
+phase, plus terminal assets, shortfall/depletion status and effective assumptions.
+
+It uses projected retirement assets and the same monthly projection, tax, benefit,
+liability, RRIF and terminal-floor checks as the forward funding requirement.
+Temporary age, return/inflation and terminal-floor overrides apply. The configured
+static account withdrawal order remains in force; mandatory RRIF payouts are not
+capped at lifestyle spending. This is a deterministic scenario, not a guaranteed
+safe withdrawal rate or probability of success. Compatibility tax modes remain
+provisional.
+
+The search resolves cents of the largest selected monthly discretionary base;
+other phases retain their proportions. It checks sampled monotonicity and the
+adjacent-cent failure boundary, but cannot rule out arbitrary nonmonotonic feasible
+islands. Missing/zero-base/unsupported selections, failed zero-spending candidates,
+unbounded searches and numerical or observed nonmonotonic failures have explicit
+statuses. Phases spanning working life are unsupported: define separate retirement
+phases in the existing configuration editor if desired.
+
+The analysis is opt-in and temporary. Existing JSON/CSV exports still contain only
+the configured forward projection, not the inverse candidate or its selections.
