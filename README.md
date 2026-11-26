@@ -380,8 +380,9 @@ Schema `13.0` JSON is the complete analysis document and uses a typed allowlist 
 
 ## Git-managed saved plans and read-only retrieval
 
-For deliberate one-way sync from an authorized private checkout, rollback,
-read-only Compose wiring, and the opt-in authenticated saved-plan JSON GET, see
+For opt-in owner-only **Planner Config → Sync now**, private source setup,
+Portainer wiring, permission preflight, host-helper recovery, and the authenticated
+saved-plan JSON GET, see
 [the operator guide](docs/git-managed-planner.md). Permanent changes live in Git;
 dashboard controls remain available for temporary what-if plans.
 

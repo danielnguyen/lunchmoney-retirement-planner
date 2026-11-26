@@ -120,7 +120,7 @@ describe("dashboard config-save baseline transitions", () => {
     expect(screen.getByRole("link", { name: "Plan details" })).toHaveAttribute("href", "#plan-details");
     expect(screen.getByRole("link", { name: "Assumptions" })).toHaveAttribute("href", "#assumptions");
     expect(navigation.querySelector("button")).toBeNull();
-    expect(screen.getByRole("button", { name: "Try another plan" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Planner Config" })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Connected accounts" })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Print" })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Export" })).toBeInTheDocument();
@@ -560,7 +560,7 @@ describe("dashboard config-save baseline transitions", () => {
       ),
     ).toBeInTheDocument();
     fireEvent.click(
-      screen.getByRole("button", { name: "Try another plan" }),
+      screen.getByRole("button", { name: "Planner Config" }),
     );
     fireEvent.change(
       await screen.findByLabelText(
@@ -571,7 +571,7 @@ describe("dashboard config-save baseline transitions", () => {
 
     expect(
       await screen.findByText(
-        "Source: Temporary value from Try another plan",
+        "Source: Temporary value from Planner Config",
       ),
     ).toBeInTheDocument();
   });
@@ -666,7 +666,7 @@ describe("dashboard config-save baseline transitions", () => {
     fireEvent.click(screen.getByRole("button", { name: "Save config" }));
 
     expect(await screen.findByRole("region", { name: "Retirement outlook" })).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "Try another plan" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Planner Config" })).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "Planner config" })).not.toBeInTheDocument();
     expect(screen.getByRole("dialog", { name: "Planner YAML configuration" })).toHaveAttribute(
       "id",
@@ -716,7 +716,7 @@ describe("dashboard config-save baseline transitions", () => {
     render(<PlannerDashboard />);
 
     expect(await screen.findByRole("region", { name: "Retirement outlook" })).toBeInTheDocument();
-    fireEvent.click(screen.getByRole("button", { name: "Try another plan" }));
+    fireEvent.click(screen.getByRole("button", { name: "Planner Config" }));
     const essential = await screen.findByLabelText("Essential monthly spending");
     fireEvent.change(essential, { target: { value: "4321.67" } });
     await waitFor(() => {
@@ -724,7 +724,7 @@ describe("dashboard config-save baseline transitions", () => {
     });
     fireEvent.click(screen.getByRole("button", { name: "Close planner configuration" }));
 
-    fireEvent.click(screen.getByRole("button", { name: "Try another plan" }));
+    fireEvent.click(screen.getByRole("button", { name: "Planner Config" }));
     fireEvent.click(screen.getByRole("button", { name: "Edit YAML" }));
     const editor = await screen.findByLabelText("Planner YAML");
     fireEvent.change(editor, { target: { value: "currentAge: 39\n" } });
@@ -803,12 +803,12 @@ describe("dashboard config-save baseline transitions", () => {
     render(<PlannerDashboard />);
 
     expect(await screen.findByRole("region", { name: "Retirement outlook" })).toBeInTheDocument();
-    fireEvent.click(screen.getByRole("button", { name: "Try another plan" }));
+    fireEvent.click(screen.getByRole("button", { name: "Planner Config" }));
     fireEvent.change(await screen.findByLabelText("Essential monthly spending"), {
       target: { value: "4321.67" },
     });
     fireEvent.click(screen.getByRole("button", { name: "Close planner configuration" }));
-    fireEvent.click(screen.getByRole("button", { name: "Try another plan" }));
+    fireEvent.click(screen.getByRole("button", { name: "Planner Config" }));
     fireEvent.click(screen.getByRole("button", { name: "Edit YAML" }));
     const editor = await screen.findByLabelText("Planner YAML");
     fireEvent.change(editor, { target: { value: "currentAge: 39\n" } });
@@ -824,7 +824,7 @@ describe("dashboard config-save baseline transitions", () => {
     );
     expect(screen.queryByRole("button", { name: "Back to plan controls" })).not.toBeInTheDocument();
     expect(screen.getByLabelText("Planner YAML")).toHaveValue("currentAge: 39\n");
-    expect(screen.getByRole("status")).toHaveTextContent("Configuration saved to disk.");
+    expect(screen.getByText("Configuration saved to disk.")).toHaveAttribute("role", "status");
     expect(screen.getByText(
       "Configuration saved, but the active baseline could not be loaded. Fix the configuration and save again.",
     )).toHaveAttribute("role", "alert");

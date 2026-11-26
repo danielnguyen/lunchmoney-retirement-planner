@@ -181,7 +181,7 @@ async function waitForDashboard() {
 }
 
 async function overrideInflation(value = "2.5") {
-  fireEvent.click(screen.getByRole("button", { name: "Try another plan" }));
+  fireEvent.click(screen.getByRole("button", { name: "Planner Config" }));
   fireEvent.change(await screen.findByLabelText("Inflation"), {
     target: { value },
   });
@@ -201,7 +201,7 @@ describe("scenario-to-config dashboard workflow", () => {
     render(<PlannerDashboard />);
     await waitForDashboard();
 
-    fireEvent.click(screen.getByRole("button", { name: "Try another plan" }));
+    fireEvent.click(screen.getByRole("button", { name: "Planner Config" }));
     fireEvent.change(await screen.findByLabelText("Inflation"), {
       target: { value: "2.5" },
     });
@@ -248,7 +248,7 @@ describe("scenario-to-config dashboard workflow", () => {
     render(<PlannerDashboard />);
     await waitForDashboard();
 
-    fireEvent.click(screen.getByRole("button", { name: "Try another plan" }));
+    fireEvent.click(screen.getByRole("button", { name: "Planner Config" }));
     fireEvent.click(screen.getByRole("button", { name: "Edit YAML" }));
     const editor = await screen.findByLabelText("Planner YAML");
     fireEvent.change(editor, {
@@ -298,7 +298,7 @@ describe("scenario-to-config dashboard workflow", () => {
     expect(fetchMock.mock.calls.some(([, init]) => init?.method === "PUT")).toBe(false);
 
     fireEvent.click(screen.getByRole("button", { name: "Close planner configuration" }));
-    fireEvent.click(screen.getByRole("button", { name: "Try another plan" }));
+    fireEvent.click(screen.getByRole("button", { name: "Planner Config" }));
     fireEvent.click(screen.getByRole("button", { name: "Edit YAML" }));
     expect((await screen.findByLabelText("Planner YAML") as HTMLTextAreaElement).value)
       .toContain("# manual edit");
@@ -314,7 +314,7 @@ describe("scenario-to-config dashboard workflow", () => {
     )).toBeInTheDocument();
 
     fireEvent.click(screen.getByRole("button", { name: "Close planner configuration" }));
-    fireEvent.click(screen.getByRole("button", { name: "Try another plan" }));
+    fireEvent.click(screen.getByRole("button", { name: "Planner Config" }));
     fireEvent.click(await screen.findByRole("button", { name: "Apply scenario to config" }));
     expect(await screen.findByText("Last scenario application")).toBeInTheDocument();
     expect(screen.queryByText(
@@ -351,7 +351,7 @@ describe("scenario-to-config dashboard workflow", () => {
     render(<PlannerDashboard />);
     await waitForDashboard();
 
-    fireEvent.click(screen.getByRole("button", { name: "Try another plan" }));
+    fireEvent.click(screen.getByRole("button", { name: "Planner Config" }));
     fireEvent.change(await screen.findByLabelText("Current income annual net cash"), {
       target: { value: "85000" },
     });
@@ -393,7 +393,7 @@ describe("scenario-to-config dashboard workflow", () => {
     render(<PlannerDashboard />);
     await waitForDashboard();
 
-    fireEvent.click(screen.getByRole("button", { name: "Try another plan" }));
+    fireEvent.click(screen.getByRole("button", { name: "Planner Config" }));
     fireEvent.change(await screen.findByLabelText("Current income annual net cash"), {
       target: { value: "85000" },
     });
@@ -404,18 +404,18 @@ describe("scenario-to-config dashboard workflow", () => {
     expect((screen.getByLabelText("Planner YAML") as HTMLTextAreaElement).value)
       .toContain("85000");
     fireEvent.click(screen.getByRole("button", { name: "Close planner configuration" }));
-    fireEvent.click(screen.getByRole("button", { name: "Try another plan" }));
+    fireEvent.click(screen.getByRole("button", { name: "Planner Config" }));
     expect(await screen.findByLabelText("Current income annual net cash")).toHaveValue(85000);
     expect(screen.getByText("Scenario: $85,000.00")).toBeInTheDocument();
 
     fireEvent.click(screen.getByRole("button", { name: "Close planner configuration" }));
-    fireEvent.click(screen.getByRole("button", { name: "Try another plan" }));
+    fireEvent.click(screen.getByRole("button", { name: "Planner Config" }));
     fireEvent.click(screen.getByRole("button", { name: "Edit YAML" }));
     fireEvent.click(await screen.findByRole("button", { name: "Save config" }));
     expect(await screen.findByText("Configuration saved and the active baseline was reloaded.")).toBeInTheDocument();
     expect(screen.queryByText("Replaced live-derived values")).not.toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: "Close planner configuration" }));
-    fireEvent.click(screen.getByRole("button", { name: "Try another plan" }));
+    fireEvent.click(screen.getByRole("button", { name: "Planner Config" }));
     expect(await screen.findByLabelText("Current income annual net cash")).toHaveValue(84000);
     expect(screen.getByRole("button", { name: "Apply scenario to config" })).toBeDisabled();
   }, 10_000);
@@ -460,7 +460,7 @@ describe("scenario-to-config dashboard workflow", () => {
       "The YAML draft has been edited since this scenario was applied. Review the YAML as the source of truth.",
     )).toBeInTheDocument();
     fireEvent.click(drawer.getByRole("button", { name: "Close planner configuration" }));
-    fireEvent.click(screen.getByRole("button", { name: "Try another plan" }));
+    fireEvent.click(screen.getByRole("button", { name: "Planner Config" }));
     expect(await screen.findByLabelText("Inflation")).toHaveValue(2.5);
   });
 
@@ -509,7 +509,7 @@ describe("scenario-to-config dashboard workflow", () => {
     render(<PlannerDashboard />);
     await waitForDashboard();
 
-    fireEvent.click(screen.getByRole("button", { name: "Try another plan" }));
+    fireEvent.click(screen.getByRole("button", { name: "Planner Config" }));
     fireEvent.click(screen.getByRole("button", { name: "Edit YAML" }));
     fireEvent.change(await screen.findByLabelText("Planner YAML"), {
       target: { value: "annualInflation: [\n# keep this draft\n" },
@@ -525,7 +525,7 @@ describe("scenario-to-config dashboard workflow", () => {
       "annualInflation: [\n# keep this draft\n",
     );
     fireEvent.click(screen.getByRole("button", { name: "Close planner configuration" }));
-    fireEvent.click(screen.getByRole("button", { name: "Try another plan" }));
+    fireEvent.click(screen.getByRole("button", { name: "Planner Config" }));
     expect(await screen.findByLabelText("Inflation")).toHaveValue(2.5);
   });
 

@@ -150,9 +150,20 @@ not calculated; #36's withdrawal-strategy scope is unchanged.
 application source revision matching the running service. It fetches an approved
 upstream branch from an existing private checkout, resolves a commit, reads its
 regular YAML blob and invokes the existing complete configuration validator before
-an atomic active-file replacement. Git and private checkout credentials never
-enter the planner container. A directory bind mount lets each fresh baseline
-request observe the new inode; Git-managed deployments disable dashboard writes.
+an atomic active-file replacement.
+
+The opt-in browser route `/api/v1/config/sync` shares the validated atomic
+activation and permission preservation code with that helper. A directory lock
+coordinates writers. The server resolves only its configured GitHub branch and
+YAML path, pins a commit, checks a regular tree entry and fetches with a dedicated
+server-only read token. Fixed GitHub API requests refuse redirects, bound body size
+and time out. POST requires the configured browser Origin and a custom CSRF header;
+caller parameters/bodies are refused. The existing private owner-only boundary is
+still required. Responses contain only setup/failure guidance or the applied SHA.
+A directory bind mount lets fresh baseline requests observe the new inode. Browser
+sync disables local Save even if the standalone write flag is set. Planner Config
+refreshes the baseline and clears temporary controls after activation; export
+credentials and routes gain no sync capability.
 
 The opt-in GET on `/api/v1/exports/projection` checks its dedicated bearer credential
 before loading any baseline data. It rejects caller inputs, reloads the saved plan

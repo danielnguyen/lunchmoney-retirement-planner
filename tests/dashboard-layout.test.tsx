@@ -43,7 +43,7 @@ function ScenarioHarness() {
           view: "controls",
         })}
       >
-        Try another plan
+        Planner Config
       </button>
       {drawer ? (
         <PlannerConfigurationDrawer
@@ -146,7 +146,7 @@ describe("unified planner configuration drawer", () => {
     expect(css).not.toContain("controls-panel-desktop");
     expect(css).not.toContain("grid-template-columns: minmax(0, 3fr)");
     expect(css).not.toContain("scenario-controls-trigger");
-    expect(applicationActions.indexOf("Try another plan")).toBeLessThan(
+    expect(applicationActions.indexOf("Planner Config")).toBeLessThan(
       applicationActions.indexOf("Connected accounts"),
     );
     expect(applicationActions.indexOf("Connected accounts")).toBeLessThan(
@@ -632,7 +632,7 @@ describe("unified planner configuration drawer", () => {
 
   it("opens guided controls by default and exposes one stable ARIA contract", () => {
     render(<ScenarioHarness />);
-    const opener = screen.getByRole("button", { name: "Try another plan" });
+    const opener = screen.getByRole("button", { name: "Planner Config" });
 
     expect(opener).toHaveAttribute("aria-expanded", "false");
     expect(opener).toHaveAttribute("aria-controls", "scenario-controls-drawer");
@@ -640,7 +640,7 @@ describe("unified planner configuration drawer", () => {
 
     fireEvent.click(opener);
     expect(opener).toHaveAttribute("aria-expanded", "true");
-    expect(screen.getByRole("dialog", { name: "Try another plan" })).toHaveAttribute(
+    expect(screen.getByRole("dialog", { name: "Planner Config" })).toHaveAttribute(
       "aria-modal",
       "true",
     );
@@ -654,9 +654,9 @@ describe("unified planner configuration drawer", () => {
 
   it("switches views inside one mounted overlay and preserves both drafts", () => {
     render(<ScenarioHarness />);
-    fireEvent.click(screen.getByRole("button", { name: "Try another plan" }));
+    fireEvent.click(screen.getByRole("button", { name: "Planner Config" }));
     const overlay = screen.getByTestId("scenario-controls-overlay");
-    const dialog = screen.getByRole("dialog", { name: "Try another plan" });
+    const dialog = screen.getByRole("dialog", { name: "Planner Config" });
     fireEvent.change(screen.getByLabelText("Synthetic override"), {
       target: { value: "250" },
     });
@@ -678,7 +678,7 @@ describe("unified planner configuration drawer", () => {
 
   it("closes through the close button, Escape, or backdrop and restores focus", () => {
     render(<ScenarioHarness />);
-    const opener = screen.getByRole("button", { name: "Try another plan" });
+    const opener = screen.getByRole("button", { name: "Planner Config" });
 
     fireEvent.click(opener);
     fireEvent.click(screen.getByRole("button", { name: "Close planner configuration" }));
@@ -740,7 +740,7 @@ describe("unified planner configuration drawer", () => {
 
   it("keeps temporary overrides while closed and preserves Reset all", () => {
     render(<ScenarioHarness />);
-    const opener = screen.getByRole("button", { name: "Try another plan" });
+    const opener = screen.getByRole("button", { name: "Planner Config" });
     fireEvent.click(opener);
     const input = screen.getByLabelText("Synthetic override");
     fireEvent.change(input, { target: { value: "250" } });
