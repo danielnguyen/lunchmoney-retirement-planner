@@ -13,7 +13,9 @@ Public tracking must remain generic and must not contain private financial value
   seams, affected components/styles, synthetic tests, example config and existing docs.
 - Excluded: private data, new engines/services, automatic FIRE-date/income search,
   dependencies, CI permissions, merge and deployment.
-- Validation in progress. Independent exact-head review and hosted checks required.
+- Draft PR: [#49](https://github.com/danielnguyen/lunchmoney-retirement-planner/pull/49).
+- Local validation passed as recorded below. Independent exact-head review and hosted
+  checks remain required.
 - Next actor: worker opens the tested draft and requests `openhands-review`; owner
   alone decides readiness, merge and deployment. #47/#48 remain held.
 
@@ -35,7 +37,7 @@ Public tracking must remain generic and must not contain private financial value
 | 12 | Structured housing transitions | Net-worth, debt, spending, and event models | Planned | — |
 
 | — | Inverse retirement spending capacity (#35) | Shared monthly engine and retirement requirement | Completed | [#41](https://github.com/danielnguyen/lunchmoney-retirement-planner/pull/41) |
-| — | Career transitions and editable FIRE presets (#46) | Scenario comparison and shared monthly engine | In progress | Draft publication pending |
+| — | Career transitions and editable FIRE presets (#46) | Scenario comparison and shared monthly engine | In progress | [#49](https://github.com/danielnguyen/lunchmoney-retirement-planner/pull/49) |
 | — | Configurable scenario comparison (#37) | Shared monthly projection and configured phases | Completed | [#38](https://github.com/danielnguyen/lunchmoney-retirement-planner/pull/38) |
 
 ## Delivery rules
@@ -198,3 +200,10 @@ independent review; do not start #47 or #48 before predecessor acceptance and me
   accessible controls and UI-to-engine behavior are covered by jsdom tests.
 - Export privacy regressions passed in the full suite. All eight built-server
   HTTP/export boundary checks passed after the final production build.
+
+- Published draft PR #49 from the tested implementation commit `d39691be411f759152bf53bc8d9da2eac65dc790`.
+  This documentation-only follow-up records the PR link. GitHub owns the final head
+  and changing check/review status. Request `openhands-review` after this update is pushed.
+- Git author metadata was absent in the checkout. Used the repository's existing
+  OpenHands bot attribution through per-command environment variables; no Git
+  configuration was changed.
