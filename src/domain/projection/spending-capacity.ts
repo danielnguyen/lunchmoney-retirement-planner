@@ -26,7 +26,7 @@ export type SpendingCapacityResult = {
     annualInflation: number;
     inflationPath: DeterministicInflationPath | null;
     accounts: Array<{ accountType: string; withdrawalPriority: number; annualReturn: number; returnPath: DeterministicReturnPath | null }>;
-    withdrawalStrategy: "configured_static_priority";
+    withdrawalStrategy: "configured_static_priority" | "static_priority" | "planned_registered_bridge";
   };
   phases: Array<{
     phaseId: string;
@@ -95,12 +95,13 @@ export function solveSpendingCapacity(
       "Deterministic scenario, not a probability of success or guaranteed safe withdrawal rate.",
       "Monotone spending search with sampled checks; arbitrary nonmonotonic feasible islands are not exhaustively ruled out.",
       "Precision is one cent of the largest selected monthly discretionary phase in today's dollars; other phases retain their relative shape.",
-      "Uses configured static withdrawal priority, mandatory RRIF distributions and existing tax assumptions; no withdrawal optimization.",
+      "Uses the active withdrawal strategy, mandatory RRIF distributions and existing tax assumptions; no withdrawal optimization.",
       "Temporary analysis is excluded from configured forward-projection JSON/CSV exports.",
       ...(effectiveInputs.provisionalTax ? ["Tax modelling is provisional under the active compatibility assumptions."] : []),
     ],
   };
   const unavailable = (reason: string) => ({ ...result, status: "unavailable" as const, reason });
+  if (inputs.retirementDrawdown?.annualSpendableCashTargetToday !== undefined) return unavailable("Remove the fixed spendable-cash target to solve phase-based discretionary capacity; the fixed target would override the candidate spending.");
   if (!request.phaseIds.length || new Set(request.phaseIds).size !== request.phaseIds.length ||
       selected.length !== request.phaseIds.length || selected.some((p) =>
         p.source !== "explicit_configuration" || p.startAge < inputs.person.retirementAge ||

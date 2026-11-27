@@ -2117,6 +2117,11 @@ export function deriveCurrentBaseline(
       window.endDate,
     );
 
+  if (config.retirementDrawdown) {
+    for (const [field, value] of Object.entries(config.retirementDrawdown)) {
+      provenance[`retirementDrawdown.${field}`] = localValue(value, `Explicit retirement drawdown ${field}`, window.endDate);
+    }
+  }
   const canonicalBenefits = config.governmentBenefits;
   const cppStartAge = canonicalBenefits?.cpp.startAge ?? config.cppStartAge!;
   const cppIndexingRate =
@@ -3037,6 +3042,7 @@ export function deriveCurrentBaseline(
     monthlyDiscretionarySpendingToday: monthlyDiscretionary,
     spendingPhases,
     retirementGoalToday: config.retirementGoal,
+    ...(config.retirementDrawdown ? { retirementDrawdown: config.retirementDrawdown } : {}),
     retirementRequirement: {
       minimumEndingFinancialAssetsToday:
         config.retirementRequirement.minimumEndingFinancialAssetsToday,

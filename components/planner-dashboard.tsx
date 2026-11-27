@@ -2261,6 +2261,27 @@ export function PlannerDashboard() {
                   title="How each year is funded"
                   onExplain={openExplanation}
                 />
+                <p>Gross inflow includes withdrawals of existing savings and net deposited employment cash. Net available deducts modeled taxes, including OAS recovery; debt payments, events and contributions still need funding. Mandatory RRIF payouts may exceed consumption and leave retained or reinvested cash.</p>
+                {projection.drawdownComparison && <div className="plan-detail-table-shell">
+                  <p>{projection.drawdownComparison.description}</p>
+                  <table className="plan-detail-table"><caption>Retirement withdrawal comparison (today’s dollars)</caption>
+                    <thead><tr><th>Strategy</th><th>Lifetime taxes</th><th>OAS recovery (included)</th><th>Terminal assets</th><th>Terminal liquidation assets</th><th>Unfunded cash</th><th>Terminal floor</th></tr></thead>
+                    <tbody>{(["baseline", "planned"] as const).map((key) => {
+                      const row = projection.drawdownComparison![key];
+                      return <tr key={key}><th>{key === "baseline" ? "Static priority" : "Planned registered bridge"}</th><td>{currency.format(row.lifetimeTaxesToday)}</td><td>{currency.format(row.lifetimeOasRecoveryToday)}</td><td>{row.terminalAssetsToday === null ? "Not reached" : currency.format(row.terminalAssetsToday)}</td><td>{row.terminalLiquidationAssetsToday === null ? "Not reached" : currency.format(row.terminalLiquidationAssetsToday)}</td><td>{currency.format(row.shortfallToday)}</td><td>{row.terminalFloorMet ? "Met" : "Not met"}</td></tr>;
+                    })}</tbody>
+                  </table>
+                </div>}
+                {inputs.retirementDrawdown && <details><summary>Annual spendable cash ledger ({mode === "real" ? "today’s" : "nominal"} dollars)</summary>
+                  <p>The target covers essential and discretionary consumption. Essentials remain a floor. Partial years include only simulated months, indexed monthly; taxes, debt and events are additional. Shortfalls are unfunded cash, not consumption. RRIF true-ups are the additional statutory payments after ordinary withdrawals.</p>
+                  <div className="plan-detail-table-shell"><table className="plan-detail-table"><thead><tr><th>Year</th><th>External income</th><th>Elective registered</th><th>Planned bridge (included)</th><th>Mandatory RRIF payments</th><th>TFSA draws</th><th>Taxable draws</th><th>Cash draws</th><th>Modeled tax</th><th>Funded tax</th><th>OAS recovery (included)</th><th>Cash after funded tax</th><th>Target</th><th>Consumption</th><th>Other funded uses</th><th>Retained / reinvested</th><th>Unfunded cash</th></tr></thead>
+                    <tbody>{projection.annual.map((year) => {
+                      const view = year[mode]; const cash = view.spendableCash;
+                      if (!cash) return null;
+                      return <tr key={year.calendarYear}><th>{year.calendarYear}</th>{[view.income.total, cash.electiveRegisteredWithdrawals, cash.plannedRegisteredWithdrawals, cash.mandatoryRrifPayments, view.withdrawals.tfsa, view.withdrawals.nonRegistered, view.withdrawals.cash, view.outflows.tax, cash.taxes, cash.oasRecovery, cash.netAvailable, cash.target, cash.consumption, cash.otherFundedOutflows, cash.retainedOrReinvested, cash.shortfall].map((value, index) => <td key={index}>{currency.format(value)}</td>)}</tr>;
+                    })}</tbody>
+                  </table></div>
+                </details>}
                 <figure className="chart-shell tall" aria-labelledby="annual-funding-title">
                   <ResponsiveContainer width="100%" height="100%">
                     <ComposedChart data={chartData}>
@@ -2278,11 +2299,14 @@ export function PlannerDashboard() {
                       <Bar dataKey="cpp" name="CPP" stackId="inflow" fill={chartColors.blue} />
                       <Bar dataKey="oas" name="OAS" stackId="inflow" fill={chartColors.mint} />
                       <Bar dataKey="pension" name="Pension" stackId="inflow" fill={chartColors.slate} />
+                      <Bar dataKey="otherIncome" name="Other external inflows" stackId="inflow" fill={chartColors.slate} />
                       <Bar dataKey="cashWithdrawal" name="Cash" stackId="inflow" fill={chartColors.text} />
                       <Bar dataKey="nonRegisteredWithdrawal" name="Non-registered" stackId="inflow" fill={chartColors.coral} />
                       <Bar dataKey="rrspWithdrawal" name="RRSP / RRIF" stackId="inflow" fill={chartColors.pink} />
                       <Bar dataKey="tfsaWithdrawal" name="TFSA" stackId="inflow" fill={chartColors.violet} />
-                      <Line dataKey="tax" name="Simplified retirement tax" stroke={chartColors.red} strokeWidth={2} dot={false} />
+                      <Line dataKey="grossCashInflow" name="Total gross cash inflow (employment net deposited)" stroke={chartColors.slate} dot={false} />
+                      <Line dataKey="netCashAvailable" name="Net cash available after modeled taxes" stroke={chartColors.mint} strokeWidth={2} dot={false} />
+                      <Line dataKey="tax" name="Modeled taxes including OAS recovery" stroke={chartColors.red} strokeWidth={2} dot={false} />
                     </ComposedChart>
                   </ResponsiveContainer>
                 </figure>

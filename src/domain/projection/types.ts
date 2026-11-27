@@ -375,7 +375,56 @@ export type RetirementRequirementInput = {
   activeValueSource: RetirementRequirementActiveValueSource;
 };
 
+/** Explicit today-dollar retirement consumption and gross bridge drawdown settings. */
+export type RetirementDrawdown = {
+  strategy: "static_priority" | "planned_registered_bridge";
+  annualSpendableCashTargetToday?: number;
+  annualRegisteredWithdrawalToday?: number;
+};
+
+export function parseRetirementDrawdown(value: unknown): RetirementDrawdown | undefined {
+  if (value === undefined) return undefined;
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    throw new Error("retirementDrawdown must be an object");
+  }
+  const item = value as RetirementDrawdown;
+  if (item.strategy !== "static_priority" && item.strategy !== "planned_registered_bridge") {
+    throw new Error("retirementDrawdown.strategy must explicitly select static_priority or planned_registered_bridge");
+  }
+  for (const key of ["annualSpendableCashTargetToday", "annualRegisteredWithdrawalToday"] as const) {
+    if (item[key] !== undefined) assertNonNegative(`retirementDrawdown.${key}`, item[key]);
+  }
+  if (item.strategy === "planned_registered_bridge" && item.annualRegisteredWithdrawalToday === undefined) {
+    throw new Error("Planned registered bridge requires annualRegisteredWithdrawalToday");
+  }
+  if (item.strategy === "static_priority" && item.annualRegisteredWithdrawalToday !== undefined) {
+    throw new Error("Static priority cannot specify a planned registered withdrawal");
+  }
+  return {
+    strategy: item.strategy,
+    ...(item.annualSpendableCashTargetToday !== undefined ? { annualSpendableCashTargetToday: item.annualSpendableCashTargetToday } : {}),
+    ...(item.annualRegisteredWithdrawalToday !== undefined ? { annualRegisteredWithdrawalToday: item.annualRegisteredWithdrawalToday } : {}),
+  };
+}
+
+export type SpendableCashLedger = {
+  grossInflow: number;
+  taxes: number;
+  oasRecovery: number;
+  netAvailable: number;
+  target: number;
+  consumption: number;
+  otherFundedOutflows: number;
+  retainedOrReinvested: number;
+  shortfall: number;
+  plannedRegisteredWithdrawals: number;
+  mandatoryRrifTrueUp: number;
+  mandatoryRrifPayments: number;
+  electiveRegisteredWithdrawals: number;
+};
+
 export type ProjectionInputs = {
+  retirementDrawdown?: RetirementDrawdown;
   startDate: string;
   endAge: number;
   annualInflation: number;
@@ -544,6 +593,7 @@ export type SavingsPolicyBreakdown = {
 };
 
 export type ProjectionView = {
+  spendableCash?: SpendableCashLedger;
   income: IncomeBreakdown;
   withdrawals: WithdrawalBreakdown;
   outflows: OutflowBreakdown;
@@ -1084,6 +1134,11 @@ export type SavingsPolicyCalculationSummary = {
 };
 
 export type ProjectionResult = {
+  drawdownComparison?: {
+    baseline: { terminalAssetsToday: number | null; terminalLiquidationAssetsToday: number | null; lifetimeTaxesToday: number; lifetimeOasRecoveryToday: number; shortfallToday: number; terminalFloorMet: boolean };
+    planned: { terminalAssetsToday: number | null; terminalLiquidationAssetsToday: number | null; lifetimeTaxesToday: number; lifetimeOasRecoveryToday: number; shortfallToday: number; terminalFloorMet: boolean };
+    description: string;
+  };
   schemaVersion: "13.0";
   inputs: ProjectionInputs;
   summary: ProjectionSummary;
@@ -1167,6 +1222,11 @@ export function validateProjectionInputs(value: unknown): ProjectionInputs {
   }
 
   const input = value as ProjectionInputs;
+  parseRetirementDrawdown(input.retirementDrawdown);
+  if (input.retirementDrawdown?.strategy === "planned_registered_bridge" &&
+      (input.tax?.mode !== "canadian_annual" || input.rrifMinimumWithdrawals?.mode !== "statutory" || input.nonRegisteredTaxation?.mode !== "simplified_canadian")) {
+    throw new Error("Planned registered bridge requires Canadian annual tax, statutory RRIF and simplified Canadian non-registered taxation");
+  }
   if (!isIsoCalendarDate(input.startDate)) {
     throw new Error("startDate must be a valid ISO calendar date");
   }

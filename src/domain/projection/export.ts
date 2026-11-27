@@ -14,6 +14,7 @@ import {
   type SavingsPolicyPreview,
 } from "./presentation";
 import {
+  parseRetirementDrawdown,
   validateProjectionInputs,
   type AccountType,
   type AssetAllocation,
@@ -986,6 +987,7 @@ function safeProjectionInputs(
   context: ShareSafeContext,
 ): ProjectionInputs {
   return {
+    ...(inputs.retirementDrawdown ? { retirementDrawdown: parseRetirementDrawdown(inputs.retirementDrawdown) } : {}),
     startDate: inputs.startDate,
     endAge: inputs.endAge,
     annualInflation: inputs.annualInflation,
@@ -1282,6 +1284,21 @@ function safeProjectionView(view: ProjectionView, context: ShareSafeContext): Pr
     ]),
   );
   return {
+    ...(view.spendableCash ? { spendableCash: {
+      grossInflow: view.spendableCash.grossInflow,
+      taxes: view.spendableCash.taxes,
+      oasRecovery: view.spendableCash.oasRecovery,
+      netAvailable: view.spendableCash.netAvailable,
+      target: view.spendableCash.target,
+      consumption: view.spendableCash.consumption,
+      otherFundedOutflows: view.spendableCash.otherFundedOutflows,
+      retainedOrReinvested: view.spendableCash.retainedOrReinvested,
+      shortfall: view.spendableCash.shortfall,
+      plannedRegisteredWithdrawals: view.spendableCash.plannedRegisteredWithdrawals,
+      mandatoryRrifTrueUp: view.spendableCash.mandatoryRrifTrueUp,
+      mandatoryRrifPayments: view.spendableCash.mandatoryRrifPayments,
+      electiveRegisteredWithdrawals: view.spendableCash.electiveRegisteredWithdrawals,
+    } } : {}),
     income: {
       employment: view.income.employment,
       cpp: view.income.cpp,
@@ -3173,6 +3190,7 @@ export function projectionSnapshotToCsv(
     ...accountAliases.map(
       (account) => `surplus_contribution_${account.key}`,
     ),
+    ...(snapshot.projection.inputs.retirementDrawdown ? ["spendable_grossInflow", "spendable_taxes", "spendable_oasRecovery", "spendable_netAvailable", "spendable_target", "spendable_consumption", "spendable_otherFundedOutflows", "spendable_retainedOrReinvested", "spendable_shortfall", "spendable_plannedRegisteredWithdrawals", "spendable_mandatoryRrifTrueUp", "spendable_mandatoryRrifPayments", "spendable_electiveRegisteredWithdrawals"] : []),
     "milestone_retirement",
     "milestone_cpp",
     "milestone_oas",
@@ -3563,6 +3581,7 @@ export function projectionSnapshotToCsv(
           view.accountContributionDetails[account.key]
             ?.surplusFundedDeposit ?? 0,
       ),
+      ...(snapshot.projection.inputs.retirementDrawdown ? [view.spendableCash?.grossInflow ?? "", view.spendableCash?.taxes ?? "", view.spendableCash?.oasRecovery ?? "", view.spendableCash?.netAvailable ?? "", view.spendableCash?.target ?? "", view.spendableCash?.consumption ?? "", view.spendableCash?.otherFundedOutflows ?? "", view.spendableCash?.retainedOrReinvested ?? "", view.spendableCash?.shortfall ?? "", view.spendableCash?.plannedRegisteredWithdrawals ?? "", view.spendableCash?.mandatoryRrifTrueUp ?? "", view.spendableCash?.mandatoryRrifPayments ?? "", view.spendableCash?.electiveRegisteredWithdrawals ?? ""] : []),
       point.milestones.includes("Retirement") ? 1 : 0,
       point.milestones.includes("CPP begins") ? 1 : 0,
       point.milestones.includes("OAS begins") ? 1 : 0,

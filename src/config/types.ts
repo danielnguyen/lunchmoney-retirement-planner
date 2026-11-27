@@ -1,4 +1,5 @@
 import type {
+  RetirementDrawdown,
   AssetAllocation,
   ContributionFunding,
   ProjectionEventInput,
@@ -428,6 +429,7 @@ export type ComparisonScenarioConfig = {
 };
 
 export type PlannerConfig = {
+  retirementDrawdown?: RetirementDrawdown;
   scenarioComparison?: ComparisonScenarioConfig[];
   configurationMode: "simple" | "advanced";
   currentAge: number;

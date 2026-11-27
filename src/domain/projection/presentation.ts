@@ -620,6 +620,8 @@ export function buildBalanceSheetReconciliation(
 }
 
 export type AnnualChartRow = {
+  grossCashInflow: number;
+  netCashAvailable: number;
   [key: string]: string | number;
   year: number;
   periodLabel: string;
@@ -772,6 +774,8 @@ export function buildAnnualChartData(
   return projection.annual.map((point) => {
     const view = point[mode];
     return {
+      grossCashInflow: roundCurrency(view.income.total + view.withdrawals.total),
+      netCashAvailable: roundCurrency(view.income.total + view.withdrawals.total - view.outflows.tax),
       year: point.calendarYear,
       periodLabel: annualPeriodLabel(
         inputs,

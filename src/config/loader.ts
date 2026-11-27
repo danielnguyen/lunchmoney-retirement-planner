@@ -4,6 +4,7 @@ import { constants } from "node:fs";
 import { extname } from "node:path";
 import { parse as parseYaml } from "yaml";
 import {
+  parseRetirementDrawdown,
   contributionFundingTypes,
   PROJECTION_AGE_TOLERANCE,
   projectionMonthOffset,
@@ -2766,6 +2767,7 @@ export function validatePlannerConfig(value: unknown): PlannerConfig {
       : { governmentBenefits: governmentBenefits(item.governmentBenefits) }),
     retirementGoal: number(item.retirementGoal, "retirementGoal", { min: 0 }),
     retirementRequirement: retirementRequirement(item.retirementRequirement),
+    retirementDrawdown: parseRetirementDrawdown(item.retirementDrawdown),
     rrifMinimumWithdrawals: rrifMinimumWithdrawalsConfig(
       item.rrifMinimumWithdrawals,
     ),

@@ -23,7 +23,7 @@ Public planning material, examples, and tests must remain synthetic and must not
 | 9 | RRIF minimum withdrawals and Canadian retirement taxes | Completed | [#25 annual tax](https://github.com/danielnguyen/lunchmoney-retirement-planner/pull/25), [#26 RRIF](https://github.com/danielnguyen/lunchmoney-retirement-planner/pull/26), [#27 non-registered tax](https://github.com/danielnguyen/lunchmoney-retirement-planner/pull/27) |
 | 10 | Deterministic return paths and sequence-risk scenarios | Completed | [#33](https://github.com/danielnguyen/lunchmoney-retirement-planner/pull/33) |
 | — | Inverse retirement spending capacity (#35) | In progress | — |
-| 11 | Tax-aware retirement withdrawal strategies | Planned | — |
+| 11 | Tax-aware retirement withdrawal strategies | In progress (#36) | Draft pending |
 | 12 | Structured housing transitions | Planned | — |
 
 Status and delivery metadata for the active implementation belongs in [`implementation-index.md`](./implementation-index.md). The numbered order above is planning shorthand only; product and implementation names must describe their financial capability.
@@ -339,7 +339,7 @@ Test explicitly configured adverse return sequences without presenting a probabi
 - Monthly balances, annual rows, bridges, explanations, JSON, and CSV consume the same path-driven returns and reconcile within one cent.
 - Results are labelled deterministic scenarios, not probabilities, confidence levels, or forecasts.
 
-## Planned capability: Tax-aware retirement withdrawal strategies
+## In-progress capability: Tax-aware retirement withdrawal strategies
 
 ### Goal
 
@@ -547,3 +547,13 @@ shape/essential preservation, lifecycle and scenario changes, negative cases,
 dashboard/API and export privacy regressions; npm test/typecheck/lint/build,
 Docker build and Compose config. Independent review is required on the pushed
 head; merge and deployment remain owner actions.
+
+### Issue #36 implementation boundary
+
+Explicit configured bridge withdrawals and an independently indexed net lifestyle
+target use the existing monthly simulation. A full-horizon static-priority
+comparison includes terminal liquidation through the same annual tax/ACB path.
+This is a configured comparison, not an optimizer. The fixed consumption target
+makes inverse phase-capacity analysis explicitly unavailable until removed; the
+bridge strategy alone remains compatible with the existing inverse solver.
+Validation and exact-head independent review are recorded in the implementation index.
