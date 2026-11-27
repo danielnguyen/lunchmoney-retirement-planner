@@ -509,24 +509,29 @@ describe("scenario-to-config dashboard workflow", () => {
     render(<PlannerDashboard />);
     await waitForDashboard();
 
-    fireEvent.click(screen.getByRole("button", { name: "Planner Config" }));
-    fireEvent.click(screen.getByRole("button", { name: "Edit YAML" }));
-    fireEvent.change(await screen.findByLabelText("Planner YAML"), {
+    const launcher = screen.getByRole("button", { name: "Planner Config" });
+    fireEvent.click(launcher);
+    let drawer = within(screen.getByRole("dialog", { name: "Planner Config" }));
+    fireEvent.click(drawer.getByRole("button", { name: "Edit YAML" }));
+    fireEvent.change(await drawer.findByLabelText("Planner YAML"), {
       target: { value: "annualInflation: [\n# keep this draft\n" },
     });
-    fireEvent.click(screen.getByRole("button", { name: "Close planner configuration" }));
-    await overrideInflation();
+    fireEvent.click(drawer.getByRole("button", { name: "Close planner configuration" }));
+    fireEvent.click(launcher);
+    drawer = within(screen.getByRole("dialog", { name: "Planner Config" }));
+    fireEvent.change(await drawer.findByLabelText("Inflation"), { target: { value: "2.5" } });
     const unifiedOverlay = screen.getByTestId("scenario-controls-overlay");
-    fireEvent.click(screen.getByRole("button", { name: "Apply scenario to config" }));
+    fireEvent.click(drawer.getByRole("button", { name: "Apply scenario to config" }));
 
-    expect(await screen.findByText("Synthetic YAML is malformed.")).toBeInTheDocument();
+    expect(await drawer.findByText("Synthetic YAML is malformed.")).toBeInTheDocument();
     expect(screen.getByTestId("scenario-controls-overlay")).toBe(unifiedOverlay);
-    expect(screen.getByLabelText("Planner YAML")).toHaveValue(
+    expect(drawer.getByLabelText("Planner YAML")).toHaveValue(
       "annualInflation: [\n# keep this draft\n",
     );
-    fireEvent.click(screen.getByRole("button", { name: "Close planner configuration" }));
-    fireEvent.click(screen.getByRole("button", { name: "Planner Config" }));
-    expect(await screen.findByLabelText("Inflation")).toHaveValue(2.5);
+    fireEvent.click(drawer.getByRole("button", { name: "Close planner configuration" }));
+    fireEvent.click(launcher);
+    drawer = within(screen.getByRole("dialog", { name: "Planner Config" }));
+    expect(await drawer.findByLabelText("Inflation")).toHaveValue(2.5);
   });
 
   it("retains repair context but removes stale projections after a saved draft cannot reload", async () => {

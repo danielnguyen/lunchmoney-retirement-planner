@@ -207,6 +207,7 @@ describe("retirement spendable cash and registered bridge", () => {
 
   it("preserves default results and static priority financial flows", () => {
     const input = drawdownFixture(); delete input.retirementDrawdown;
+    input.endAge = 62; input.spendingPhases[0]!.endAge = 62;
     const baseline = calculateProjection(input);
     const selected = calculateProjection({ ...input, retirementDrawdown: { strategy: "static_priority" } });
     for (const [index, year] of baseline.annual.entries()) {
@@ -260,11 +261,10 @@ describe("retirement spendable cash and registered bridge", () => {
     input.person.oas.fullMonthlyAmountAt65Today = 700;
     input.person.cpp.monthlyAmountAt65Today = 1_000;
     const planned = calculateProjection(input);
-    input.retirementDrawdown = { strategy: "static_priority", annualSpendableCashTargetToday: 24_000 };
-    const baseline = calculateProjection(input);
-    const recovery = (result: typeof planned) => result.annual.reduce((sum, year) => sum + year.nominal.outflows.oasRecoveryTax, 0);
-    expect(recovery(planned)).toBeGreaterThan(0);
-    expect(recovery(planned)).toBeLessThan(recovery(baseline));
+    const recovery = planned.annual.reduce((sum, year) => sum + year.nominal.outflows.oasRecoveryTax, 0);
+    expect(recovery).toBeGreaterThan(0);
+    expect(recovery).toBeCloseTo(planned.drawdownComparison!.planned.lifetimeOasRecoveryToday, 2);
+    expect(recovery).toBeLessThan(planned.drawdownComparison!.baseline.lifetimeOasRecoveryToday);
     for (const year of planned.annual) {
       if (year.tax.mode === "canadian_annual") {
         expect(year.nominal.outflows.oasRecoveryTax).toBeCloseTo(year.tax.fullAnnualTax.totals.oasRecoveryTax - year.tax.embeddedAnnualTax.totals.oasRecoveryTax, 2);

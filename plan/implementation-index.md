@@ -17,8 +17,8 @@ Public tracking must remain generic and must not contain private financial value
   Compose config and eight built-server synthetic HTTP/export checks passed.
 - Local Docker build: socket permission denied, with no escalation. Hosted
   exact-head Docker validation and independent review remain required before readiness.
-- Draft delivery is tracked by head branch `openhands/issue-36` on GitHub; this
-  index does not duplicate the changing commit hash or claim review completion.
+- Draft PR: [#44](https://github.com/danielnguyen/lunchmoney-retirement-planner/pull/44),
+  head branch `openhands/issue-36`. GitHub owns its changing head and review state.
 
 ## Planned implementation sequence
 
@@ -34,7 +34,7 @@ Public tracking must remain generic and must not contain private financial value
 | 8 | Retirement funding requirement and terminal balance | Spending phases and retirement projection | Completed | [#24](https://github.com/danielnguyen/lunchmoney-retirement-planner/pull/24) |
 | 9 | RRIF minimum withdrawals and Canadian retirement taxes | Surplus policy, debt model, spending phases, and requirement contract | Completed | [#25 annual tax](https://github.com/danielnguyen/lunchmoney-retirement-planner/pull/25), [#26 RRIF](https://github.com/danielnguyen/lunchmoney-retirement-planner/pull/26), [#27 non-registered tax](https://github.com/danielnguyen/lunchmoney-retirement-planner/pull/27) |
 | 10 | Deterministic return paths and sequence-risk scenarios | Reconciled deterministic projection | Completed | [#33](https://github.com/danielnguyen/lunchmoney-retirement-planner/pull/33) |
-| 11 | Tax-aware retirement withdrawal strategies | Annual Canadian tax, RRIF, non-registered tax, retirement requirement, and deterministic return paths | In progress | Draft branch `openhands/issue-36` |
+| 11 | Tax-aware retirement withdrawal strategies | Annual Canadian tax, RRIF, non-registered tax, retirement requirement, and deterministic return paths | In progress | [#44](https://github.com/danielnguyen/lunchmoney-retirement-planner/pull/44) |
 | 12 | Structured housing transitions | Net-worth, debt, spending, and event models | Planned | — |
 
 | — | Inverse retirement spending capacity (#35) | Shared monthly engine and retirement requirement | Completed | [#41](https://github.com/danielnguyen/lunchmoney-retirement-planner/pull/41) |
@@ -140,3 +140,22 @@ independent review; do not start another roadmap capability before merge.
 - Correction validation: all 669 tests in 39 files passed; typecheck, lint,
   production build, Compose config and eight built-server HTTP export checks passed.
   Hosted checks and independent review must confirm the new exact head.
+
+## PR #44 hosted validation correction
+
+- Initial head `85f6ae4b5144cd5604a1ff2af7c4d85fa7066eec`: hosted Docker
+  succeeded (run `45915007034`); CI run `45915007074` failed five existing
+  five-second test budgets (three new drawdown cases and two dashboard cases).
+- Removed an unnecessary baseline funding-requirement search from strategy
+  comparison; it needs only the shared monthly simulation and terminal-liquidation
+  evaluation. Added cumulative OAS recovery to the comparison instead of computing
+  another full projection solely for that assertion. Default strategy simulations
+  do not allocate bridge-only lifecycle checks.
+- The direct compatibility fixture uses a shorter horizon; separate lifetime/RRIF
+  cases retain the full horizon. Narrowed queries in the two implicated dashboard
+  tests, preserving all assertions, the real handlers and five-second budgets.
+  These bounded test-file edits address observed CI failures without changing
+  config-sync behavior or workflow permissions.
+- Correction: 24 focused tests passed; full 708/708 tests in 42 files passed.
+  Typecheck, lint, build, Compose and eight production HTTP export checks passed.
+  Hosted CI/Docker and independent review must confirm the corrected exact head.

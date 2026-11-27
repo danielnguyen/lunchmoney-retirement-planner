@@ -2758,7 +2758,7 @@ function simulateProjection(
 
     let plannedRegisteredWithdrawals = 0;
     let plannedNetCash = 0;
-    const mandatoryRrifYear = [...rrifState.accounts.values()].some((account) =>
+    const mandatoryRrifYear = inputs.retirementDrawdown?.strategy === "planned_registered_bridge" && [...rrifState.accounts.values()].some((account) =>
       account.establishmentYear !== null && calendarYear > account.establishmentYear);
     if (inputs.retirementDrawdown?.strategy === "planned_registered_bridge" &&
         month > retirementMonth && !mandatoryRrifYear &&
@@ -4380,10 +4380,11 @@ export function calculateProjection(
     });
   }
   if (inputs.retirementDrawdown?.strategy === "planned_registered_bridge") {
-    const baseline = calculateProjection({ ...inputs, retirementDrawdown: {
+    const baseline = simulateProjection({ ...inputs, retirementDrawdown: {
       strategy: "static_priority",
       ...(inputs.retirementDrawdown.annualSpendableCashTargetToday !== undefined ? { annualSpendableCashTargetToday: inputs.retirementDrawdown.annualSpendableCashTargetToday } : {}),
-    } });
+    } }).result;
+    if (!baseline) throw new Error("Static-priority comparison was not captured");
     const summarize = (projection: CoreProjectionResult) => {
       const liquidation = simulateProjection(projection.inputs, { liquidateAtTerminal: true }).result;
       if (!liquidation) throw new Error("Terminal liquidation comparison was not captured");
@@ -4392,6 +4393,7 @@ export function calculateProjection(
         terminalAssetsToday: projection.projectionCompletion.status === "complete" ? terminalAssetsToday : null,
         terminalLiquidationAssetsToday: liquidation.projectionCompletion.status === "complete" ? liquidation.annual.at(-1)?.real.balances.financialAssets ?? 0 : null,
         lifetimeTaxesToday: round(projection.annual.reduce((total, year) => total + year.real.outflows.tax, 0)),
+        lifetimeOasRecoveryToday: round(projection.annual.reduce((total, year) => total + year.real.outflows.oasRecoveryTax, 0)),
         shortfallToday: round(projection.annual.reduce((total, year) => total + year.real.outflows.unmetSpending + year.real.outflows.unmetRequiredOutflow, 0)),
         terminalFloorMet: projection.projectionCompletion.status === "complete" && terminalAssetsToday + 0.005 >= inputs.retirementRequirement.minimumEndingFinancialAssetsToday,
       };

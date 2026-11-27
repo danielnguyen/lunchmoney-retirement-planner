@@ -1135,8 +1135,8 @@ export type SavingsPolicyCalculationSummary = {
 
 export type ProjectionResult = {
   drawdownComparison?: {
-    baseline: { terminalAssetsToday: number | null; terminalLiquidationAssetsToday: number | null; lifetimeTaxesToday: number; shortfallToday: number; terminalFloorMet: boolean };
-    planned: { terminalAssetsToday: number | null; terminalLiquidationAssetsToday: number | null; lifetimeTaxesToday: number; shortfallToday: number; terminalFloorMet: boolean };
+    baseline: { terminalAssetsToday: number | null; terminalLiquidationAssetsToday: number | null; lifetimeTaxesToday: number; lifetimeOasRecoveryToday: number; shortfallToday: number; terminalFloorMet: boolean };
+    planned: { terminalAssetsToday: number | null; terminalLiquidationAssetsToday: number | null; lifetimeTaxesToday: number; lifetimeOasRecoveryToday: number; shortfallToday: number; terminalFloorMet: boolean };
     description: string;
   };
   schemaVersion: "13.0";

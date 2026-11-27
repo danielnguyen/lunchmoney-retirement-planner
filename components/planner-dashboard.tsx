@@ -2265,10 +2265,10 @@ export function PlannerDashboard() {
                 {projection.drawdownComparison && <div className="plan-detail-table-shell">
                   <p>{projection.drawdownComparison.description}</p>
                   <table className="plan-detail-table"><caption>Retirement withdrawal comparison (today’s dollars)</caption>
-                    <thead><tr><th>Strategy</th><th>Lifetime taxes</th><th>Terminal assets</th><th>Terminal liquidation assets</th><th>Unfunded cash</th><th>Terminal floor</th></tr></thead>
+                    <thead><tr><th>Strategy</th><th>Lifetime taxes</th><th>OAS recovery (included)</th><th>Terminal assets</th><th>Terminal liquidation assets</th><th>Unfunded cash</th><th>Terminal floor</th></tr></thead>
                     <tbody>{(["baseline", "planned"] as const).map((key) => {
                       const row = projection.drawdownComparison![key];
-                      return <tr key={key}><th>{key === "baseline" ? "Static priority" : "Planned registered bridge"}</th><td>{currency.format(row.lifetimeTaxesToday)}</td><td>{row.terminalAssetsToday === null ? "Not reached" : currency.format(row.terminalAssetsToday)}</td><td>{row.terminalLiquidationAssetsToday === null ? "Not reached" : currency.format(row.terminalLiquidationAssetsToday)}</td><td>{currency.format(row.shortfallToday)}</td><td>{row.terminalFloorMet ? "Met" : "Not met"}</td></tr>;
+                      return <tr key={key}><th>{key === "baseline" ? "Static priority" : "Planned registered bridge"}</th><td>{currency.format(row.lifetimeTaxesToday)}</td><td>{currency.format(row.lifetimeOasRecoveryToday)}</td><td>{row.terminalAssetsToday === null ? "Not reached" : currency.format(row.terminalAssetsToday)}</td><td>{row.terminalLiquidationAssetsToday === null ? "Not reached" : currency.format(row.terminalLiquidationAssetsToday)}</td><td>{currency.format(row.shortfallToday)}</td><td>{row.terminalFloorMet ? "Met" : "Not met"}</td></tr>;
                     })}</tbody>
                   </table>
                 </div>}
