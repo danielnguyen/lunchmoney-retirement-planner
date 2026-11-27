@@ -418,6 +418,16 @@ code, pre, .mapping-reference-row, .config-editor-meta strong, .assumption-grid 
   *, *::before, *::after { scroll-behavior: auto !important; transition-duration: 0.01ms !important; animation-duration: 0.01ms !important; animation-iteration-count: 1 !important; }
 }
 
+.comparison-panel { margin: 1rem 0; padding: 1.25rem; border: 1px solid var(--border); border-radius: var(--radius-section); background: var(--surface-1); }
+.comparison-cards { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 320px), 1fr)); gap: 1rem; margin: 1rem 0; }
+.comparison-cards > * { min-width: 0; padding: 1rem; border: 1px solid var(--border); border-radius: var(--radius-control); }
+.comparison-cards label { display: grid; gap: .25rem; margin: .75rem 0; }
+.comparison-cards input, .comparison-cards select { width: 100%; max-width: 100%; padding: .5rem; }
+.comparison-table { overflow-x: auto; margin: 1rem 0; }
+.comparison-panel table { border-collapse: collapse; width: 100%; }
+.comparison-panel th, .comparison-panel td { padding: .65rem; text-align: left; border-bottom: 1px solid var(--border); }
+.comparison-panel summary { cursor: pointer; padding: .5rem 0; }
+
 @media print {
   @page { margin: 0.55in; }
   :root { color-scheme: light; }
@@ -430,7 +440,8 @@ code, pre, .mapping-reference-row, .config-editor-meta strong, .assumption-grid 
   .application-title-group h1 { color: #111; font-size: 24px; }
   .application-title-group p, .application-status-copy p, .plan-details-status, .plan-detail-evidence small, .plan-detail-group > p, .plan-detail-context, .plan-detail-technical-list, .section-kicker, .pill, .milestone, .observation p, dt { color: #555; }
   .application-status-panel { padding: 8px 0; border-width: 1px 0; background: #fff; }
-  .retirement-outlook, .plan-details, .plan-details-disclosure, .report-card { box-shadow: none; border-color: #bbb; background: #fff; color: #111; }
+  .retirement-outlook, .plan-details, .plan-details-disclosure, .report-card, .comparison-panel { box-shadow: none; border-color: #bbb; background: #fff; color: #111; }
+  .comparison-cards > *, .comparison-panel th, .comparison-panel td { border-color: #bbb; }
   .connection-badge, .pill, .milestone, .observation, .warning-severity-label, .plan-details-disclosure summary { color: #111; background: #fff; }
   .warning-panel { border-color: #777; background: #fff; }
   .warning-panel p, .warning-panel ul, .warning-panel li { color: #111; }
@@ -455,12 +466,3 @@ code, pre, .mapping-reference-row, .config-editor-meta strong, .assumption-grid 
   th, td { border: 1px solid #777; white-space: normal; overflow-wrap: anywhere; }
 }
 
-.comparison-panel { margin: 1rem 0; padding: 1.25rem; border: 1px solid #c5ccd3; border-radius: 12px; background: var(--surface, #fff); }
-.comparison-cards { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 320px), 1fr)); gap: 1rem; margin: 1rem 0; }
-.comparison-cards > * { min-width: 0; padding: 1rem; border: 1px solid #c5ccd3; border-radius: 8px; }
-.comparison-cards label { display: grid; gap: .25rem; margin: .75rem 0; }
-.comparison-cards input, .comparison-cards select { width: 100%; max-width: 100%; padding: .5rem; }
-.comparison-table { overflow-x: auto; margin: 1rem 0; }
-.comparison-panel table { border-collapse: collapse; width: 100%; }
-.comparison-panel th, .comparison-panel td { padding: .65rem; text-align: left; border-bottom: 1px solid #c5ccd3; }
-.comparison-panel summary { cursor: pointer; padding: .5rem 0; }
