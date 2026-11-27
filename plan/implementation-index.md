@@ -16,7 +16,7 @@ Public tracking must remain generic and must not contain private financial value
 - Draft PR: [#49](https://github.com/danielnguyen/lunchmoney-retirement-planner/pull/49).
 - Local validation passed as recorded below. Independent exact-head review and hosted
   checks remain required.
-- Next actor: worker opens the tested draft and requests `openhands-review`; owner
+- Next actor: independent reviewer checks the revised exact head; owner
   alone decides readiness, merge and deployment. #47/#48 remain held.
 
 ## Planned implementation sequence
@@ -207,3 +207,29 @@ independent review; do not start #47 or #48 before predecessor acceptance and me
 - Git author metadata was absent in the checkout. Used the repository's existing
   OpenHands bot attribution through per-command environment variables; no Git
   configuration was changed.
+
+## PR #49 review corrections
+
+- Resumed a clean checkout at requested head `47595843d95e7e55c2233dcab12da9a63f176516`.
+  Issue hash, current main and shared policy revision remain unchanged from the
+  execution record above. Read current review, both inline findings, discussion
+  and checks directly from GitHub; no failing checks or other open PRs were present.
+- Career cash retention now funds separate operating/reserve targets before
+  retaining the remainder, without investment sweeping. Target-funding attribution
+  reflects actual transfers; total cash and contribution reconciliation remains
+  exact to the cent. Ordinary non-career policy behavior is unchanged.
+- Reserve and unallocated-withholding eligibility use each scenario's own career
+  configuration. Adding an alternative changes the ledger horizon without changing
+  baseline feasibility, lifetime viability, warnings, summary or first shortfall.
+- Four synthetic regression cases fail against the reviewed implementation and
+  pass with the fixes. Coverage includes both simple unplanned-cash policies,
+  separate reserve accounts, actual and no-saving Coast flows, and independent
+  baseline reserve/withholding cases. Reused the existing simple-policy fixture setup.
+- Validation: all 743 tests in 44 files, typecheck, lint, production build, Compose
+  config and eight production HTTP/export checks passed. The strengthened isolated
+  withholding regression also passed after the full-suite run. Local Docker build
+  remains denied by socket permissions; hosted exact-head Docker validation is
+  required. No browser geometry validation is claimed for these domain corrections.
+- Scope remains two domain files, the existing career test file and this index.
+  Reply to both review findings, push this correction on the existing draft PR and
+  reapply `openhands-review`; owner alone controls readiness, merge and deployment.

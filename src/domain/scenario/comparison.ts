@@ -135,7 +135,7 @@ export function calculateComparison(baseline: ProjectionInputs, scenarios: Compa
         if (definition.careerTransition.phases.some(p => p.employment.mode === "gross_estimate")) result.warnings.push(`${payrollProvenance.description}; effective ${payrollProvenance.effectiveDate}. ${payrollProvenance.limitations}`);
       }
       const projection = calculateProjection(inputs, {
-        retainSurplusAtAge: age => careerAt(age)?.surplusInvesting === "retain_as_cash",
+        retainSurplusAtAge: definition.careerTransition ? age => careerAt(age)?.surplusInvesting === "retain_as_cash" : undefined,
         cashConstrainedPersonalContributions: definition.contributionPolicy === "cash_constrained",
         onMonth: ({ date, age, working, inflationFactor: factor, flow, targetedEventDeposits, reserveShortfall }) => {
           const out = flow.outflows;
@@ -157,9 +157,9 @@ export function calculateComparison(baseline: ProjectionInputs, scenarios: Compa
               (flow.accountContributionDetails[c.accountId]?.unallocatedFromAccount ?? 0) > .005)
             : unallocated > .005;
           const deficit = unfunded > 0.005 || (working && (contributionFailure ||
-            (fullHorizon && flow.contributions.unallocatedIncomeWithheld > .005) ||
+            (definition.careerTransition !== undefined && flow.contributions.unallocatedIncomeWithheld > .005) ||
             (flow.withdrawals.total > .005 && career?.kind !== "barista") ||
-            (fullHorizon && reserveShortfall > .005) ||
+            (definition.careerTransition !== undefined && reserveShortfall > .005) ||
             (career !== undefined && (withdrawalFunded || reserveShortfall > .005 || coastViolation))));
           if (working && deficit) result.workingLifeFeasible = false;
           if (deficit && result.firstFundingShortfallAge === null) result.firstFundingShortfallAge = age;
@@ -220,7 +220,7 @@ export function calculateComparison(baseline: ProjectionInputs, scenarios: Compa
         try {
           const verification = calculateProjection(structuredClone(inputs), {
             cashConstrainedPersonalContributions: definition.contributionPolicy === "cash_constrained",
-            retainSurplusAtAge: age => careerAt(age)?.surplusInvesting === "retain_as_cash",
+            retainSurplusAtAge: definition.careerTransition ? age => careerAt(age)?.surplusInvesting === "retain_as_cash" : undefined,
             consumeUncommittedSurplusAtAge: coastSavingWindow,
             onMonth: ({ age, working, flow, reserveShortfall }) => {
               const phase = careerAt(age);

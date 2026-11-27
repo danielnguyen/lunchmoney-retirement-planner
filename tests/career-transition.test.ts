@@ -192,18 +192,8 @@ describe("explicit Ontario employment estimates", () => {
 });
 
 it("retains simple-mode surplus without claiming continuing workplace savings as Coast", () => {
-  const input = careerInputs();
-  const tfsa = { ...structuredClone(input.accounts[1]), id: "synthetic-tfsa", type: "tfsa" as const, contributionPhases: [] };
-  const taxable = { ...structuredClone(tfsa), id: "synthetic-taxable", type: "non_registered" as const };
-  const workplace = { ...structuredClone(tfsa), id: "synthetic-workplace", type: "rrsp_rrif" as const };
-  input.accounts[1].contributionPhases = [];
-  input.accounts.push(tfsa, taxable, workplace);
-  input.contributionWaterfall = { mode: "simple_policy", routes: [
-    { sourceAccountId: workplace.id, destinationAccountIds: [workplace.id] },
-    { sourceAccountId: tfsa.id, destinationAccountIds: [tfsa.id, input.accounts[1].id, taxable.id] },
-  ], surplusDestinationAccountIds: [tfsa.id, input.accounts[1].id, taxable.id] };
-  input.surplusAllocation.excess = { mode: "allocate_through_contribution_waterfall" };
-  input.savingsPolicy = { mode: "simple", operatingCashAccountId: input.accounts[0].id, reserveAccountIds: [input.accounts[0].id], reserveRefillAccountId: input.accounts[0].id, personalTfsaAccountId: tfsa.id, personalRrspAccountId: input.accounts[1].id, workplaceRrspAccountId: workplace.id, taxableAccountId: taxable.id, taxableAccountOrigin: taxable.origin, reserveBuildingPhases: [], operatingCashTarget: { targetToday: 20000, indexingRate: 0 }, unplannedCash: "sweep_above_targets", personalOrder: ["personal_tfsa", "personal_rrsp", "taxable"], workplaceRoomPriority: "first", workplaceOverflow: "unallocated", reserveAfterTarget: "personal_investing" };
+  const input = simpleCareerInputs();
+  const workplace = input.accounts.find(a => a.id === "synthetic-workplace")!;
   const scenario = net(plan(), 12000);
   expect(run(scenario, input).coastVerified).toBe(true);
   scenario.careerTransition!.phases[0].contributions.push({ accountId: workplace.id, monthlyAmountToday: 100, employerMonthlyAmountToday: 100, funding: "income_withheld", requirement: "required", sourceDescription: "Synthetic match" });
@@ -280,4 +270,76 @@ it("keeps CPP owner-controlled and applies an explicit lower-benefit sensitivity
   expect(lower.status).not.toBe("unavailable");
   expect(lower.annual.reduce((n, row) => n + row.takeHome, 0)).toBeLessThan(original.annual.reduce((n, row) => n + row.takeHome, 0));
   expect(input.person.cpp.monthlyAmountAt65Today).toBe(1200);
+});
+
+function simpleCareerInputs() {
+  const input = careerInputs();
+  const tfsa = { ...structuredClone(input.accounts[1]), id: "synthetic-tfsa", type: "tfsa" as const, contributionPhases: [] };
+  const taxable = { ...structuredClone(tfsa), id: "synthetic-taxable", type: "non_registered" as const };
+  const workplace = { ...structuredClone(tfsa), id: "synthetic-workplace", type: "rrsp_rrif" as const };
+  input.accounts[1].contributionPhases = [];
+  input.accounts.push(tfsa, taxable, workplace);
+  input.contributionWaterfall = { mode: "simple_policy", routes: [
+    { sourceAccountId: workplace.id, destinationAccountIds: [workplace.id] },
+    { sourceAccountId: tfsa.id, destinationAccountIds: [tfsa.id, input.accounts[1].id, taxable.id] },
+  ], surplusDestinationAccountIds: [tfsa.id, input.accounts[1].id, taxable.id] };
+  input.surplusAllocation.excess = { mode: "allocate_through_contribution_waterfall" };
+  input.savingsPolicy = { mode: "simple", operatingCashAccountId: input.accounts[0].id, reserveAccountIds: [input.accounts[0].id], reserveRefillAccountId: input.accounts[0].id, personalTfsaAccountId: tfsa.id, personalRrspAccountId: input.accounts[1].id, workplaceRrspAccountId: workplace.id, taxableAccountId: taxable.id, taxableAccountOrigin: taxable.origin, reserveBuildingPhases: [], operatingCashTarget: { targetToday: 20000, indexingRate: 0 }, unplannedCash: "sweep_above_targets", personalOrder: ["personal_tfsa", "personal_rrsp", "taxable"], workplaceRoomPriority: "first", workplaceOverflow: "unallocated", reserveAfterTarget: "personal_investing" };
+  return input;
+}
+
+it.each(["sweep_above_targets", "retain_in_operating_cash"] as const)("funds separate protected reserves before career retention with %s", (unplannedCash) => {
+  const input = simpleCareerInputs();
+  if (input.savingsPolicy.mode !== "simple") throw new Error("Expected simple policy");
+  input.accounts.push({ ...structuredClone(input.accounts[0]), id: "synthetic-reserve", openingBalance: 0 });
+  input.savingsPolicy.reserveAccountIds = ["synthetic-reserve"];
+  input.savingsPolicy.reserveRefillAccountId = "synthetic-reserve";
+  input.savingsPolicy.unplannedCash = unplannedCash;
+  input.surplusAllocation.reserveAccountIds = ["synthetic-reserve"];
+  input.surplusAllocation.reserveRefillAccountId = "synthetic-reserve";
+  input.surplusAllocation.targetCashReserveToday = 1000;
+  const scenario = net(plan(), 42000);
+  const result = run(scenario, input);
+  expect(result.workingLifeFeasible).toBe(true);
+  expect(result.coastVerified).toBe(true);
+  expect(result.annual[0].personalDeposits).toBe(0);
+  expect(result.annual[0].retained).toBe(30000);
+  const active = materializeComparisonInputs(input, scenario);
+  for (const counterfactual of [false, true]) {
+    calculateProjection(active, {
+      retainSurplusAtAge: age => age < 42,
+      consumeUncommittedSurplusAtAge: age => counterfactual && age < 42,
+      onMonth: ({ age, flow, reserveShortfall }) => {
+        if (age !== 40) return;
+        expect(reserveShortfall).toBe(0);
+        expect(flow.accountSurplusAllocations["synthetic-reserve"]).toBe(1000);
+        expect(flow.surplusAllocation.reserveRefill).toBe(1000);
+        expect(flow.savingsPolicy.targetFundingRetained).toBe(1000);
+        expect(flow.surplusAllocation.retainedAsCash).toBe(counterfactual ? 1000 : 2500);
+        expect(flow.savingsPolicy.unplannedCashSwept).toBe(0);
+      },
+    });
+  }
+});
+
+it.each([false, true])("keeps baseline assessment invariant with a career alternative (unallocated withholding: %s)", (withholding) => {
+  const input = careerInputs();
+  input.accounts[0].openingBalance = withholding ? 20000 : 0;
+  input.person.employmentIncomePhases[0].annualNetCashToday = 12000;
+  input.accounts[1].contributionPhases = [];
+  if (withholding) {
+    input.accounts[1].contributionPhases = [{ id: "withheld", label: "Synthetic withholding", startAge: 40, endAge: 42, monthlyAmountToday: 100, indexingRate: 0, funding: "income_withheld" }];
+    input.registeredAccountRoom!.rrsp.startingAvailableDeductionRoom.amount = 0;
+    input.person.employmentIncomePhases[0].rrspRoomGeneration!.annualEligibleEarnedIncomeToday = 0;
+  }
+  const baseline = { id: "baseline", label: "Baseline", spending: [], personalContributions: [], contributionPolicy: "configured_fixed_plan" as const };
+  const alone = calculateComparison(input, [baseline])[0];
+  const paired = calculateComparison(input, [baseline, net(plan("barista"), 12000)])[0];
+  expect(alone.status).toBe("calculated");
+  expect(alone.workingLifeFeasible).toBe(true);
+  expect(alone.lifetimeViable).toBe(true);
+  expect(alone.firstFundingShortfallAge).toBeNull();
+  for (const key of ["status", "workingLifeFeasible", "lifetimeViable", "firstFundingShortfallAge", "summary", "warnings"] as const) expect(paired[key]).toEqual(alone[key]);
+  expect(alone.allocationHorizon).toBe("working_life");
+  expect(paired.allocationHorizon).toBe("full_horizon");
 });
