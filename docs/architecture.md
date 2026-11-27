@@ -199,3 +199,27 @@ so old amounts disappear during recalculation. No persistence or export contract
 changes are introduced: existing JSON/CSV allowlists exclude this temporary
 analysis. Synthetic tests cover the numerical boundary, engine parity, lifecycle
 changes, input selection, dashboard semantics and export compatibility/privacy.
+
+## Retirement drawdown and spendable cash
+
+`retirementDrawdown` is parsed once into typed configuration and carries explicit
+configuration provenance into baseline inputs. The monthly projection applies its
+optional consumption target using the existing inflation factors. Its optional
+registered bridge amount uses the same withdrawal function, annual Canadian tax
+state, RRIF lifecycle and account balances as spending-driven draws. The existing
+surplus waterfall handles real excess; planned withdrawals cannot recycle into an
+RRSP. The funding-requirement continuation receives the same selected strategy.
+
+The engine accumulates an optional cash ledger in nominal and real annual views.
+Presentation consumes those fields; exports explicitly allowlist them. Mandatory
+RRIF payments include the portion of ordinary distributions satisfying the minimum
+plus the December true-up. Planned bridge withdrawals are a subset of elective
+registered withdrawals. Neither category is another cash inflow to add twice.
+
+Strategy comparison runs static priority with identical target and other inputs.
+A comparison-only terminal liquidation reuses the withdrawal/ACB/tax function in
+the last month; it does not alter the ordinary projection or terminal funding rule.
+No separate tax arithmetic, withdrawal engine or optimization framework is added.
+Stopped projections show terminal results as unavailable. The inverse solver
+retains its existing search; an explicitly fixed consumption target makes phase
+capacity unavailable, with a reason, instead of silently overriding candidates.

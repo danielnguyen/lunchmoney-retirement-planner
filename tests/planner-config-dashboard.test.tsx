@@ -70,6 +70,24 @@ afterEach(() => {
 });
 
 describe("dashboard config-save baseline transitions", () => {
+  it("shows the spendable cash ledger and infeasibility warning", async () => {
+    const baseline = structuredClone(currentBaselineFixture);
+    baseline.projectionInputs.retirementDrawdown = { strategy: "static_priority", annualSpendableCashTargetToday: 1_000_000 };
+    const projection = calculateProjection(baseline.projectionInputs);
+    vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL) => {
+      if (requestUrl(input) === "/api/v1/baseline/current") return jsonResponse(baseline);
+      if (requestUrl(input) === "/api/v1/projections") return jsonResponse(projection);
+      throw new Error("Unexpected synthetic request");
+    }));
+    render(<PlannerDashboard />);
+    expect(await screen.findByText(/Annual spendable cash ledger/)).toBeInTheDocument();
+    expect(screen.getByText(/Gross inflow includes withdrawals/)).toBeInTheDocument();
+    expect(screen.getByText(/The spendable-cash target is infeasible/)).toBeInTheDocument();
+    fireEvent.click(screen.getByText(/Annual spendable cash ledger/));
+    expect(screen.getByRole("columnheader", { name: "Retained / reinvested" })).toBeInTheDocument();
+    expect(screen.getByRole("columnheader", { name: "Mandatory RRIF payments" })).toBeInTheDocument();
+  });
+
   it("leads with personal-target retirement outlook and keeps the model minimum secondary", async () => {
     const projection = calculateProjection(
       currentBaselineFixture.projectionInputs,

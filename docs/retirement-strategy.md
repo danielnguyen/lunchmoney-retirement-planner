@@ -142,3 +142,12 @@ This public strategy intentionally contains no real personal financial values. T
 - private scenario exports.
 
 Public examples and tests should use obviously synthetic values. The ignored private YAML remains the authoritative place for a real user's strategy parameters.
+## Implemented configured comparison
+
+Issue #36 adds explicit `static_priority` and `planned_registered_bridge` choices
+and an independent annual after-tax lifestyle target. The bridge amount is a
+configured scenario, not an automatically optimized amount. Compare its lifetime
+taxes and terminal liquidation assets with static priority, including adverse
+paths and the terminal floor. A tax reduction alone is not evidence of improvement.
+The [README](../README.md#retirement-spendable-cash-and-registered-bridge-withdrawals)
+defines monthly indexing, partial periods, infeasibility and surplus routing.

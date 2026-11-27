@@ -540,7 +540,7 @@ phase, plus terminal assets, shortfall/depletion status and effective assumption
 It uses projected retirement assets and the same monthly projection, tax, benefit,
 liability, RRIF and terminal-floor checks as the forward funding requirement.
 Temporary age, return/inflation and terminal-floor overrides apply. The configured
-static account withdrawal order remains in force; mandatory RRIF payouts are not
+configured withdrawal strategy remains in force; mandatory RRIF payouts are not
 capped at lifestyle spending. This is a deterministic scenario, not a guaranteed
 safe withdrawal rate or probability of success. Compatibility tax modes remain
 provisional.
@@ -555,3 +555,59 @@ phases in the existing configuration editor if desired.
 
 The analysis is opt-in and temporary. Existing JSON/CSV exports still contain only
 the configured forward projection, not the inverse candidate or its selections.
+
+### Retirement spendable cash and registered bridge withdrawals
+
+The optional `retirementDrawdown` block selects a strategy explicitly. Omission
+preserves existing projections. These are synthetic example amounts:
+
+```yaml
+retirementDrawdown:
+  strategy: planned_registered_bridge
+  annualSpendableCashTargetToday: 24000
+  annualRegisteredWithdrawalToday: 40000
+```
+
+The spendable-cash target is annual **essential plus discretionary consumption**,
+not gross taxable income. Each retired month receives one twelfth, multiplied by
+the active monthly inflation factor. Essentials remain a floor; discretionary
+spending becomes the remaining target. A target below essentials, unfunded cash,
+a missed terminal asset floor or an early stop produces an infeasibility warning.
+Debt payments, events, contributions and taxes require additional funding. Working
+months retain configured spending phases; annual ledger budgets include those
+working-month amounts and only the simulated retirement months. Partial first and
+last years are not annualized.
+
+`planned_registered_bridge` requires Canadian annual tax, statutory RRIF and
+simplified Canadian non-registered taxation. It withdraws the configured gross
+annual amount, indexed monthly, in fully retired months before the first CPP/OAS
+claim boundary or the first mandatory RRIF year. Elective RRIF withdrawals
+are supported in the conversion year, before statutory minima begin. It is additional to any spending-driven draws;
+account balances limit actual withdrawals. Each planned monthly gross amount is
+rounded down to cents, leaving any sub-cent remainder invested. Existing annual tax and ACB calculations
+apply. Existing reserve/surplus policy sends after-tax excess to cash, available
+TFSA room or taxable investments; registered withdrawals are not recycled into
+RRSP contributions. Mandatory RRIF minimum payments are never capped by the target.
+
+The dashboard compares static priority and the configured bridge amount over the
+same full horizon, including lifetime taxes, terminal assets, unfunded outflows,
+and the configured terminal floor. Terminal liquidation assets are a separate
+comparison assuming simultaneous liquidation in the last month through the same
+annual tax ledger. They are not an estate-tax estimate. The choice is a configured
+scenario, not an optimizer: reduced tax can still come with reduced terminal wealth,
+especially when surplus is retained at a lower return. Review both outcomes before
+choosing the amount. `strategy: static_priority` supports the spending target
+without planned withdrawals; omit `annualRegisteredWithdrawalToday` in that mode.
+
+The funding chart shows total gross inflow and net cash after modeled tax; employment
+is already net deposited cash. The annual spendable-cash ledger distinguishes
+funded tax, consumption, other funded uses, retained/reinvested cash and shortfalls.
+For infeasible months, consumption and external-income tax use the engine's existing
+proportional funding convention; assessed tax remains visible in the tax ledger.
+OAS recovery is included in total tax, never an additional deduction.
+JSON and CSV include the allowlisted cash ledger and selected configuration.
+
+The existing inverse phase-spending analysis uses the active bridge strategy when
+no fixed target is set. With a fixed target it returns an explicit unavailable
+reason: remove that target before solving discretionary phase capacity, since it
+would otherwise override the solver's candidate spending.

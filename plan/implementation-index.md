@@ -6,16 +6,19 @@ Public tracking must remain generic and must not contain private financial value
 
 ## Current position
 
-- Active implementation: inverse retirement discretionary spending capacity (#35)
-- Branch: `openhands/issue-35`, starting main `37b39bf12f38719d75252ee6e3e423d750c5419d`
-- Predecessor: #39 completed in merged [PR #40](https://github.com/danielnguyen/lunchmoney-retirement-planner/pull/40); no open PR at start
-- Status: implementation and synthetic validation complete; draft exact-head review and hosted Docker validation required
-- Change: optional common-scale inverse search through the existing monthly retirement continuation and validation; dashboard selection, today-dollar phase capacities, effective assumptions and explicit unavailable states
-- Preserved: essentials, unselected spending, static withdrawal priority, mandatory RRIF rules, forward projection and JSON/CSV contracts; no private configuration accessed
-- Validation: `npm test` passed 669 tests in 39 files; typecheck, lint, production build and Compose config passed. Final targeted checks are recorded below.
-- Local Docker build: ordinary user lacks socket permission; sudo BuildKit fails because container bind mounts are not permitted. Hosted Docker validation is required before readiness; no waiver requested.
-- Independent review: pending through `openhands-review` on the pushed head. GitHub owns current head and checks.
-- Merge, deployment and private-data operations remain owner actions. #36 remains separate and depends on this work.
+- Active implementation: tax-aware retirement drawdown and spendable cash (#36).
+- Branch: `openhands/issue-36`, baseline `24975ab4e411bcba73c57d2ddbeefe02aeb6a596`.
+- #35 and #39 are closed; inverse capacity merged in PR #41. No open PR at start.
+- Scope: typed configuration, monthly withdrawal/target/ledger seams, existing
+  funding chart, synthetic tests, README, architecture, strategy and roadmap docs.
+- Excluded: private financial inputs, alternate engines, dependencies, CI privileges,
+  merge and deployment. One draft PR; independent exact-head review required.
+- Validation: 708 tests in 42 files passed; typecheck, lint, production build,
+  Compose config and eight built-server synthetic HTTP/export checks passed.
+- Local Docker build: socket permission denied, with no escalation. Hosted
+  exact-head Docker validation and independent review remain required before readiness.
+- Draft delivery is tracked by head branch `openhands/issue-36` on GitHub; this
+  index does not duplicate the changing commit hash or claim review completion.
 
 ## Planned implementation sequence
 
@@ -31,10 +34,10 @@ Public tracking must remain generic and must not contain private financial value
 | 8 | Retirement funding requirement and terminal balance | Spending phases and retirement projection | Completed | [#24](https://github.com/danielnguyen/lunchmoney-retirement-planner/pull/24) |
 | 9 | RRIF minimum withdrawals and Canadian retirement taxes | Surplus policy, debt model, spending phases, and requirement contract | Completed | [#25 annual tax](https://github.com/danielnguyen/lunchmoney-retirement-planner/pull/25), [#26 RRIF](https://github.com/danielnguyen/lunchmoney-retirement-planner/pull/26), [#27 non-registered tax](https://github.com/danielnguyen/lunchmoney-retirement-planner/pull/27) |
 | 10 | Deterministic return paths and sequence-risk scenarios | Reconciled deterministic projection | Completed | [#33](https://github.com/danielnguyen/lunchmoney-retirement-planner/pull/33) |
-| 11 | Tax-aware retirement withdrawal strategies | Annual Canadian tax, RRIF, non-registered tax, retirement requirement, and deterministic return paths | Planned | — |
+| 11 | Tax-aware retirement withdrawal strategies | Annual Canadian tax, RRIF, non-registered tax, retirement requirement, and deterministic return paths | In progress | Draft branch `openhands/issue-36` |
 | 12 | Structured housing transitions | Net-worth, debt, spending, and event models | Planned | — |
 
-| — | Inverse retirement spending capacity (#35) | Shared monthly engine and retirement requirement | In progress | — |
+| — | Inverse retirement spending capacity (#35) | Shared monthly engine and retirement requirement | Completed | [#41](https://github.com/danielnguyen/lunchmoney-retirement-planner/pull/41) |
 | — | Configurable scenario comparison (#37) | Shared monthly projection and configured phases | Completed | [#38](https://github.com/danielnguyen/lunchmoney-retirement-planner/pull/38) |
 
 ## Delivery rules
@@ -70,11 +73,38 @@ Planning order is project-management shorthand only. Production names must descr
 
 ## New-conversation handoff
 
-Read `AGENTS.md`, the roadmap, this index and relevant projection code. #39 is
-merged in PR #40. #35 is the current bounded delivery; recover its exact draft head,
-checks and independent review from GitHub. Do not begin #36 until this PR is merged.
-Local Docker validation is blocked by container mount permissions; hosted Docker
-and independent exact-head review remain required before readiness.
+Resume #36 on its existing branch/PR. Recover current GitHub head, checks and
+independent review; do not start another roadmap capability before merge.
+
+## Issue #36 execution record
+
+- Live issue body SHA-256 matched the trusted task contract; branch clean and at
+  current main before edits. #35/#39 closed and no open implementation PR found.
+- Read shared AGENTS.md, WORKFLOW.md, AUTHORITY.md, ENGINEERING.md and
+  integrations/openhands.md at `07079695e12e52afe374cd754a7295817e957e1e`.
+- Read repository AGENTS.md, roadmap, index, plan guide, architecture and retirement
+  strategy, PR #32 contract, monthly projection, inverse solver and synthetic tests.
+- Storage gate: 144 GB free, over 11.5 million free inodes in workspace/cache filesystems.
+- No private configuration read. All fixtures and examples are synthetic.
+- Initial focused checks caught test-fixture errors and demonstrated that retaining
+  bridge surplus at a lower return can reduce terminal after-tax assets; the
+  comparison explicitly preserves this trade-off rather than claiming optimality.
+
+- Inverse integration found a real sub-cent exhausted-balance defect in planned
+  gross draws. Monthly planned gross is now floored to cents before annual tax
+  recognition; the unchanged inverse safety checks and regression pass.
+- Synthetic coverage includes bridge benefit and lower-return downside, conversion-year
+  elective RRIF draws, uncapped statutory payments, OAS recovery, room-limited TFSA
+  overflow and taxable ACB routing, adverse return/inflation paths, partial years,
+  terminal floors, default compatibility, infeasible cash, inverse integration,
+  dashboard ledger and allowlisted rectangular exports.
+- Full suite: 708/708 tests in 42 files passed. Final table-style adjustment also
+  passed its focused dashboard test. Typecheck, lint, production build, Compose
+  configuration and all eight production HTTP export checks passed.
+- Local Docker command failed with permission denied at the Docker socket; no
+  privilege escalation or workflow-permission changes. Existing PR-hosted Docker
+  validation must pass on the final head. Independent review is requested via
+  `openhands-review` only after the branch is pushed and draft opened.
 
 ## Issue #35 execution record
 

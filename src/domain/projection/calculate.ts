@@ -483,6 +483,14 @@ function emptySavingsTotals(): SavingsPolicyTotals {
   };
 }
 
+function snapshotSpendableCash(cash: NonNullable<ProjectionView["spendableCash"]>) {
+  const rounded = Object.fromEntries(Object.entries(cash).map(([key, value]) =>
+    [key, round(value)])) as NonNullable<ProjectionView["spendableCash"]>;
+  rounded.netAvailable = round(rounded.grossInflow - rounded.taxes);
+  rounded.retainedOrReinvested = round(rounded.netAvailable - rounded.consumption - rounded.otherFundedOutflows);
+  return rounded;
+}
+
 function emptyView(): ProjectionView {
   return {
     income: emptyIncome(),
@@ -744,6 +752,7 @@ function snapshotView(
       displayedBalances.otherLiabilities,
   );
   return {
+    ...(flow.spendableCash ? { spendableCash: snapshotSpendableCash(flow.spendableCash) } : {}),
     income: {
       employment: round(flow.income.employment),
       cpp: round(flow.income.cpp),
@@ -895,6 +904,12 @@ function snapshotView(
 }
 
 function addMonthlyFlow(target: ProjectionView, monthly: ProjectionView, factor: number): void {
+  if (monthly.spendableCash) {
+    target.spendableCash ??= Object.fromEntries(Object.keys(monthly.spendableCash).map((key) => [key, 0])) as NonNullable<ProjectionView["spendableCash"]>;
+    for (const key of Object.keys(monthly.spendableCash) as Array<keyof NonNullable<ProjectionView["spendableCash"]>>) {
+      target.spendableCash[key] += monthly.spendableCash[key] / factor;
+    }
+  }
   for (const key of Object.keys(monthly.income) as Array<keyof IncomeBreakdown>) {
     target.income[key] += monthly.income[key] / factor;
   }
@@ -1381,6 +1396,7 @@ export type ComparisonProjectionOptions = {
 };
 
 type RetirementSimulationOptions = ComparisonProjectionOptions & {
+  liquidateAtTerminal?: boolean;
   candidateBalancesToday?: ReadonlyMap<string, number>;
   continuation?: RetirementContinuationState;
 };
@@ -1636,12 +1652,16 @@ function simulateProjection(
     );
   }
 
+  let terminalLiquidationActive = false;
   function availableForAccount(
     account: FinancialAccountInput,
     workingAge: number,
   ): number {
     if (account.type === "tfsa") return tfsaRoom;
     if (account.type === "rrsp_rrif") {
+      if (terminalLiquidationActive) return 0;
+      // Do not recycle planned retirement withdrawals into another RRSP.
+      if (inputs.retirementDrawdown?.strategy === "planned_registered_bridge" && workingAge >= inputs.person.retirementAge - AGE_TOLERANCE) return 0;
       return inputs.rrifMinimumWithdrawals.mode === "statutory" &&
         rrifLifecycleForAccount(rrifState, account.id) === "rrif"
         ? 0
@@ -2231,10 +2251,12 @@ function simulateProjection(
       inputs.monthlyEssentialSpendingToday *
       spendingPhase.essentialMultiplier *
       factor;
-    const discretionary =
-      inputs.monthlyDiscretionarySpendingToday *
-      spendingPhase.discretionaryMultiplier *
-      factor;
+    const spendingTarget = month > retirementMonth
+      ? inputs.retirementDrawdown?.annualSpendableCashTargetToday
+      : undefined;
+    const discretionary = spendingTarget === undefined
+      ? inputs.monthlyDiscretionarySpendingToday * spendingPhase.discretionaryMultiplier * factor
+      : Math.max(0, spendingTarget * factor / MONTHS_PER_YEAR - essential);
     monthlyFlow.outflows.essential += essential;
     monthlyFlow.outflows.discretionary += discretionary;
 
@@ -2465,16 +2487,19 @@ function simulateProjection(
         ? "rrifWithdrawals"
         : "rrspWithdrawals";
     let withdrawalTaxTotal = 0;
+    let mandatoryRrifPayments = 0;
     const fundCashNeedFromWithdrawals = (
       requestedNetCash: number,
+      plannedGross = false,
     ): WithdrawalFundingResult => {
       let netCashGenerated = 0;
       let grossProceedsGenerated = 0;
       let signedTaxAdjustment = 0;
       for (const account of withdrawalAccounts) {
+        if (plannedGross && account.type !== "rrsp_rrif") continue;
         const remaining = Math.max(
           0,
-          requestedNetCash - netCashGenerated,
+          requestedNetCash - (plannedGross ? grossProceedsGenerated : netCashGenerated),
         );
         if (remaining <= 0) break;
         const balance = balances.get(account.id) ?? 0;
@@ -2501,7 +2526,7 @@ function simulateProjection(
               pensionIncomeCreditEligible:
                 inputs.person.pensionIncomeCreditEligible,
             });
-            const solution = solveTaxableWithdrawal({
+            const solution = plannedGross ? { grossWithdrawal: Math.max(0, Math.floor((Math.min(balance, remaining) + 1e-9) * 100) / 100) } : solveTaxableWithdrawal({
               incomeSource: taxIncomeSource,
               availableBalance: balance,
               requiredNetCash: remaining,
@@ -2680,6 +2705,7 @@ function simulateProjection(
           inputs.rrifMinimumWithdrawals.mode === "statutory" &&
           rrifLifecycleForAccount(rrifState, account.id) === "rrif"
         ) {
+          mandatoryRrifPayments += Math.min(grossWithdrawal, remainingRrifMinimum(rrifState, calendarYear, account.id));
           recordOrdinaryRrifWithdrawal({
             state: rrifState,
             calendarYear,
@@ -2730,8 +2756,24 @@ function simulateProjection(
       return result;
     };
 
+    let plannedRegisteredWithdrawals = 0;
+    let plannedNetCash = 0;
+    const mandatoryRrifYear = [...rrifState.accounts.values()].some((account) =>
+      account.establishmentYear !== null && calendarYear > account.establishmentYear);
+    if (inputs.retirementDrawdown?.strategy === "planned_registered_bridge" &&
+        month > retirementMonth && !mandatoryRrifYear &&
+        age < Math.min(inputs.person.cpp.startAge, inputs.person.oas.startAge) - AGE_TOLERANCE) {
+      const before = monthlyFlow.withdrawals.rrspRrif;
+      const funding = fundCashNeedFromWithdrawals(
+        inputs.retirementDrawdown.annualRegisteredWithdrawalToday! * factor / MONTHS_PER_YEAR,
+        true,
+      );
+      plannedRegisteredWithdrawals = monthlyFlow.withdrawals.rrspRrif - before;
+      plannedNetCash = funding.netCashGenerated;
+    }
+    let mandatoryRrifTrueUp = 0;
     let availableCurrentMonthCash =
-      income.total + unassignedEventInflows;
+      income.total + unassignedEventInflows + plannedNetCash;
     const previewCanadianTaxState = canadianTaxYearState
       ? cloneCanadianTaxYearState(canadianTaxYearState)
       : null;
@@ -3082,6 +3124,8 @@ function simulateProjection(
         monthlyFlow.outflows.tax += taxAdjustment;
         withdrawalTaxTotal += taxAdjustment;
         cashPosition += netCash;
+        mandatoryRrifTrueUp += grossWithdrawal;
+        mandatoryRrifPayments += grossWithdrawal;
         recordForcedRrifWithdrawal({
           state: rrifState,
           calendarYear,
@@ -3091,6 +3135,13 @@ function simulateProjection(
           exhausted: balance + 0.000001 < payableTrueUp,
         });
       }
+    }
+
+    if (options.liquidateAtTerminal && month === totalMonths) {
+      // A comparison-only hypothetical liquidation, using the same ACB and
+      // annual tax ledger. No parallel terminal tax approximation.
+      terminalLiquidationActive = true;
+      cashPosition += fundCashNeedFromWithdrawals(Number.MAX_SAFE_INTEGER / 100).netCashGenerated;
     }
 
     if (simplePolicy) {
@@ -3457,6 +3508,27 @@ function simulateProjection(
       inputs.savingsPolicy,
     );
 
+    if (inputs.retirementDrawdown) {
+      // Match the existing bridge's explicit proportional treatment of unfunded
+      // lifestyle, events and external-income tax. Withdrawal tax is funded at source.
+      const requested = essential + discretionary + eventOutflows + regularTax + recoveryTax;
+      const fundedRatio = requested > 0 ? Math.max(0, 1 - monthlyFlow.outflows.unmetSpending / requested) : 1;
+      const grossInflow = monthlyFlow.income.total + monthlyFlow.withdrawals.total;
+      const taxes = (regularTax + recoveryTax) * fundedRatio + withdrawalTaxTotal;
+      const consumption = (essential + discretionary) * fundedRatio;
+      const otherFundedOutflows = eventOutflows * fundedRatio + liabilityCashPayment + cashFundedContributions + eventInflows - unassignedEventInflows;
+      const netAvailable = grossInflow - taxes;
+      monthlyFlow.spendableCash = {
+        grossInflow, taxes, oasRecovery: monthlyFlow.outflows.oasRecoveryTax,
+        netAvailable,
+        target: spendingTarget === undefined ? essential + discretionary : spendingTarget * factor / MONTHS_PER_YEAR,
+        consumption, otherFundedOutflows,
+        retainedOrReinvested: netAvailable - consumption - otherFundedOutflows,
+        shortfall: monthlyFlow.outflows.unmetSpending + monthlyFlow.outflows.unmetRequiredOutflow,
+        plannedRegisteredWithdrawals, mandatoryRrifTrueUp, mandatoryRrifPayments,
+        electiveRegisteredWithdrawals: monthlyFlow.withdrawals.rrspRrif - mandatoryRrifPayments,
+      };
+    }
     if (!evaluationOnly) {
       addMonthlyFlow(annualNominalFlow, monthlyFlow, 1);
       addMonthlyFlow(annualRealFlow, monthlyFlow, factor);
@@ -4299,6 +4371,36 @@ export function calculateProjection(
       age: inputs.endAge,
     });
   }
+  if (inputs.retirementDrawdown?.annualSpendableCashTargetToday !== undefined) {
+    const infeasible = result.annual.some((point) => point.real.spendableCash &&
+      (point.real.spendableCash.shortfall > 0.005 || point.real.spendableCash.consumption > point.real.spendableCash.target + 0.01));
+    if (infeasible || result.projectionCompletion.status !== "complete" || (result.annual.at(-1)?.real.balances.financialAssets ?? 0) + 0.005 < inputs.retirementRequirement.minimumEndingFinancialAssetsToday) result.observations.push({
+      code: "spendable_cash_target_infeasible", age: inputs.person.retirementAge,
+      message: "The spendable-cash target is infeasible: required essentials exceed it, cash is insufficient, the terminal floor is missed, or the projection stopped early. Unfunded amounts are not consumption.",
+    });
+  }
+  if (inputs.retirementDrawdown?.strategy === "planned_registered_bridge") {
+    const baseline = calculateProjection({ ...inputs, retirementDrawdown: {
+      strategy: "static_priority",
+      ...(inputs.retirementDrawdown.annualSpendableCashTargetToday !== undefined ? { annualSpendableCashTargetToday: inputs.retirementDrawdown.annualSpendableCashTargetToday } : {}),
+    } });
+    const summarize = (projection: CoreProjectionResult) => {
+      const liquidation = simulateProjection(projection.inputs, { liquidateAtTerminal: true }).result;
+      if (!liquidation) throw new Error("Terminal liquidation comparison was not captured");
+      const terminalAssetsToday = projection.annual.at(-1)?.real.balances.financialAssets ?? 0;
+      return {
+        terminalAssetsToday: projection.projectionCompletion.status === "complete" ? terminalAssetsToday : null,
+        terminalLiquidationAssetsToday: liquidation.projectionCompletion.status === "complete" ? liquidation.annual.at(-1)?.real.balances.financialAssets ?? 0 : null,
+        lifetimeTaxesToday: round(projection.annual.reduce((total, year) => total + year.real.outflows.tax, 0)),
+        shortfallToday: round(projection.annual.reduce((total, year) => total + year.real.outflows.unmetSpending + year.real.outflows.unmetRequiredOutflow, 0)),
+        terminalFloorMet: projection.projectionCompletion.status === "complete" && terminalAssetsToday + 0.005 >= inputs.retirementRequirement.minimumEndingFinancialAssetsToday,
+      };
+    };
+    result.drawdownComparison = {
+      baseline: summarize(baseline), planned: summarize(result),
+      description: "Configured bridge withdrawal compared with static priority on the same spending, tax and return path. Terminal liquidation assets assume every remaining account is liquidated together in the terminal month using the existing annual tax and ACB ledger. The configured floor uses unliquidated financial assets. This deterministic comparison is not an optimizer or guarantee.",
+    };
+  }
   return {
     ...result,
     retirementRequirement,
@@ -4332,7 +4434,7 @@ export function calculateSpendingCapacity(rawInputs: ProjectionInputs, selection
       accountType: account.type, withdrawalPriority: account.withdrawalPriority,
       annualReturn: account.annualReturn, returnPath: account.returnPath ?? null,
     })),
-    withdrawalStrategy: "configured_static_priority",
+    withdrawalStrategy: inputs.retirementDrawdown?.strategy ?? "configured_static_priority",
   }, (scale) => {
     const candidate = simulateProjection(scaleRetirementSpending(inputs, request.phaseIds, scale), {
       candidateBalancesToday: balancesToday,
