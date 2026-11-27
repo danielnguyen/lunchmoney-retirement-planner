@@ -411,7 +411,40 @@ export type GovernmentBenefitsConfig = {
   };
 };
 
+export type CareerPhaseConfig = {
+  id: string;
+  label: string;
+  kind: "accumulation" | "coast" | "barista";
+  startAge: number;
+  endAge: number;
+  annualGrowth: number;
+  employment:
+    | { mode: "gross_estimate"; annualGrossToday: number }
+    | { mode: "net_override"; annualNetCashToday: number; annualTaxableEmploymentIncomeToday: number; annualEligibleEarnedIncomeToday: number };
+  annualPensionAdjustmentToday: number;
+  annualOtherRoomReductionToday: number;
+  essentialMultiplier: number;
+  discretionaryMultiplier: number;
+  surplusInvesting: "retain_as_cash" | "configured";
+  contributions: Array<{
+    accountId: string;
+    monthlyAmountToday: number;
+    funding: ContributionFunding;
+    employerMonthlyAmountToday: number;
+    requirement: "required" | "optional";
+    sourceDescription: string;
+  }>;
+};
+
+export type CareerTransitionConfig = {
+  transitionAge: number;
+  retirementAge: number;
+  cppBenefitMultiplier: number;
+  phases: CareerPhaseConfig[];
+};
+
 export type ComparisonScenarioConfig = {
+  careerTransition?: CareerTransitionConfig;
   id: string;
   label: string;
   spending: Array<{

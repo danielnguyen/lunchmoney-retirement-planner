@@ -1384,6 +1384,9 @@ type CoreProjectionResult = Omit<
 
 export type ComparisonProjectionOptions = {
   cashConstrainedPersonalContributions?: boolean;
+  retainSurplusAtAge?: (age: number) => boolean;
+  /** Counterfactual Coast check only: consume cash above required liquidity. */
+  consumeUncommittedSurplusAtAge?: (age: number) => boolean;
   onMonth?: (month: {
     date: string;
     age: number;
@@ -2115,6 +2118,9 @@ function simulateProjection(
     }
 
     const income = emptyIncome();
+    const careerIndex = (phase: { startAge: number; phaseLocalIndexing?: boolean }, rate: number) => phase.phaseLocalIndexing
+      ? inflationFactors[Math.round((phase.startAge - inputs.person.currentAge) * 12)]! * indexedFactor(rate, phaseMonth(age, phase.startAge))
+      : indexedFactor(rate, month);
     const employmentPhase =
       workingAge < inputs.person.retirementAge - AGE_TOLERANCE
         ? activeEmploymentPhase(inputs.person.employmentIncomePhases, workingAge)
@@ -2122,10 +2128,7 @@ function simulateProjection(
     if (employmentPhase) {
       income.employment =
         (employmentPhase.annualNetCashToday *
-          indexedFactor(
-            employmentPhase.annualGrowth,
-            month,
-          )) /
+          careerIndex(employmentPhase, employmentPhase.annualGrowth)) /
         MONTHS_PER_YEAR;
       annualEmploymentPhaseLabels.add(employmentPhase.label);
       if (employmentPhase.rrspRoomGeneration) {
@@ -2135,10 +2138,7 @@ function simulateProjection(
             pensionAdjustment: 0,
             otherReduction: 0,
           };
-        const generationFactor = indexedFactor(
-          employmentPhase.rrspRoomGeneration.annualGrowth,
-          month,
-        );
+        const generationFactor = careerIndex(employmentPhase, employmentPhase.rrspRoomGeneration.annualGrowth);
         generation.eligible +=
           (employmentPhase.rrspRoomGeneration
             .annualEligibleEarnedIncomeToday *
@@ -2202,7 +2202,7 @@ function simulateProjection(
           canadianTaxYearState!,
           "employment",
           ((employmentPhase.annualTaxableEmploymentIncomeToday ?? 0) *
-            indexedFactor(employmentPhase.annualGrowth, month)) /
+            careerIndex(employmentPhase, employmentPhase.annualGrowth)) /
             MONTHS_PER_YEAR,
           true,
         );
@@ -2254,7 +2254,7 @@ function simulateProjection(
     const spendingTarget = month > retirementMonth
       ? inputs.retirementDrawdown?.annualSpendableCashTargetToday
       : undefined;
-    const discretionary = spendingTarget === undefined
+    let discretionary = spendingTarget === undefined
       ? inputs.monthlyDiscretionarySpendingToday * spendingPhase.discretionaryMultiplier * factor
       : Math.max(0, spendingTarget * factor / MONTHS_PER_YEAR - essential);
     monthlyFlow.outflows.essential += essential;
@@ -2343,6 +2343,7 @@ function simulateProjection(
       }
       const planned =
         contributionPhase.monthlyAmountToday *
+        (contributionPhase.phaseLocalIndexing ? inflationFactors[Math.round((contributionPhase.startAge - inputs.person.currentAge) * 12)]! : 1) *
         indexedFactor(
           contributionPhase.indexingRate,
           phaseMonth(age, contributionPhase.startAge),
@@ -3144,6 +3145,15 @@ function simulateProjection(
       cashPosition += fundCashNeedFromWithdrawals(Number.MAX_SAFE_INTEGER / 100).netCashGenerated;
     }
 
+    if (options.consumeUncommittedSurplusAtAge?.(workingAge)) {
+      // Verification only, never the displayed scenario: remove uncommitted cash
+      // from future retirement funding while preserving required liquidity.
+      const consumed = Math.max(0, cashPosition - reserveDeficit());
+      cashPosition -= consumed;
+      discretionary += consumed;
+      monthlyFlow.outflows.discretionary += consumed;
+    }
+
     if (simplePolicy) {
       const positiveCashAvailable = Math.max(0, cashPosition);
       monthlyFlow.savingsPolicy.positiveCashAvailable =
@@ -3305,7 +3315,7 @@ function simulateProjection(
       let unplannedCashRetained = 0;
       let unplannedCashSwept = 0;
       let unplannedReserveRefill = 0;
-      if (simplePolicy.unplannedCash === "retain_in_operating_cash") {
+      if (simplePolicy.unplannedCash === "retain_in_operating_cash" || options.retainSurplusAtAge?.(workingAge)) {
         unplannedCashRetained = unplannedCash;
         if (unplannedCashRetained > 0) {
           depositIntoAccount(
@@ -3392,7 +3402,7 @@ function simulateProjection(
       const excess = generated - reserveRefill;
       let retainedAsCash = reserveRefill;
       let redirected = 0;
-      if (inputs.surplusAllocation.excess.mode === "retain_as_cash") {
+      if (inputs.surplusAllocation.excess.mode === "retain_as_cash" || options.retainSurplusAtAge?.(workingAge)) {
         if (excess > 0) {
           depositIntoAccount(reserveRefillAccount.id, excess);
           monthlyFlow.accountSurplusAllocations[reserveRefillAccount.id] =

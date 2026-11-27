@@ -1,5 +1,7 @@
 "use client";
 
+import { CareerTransitionEditor } from "./career-transition";
+import { careerPreset } from "@/src/domain/scenario/career";
 import { useEffect, useState } from "react";
 import { Bar, BarChart, CartesianGrid, Legend, Line, LineChart, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
 import type { ComparisonScenarioConfig } from "@/src/config/types";
@@ -46,7 +48,11 @@ export function ScenarioComparison({ inputs, definitions }: { inputs: Projection
   }
   return <section className="comparison-panel" aria-labelledby="comparison-heading">
     <h2 id="comparison-heading">Scenario Comparison</h2>
-    <p>Deterministic scenarios share the refreshed baseline and active temporary controls. These edits are temporary; use Edit YAML and Save config to persist definitions. All chart amounts are in today’s dollars.</p>
+    <p>Deterministic scenarios share the refreshed baseline and active temporary controls. These edits are temporary. Permanent definitions belong in private Git-managed YAML; use the existing explicit sync, or Save config where enabled. All chart amounts are in today’s dollars.</p>
+    <p>Start an editable career scenario: {(["reduced_income", "coast", "barista", "coast_to_barista"] as const).map(kind => <button type="button" key={kind} onClick={() => setScenarios(previous => {
+      const preset = careerPreset(inputs, kind);
+      return [...previous, { ...preset, id: `${preset.id}-${previous.length}` }];
+    })}>Add {kind.replaceAll("_", " ")} preset</button>)}</p>
     <details><summary>Active comparison inputs and temporary edits</summary>
       <p>Retirement age: {inputs.person.retirementAge}; terminal age: {inputs.endAge}. Phase boundaries, liabilities, returns, inflation and tax assumptions come from the active plan.</p>
       <div className="comparison-cards">{scenarios.map((scenario) => <fieldset key={scenario.id}>
@@ -56,6 +62,7 @@ export function ScenarioComparison({ inputs, definitions }: { inputs: Projection
         <label>Personal contribution policy<select value={scenario.contributionPolicy} onChange={(event) => edit(scenario.id, (draft) => { draft.contributionPolicy = event.target.value as ComparisonScenarioConfig["contributionPolicy"]; })}>
           <option value="configured_fixed_plan">Configured fixed plan; expose infeasibility</option><option value="cash_constrained">Cash constrained; protect configured reserves</option>
         </select></label>
+        {scenario.careerTransition && <CareerTransitionEditor value={scenario.careerTransition} inputs={inputs} onChange={value => edit(scenario.id, d => { d.careerTransition = value; })} />}
         {scenario.spending.map((entry) => <div key={entry.phaseId}>
           <p>Spending phase: {entry.phaseId}</p>
           {entry.adjustment.mode === "annual_lifestyle_budget" ? numeric("Annual lifestyle budget (today’s dollars; essentials protected)", entry.adjustment.annualAmountToday, (value) => edit(scenario.id, (draft) => {
@@ -79,6 +86,12 @@ export function ScenarioComparison({ inputs, definitions }: { inputs: Projection
         <tbody>
           {([
             ["Status", (r: ComparisonResult) => r.status],
+            ["Working-life cash feasibility", (r: ComparisonResult) => r.summary ? r.workingLifeFeasible ? "Feasible" : "Failed" : "Unavailable"],
+            ["Full-horizon viability", (r: ComparisonResult) => r.summary ? r.lifetimeViable ? "Meets funding and terminal floor" : "Failed" : "Unavailable"],
+            ["Coast verification", (r: ComparisonResult) => r.coastVerified === null ? "Not selected" : r.coastVerified ? "Verified" : "Not verified"],
+            ["Coast funding margin without surplus saving", (r: ComparisonResult) => r.coastFundingWithoutSurplusToday === null ? "Not verified" : money.format(r.coastFundingWithoutSurplusToday)],
+            ["Full retirement age", (r: ComparisonResult) => r.retirementAge],
+            ["Retirement requirement", (r: ComparisonResult) => r.retirementRequirement?.requiredFinancialAssetsToday != null ? money.format(r.retirementRequirement.requiredFinancialAssetsToday) : "Unavailable"],
             ["Portfolio at retirement", (r: ComparisonResult) => r.summary ? money.format(r.summary.financialAssetsAtRetirementToday) : "Unavailable"],
             ["Mortgage payoff age", (r: ComparisonResult) => r.summary?.mortgagePayoffAge ?? "No projected payoff"],
             ["First funding shortfall age", (r: ComparisonResult) => r.firstFundingShortfallAge ?? (r.summary ? "None calculated" : "Unavailable")],
@@ -92,17 +105,18 @@ export function ScenarioComparison({ inputs, definitions }: { inputs: Projection
         <h3>{result.label}</h3>{result.warnings.map((warning) => <p key={warning}>{warning}</p>)}
         {result.activeInputs && <details><summary>Resolved inputs and sources</summary>
           <p>Baseline effective date: {result.activeInputs.effectiveDate}. Scenario definition: {JSON.stringify(result.definition) === JSON.stringify(definitions.find((entry) => entry.id === result.id)) ? "YAML configuration" : "Temporary browser edits"}.</p>
+          {result.activeInputs.career && <><p>{result.activeInputs.career.sourceDescription}. CPP multiplier: {result.activeInputs.career.cppBenefitMultiplier}.</p><ul>{result.activeInputs.career.employment.map(p => <li key={p.id}>{p.label}, ages {p.startAge}–{p.endAge}: annual net cash {exactMoney.format(p.annualNetCashToday)}, taxable employment {exactMoney.format(p.annualTaxableEmploymentIncomeToday ?? 0)}, room-eligible earnings {exactMoney.format(p.rrspRoomGeneration?.annualEligibleEarnedIncomeToday ?? 0)} today; phase-local annual growth {p.annualGrowth}.</li>)}</ul><ul>{result.activeInputs.career.payrollEstimates.map(({ phaseId, estimate }) => <li key={phaseId}>Estimated annual payroll ({phaseId}, {estimate.provenance.effectiveDate}): income tax {exactMoney.format(estimate.tax)}, CPP {exactMoney.format(estimate.cpp)}, CPP2 {exactMoney.format(estimate.cpp2)}, EI {exactMoney.format(estimate.ei)}; net before employee savings {exactMoney.format(estimate.annualNetCashToday)}.</li>)}</ul></>}
           <p>Protected combined reserve: {money.format(result.activeInputs.reserveTargetToday)} today; annual indexing {new Intl.NumberFormat("en-CA", { style: "percent" }).format(result.activeInputs.reserveIndexingRate)}. Operating target: {result.activeInputs.operatingCashTargetToday === null ? "Not configured" : money.format(result.activeInputs.operatingCashTargetToday)}.</p>
           <ul>{result.activeInputs.spending.map((phase) => <li key={phase.phaseId}>{phase.label} ({phase.phaseId}), ages {phase.startAge}–{phase.endAge}: essential {exactMoney.format(phase.annualEssentialToday)}, discretionary {exactMoney.format(phase.annualDiscretionaryToday)} annually; {phase.source}.</li>)}</ul>
           <ul>{result.activeInputs.personalContributions.map((phase) => <li key={`${phase.accountId}/${phase.phaseId}`}>{phase.label} ({phase.phaseId}), ages {phase.startAge}–{phase.endAge}: {exactMoney.format(phase.monthlyAmountToday)} monthly; active baseline {exactMoney.format(phase.baselineMonthlyAmountToday)}.</li>)}</ul>
         </details>}
-        <h4>Annual working-life cash allocation</h4>
+        <h4>{result.allocationHorizon === "full_horizon" ? "Full-horizon annual cash allocation" : "Annual working-life cash allocation"}</h4>
         <div role="img" aria-label={`${result.label}: annual take-home and other inflows, lifestyle, debt and investment deposits`}>
           <ResponsiveContainer width="100%" height={240}><BarChart data={result.annual}><CartesianGrid strokeDasharray="3 3" /><XAxis dataKey="year" /><YAxis /><Tooltip formatter={tooltipMoney} /><Legend />
             <Bar dataKey="takeHome" name="Take-home and other inflows" fill={colors[0]} /><Bar dataKey="lifestyle" name="Lifestyle" fill={colors[1]} /><Bar dataKey="liabilityPayments" name="Regular debt payments" fill={colors[2]} /><Bar dataKey="extraDebtPayments" name="Extra debt payments" fill={colors[4]} /><Bar dataKey="actualPersonal" name="Personal investing from current cash" fill={colors[3]} />
           </BarChart></ResponsiveContainer>
         </div>
-        <details><summary>Accessible annual cash-flow ledger</summary><div className="comparison-table"><table><caption>{result.label}: working months only, today’s dollars</caption><thead><tr><th>Year / months</th><th>Take-home and other inflows</th><th>Lifestyle</th><th>Regular debt</th><th>Extra debt</th><th>Planned personal</th><th>Personal investing from current cash</th><th>Gross personal deposits</th><th>Deposits financed by withdrawals</th><th>Withheld workplace</th><th>Asset withdrawals</th><th>Tax</th><th>Other outflows</th><th>Cash retained</th><th>Targeted deposits</th><th>Unfunded outflows</th><th>Unallocated personal</th><th>Reconciliation difference</th></tr></thead><tbody>{result.annual.map((row) => <tr key={row.year}><th scope="row">{row.year} / {row.months}</th>{(["takeHome", "lifestyle", "liabilityPayments", "extraDebtPayments", "plannedPersonal", "actualPersonal", "personalDeposits", "withdrawalFundedPersonal", "withheld", "withdrawals", "tax", "otherOutflows", "retained", "targetedDeposits", "unfunded", "unallocatedPersonal", "reconciliationDifference"] as const).map((field) => <td key={field}>{exactMoney.format(row[field])}</td>)}</tr>)}</tbody></table></div></details>
+        <details><summary>Accessible annual cash-flow ledger</summary><div className="comparison-table"><table><caption>{result.label}: {result.allocationHorizon === "full_horizon" ? "full horizon" : "working months only"}, today’s dollars</caption><thead><tr><th>Year / months</th><th>Take-home and other inflows</th><th>Lifestyle</th><th>Regular debt</th><th>Extra debt</th><th>Planned personal</th><th>Personal investing from current cash</th><th>Gross personal deposits</th><th>Deposits financed by withdrawals</th><th>Withheld workplace</th><th>Asset withdrawals</th><th>Tax</th><th>Other outflows</th><th>Cash retained</th><th>Targeted deposits</th><th>Unfunded outflows</th><th>Unallocated personal</th><th>Reconciliation difference</th></tr></thead><tbody>{result.annual.map((row) => <tr key={row.year}><th scope="row">{row.year} / {row.months}</th>{(["takeHome", "lifestyle", "liabilityPayments", "extraDebtPayments", "plannedPersonal", "actualPersonal", "personalDeposits", "withdrawalFundedPersonal", "withheld", "withdrawals", "tax", "otherOutflows", "retained", "targetedDeposits", "unfunded", "unallocatedPersonal", "reconciliationDifference"] as const).map((field) => <td key={field}>{exactMoney.format(row[field])}</td>)}</tr>)}</tbody></table></div></details>
       </article>)}</div>
       <h3>Financial assets across ages</h3>
       <div role="img" aria-label="Shared comparison of real-dollar financial asset balances across ages"><ResponsiveContainer width="100%" height={300}><LineChart><CartesianGrid strokeDasharray="3 3" /><XAxis dataKey="age" type="number" domain={["dataMin", "dataMax"]} allowDuplicatedCategory={false} /><YAxis /><Tooltip formatter={tooltipMoney} /><Legend />{results.map((result, index) => <Line key={result.id} data={result.trajectory} dataKey="financialAssetsToday" name={result.label} stroke={colors[index % colors.length]} strokeDasharray={`${index + 1} 2`} dot={false} />)}</LineChart></ResponsiveContainer></div>

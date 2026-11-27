@@ -494,8 +494,9 @@ These items may be promoted as priorities evolve, but probabilistic modelling mu
 Compare an owner-configured list of named scenarios using the same refreshed baseline
 and canonical monthly engine. Explicit selectors reference existing working-life
 spending phases and cash-funded personal contribution phases. Annual lifestyle
-budgets preserve essential spending; multiplier changes are explicit. No presets,
-financial defaults, new events, mortgage offers or independent solver are inferred.
+budgets preserve essential spending; multiplier changes are explicit. No financial
+defaults, new events, mortgage offers or independent solver are inferred. Issue #46
+adds explicitly selected editable career presets below.
 
 An opt-in cash-constrained policy protects configured reserves and caps personal
 contributions using actual remaining cash. Fixed plans retain their configured
@@ -557,3 +558,29 @@ This is a configured comparison, not an optimizer. The fixed consumption target
 makes inverse phase-capacity analysis explicitly unavailable until removed; the
 bridge strategy alone remains compatible with the existing inverse solver.
 Validation and exact-head independent review are recorded in the implementation index.
+
+## Career transitions and editable FIRE presets (#46)
+
+Extend the existing comparison and Planner Config with explicit transition and
+full-retirement ages, named contiguous accumulation/Coast/Barista intervals,
+independent net/taxable/RRSP-eligible income, spending, cash-funded and withheld
+savings, required/optional terms, and editable employee/employer amounts. Explicit
+preset selection provides conservative zero-match illustrations and optional
+Ontario gross-to-net estimates, with dated sources and visible unsupported terms.
+No separate dashboard, engine, solver, persistence service or employer forecast.
+
+Coast verification uses actual monthly deposits/withdrawals and liquidity, and
+requires lifetime viability without continued retirement saving during Coast.
+Barista withdrawals are permitted only in selected intervals; withdrawal-funded
+investing, unpaid required terms, expenses, debt, reserve breaches and terminal-floor
+failures are not success. Show working-life feasibility separately from lifetime
+viability. Reuse the existing annual tax, room, benefit, debt and requirement seams;
+keep CPP user-controlled with an optional explicit lower-benefit test.
+
+Scope: src/config, src/domain, affected comparison components/styles, synthetic
+tests, example config, README, strategy and existing planning docs. Preserve default
+behavior and export privacy; no dependencies, credentials, CI permission changes,
+private data, deployment or automatic writes. Validate focused UI-to-engine and
+cash-flow cases, full tests/typecheck/lint/build, Docker, Compose, production HTTP
+and synthetic mobile controls. #47 conditional milestones and #48 minimum-income
+search remain out of scope until predecessor acceptance and merge.

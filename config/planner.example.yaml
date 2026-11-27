@@ -474,3 +474,62 @@ assumptions:
 # [] when there are none. Account-specific event destinations are available in
 # the advanced format; do not repeat account IDs here in this simple file.
 futureEvents: []
+
+# Optional synthetic career comparison. Uncomment to enable the existing
+# comparison panel and editable preset buttons. None of these amounts assert
+# affordability or actual future employer terms. Keep permanent edits in private Git.
+# scenarioComparison:
+#   - id: baseline
+#     label: Unchanged baseline
+#     spending: []
+#     personalContributions: []
+#     contributionPolicy: configured_fixed_plan
+#   - id: career-example
+#     label: Synthetic Coast then Barista
+#     spending: []
+#     personalContributions: []
+#     contributionPolicy: cash_constrained
+#     careerTransition:
+#       transitionAge: 50
+#       retirementAge: 62
+#       cppBenefitMultiplier: 1 # Explicit lower-benefit test: e.g. 0.8, not a forecast
+#       phases:
+#         - id: coast-work
+#           label: Synthetic Coast work
+#           kind: coast
+#           startAge: 50
+#           endAge: 56
+#           annualGrowth: 0.02
+#           employment:
+#             mode: gross_estimate # Explicit Ontario 2026 approximation, ages 18–64
+#             annualGrossToday: 60000
+#           annualPensionAdjustmentToday: 0
+#           annualOtherRoomReductionToday: 0
+#           essentialMultiplier: 1
+#           discretionaryMultiplier: 1
+#           surplusInvesting: retain_as_cash
+#           contributions: [] # No assumed employer match or continued saving
+#         - id: barista-work
+#           label: Synthetic Barista work
+#           kind: barista
+#           startAge: 56
+#           endAge: 62
+#           annualGrowth: 0.02
+#           employment:
+#             mode: net_override # Net already includes all employee withholding
+#             annualNetCashToday: 24000
+#             annualTaxableEmploymentIncomeToday: 30000
+#             annualEligibleEarnedIncomeToday: 30000
+#           annualPensionAdjustmentToday: 0
+#           annualOtherRoomReductionToday: 0
+#           essentialMultiplier: 1
+#           discretionaryMultiplier: 1
+#           surplusInvesting: retain_as_cash
+#           contributions: []
+#           # To add savings, replace [] with entries referencing configured routes:
+#           # - accountId: "your-existing-personal-tfsa-id"
+#           #   monthlyAmountToday: 100
+#           #   employerMonthlyAmountToday: 0
+#           #   funding: cash # income_withheld for workplace RRSP
+#           #   requirement: optional # or required workplace terms
+#           #   sourceDescription: User-entered hypothetical savings
