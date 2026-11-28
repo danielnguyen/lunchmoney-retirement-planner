@@ -5,6 +5,14 @@ import {
 } from "./liability-interest";
 import type { AnnualCanadianTaxResult } from "./canadian-tax";
 
+export type FundingFailure = {
+  date: string;
+  category: "required_outflow" | "reserve" | "spendable_cash" | "required_savings" | "withdrawals" | "coast_saving" | "terminal_floor" | "incomplete" | "living_costs";
+  shortfallToday: number | null;
+  message: string;
+  action: string;
+};
+
 export const accountTypes = ["cash", "tfsa", "rrsp_rrif", "non_registered"] as const;
 export const contributionFundingTypes = ["cash", "income_withheld"] as const;
 

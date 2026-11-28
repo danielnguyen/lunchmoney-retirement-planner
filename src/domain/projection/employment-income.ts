@@ -4,7 +4,7 @@ import { applyCareerTransition } from "@/src/domain/scenario/career";
 import { estimateOntarioEmployment } from "@/src/domain/scenario/payroll";
 import { assertUnchangedCppBeforeTransition, evaluateCareerFunding } from "./fire-milestones";
 import type { ProjectionInputsWithReturnPaths } from "./return-path-model";
-import { validateProjectionInputs, type ProjectionInputs } from "./types";
+import { validateProjectionInputs, type ProjectionInputs, type FundingFailure } from "./types";
 
 export type EmploymentIncomeRequest = {
   retirementAge: number;
@@ -19,7 +19,7 @@ export type IncomeBoundary = {
   annualNetCashToday: number | null;
   adjacentLowerFails: boolean | null;
   reason: string;
-  tested: Array<{ annualGrossToday: number; passes: boolean }>;
+  tested: Array<{ annualGrossToday: number; passes: boolean; failure?: FundingFailure | null }>;
 };
 export type EmploymentIncomePoint = {
   age: number; date: string; path: "baseline" | "stress";
@@ -121,7 +121,15 @@ export function calculateEmploymentIncome(inputs: ProjectionInputsWithReturnPath
       // Below required employee withholding is a known failing salary, not a
       // broken model. Probe a valid candidate first to validate all other terms.
       const withheld = phase?.contributions.filter(c => c.funding === "income_withheld").reduce((n, c) => n + c.monthlyAmountToday * 12, 0) ?? 0;
-      if (estimateOntarioEmployment(gross).annualNetCashToday < withheld) return { age, passes: false, livingCostsFunded: false, reason: "Employee withholding exceeds net cash.", terminalFinancialAssetsToday: null, provisionalTax: false };
+      if (estimateOntarioEmployment(gross).annualNetCashToday < withheld) {
+        const failure: FundingFailure = { date, category: "required_savings",
+          shortfallToday: (withheld - estimateOntarioEmployment(gross).annualNetCashToday) / 12,
+          message: "Employee withholding exceeds net cash.", action: "Increase gross salary or review mandatory withholding." };
+        const result: Evaluation = { age, passes: false, livingCostsFunded: false, livingCostsFailure: failure, failure,
+          reason: failure.message, terminalFinancialAssetsToday: null, provisionalTax: false };
+        cache.set(gross, result);
+        return result;
+      }
       const candidate = materializeIncomeCandidate(active, request, age, gross);
       simulatedMonths += Math.ceil((candidate.endAge - start) * 12);
       const result = evaluateCareerFunding(candidate, age, request.retirementAge, phase!.kind, phase);
@@ -132,6 +140,13 @@ export function calculateEmploymentIncome(inputs: ProjectionInputsWithReturnPath
       materializeIncomeCandidate(active, request, age, request.maxAnnualGrossToday);
       const required = solveIncomeBoundary(request.maxAnnualGrossToday, request.resolutionAnnualGrossToday, (gross, fresh) => evaluate(gross, fresh).passes);
       const livingCosts = solveIncomeBoundary(request.maxAnnualGrossToday, request.resolutionAnnualGrossToday, (gross, fresh) => evaluate(gross, fresh).livingCostsFunded);
+      // Retain the first dated cause for every sampled failure, including a
+      // failed adjacent salary. Use the comparator's own cause, not a floor or
+      // reserve constraint that the living-cost comparison does not enforce.
+      for (const [boundary, field] of [[required, "failure"], [livingCosts, "livingCostsFailure"]] as const) {
+        boundary.tested = boundary.tested.map(trial => ({ ...trial,
+          failure: trial.passes ? null : cache.get(trial.annualGrossToday)?.[field] ?? null }));
+      }
       for (const boundary of [required, livingCosts]) if (boundary.annualGrossToday !== null) {
         boundary.annualNetCashToday = estimateOntarioEmployment(boundary.annualGrossToday).annualNetCashToday - phase!.contributions.filter(c => c.funding === "income_withheld").reduce((n, c) => n + c.monthlyAmountToday * 12, 0);
       }

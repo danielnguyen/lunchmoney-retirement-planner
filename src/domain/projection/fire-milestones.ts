@@ -3,7 +3,7 @@ import type { CareerTransitionConfig, CareerPhaseConfig } from "@/src/config/typ
 import { parseCareerTransition } from "@/src/config/scenario-comparison";
 import { applyCareerTransition } from "@/src/domain/scenario/career";
 import { evaluateMilestoneFunding } from "./calculate";
-import { validateProjectionInputs, type ProjectionInputs } from "./types";
+import { validateProjectionInputs, type ProjectionInputs, type FundingFailure } from "./types";
 
 export type FireKind = "coast" | "barista" | "full";
 export type FireMilestoneRequest = {
@@ -13,7 +13,7 @@ export type FireMilestoneRequest = {
   barista: CareerTransitionConfig | null;
   fullCppBenefitMultiplier: number;
 };
-export type FireCandidate = { age: number; date: string; passes: boolean; reason: string | null; terminalFinancialAssetsToday: number | null; provisionalTax: boolean };
+export type FireCandidate = { age: number; date: string; failure?: FundingFailure | null; passes: boolean; reason: string | null; terminalFinancialAssetsToday: number | null; provisionalTax: boolean };
 export type FireMilestone = {
   kind: FireKind;
   path: "baseline" | "stress";
@@ -87,52 +87,79 @@ export function evaluateFireCandidate(baseline: ProjectionInputs, request: FireM
   const inputs = materializeFireCandidate(baseline, request, kind, age);
   const phase = kind === "full" ? undefined : request[kind]?.phases[0];
   const result = evaluateCareerFunding(inputs, age, request.retirementAge, kind, phase);
-  return { age: result.age, passes: result.passes, reason: result.reason, provisionalTax: result.provisionalTax, terminalFinancialAssetsToday: result.terminalFinancialAssetsToday };
+  return { failure: result.failure, age: result.age, passes: result.passes, reason: result.reason, provisionalTax: result.provisionalTax, terminalFinancialAssetsToday: result.terminalFinancialAssetsToday };
 }
 
 /** Shared forward constraints for milestones and income candidates. */
-export function evaluateCareerFunding(inputs: ProjectionInputs, age: number, retirementAge: number, kind: FireKind | "accumulation", phase?: CareerPhaseConfig): Omit<FireCandidate, "date"> & { livingCostsFunded: boolean } {
+export function evaluateCareerFunding(inputs: ProjectionInputs, age: number, retirementAge: number, kind: FireKind | "accumulation", phase?: CareerPhaseConfig): Omit<FireCandidate, "date"> & { livingCostsFunded: boolean; livingCostsFailure: FundingFailure | null } {
   let livingCostsFunded = true;
   let observedCareerMonths = 0;
   let reason: string | null = null;
-  const fail = (message: string) => { reason ??= message; };
+  let failure: FundingFailure | null = null;
+  let livingCostsFailure: FundingFailure | null = null;
+  let previousReserve: { shortfall: number; factor: number } | null = null;
+  let lastDate = inputs.startDate.slice(0, 7);
+  const fail = (evidence: FundingFailure) => {
+    if (failure) return;
+    failure = evidence;
+    reason = `${evidence.date}: ${evidence.message} ${evidence.action}`;
+  };
   const inCareer = (at: number) => at >= age - 1e-8 && at < retirementAge - 1e-8;
   const result = evaluateMilestoneFunding(inputs, {
     cashConstrainedPersonalContributionsAtAge: at => at >= age - 1e-8,
     retainSurplusAtAge: at => kind !== "full" && inCareer(at) && phase?.surplusInvesting === "retain_as_cash",
     // Coast must survive without adding uncommitted cash to retirement savings.
     consumeUncommittedSurplusAtAge: at => kind === "coast" && inCareer(at),
-    onMonth: ({ age: at, working, flow, reserveShortfall, targetedEventDeposits }) => {
+    onMonth: ({ date, age: at, working, inflationFactor, flow, reserveShortfall, targetedEventDeposits }) => {
+      lastDate = date;
+      const evidence = (category: FundingFailure["category"], shortfall: number, message: string, action: string): FundingFailure =>
+        ({ date, category, shortfallToday: shortfall / inflationFactor, message, action });
       if (inCareer(at)) observedCareerMonths++;
       const out = flow.outflows;
       // Cash needed for living costs, before voluntary saving or reserve building.
       // Income already excludes payroll and employee withholding. Other income
       // and untargeted events offset demand; targeted deposits cannot pay bills.
-      if (inCareer(at) && (flow.income.total - targetedEventDeposits + .005 <
-          out.essential + out.discretionary + out.liabilityCashPayment + out.oneTime + out.tax ||
-          out.unmetSpending > .005 || out.unmetRequiredOutflow > .005)) livingCostsFunded = false;
-      if (out.unmetSpending > .005 || out.unmetRequiredOutflow > .005) fail("Required spending, tax or debt is unfunded.");
-      if (reserveShortfall > .005) fail("Protected reserve is not funded.");
-      if (flow.spendableCash && (flow.spendableCash.shortfall > .005 || flow.spendableCash.consumption > flow.spendableCash.target + .01)) fail("Configured spendable cash target is not satisfied.");
+      const livingShortfall = Math.max(0, out.essential + out.discretionary + out.liabilityCashPayment + out.oneTime + out.tax - flow.income.total + targetedEventDeposits,
+        out.unmetSpending, out.unmetRequiredOutflow);
+      if (inCareer(at) && livingShortfall > .005) {
+        livingCostsFunded = false;
+        livingCostsFailure ??= evidence("living_costs", livingShortfall, "Current income does not cover living costs.", "Increase deposited income or reduce the selected costs.");
+      }
+      if (out.unmetSpending > .005 || out.unmetRequiredOutflow > .005) fail(evidence("required_outflow", Math.max(out.unmetSpending, out.unmetRequiredOutflow), "Required spending, tax or debt is unfunded.", "Review spending, debt payments and available withdrawal assets."));
+      // A recovered historical buildup is allowed, but the opening transition
+      // balance and every subsequent month must retain the protected reserve.
+      if (Math.abs(at - age) < 1e-8 && previousReserve && previousReserve.shortfall > .005) {
+        fail({ date, category: "reserve", shortfallToday: previousReserve.shortfall / previousReserve.factor,
+          message: "Protected reserve is not funded at transition.", action: "Build the reserve before transition or choose a later transition." });
+      }
+      if ((at >= age - 1e-8 || !working) && reserveShortfall > .005) fail(evidence("reserve", reserveShortfall, "Protected reserve is not funded.", "Build the reserve before transition or revise income and spending."));
+      previousReserve = { shortfall: reserveShortfall, factor: inflationFactor };
+      if (flow.spendableCash && (flow.spendableCash.shortfall > .005 || flow.spendableCash.consumption > flow.spendableCash.target + .01)) fail(evidence("spendable_cash", Math.max(flow.spendableCash.shortfall, flow.spendableCash.consumption - flow.spendableCash.target), "Configured spendable cash target is not satisfied.", "Review the spendable cash target and spending."));
       if (!working) return;
       if (at < age - 1e-8) {
-        if (flow.contributions.unallocatedCashFunded > .005 || flow.contributions.unallocatedIncomeWithheld > .005 || flow.withdrawals.total > .005) fail("Unchanged accumulation is not funded.");
+        // Personal cash/room-capped saving is optional. Withheld employment
+        // savings and unauthorized withdrawals remain funding constraints.
+        if (flow.contributions.unallocatedIncomeWithheld > .005) fail(evidence("required_savings", flow.contributions.unallocatedIncomeWithheld, "Required employment savings are not funded.", "Review contribution room and mandatory withholding."));
+        if (flow.withdrawals.total > .005) fail(evidence("withdrawals", flow.withdrawals.total, "Unchanged accumulation depends on asset withdrawals.", "Review baseline income, spending and saving before transition."));
         return;
       }
-      if (kind === "accumulation" && flow.withdrawals.total > .005) fail("Working-life withdrawals are not authorized by accumulation terms.");
+      if (kind === "accumulation" && flow.withdrawals.total > .005) fail(evidence("withdrawals", flow.withdrawals.total, "Working-life withdrawals are not authorized by accumulation terms.", "Increase employment income or explicitly select Barista terms."));
       const direct = inputs.savingsPolicy.mode === "advanced" && inputs.surplusAllocation.excess.mode === "allocate_to_account" &&
         inputs.accounts.find(a => inputs.surplusAllocation.excess.mode === "allocate_to_account" && a.id === inputs.surplusAllocation.excess.destinationAccountId)?.type !== "cash" ? flow.surplusAllocation.redirected : 0;
       const investments = inputs.accounts.filter(a => a.type !== "cash").reduce((sum, a) => sum + (flow.accountContributions[a.id] ?? 0), direct);
-      if (kind === "coast" && (investments > .005 || flow.withdrawals.total > .005)) fail("Coast requires no investment saving or spending withdrawals.");
+      if (kind === "coast" && (investments > .005 || flow.withdrawals.total > .005)) fail(evidence("coast_saving", investments + flow.withdrawals.total, "Coast requires no investment saving or spending withdrawals.", "Review Coast income and contribution terms."));
       const available = Math.max(0, flow.income.total - targetedEventDeposits - out.essential - out.discretionary - out.liabilityCashPayment - out.oneTime - out.tax);
-      if (flow.contributions.cashFunded + direct > available + .005) fail("Investing depends on asset withdrawals.");
-      if (flow.contributions.unallocatedIncomeWithheld > .005 || phase?.contributions.some(c => (c.requirement === "required" || c.funding === "income_withheld") && (flow.accountContributionDetails[c.accountId]?.unallocatedFromAccount ?? 0) > .005)) fail("Required employment savings are not funded.");
+      if (flow.contributions.cashFunded + direct > available + .005) fail(evidence("withdrawals", flow.contributions.cashFunded + direct - available, "Investing depends on asset withdrawals.", "Reduce investment contributions or increase deposited income."));
+      const requiredSavingShortfall = Math.max(flow.contributions.unallocatedIncomeWithheld,
+        phase?.contributions.filter(c => c.requirement === "required" || c.funding === "income_withheld")
+          .reduce((sum, c) => sum + (flow.accountContributionDetails[c.accountId]?.unallocatedFromAccount ?? 0), 0) ?? 0);
+      if (requiredSavingShortfall > .005) fail(evidence("required_savings", requiredSavingShortfall, "Required employment savings are not funded.", "Review required contribution amounts, room and deposited income."));
     },
   });
   if (observedCareerMonths < Math.round((retirementAge - age) * 12)) livingCostsFunded = false;
-  if (!result.complete) fail("Projection stopped before the horizon.");
-  if (!result.terminalFloorMet) fail("Terminal financial asset floor is not met.");
-  return { livingCostsFunded, age, passes: reason === null, reason, provisionalTax: result.provisionalTax, terminalFinancialAssetsToday: result.complete ? result.terminalFinancialAssetsToday : null };
+  if (!result.complete) fail(result.failure ?? { date: lastDate, category: "incomplete", shortfallToday: null, message: "Projection stopped before the horizon.", action: "Review the first unfunded outflow." });
+  if (!result.terminalFloorMet) fail({ date: lastDate, category: "terminal_floor", shortfallToday: Math.max(0, inputs.retirementRequirement.minimumEndingFinancialAssetsToday - result.terminalFinancialAssetsToday), message: "Terminal financial asset floor is not met.", action: "Increase saving, delay retirement or review the configured terminal floor." });
+  return { livingCostsFunded, livingCostsFailure: livingCostsFailure ?? (!result.complete ? failure : null), failure, age, passes: reason === null, reason, provisionalTax: result.provisionalTax, terminalFinancialAssetsToday: result.complete ? result.terminalFinancialAssetsToday : null };
 }
 
 /** Exhaustive chronological grid: no monotonicity assumption or binary search. */

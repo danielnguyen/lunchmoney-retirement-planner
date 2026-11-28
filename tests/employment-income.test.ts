@@ -200,3 +200,36 @@ it("rejects excessive transition grids and unavailable payroll ages without infe
   p.spendingPhases[0].endAge = 67;
   expect(() => calculateEmploymentIncome(p, { ...r, stepMonths: 1 })).toThrow(/61 transition/);
 });
+
+it.each(["room", "cash", "reserve"] as const)("accepts later income transitions after optional %s constraints", async mode => {
+  const { constrainedSavingInputs } = await import("./fixtures/fire-milestones");
+  const p = constrainedSavingInputs(mode), r = request(p), before = structuredClone(p);
+  const points = calculateEmploymentIncome(p, r).points;
+  expect(points.slice(1).every(point => point.required.status === "available")).toBe(true);
+  for (const point of points.slice(1)) {
+    const active = materializeIncomeCandidate(p, r, point.age, point.required.annualGrossToday!);
+    expect(calculateProjection(active).summary.endingFinancialAssetsToday).toBeCloseTo(point.terminalFinancialAssetsToday!, 2);
+    expect(point.required.tested.some(t => !t.passes && t.failure?.date)).toBe(true);
+  }
+  expect(p).toEqual(before);
+});
+
+it("preserves quantified first failures for cap exhaustion, adjacent failure, withholding and debt", () => {
+  const p = fireInputs(), r = request(p);
+  p.accounts[0].openingBalance = 0;
+  p.surplusAllocation.targetCashReserveToday = 1000000;
+  p.surplusAllocation.reserveIndexingRate = 0;
+  const later = calculateEmploymentIncome(p, r).points[1];
+  expect(later.required.status).toBe("not_found");
+  expect(later.required.tested.at(-1)!.failure).toMatchObject({ date: "2027-01", category: "reserve", shortfallToday: 928000 });
+  expect(later.required.reason).toMatch(/does not prove impossibility/);
+  expect(later.livingCosts.tested.filter(t => !t.passes).every(t => t.failure?.category === "living_costs")).toBe(true);
+  p.surplusAllocation.targetCashReserveToday = 0;
+  p.liabilities = [{ id: "synthetic-debt", label: "Synthetic debt", origin: "lunchmoney", openingBalance: 1000000, balanceAsOf: "2026-01-01", role: null, historicalPaymentHandling: "not_applicable", historicalMonthlyAverage: 0, treatment: { mode: "payoff_at_projection_start" } }];
+  const debt = calculateEmploymentIncome(p, r).points[1].required.tested.at(-1)!.failure;
+  expect(debt).toMatchObject({ date: "2026-01", category: "required_outflow" });
+  expect(debt!.shortfallToday).toBeGreaterThan(0);
+  p.liabilities = [];
+  r.career!.phases[0].contributions = [{ accountId: p.accounts[1].id, monthlyAmountToday: 100, employerMonthlyAmountToday: 0, funding: "income_withheld", requirement: "required", sourceDescription: "Synthetic withholding" }];
+  expect(calculateEmploymentIncome(p, r).points[0].required.tested[0].failure).toMatchObject({ date: "2026-01", category: "required_savings", shortfallToday: 100 });
+});

@@ -1,6 +1,7 @@
 import { parseSpendingCapacityRequest, scaleRetirementSpending, solveSpendingCapacity, type SpendingEvaluation } from "./spending-capacity";
 import type {
   AccountType,
+  FundingFailure,
   AnnualTaxResult,
   AnnualProjection,
   AssetAllocation,
@@ -1445,7 +1446,7 @@ function restoreMap<K, V>(target: Map<K, V>, source: ReadonlyMap<K, V>): void {
   for (const [key, value] of source) target.set(key, value);
 }
 
-type MilestoneFundingEvaluation = { complete: boolean; terminalFinancialAssetsToday: number; terminalFloorMet: boolean; provisionalTax: boolean };
+type MilestoneFundingEvaluation = { failure?: FundingFailure; complete: boolean; terminalFinancialAssetsToday: number; terminalFloorMet: boolean; provisionalTax: boolean };
 function simulateProjection(rawInputs: ProjectionInputs, options: RetirementSimulationOptions & { fundingCheckOnly: true }): MilestoneFundingEvaluation;
 function simulateProjection(rawInputs: ProjectionInputs, options?: RetirementSimulationOptions): SimulationOutcome;
 function simulateProjection(
@@ -2917,7 +2918,9 @@ function simulateProjection(
         availableNetWithdrawalCash,
     );
     if (anticipatedRequiredLiabilityShortfall > 0.005) {
-      if (options.fundingCheckOnly) return { complete: false, terminalFinancialAssetsToday: 0, terminalFloorMet: false, provisionalTax: !taxCoverage.supportedComplete };
+      if (options.fundingCheckOnly) return { complete: false, terminalFinancialAssetsToday: 0, terminalFloorMet: false, provisionalTax: !taxCoverage.supportedComplete,
+        failure: { date: calendarMonthKey, category: "required_outflow", shortfallToday: anticipatedRequiredLiabilityShortfall / factor,
+          message: "Required liability payment is unfunded.", action: "Review the debt payment and available cash or withdrawal assets." } };
       if (month <= retirementMonth) {
         throw new Error(
           `Required liability payment could not be funded for ${calendarMonthKey}`,
@@ -2998,7 +3001,9 @@ function simulateProjection(
     availableCurrentMonthCash +=
       liabilityWithdrawalFunding.excessNetCash;
     if (liabilityWithdrawalFunding.unmetNetCash > 0.005) {
-      if (options.fundingCheckOnly) return { complete: false, terminalFinancialAssetsToday: 0, terminalFloorMet: false, provisionalTax: !taxCoverage.supportedComplete };
+      if (options.fundingCheckOnly) return { complete: false, terminalFinancialAssetsToday: 0, terminalFloorMet: false, provisionalTax: !taxCoverage.supportedComplete,
+        failure: { date: calendarMonthKey, category: "required_outflow", shortfallToday: liabilityWithdrawalFunding.unmetNetCash / factor,
+          message: "Required liability payment is unfunded.", action: "Review the debt payment and available cash or withdrawal assets." } };
       throw new Error(
         `Required liability payment could not be funded for ${calendarMonthKey}`,
       );

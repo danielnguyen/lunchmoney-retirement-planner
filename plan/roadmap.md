@@ -657,3 +657,14 @@ private data, deployment or workflow changes. Validate analytical boundaries,
 full-engine parity, taxes/room/withholding, debt/reserves/floors, explicit stress,
 real-dollar semantics, UI/API overrides, browser responsiveness and export privacy,
 plus npm test/typecheck/lint/build, Docker and Compose. Owner retains merge/deploy.
+
+For both income and FIRE candidates, optional personal saving capped by cash or
+registered room is not an unfunded required outflow. Preserve ordinary accumulation
+flows, mandatory withholding and required career contributions. Per the resolved
+#48 owner decision, historical reserve buildup may recover before transition;
+require funded reserves at transition and throughout the subsequent horizon,
+including retirement. Do not waive a later deficit because an earlier one recovered.
+Carry each trial's first failing month, category, today-dollar shortfall or
+disallowed funding, and actionable explanation through the API and collapsed
+evidence. Keep core results and retirement controls prominent; ordinary salary
+scenario controls remain discoverable separately from the inverse salary result.

@@ -92,9 +92,22 @@ async function main() {
       assert(geometry.controlsFit, `Controls overflow at ${width}`);
       assert(geometry.scroll <= geometry.width + 1, `Panel overflow at ${width}`);
       assert(geometry.svg && geometry.rows === 3 && geometry.text, "Chart and accessible exact values must render");
+      baseline.projectionInputs.accounts[0].openingBalance = 0;
+      baseline.projectionInputs.surplusAllocation.targetCashReserveToday = 1000000;
+      baseline.projectionInputs.surplusAllocation.reserveIndexingRate = 0;
+      await send("Page.navigate", { url: `http://127.0.0.1:${appPort}` });
+      await until(() => evaluate('!!document.querySelector(".income-panel input[type=checkbox]")'), Boolean);
+      await evaluate('document.querySelector(".income-panel input[type=checkbox]").click()');
+      await evaluate('[...document.querySelectorAll(".income-panel button")].find(x=>x.textContent.includes("Use illustrative Ontario")).click()');
+      await until(() => evaluate('document.querySelector(".income-panel")?.textContent.includes("2027-01: Protected reserve is not funded at transition.")'), Boolean);
+      assert.equal(await evaluate('document.querySelector(".income-table")?.textContent.includes("928,000 today")'), true);
+      assert.equal(await evaluate('document.querySelectorAll(".income-panel details[open]").length'), 0);
+      await evaluate('document.querySelector(".income-table details summary").click()');
+      assert.equal(await evaluate('!!document.querySelector(".income-table details[open]")'), true);
+      baseline.projectionInputs = fireInputs();
       await evaluate('document.querySelector(".income-panel input[type=checkbox]").click()');
       assert.equal(await evaluate('!!document.querySelector(".income-panel .income-curve")'), false);
-      console.log(`PASS: synthetic production income curve at ${width}px, expanded controls, chart, exact table and opt-out.`);
+      console.log(`PASS: synthetic production income curve at ${width}px, expanded controls, chart, exact table, dated failure evidence and opt-out.`);
     }
     assert(projections >= 4, "Projection requests must use the real HTTP route");
     assert.deepEqual(exceptions, []);

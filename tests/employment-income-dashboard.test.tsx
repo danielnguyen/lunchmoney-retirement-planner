@@ -66,3 +66,32 @@ it("does not construct illustrative job terms without a baseline employment inte
   fireEvent.click(screen.getByLabelText("Calculate income by transition age"));
   expect(screen.getByRole("button", { name: "Use illustrative Ontario terms (no match)" })).toBeDisabled();
 });
+
+it("shows actionable dated failures and keeps quantified trial evidence collapsed through the real API", async () => {
+  const inputs = fireInputs();
+  inputs.accounts[0].openingBalance = 0;
+  inputs.surplusAllocation.targetCashReserveToday = 1000000;
+  inputs.surplusAllocation.reserveIndexingRate = 0;
+  const responses: unknown[] = [];
+  vi.stubGlobal("fetch", vi.fn(async (_url: string, init: RequestInit) => {
+    const response = await POST(new Request("http://localhost/api/v1/projections", init));
+    responses.push(await response.clone().json());
+    return response;
+  }));
+  render(<EmploymentIncome inputs={inputs} definitions={[]} />);
+  fireEvent.click(screen.getByLabelText("Calculate income by transition age"));
+  fireEvent.click(screen.getByRole("button", { name: "Use illustrative Ontario terms (no match)" }));
+  await screen.findAllByText(/2027-01: Protected reserve is not funded at transition/);
+  expect(screen.getAllByText(/928,000 today/).length).toBeGreaterThan(0);
+  const result = responses.at(-1) as import("@/src/domain/projection/employment-income").EmploymentIncomeResult;
+  expect(result.points[1].required.tested.at(-1)!.failure).toMatchObject({
+    date: "2027-01", category: "reserve", shortfallToday: 928000,
+  });
+  const evidence = screen.getAllByText("No passing sampled income")[0].closest("details")!;
+  expect(evidence.open).toBe(false);
+  fireEvent.click(evidence.querySelector("summary")!);
+  expect(evidence.open).toBe(true);
+  expect(screen.getByText("Income curve search limits").closest("details")).not.toHaveAttribute("open");
+  expect(screen.getByText("Income curve active funding assumptions").closest("details")).not.toHaveAttribute("open");
+  expect(screen.getByLabelText("Income curve full retirement age").closest("details")).toBeNull();
+});

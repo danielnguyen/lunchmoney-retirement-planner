@@ -205,3 +205,60 @@ it("uses independent taxable employment in the annual-tax Barista candidate with
   expect(active.person.employmentIncomePhases[0].annualNetCashToday).toBe(6000);
   expect(active.person.employmentIncomePhases[0].rrspRoomGeneration!.annualEligibleEarnedIncomeToday).toBe(10000);
 });
+
+describe("shared funding acceptance corrections", () => {
+  it.each(["room", "cash", "reserve"] as const)("preserves ordinary %s-constrained flows and retirement boundary parity", async mode => {
+    const { constrainedSavingInputs } = await import("./fixtures/fire-milestones");
+    const p = constrainedSavingInputs(mode), before = structuredClone(p), r = fireRequest(p);
+    const forward = calculateProjection(structuredClone(p));
+    const boundary = evaluateFireCandidate(p, r, "full", 42);
+    expect(boundary.passes, boundary.reason ?? "").toBe(true);
+    expect(boundary.terminalFinancialAssetsToday).toBeCloseTo(forward.summary.endingFinancialAssetsToday!, 2);
+    expect(boundary.terminalFinancialAssetsToday).toBe(mode === "cash" ? 270000 : mode === "reserve" ? 220000 : 240000);
+    type Month = Parameters<NonNullable<ComparisonProjectionOptions["onMonth"]>>[0];
+    const months = (inputs: typeof p) => {
+      const collected: Month[] = [];
+      evaluateMilestoneFunding(structuredClone(inputs), { onMonth: m => collected.push(m) });
+      return collected;
+    };
+    const ordinary = months(p);
+    expect(months(materializeFireCandidate(p, r, "full", 42))).toEqual(ordinary);
+    expect(ordinary.every(m => m.flow.outflows.unmetSpending <= .005 && m.flow.outflows.unmetRequiredOutflow <= .005)).toBe(true);
+    if (mode === "reserve") {
+      expect(ordinary[0].reserveShortfall).toBe(4000);
+      expect(ordinary.slice(1).every(m => m.reserveShortfall === 0)).toBe(true);
+      expect(evaluateFireCandidate(p, r, "full", 40).passes).toBe(false);
+      expect(evaluateFireCandidate(p, r, "full", 40 + 1 / 12).failure).toMatchObject({ date: "2026-02", category: "reserve", shortfallToday: 4000 });
+      // Recovery does not waive a later retirement reserve breach.
+      expect(evaluateFireCandidate(p, r, "full", 40 + 2 / 12).failure).toMatchObject({ date: "2026-05", category: "reserve", shortfallToday: 1000 });
+      expect(evaluateFireCandidate(p, r, "full", 41).passes).toBe(true);
+    } else {
+      if (mode === "room") {
+        const withoutOptionalPlan = structuredClone(p);
+        withoutOptionalPlan.accounts[1].contributionPhases[0].monthlyAmountToday = 0;
+        expect(calculateProjection(withoutOptionalPlan).summary.endingFinancialAssetsToday).toBe(forward.summary.endingFinancialAssetsToday);
+      }
+      expect(ordinary[0].flow.contributions.unallocatedCashFunded).toBe(mode === "cash" ? 2000 : 1000);
+      expect(ordinary[0].flow.withdrawals.total).toBe(0);
+    }
+    expect(calculateFireMilestones(p, r).results.every(result => result.candidate !== null)).toBe(true);
+    expect(p).toEqual(before);
+  });
+
+  it("retains mandatory baseline withholding, actual outflow and retirement reserve failures", async () => {
+    const { constrainedSavingInputs } = await import("./fixtures/fire-milestones");
+    const p = constrainedSavingInputs("room"), r = fireRequest(p);
+    p.accounts[1].contributionPhases[0].funding = "income_withheld";
+    expect(evaluateFireCandidate(p, r, "full", 42).failure).toMatchObject({ date: "2026-01", category: "required_savings", shortfallToday: 1000 });
+    p.accounts[1].contributionPhases[0].monthlyAmountToday = 0;
+    p.monthlyEssentialSpendingToday = 1000000;
+    expect(evaluateFireCandidate(p, r, "full", 42).failure).toMatchObject({ date: "2026-01", category: "required_outflow" });
+    const reserve = constrainedSavingInputs("reserve");
+    reserve.surplusAllocation.targetCashReserveToday = 1000000;
+    expect(evaluateFireCandidate(reserve, fireRequest(reserve), "full", 42).failure).toMatchObject({ category: "reserve", date: "2028-01" });
+    reserve.surplusAllocation.targetCashReserveToday = 10000;
+    reserve.accounts[1].openingBalance = 0;
+    reserve.events = [{ id: "synthetic-late-expense", label: "Synthetic expense", calendarYear: 2028, month: 2, amountToday: 130000, direction: "outflow" }];
+    expect(evaluateFireCandidate(reserve, fireRequest(reserve), "full", 42).passes).toBe(false);
+  });
+});
