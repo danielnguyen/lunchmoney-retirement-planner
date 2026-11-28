@@ -14,8 +14,10 @@ Public tracking must remain generic and must not contain private financial value
   dashboard/charts/controls, synthetic tests and existing documentation.
 - Excluded: inverse income solver, new financial engine, optimization, private data,
   dependencies, CI permissions, merge and deployment.
-- Draft PR and independent review pending. Real-browser mobile geometry from #46
-  was unverified; its jsdom coverage is not a browser geometry pass.
+- Draft PR: [#50](https://github.com/danielnguyen/lunchmoney-retirement-planner/pull/50).
+  Independent exact-head review and hosted validation are requested on the final
+  head; only the owner may mark ready, merge or deploy. #47 browser evidence is
+  recorded below; #46 had not verified real-browser geometry.
 
 ## Planned implementation sequence
 
@@ -35,7 +37,7 @@ Public tracking must remain generic and must not contain private financial value
 | 12 | Structured housing transitions | Net-worth, debt, spending, and event models | Planned | — |
 
 | — | Inverse retirement spending capacity (#35) | Shared monthly engine and retirement requirement | Completed | [#41](https://github.com/danielnguyen/lunchmoney-retirement-planner/pull/41) |
-| — | Conditional FIRE milestones (#47) | Career transitions and shared monthly engine | In progress | Draft publication pending |
+| — | Conditional FIRE milestones (#47) | Career transitions and shared monthly engine | In progress | [#50](https://github.com/danielnguyen/lunchmoney-retirement-planner/pull/50) |
 | — | Career transitions and editable FIRE presets (#46) | Scenario comparison and shared monthly engine | Completed | [#49](https://github.com/danielnguyen/lunchmoney-retirement-planner/pull/49) |
 | — | Configurable scenario comparison (#37) | Shared monthly projection and configured phases | Completed | [#38](https://github.com/danielnguyen/lunchmoney-retirement-planner/pull/38) |
 
@@ -282,3 +284,8 @@ independent review; #46 merged in #49. Do not begin #48.
   remain pending publication. Git author metadata was absent; commits use the
   repository's existing OpenHands attribution via per-command environment variables,
   without changing Git configuration.
+
+- Published draft PR #50 from implementation commit
+  `f2ff15c` (use GitHub for the full current head). This documentation follow-up
+  records the PR link; apply `openhands-review` after pushing it so the independent
+  reviewer receives the final head. Hosted checks and review state live on the PR.
