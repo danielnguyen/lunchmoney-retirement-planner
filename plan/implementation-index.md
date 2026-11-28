@@ -501,3 +501,39 @@ Do not begin another capability or the deferred page redesign.
   of the resulting current head. Hosted Docker/CI and independent exact-head review
   must confirm it; #48 remains
   open for owner deployed acceptance. No merge, deployment or Git Sync performed.
+
+### PR #53 review evidence correction
+
+The review of `c64f381a0cf73d6762b42e030be747be59275ba6` found no material
+calculation/security defect and requested retained production UI evidence. This
+revision changes only the existing browser acceptance harness and evidence/docs;
+financial and application code remain unchanged.
+
+Run after `npm run build`:
+`CAREER_EVIDENCE_DIR=docs/screenshots/issue-52 node --import tsx tests/employment-income-browser.ts`.
+The harness runs the production standalone server and Chromium, intercepting only
+baseline/config reads with named synthetic fixtures. Projection POSTs use the real
+production route. Captures are panel crops, retaining the entire panel beyond the
+viewport; viewport widths are 390 and 1440 pixels. No private config is loaded.
+
+| State | Mobile income | Desktop income | Mobile FIRE | Desktop FIRE |
+|---|---|---|---|---|
+| Busy during edits | [Capture](../docs/screenshots/issue-52/income-390-busy-edited.png) | [Capture](../docs/screenshots/issue-52/income-1440-busy-edited.png) | [Capture](../docs/screenshots/issue-52/fire-390-busy-edited.png) | [Capture](../docs/screenshots/issue-52/fire-1440-busy-edited.png) |
+| Completed | [Capture](../docs/screenshots/issue-52/income-390-completed.png) | [Capture](../docs/screenshots/issue-52/income-1440-completed.png) | [Capture](../docs/screenshots/issue-52/fire-390-completed.png) | [Capture](../docs/screenshots/issue-52/fire-1440-completed.png) |
+| Stale after edit | [Capture](../docs/screenshots/issue-52/income-390-stale.png) | [Capture](../docs/screenshots/issue-52/income-1440-stale.png) | [Capture](../docs/screenshots/issue-52/fire-390-stale.png) | [Capture](../docs/screenshots/issue-52/fire-1440-stale.png) |
+| Expanded failure evidence | [Capture](../docs/screenshots/issue-52/income-390-failure.png) | [Capture](../docs/screenshots/issue-52/income-1440-failure.png) | [Capture](../docs/screenshots/issue-52/fire-390-failure.png) | [Capture](../docs/screenshots/issue-52/fire-1440-failure.png) |
+
+[Capture transcript and HTTP response statuses](../docs/screenshots/issue-52/evidence.json)
+record rendered synthetic text and projection request counts. The executable
+assertions check one submission per analysis despite edits, stale-result removal,
+26 income rows, responsive browser heartbeat, failure disclosure and no runtime
+exceptions. FIRE failure captures expand candidate evidence; missing Coast/Barista
+templates are explicitly unavailable in that negative fixture.
+
+Validation: 805 tests/48 files passed on rerun; typecheck, lint, production build,
+Compose configuration and eight production HTTP export/privacy checks passed.
+The first full-suite run alongside build/browser workloads failed a dashboard
+view-switch assertion; the subsequent full run passed without code changes.
+Local Docker build remains denied at the Docker socket; hosted checks must verify
+the new head. Firefox is unavailable. Independent exact-head review and owner
+acceptance under #48 remain pending; no merge or deployment is authorized here.
