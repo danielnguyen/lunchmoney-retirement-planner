@@ -104,7 +104,7 @@ main { width: min(1540px, calc(100% - 32px)); margin: 0 auto; padding: var(--spa
 .segmented button { border: 0; border-radius: var(--radius-control); padding: 7px 11px; color: var(--muted); background: transparent; }
 .segmented button:hover { color: var(--text); background: var(--surface-3); }
 .segmented button.active { color: #062117; background: var(--accent); box-shadow: inset 0 0 0 1px #062117; font-weight: 800; }
-#overview, #retirement-income, #spending, #accounts, #plan-details, #assumptions { scroll-margin-top: 110px; }
+#overview, #retirement-income, #spending, #accounts, #plan-details, #assumptions, #income-heading, #fire-heading, #capacity-heading { scroll-margin-top: 110px; }
 
 .retirement-outlook { padding: var(--space-5); margin-bottom: var(--space-4); border: 1px solid rgba(112, 214, 178, 0.42); border-radius: var(--radius-section); background: var(--surface-2); }
 .retirement-outlook:focus-visible { outline: var(--focus-outline); outline-offset: 4px; }
@@ -356,7 +356,7 @@ code, pre, .mapping-reference-row, .config-editor-meta strong, .assumption-grid 
   .model-minimum-explanation { padding: var(--space-4) 0 0; border-top: 1px solid var(--border); border-left: 0; }
   .application-header-row { align-items: flex-start; flex-direction: column; gap: 10px; }
   .application-actions { justify-content: flex-start; }
-  #overview, #retirement-income, #spending, #accounts, #plan-details, #assumptions { scroll-margin-top: 12rem; }
+  #overview, #retirement-income, #spending, #accounts, #plan-details, #assumptions, #income-heading, #fire-heading, #capacity-heading { scroll-margin-top: 12rem; }
   .two-column { grid-template-columns: 1fr; }
 }
 @media (max-width: 620px) {
@@ -380,7 +380,7 @@ code, pre, .mapping-reference-row, .config-editor-meta strong, .assumption-grid 
   .application-status-controls { align-items: stretch; flex-direction: column; }
   .application-status-controls .button, .application-status-controls .segmented { width: 100%; }
   .application-status-controls .segmented button { flex: 1; min-width: 0; }
-  #overview, #retirement-income, #spending, #accounts, #plan-details, #assumptions { scroll-margin-top: 1rem; }
+  #overview, #retirement-income, #spending, #accounts, #plan-details, #assumptions, #income-heading, #fire-heading, #capacity-heading { scroll-margin-top: 1rem; }
   .chart-shell.compact, .chart-shell.medium { height: clamp(18rem, 95vw, 22rem); }
   .chart-shell.tall { height: clamp(20rem, 105vw, 25rem); }
   .explainable-heading { align-items: flex-start; }
@@ -486,3 +486,18 @@ code, pre, .mapping-reference-row, .config-editor-meta strong, .assumption-grid 
 .income-table table { width: 100%; border-collapse: collapse; }
 .income-table th, .income-table td { padding: 0.6rem; text-align: left; vertical-align: top; }
 .income-panel p, .income-panel li { overflow-wrap: anywhere; }
+
+/* Analysis views share the dashboard inputs; only the selected page is shown. */
+[hidden] { display: none !important; }
+.application-navigation a[aria-current="page"] { font-weight: 700; border-bottom: 2px solid currentColor; }
+.analysis-summary { padding: 1rem; margin: 1rem 0; border: 1px solid var(--border); border-radius: 12px; }
+.analysis-summary h4 { margin-bottom: .5rem; }
+.analysis-summary strong { font-size: 1.3rem; }
+.fire-panel > .career-editor { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 260px), 1fr)); gap: 1rem; max-width: 850px; }
+.analysis-summary > label { max-width: 360px; }
+.fire-panel > button, .capacity-panel > button { min-height: 44px; margin: .25rem; }
+.capacity-panel fieldset { min-width: 0; }
+.capacity-panel fieldset label { display: block; padding: .5rem 0; }
+.capacity-panel, .analysis-summary, .analysis-summary article { min-width: 0; }
+.analysis-summary p { overflow-wrap: anywhere; }
+.fire-panel label:has(> input[type="checkbox"]) { display: flex; align-items: center; gap: .5rem; }

@@ -124,14 +124,14 @@ describe("dashboard config-save baseline transitions", () => {
     const navigation = screen.getByRole("navigation", { name: "Jump to planner section" });
     const links = within(navigation).getAllByRole("link");
     expect(links.map((link) => link.textContent)).toEqual([
-      "Overview",
       "Spending",
       "Retirement income",
       "Accounts",
       "Plan details",
       "Assumptions",
     ]);
-    expect(screen.getByRole("link", { name: "Overview" })).not.toHaveAttribute("aria-current");
+    expect(screen.getByRole("link", { name: "Overview" })).toHaveAttribute("aria-current", "page");
+    expect(within(screen.getByRole("navigation", { name: "Planner pages" })).getAllByRole("link").map(link => link.textContent)).toEqual(["Overview", "Career independence", "FIRE milestones", "Spending capacity"]);
     expect(screen.getByRole("link", { name: "Retirement income" })).toHaveAttribute("href", "#retirement-income");
     expect(screen.getByRole("link", { name: "Spending" })).toHaveAttribute("href", "#spending");
     expect(screen.getByRole("link", { name: "Accounts" })).toHaveAttribute("href", "#accounts");

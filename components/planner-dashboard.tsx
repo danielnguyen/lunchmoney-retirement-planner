@@ -1,10 +1,8 @@
 "use client";
 
 import { usePlannerConfigSync } from "./planner-config-sync";
-import { EmploymentIncome } from "@/components/employment-income";
-import { FireMilestones } from "@/components/fire-milestones";
+import { AnalysisPages } from "@/components/analysis-pages";
 import type { FireMilestoneResult } from "@/src/domain/projection/fire-milestones";
-import { SpendingCapacity } from "@/components/spending-capacity";
 import { ScenarioComparison } from "@/components/scenario-comparison";
 
 import {
@@ -1311,6 +1309,21 @@ function BlockingState({
 }
 
 export function PlannerDashboard() {
+  const [analysisPage, setAnalysisPage] = useState("overview");
+  useEffect(() => {
+    const navigate = () => {
+      const page = window.location.hash.slice(2);
+      setAnalysisPage(["career-independence", "fire-milestones", "spending-capacity"].includes(page) ? page : "overview");
+    };
+    navigate();
+    window.addEventListener("hashchange", navigate);
+    return () => window.removeEventListener("hashchange", navigate);
+  }, []);
+  useEffect(() => {
+    if (analysisPage === "overview") return;
+    const heading = { "career-independence": "income-heading", "fire-milestones": "fire-heading", "spending-capacity": "capacity-heading" }[analysisPage];
+    if (heading) document.getElementById(heading)?.focus();
+  }, [analysisPage]);
   const [refreshGeneration, setRefreshGeneration] = useState(0);
   const [baselineResult, setBaselineResult] = useState<{
     generation: number;
@@ -1910,8 +1923,10 @@ export function PlannerDashboard() {
             </button>
           </div>
         </div>
-        <nav className="application-navigation no-print" aria-label="Jump to planner section">
-          <a href="#overview">Overview</a>
+        <nav className="application-navigation no-print" aria-label="Planner pages">
+          {[ ["overview", "Overview"], ["career-independence", "Career independence"], ["fire-milestones", "FIRE milestones"], ["spending-capacity", "Spending capacity"] ].map(([page, label]) => <a key={page} href={page === "overview" ? "#overview" : `#/${page}`} aria-current={analysisPage === page ? "page" : undefined}>{label}</a>)}
+        </nav>
+        <nav hidden={analysisPage !== "overview"} className="application-navigation no-print" aria-label="Jump to planner section">
           <a href="#spending">Spending</a>
           <a href="#retirement-income">Retirement income</a>
           <a href="#accounts">Accounts</a>
@@ -1975,9 +1990,8 @@ export function PlannerDashboard() {
         </section>
       ) : null}
 
-      <EmploymentIncome key={`income:${baseline.connection.checkedAt}`} inputs={inputs} definitions={baseline.scenarioComparison ?? []} />
-      <FireMilestones key={`fire:${baseline.connection.checkedAt}`} inputs={inputs} definitions={baseline.scenarioComparison ?? []} onResult={acceptFireResult} />
-      <SpendingCapacity inputs={inputs} />
+      <AnalysisPages key={baseline.connection.checkedAt} page={analysisPage} inputs={inputs} definitions={baseline.scenarioComparison ?? []} onResult={acceptFireResult} />
+      <div hidden={analysisPage !== "overview"}>
       {baseline.scenarioComparison?.length ? <ScenarioComparison key={baseline.connection.checkedAt} inputs={inputs} definitions={baseline.scenarioComparison} /> : null}
 
       {projection ? (
@@ -3171,6 +3185,7 @@ export function PlannerDashboard() {
           </section>
         </>
       ) : null}
+      </div>
       {explanationDocument && activeExplanation ? (
         <ExplanationDrawer
           document={explanationDocument}

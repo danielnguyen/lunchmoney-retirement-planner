@@ -695,3 +695,24 @@ be reported as financial failure. Explicit Calculate buttons submit edits togeth
 and prevent overlapping submissions within each analysis. Ordinary projections and
 exports retain their contracts. Separate pages remain deferred. #48 stays open for
 owner acceptance after deployment; independent exact-head review is required.
+
+## Results-first analysis pages (#54)
+
+The owner-approved presentation work supersedes the earlier page-redesign deferral.
+Keep Overview as the default and provide Career independence, FIRE milestones and
+Spending capacity as navigable views within the existing dashboard. Preserve active
+inputs, temporary overrides and in-memory analysis state across navigation without
+new projection requests. No analysis views mount on Overview.
+
+Summaries use returned financial outputs only. Career selection uses an exact
+returned date, never interpolation or an automatic comparison with another
+retirement target. FIRE retains conditional milestone dates and dashboard markers.
+Spending capacity shows existing monthly phase outputs. Each analysis requires an
+explicit Calculate action after edits; evidence, charts and advanced assumptions
+start collapsed. No calculation, API, schema, persistence or export changes.
+
+Scope: existing dashboard/analysis components, one small view selector, CSS,
+directly implicated synthetic tests/browser harness and README/docs/plan. Validate
+summary parity, unavailable and capped work, busy/stale state, navigation and
+privacy, desktop/mobile production captures and the full repository gates.
+#48 remains open for owner deployed financial acceptance independently of #54.
