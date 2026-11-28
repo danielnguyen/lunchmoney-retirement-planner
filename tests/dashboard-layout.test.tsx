@@ -156,8 +156,8 @@ describe("unified planner configuration drawer", () => {
       applicationActions.indexOf("Export"),
     );
     expect(applicationActions).not.toContain("Planner config");
-    expect(dashboard).toContain('<nav className="application-navigation no-print" aria-label="Jump to planner section">');
-    expect(dashboard).toContain('<a href="#overview">Overview</a>');
+    expect(dashboard).toContain('<nav hidden={analysisPage !== "overview"} className="application-navigation no-print" aria-label="Jump to planner section">');
+    expect(dashboard).toContain('aria-label="Planner pages"');
     expect(dashboard).not.toContain('aria-current="page"');
     expect(dashboard).not.toContain("Retirement lifecycle report");
     expect(dashboard).not.toContain("Your live financial baseline, projected forward.");
@@ -179,14 +179,14 @@ describe("unified planner configuration drawer", () => {
 
     expect(css).toContain(".application-header { position: sticky;");
     expect(css).toContain(
-      "#overview, #retirement-income, #spending, #accounts, #plan-details, #assumptions { scroll-margin-top: 110px; }",
+      "#overview, #retirement-income, #spending, #accounts, #plan-details, #assumptions, #income-heading, #fire-heading, #capacity-heading { scroll-margin-top: 110px; }",
     );
     expect(tablet).toContain(
-      "#overview, #retirement-income, #spending, #accounts, #plan-details, #assumptions { scroll-margin-top: 12rem; }",
+      "#overview, #retirement-income, #spending, #accounts, #plan-details, #assumptions, #income-heading, #fire-heading, #capacity-heading { scroll-margin-top: 12rem; }",
     );
     expect(mobile).toContain(".application-header { position: static;");
     expect(mobile).toContain(
-      "#overview, #retirement-income, #spending, #accounts, #plan-details, #assumptions { scroll-margin-top: 1rem; }",
+      "#overview, #retirement-income, #spending, #accounts, #plan-details, #assumptions, #income-heading, #fire-heading, #capacity-heading { scroll-margin-top: 1rem; }",
     );
     expect(css).toContain(
       ".application-actions .button, .application-status-controls .button, .application-status-controls .segmented button { min-height: 40px;",

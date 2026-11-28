@@ -18,7 +18,7 @@ vi.mock("recharts", () => {
     Area: Empty, Bar: Empty, CartesianGrid: Empty, Cell: Empty, Legend: Empty, Line: Empty, Pie: Empty,
     PieChart: Empty, Tooltip: Empty, XAxis: Empty, YAxis: Empty, ReferenceLine: ({ x }: { x: number }) => <span data-testid="chart-marker">{x}</span> };
 });
-afterEach(() => { cleanup(); vi.unstubAllGlobals(); vi.restoreAllMocks(); });
+afterEach(() => { window.location.hash = ""; cleanup(); vi.unstubAllGlobals(); vi.restoreAllMocks(); });
 it("calculates opt-in through the real API, edits terms and clears stale chart results", async () => {
   const inputs = fireInputs();
   const request = fireRequest(inputs);
@@ -89,14 +89,19 @@ it("keeps milestone state alongside scenario comparison and removes chart marker
   }));
   render(<PlannerDashboard />);
   await screen.findByRole("region", { name: "Side-by-side scenario scorecard" });
+  await act(async () => { window.location.hash = "/fire-milestones"; window.dispatchEvent(new HashChangeEvent("hashchange")); });
   fireEvent.click(screen.getByLabelText("Calculate conditional FIRE milestones"));
   fireEvent.click(screen.getByRole("button", { name: "Calculate FIRE milestones" }));
   await screen.findByText(/2026-01: conditional full FIRE/);
   expect(screen.getByText("Full FIRE — Baseline")).toBeInTheDocument();
   expect(screen.getAllByTestId("chart-marker").some(x => x.textContent === "2026")).toBe(true);
   expect(errors.mock.calls.flat().join(" ")).not.toMatch(/same key|Maximum update/);
+  await act(async () => { window.location.hash = "overview"; window.dispatchEvent(new HashChangeEvent("hashchange")); });
+  expect(screen.getAllByTestId("chart-marker").find(x => x.textContent === "2026")).toBeVisible();
+  await act(async () => { window.location.hash = "/fire-milestones"; window.dispatchEvent(new HashChangeEvent("hashchange")); });
   fireEvent.click(screen.getByLabelText("Calculate conditional FIRE milestones"));
   await waitFor(() => expect(screen.queryByText(/conditional full FIRE/)).not.toBeInTheDocument());
+  await act(async () => { window.location.hash = "overview"; window.dispatchEvent(new HashChangeEvent("hashchange")); });
   expect(screen.getByRole("region", { name: "Side-by-side scenario scorecard" })).toBeInTheDocument();
 });
 

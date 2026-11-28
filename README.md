@@ -17,6 +17,30 @@ The end-to-end MVP is defined in [plan/README.md](plan/README.md). The runtime n
 - Exports an automatically anonymized resolved baseline, provenance, warnings, active overrides, and projection as JSON or CSV
 - Runs without a database, persistence, jobs, or caching
 
+## Retirement analysis pages
+
+Overview remains the default report. Use the planner navigation for:
+
+- **Career independence** (`/#/career-independence`): income needed for the whole
+  plan and income for living costs, with gross and estimated net amounts at an
+  exact tested transition age.
+- **FIRE milestones** (`/#/fire-milestones`): conditional Coast, Barista and Full
+  FIRE dates, with editable retirement and employment assumptions.
+- **Spending capacity** (`/#/spending-capacity`): supported monthly lifestyle
+  amounts for selected retirement spending phases.
+
+Each page puts the answer before charts and technical evidence. Enable the
+analysis, choose its assumptions, then select Calculate. Edits invalidate results
+and require another explicit calculation. Selecting an already tested income age
+only changes the summary. Baseline and configured stress remain distinct; these
+are deterministic estimates, not safety guarantees.
+
+Navigation and browser back/forward keep the active baseline, temporary overrides,
+analysis edits and completed results in memory. Links contain only page names;
+reloading starts a fresh session. No financial values are stored in URLs or browser
+storage. Overview retains scenario comparison, FIRE chart markers for valid
+results, configuration, connected accounts, print and existing allowlisted exports.
+
 ## Requirements
 
 - Node.js 22 or later

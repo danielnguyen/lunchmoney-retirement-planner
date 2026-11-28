@@ -6,18 +6,16 @@ Public tracking must remain generic and must not contain private financial value
 
 ## Current position
 
-- Active correction: FIRE and career-income funding/performance (#52), branch
-  `openhands/issue-52`, based on clean main `4fb152ee5c3cad763bb36be685e4ccba6479a338`.
-- Draft correction: [PR #53](https://github.com/danielnguyen/lunchmoney-retirement-planner/pull/53).
-  Implementation commit `b907b0e072c5158948323ce06fd7ac25471e8efc`; current head and
-  review/check state are owned by GitHub.
-- PR #51 is merged. #48 remains open for owner deployed acceptance; its deployed
-  findings are addressed here. No other open PR at execution start.
-- Scope: career materialization, shared monthly funding/search and implicated tax
-  preview reuse, minimal calculation controls/evidence, synthetic tests and docs.
-- No new config schema, dependencies, infrastructure, page redesign, private data,
-  workflow changes, merge or deployment. Independent exact-head review and hosted
-  checks follow the draft PR; owner retains deployed acceptance.
+- Active presentation work: #54, `openhands/issue-54`, from clean main
+  `198ad5dd82b86aa585bb89c558129d9f9c0d39cf`. No open PR at execution start.
+- Draft [PR #55](https://github.com/danielnguyen/lunchmoney-retirement-planner/pull/55)
+  contains #54. Current head/check/review state is owned by GitHub.
+- PR #53 is merged. #48 remains open for owner deployed financial acceptance.
+- Scope: existing dashboard state and analysis views, navigation/CSS, synthetic
+  tests/browser evidence and documentation. No financial-domain, API, schema,
+  dependency, workflow, persistence, merge or deployment changes.
+- Local validation and independent exact-head review are tracked below. Local
+  Docker socket access is denied; existing hosted Docker must pass on the PR head.
 
 ## Planned implementation sequence
 
@@ -75,9 +73,9 @@ Planning order is project-management shorthand only. Production names must descr
 
 ## New-conversation handoff
 
-Resume #52 on its existing branch/PR and recover current GitHub head, checks and
-independent review. Keep #48 open until the owner verifies the deployed correction.
-Do not begin another capability or the deferred page redesign.
+Continue #54 on its existing branch/PR and verify the current head, checks and
+independent review. Keep #48 open for owner deployed financial acceptance.
+Do not begin another capability, merge or deploy.
 
 ## Issue #36 execution record
 
@@ -537,3 +535,57 @@ view-switch assertion; the subsequent full run passed without code changes.
 Local Docker build remains denied at the Docker socket; hosted checks must verify
 the new head. Firefox is unavailable. Independent exact-head review and owner
 acceptance under #48 remain pending; no merge or deployment is authorized here.
+
+## Issue #54 execution record
+
+- Live issue body hash matched the trusted contract. Read shared AGENTS, WORKFLOW,
+  AUTHORITY, ENGINEERING and OpenHands/ChatGPT guidance at
+  `f3e619116a87fa872269460aa70c74ef9157ee4f`; read target AGENTS, roadmap/index,
+  plan guide, #48/#52 history and affected dashboard, analysis and test code.
+- Verified a separate clean checkout at main `198ad5d`, credential-free origin and
+  `openhands/issue-54`. The running automation bundle was not modified.
+- Existing local analysis state is retained beside shared dashboard inputs; only
+  the selected view renders. Hash links encode page names only and preserve
+  back/forward without baseline reads or solver requests. No new store or shell.
+- Income summaries show exact returned gross/net and living-cost points, with
+  capped/unavailable work distinguished. FIRE summaries retain conditional dates,
+  editable salaries and dashboard markers. Capacity uses existing monthly phase
+  outputs and now waits for explicit calculation after edits.
+- Initial checks caught outdated navigation assertions and a synthetic browser
+  fixture missing its working spending phase. Corrected the implicated tests and
+  fixture, retaining assertions and financial validation. No engine changes.
+- Validation results and publication are recorded in the draft PR. All browser
+  fixtures and captures are synthetic; no private configuration was read.
+- Final local checks: 807 tests in 49 files passed; the strengthened dashboard
+  marker regression also passed separately. Typecheck, lint, production build,
+  Compose config and eight production HTTP export/privacy checks passed.
+- Production Chromium passed at 390px and 1440px: exact summary/response parity,
+  tested-age selection without requests, direct links, back/forward, in-flight
+  state, temporary override retention, keyboard Tab/Enter/Escape, no overflow or
+  browser storage, unavailable cases, busy/stale states and ordinary print view.
+  Screenshots are refreshed from the production build using real synthetic POST
+  results; only baseline/config reads are intercepted. No Firefox claim is made.
+- Docker build was attempted and denied access to `/var/run/docker.sock`; hosted
+  exact-head Docker and independent review remain required. No escalation or waiver.
+
+### Synthetic production captures
+
+Run after `npm run build`:
+`CAREER_EVIDENCE_DIR=docs/screenshots/issue-54 node --import tsx tests/employment-income-browser.ts`.
+
+| Page/state | Mobile (390px) | Desktop (1440px) |
+|---|---|---|
+| Career summary | [Capture](../docs/screenshots/issue-54/income-390-completed.png) | [Capture](../docs/screenshots/issue-54/income-1440-completed.png) |
+| Career busy | [Capture](../docs/screenshots/issue-54/income-390-busy-edited.png) | [Capture](../docs/screenshots/issue-54/income-1440-busy-edited.png) |
+| Career stale | [Capture](../docs/screenshots/issue-54/income-390-stale.png) | [Capture](../docs/screenshots/issue-54/income-1440-stale.png) |
+| Career unavailable | [Capture](../docs/screenshots/issue-54/income-390-unavailable.png) | [Capture](../docs/screenshots/issue-54/income-1440-unavailable.png) |
+| Career chart/evidence | [Capture](../docs/screenshots/issue-54/income-390-details.png) | [Capture](../docs/screenshots/issue-54/income-1440-details.png) |
+| Career failure evidence | [Capture](../docs/screenshots/issue-54/income-390-failure.png) | [Capture](../docs/screenshots/issue-54/income-1440-failure.png) |
+| FIRE summary | [Capture](../docs/screenshots/issue-54/fire-390-completed.png) | [Capture](../docs/screenshots/issue-54/fire-1440-completed.png) |
+| FIRE busy | [Capture](../docs/screenshots/issue-54/fire-390-busy-edited.png) | [Capture](../docs/screenshots/issue-54/fire-1440-busy-edited.png) |
+| FIRE stale | [Capture](../docs/screenshots/issue-54/fire-390-stale.png) | [Capture](../docs/screenshots/issue-54/fire-1440-stale.png) |
+| FIRE failure evidence | [Capture](../docs/screenshots/issue-54/fire-390-failure.png) | [Capture](../docs/screenshots/issue-54/fire-1440-failure.png) |
+| Spending capacity | [Capture](../docs/screenshots/issue-54/capacity-390-completed.png) | [Capture](../docs/screenshots/issue-54/capacity-1440-completed.png) |
+| Capacity unavailable | [Capture](../docs/screenshots/issue-54/capacity-390-unavailable.png) | [Capture](../docs/screenshots/issue-54/capacity-1440-unavailable.png) |
+
+[Capture text and HTTP status evidence](../docs/screenshots/issue-54/evidence.json).

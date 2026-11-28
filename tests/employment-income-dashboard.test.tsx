@@ -89,7 +89,7 @@ it("shows actionable dated failures and keeps quantified trial evidence collapse
   fireEvent.click(screen.getByRole("button", { name: "Use illustrative Ontario terms (no match)" }));
   fireEvent.click(screen.getByRole("button", { name: "Calculate income curve" }));
   await screen.findAllByText(/2027-01: Protected reserve is not funded at transition/);
-  expect(screen.getAllByText(/928,000 today/).length).toBeGreaterThan(0);
+  expect(screen.getAllByText(/928,000.00 today/).length).toBeGreaterThan(0);
   const result = responses.at(-1) as import("@/src/domain/projection/employment-income").EmploymentIncomeResult;
   expect(result.points[1].required.tested.at(-1)!.failure).toMatchObject({
     date: "2027-01", category: "reserve", shortfallToday: 928000,
@@ -143,5 +143,46 @@ it("waits for explicit calculation and never submits another request during edit
   await act(async () => { await finish(); });
   expect(screen.getByRole("button", { name: "Calculate income curve" })).toBeEnabled();
   expect(screen.getByRole("status")).toHaveTextContent(/Assumptions changed/);
+  expect(fetcher).toHaveBeenCalledTimes(1);
+});
+
+it("summarizes exact returned points, including caps and incomplete work, without solving selected ages", async () => {
+  const inputs = fireInputs();
+  const boundary = (gross: number, net: number) => ({ status: "available" as const, annualGrossToday: gross, annualNetCashToday: net, adjacentLowerFails: true, reason: "Synthetic tested boundary", testedCount: 2, tested: [] });
+  const result: import("@/src/domain/projection/employment-income").EmploymentIncomeResult = {
+    request: { retirementAge: 42, stepMonths: 12, maxAnnualGrossToday: 200000, resolutionAnnualGrossToday: 100, career: null },
+    effectiveDate: inputs.startDate, stressConfigured: true, work: { simulations: 2, simulatedMonths: 96 },
+    points: [
+      { age: 40, date: "2026-01", path: "baseline", required: boundary(24500, 20500.25), livingCosts: boundary(16000, 15000.12), terminalFinancialAssetsToday: 0, provisionalTax: true },
+      { age: 40, date: "2026-01", path: "stress", required: boundary(30000, 24000.50), livingCosts: boundary(17000, 16000), terminalFinancialAssetsToday: 0, provisionalTax: true },
+      { age: 41, date: "2027-01", path: "baseline", required: { ...boundary(0, 0), status: "not_found", annualGrossToday: null, annualNetCashToday: null, reason: "Synthetic cap reached" }, livingCosts: boundary(14000, 13000), terminalFinancialAssetsToday: null, provisionalTax: true },
+      { age: 41.9166666667, date: "2027-12", path: "baseline", required: { ...boundary(0, 0), status: "unavailable", annualGrossToday: null, annualNetCashToday: null, reason: "Synthetic work budget exhausted" }, livingCosts: { ...boundary(0, 0), status: "unavailable", annualGrossToday: null, annualNetCashToday: null, reason: "Synthetic work budget exhausted" }, terminalFinancialAssetsToday: null, provisionalTax: true },
+    ],
+  };
+  const fetcher = vi.fn(async () => Response.json(result));
+  vi.stubGlobal("fetch", fetcher);
+  render(<EmploymentIncome inputs={inputs} definitions={[]} />);
+  fireEvent.click(screen.getByLabelText("Calculate income by transition age"));
+  fireEvent.click(screen.getByRole("button", { name: "Calculate income curve" }));
+  await screen.findByLabelText("Tested transition age");
+  const summary = screen.getByLabelText("Career independence summary");
+  expect(summary).toHaveTextContent("$24,500.00 gross / year");
+  expect(summary).toHaveTextContent("$20,500.25 estimated net / year");
+  expect(summary).toHaveTextContent("$16,000.00 gross / year");
+  expect(summary).toHaveTextContent("$15,000.12 estimated net / year");
+  expect(summary).toHaveTextContent("$30,000.00 gross / year");
+  expect(summary).toHaveTextContent("retire fully at 42");
+  expect(screen.getByLabelText("Tested transition age").querySelectorAll("option")).toHaveLength(3);
+  fireEvent.change(screen.getByLabelText("Tested transition age"), { target: { value: "2027-01" } });
+  expect(summary).toHaveTextContent("Synthetic cap reached");
+  expect(summary).not.toHaveTextContent("$24,500.00");
+  expect(summary).toHaveTextContent("No result returned for this transition age");
+  fireEvent.change(screen.getByLabelText("Tested transition age"), { target: { value: "2027-12" } });
+  expect(summary).toHaveTextContent("Synthetic work budget exhausted");
+  expect(summary).not.toHaveTextContent("$0.00 gross / year");
+  expect(fetcher).toHaveBeenCalledTimes(1);
+  fireEvent.change(screen.getByLabelText("Income curve full retirement age"), { target: { value: "43" } });
+  expect(summary).not.toHaveTextContent("Synthetic work budget exhausted");
+  expect(screen.queryByLabelText("Tested transition age")).not.toBeInTheDocument();
   expect(fetcher).toHaveBeenCalledTimes(1);
 });

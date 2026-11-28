@@ -27,7 +27,10 @@ describe("optional spending capacity dashboard", () => {
     fireEvent.click(screen.getByLabelText("Calculate spending capacity"));
     expect(fetcher).not.toHaveBeenCalled();
     fireEvent.click(screen.getByLabelText(/Synthetic retirement/));
-    expect(await screen.findByRole("table", { name: "Inflation-adjusted monthly retirement lifestyle capacity" })).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Calculate spending capacity" }));
+    await screen.findByText("Monthly spending table");
+    fireEvent.click(screen.getByText("Monthly spending table"));
+    expect(screen.getByRole("table")).toBeInTheDocument();
     expect(screen.getByRole("columnheader", { name: "Difference from configured" })).toBeInTheDocument();
     expect(screen.getByText(/Source: active resolved plan/)).toBeInTheDocument();
     expect(screen.getByText(/not a probability of success/)).toBeInTheDocument();
@@ -35,6 +38,9 @@ describe("optional spending capacity dashboard", () => {
     const changed = structuredClone(input);
     changed.retirementRequirement.minimumEndingFinancialAssetsToday = 10000;
     rerender(<SpendingCapacity inputs={changed} />);
+    expect(fetcher).toHaveBeenCalledTimes(1);
+    expect(screen.queryByRole("table")).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Calculate spending capacity" }));
     await waitFor(() => expect(fetcher).toHaveBeenCalledTimes(2));
     expect(await screen.findByText(/minimum ending assets \$10,000.00/)).toBeInTheDocument();
     fireEvent.click(screen.getByLabelText("Calculate spending capacity"));
@@ -49,6 +55,7 @@ describe("optional spending capacity dashboard", () => {
     input.monthlyDiscretionarySpendingToday = 0;
     rerender(<SpendingCapacity inputs={input} />);
     fireEvent.click(screen.getByLabelText(/Synthetic retirement/));
+    fireEvent.click(screen.getByRole("button", { name: "Calculate spending capacity" }));
     expect(await screen.findByText(/positive configured discretionary spending base/)).toBeInTheDocument();
     expect(screen.queryByRole("table")).not.toBeInTheDocument();
   });
