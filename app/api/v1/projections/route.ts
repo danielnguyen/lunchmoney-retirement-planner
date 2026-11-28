@@ -1,3 +1,4 @@
+import { calculateFireMilestones } from "@/src/domain/projection/fire-milestones";
 import { parseComparisonScenarios } from "@/src/config/scenario-comparison";
 import { calculateComparison } from "@/src/domain/scenario/comparison";
 import { calculateProjection, calculateSpendingCapacity } from "@/src/domain/projection/calculate";
@@ -10,6 +11,7 @@ export async function POST(request: Request) {
       throw new Error("Projection request must contain inputs");
     }
     const inputs = validateProjectionInputs((payload as { inputs: unknown }).inputs);
+    if ("fireMilestones" in payload) return Response.json(calculateFireMilestones(inputs, payload.fireMilestones));
     if ("spendingCapacity" in payload) {
       return Response.json(calculateSpendingCapacity(inputs, payload.spendingCapacity));
     }

@@ -6,18 +6,16 @@ Public tracking must remain generic and must not contain private financial value
 
 ## Current position
 
-- Active implementation: career transition scenarios and editable FIRE presets (#46).
-- Branch: `openhands/issue-46`; clean main baseline `56e3da8d203f8f3aee211a0e0b5c202db93859d8`.
-- PR #44 merged; no open PRs at execution start. One draft capability PR only.
-- Scope: existing comparison/configuration, monthly projection indexing and surplus
-  seams, affected components/styles, synthetic tests, example config and existing docs.
-- Excluded: private data, new engines/services, automatic FIRE-date/income search,
+- Active implementation: conditional FIRE milestones (#47), branch `openhands/issue-47`.
+- Clean main baseline `4ff755971aac8345a854bdbca40fbe427b4fcb3b`; PR #49 merged
+  2026-11-28 with independent exact-head approval and successful CI/Docker checks.
+- No open PR at execution start. #46 is complete; #48 remains held.
+- Scope: existing monthly engine/configured career assumptions, projection API,
+  dashboard/charts/controls, synthetic tests and existing documentation.
+- Excluded: inverse income solver, new financial engine, optimization, private data,
   dependencies, CI permissions, merge and deployment.
-- Draft PR: [#49](https://github.com/danielnguyen/lunchmoney-retirement-planner/pull/49).
-- Local validation passed as recorded below. Independent exact-head review and hosted
-  checks remain required.
-- Next actor: independent reviewer checks the revised exact head; owner
-  alone decides readiness, merge and deployment. #47/#48 remain held.
+- Draft PR and independent review pending. Real-browser mobile geometry from #46
+  was unverified; its jsdom coverage is not a browser geometry pass.
 
 ## Planned implementation sequence
 
@@ -37,7 +35,8 @@ Public tracking must remain generic and must not contain private financial value
 | 12 | Structured housing transitions | Net-worth, debt, spending, and event models | Planned | — |
 
 | — | Inverse retirement spending capacity (#35) | Shared monthly engine and retirement requirement | Completed | [#41](https://github.com/danielnguyen/lunchmoney-retirement-planner/pull/41) |
-| — | Career transitions and editable FIRE presets (#46) | Scenario comparison and shared monthly engine | In progress | [#49](https://github.com/danielnguyen/lunchmoney-retirement-planner/pull/49) |
+| — | Conditional FIRE milestones (#47) | Career transitions and shared monthly engine | In progress | Draft publication pending |
+| — | Career transitions and editable FIRE presets (#46) | Scenario comparison and shared monthly engine | Completed | [#49](https://github.com/danielnguyen/lunchmoney-retirement-planner/pull/49) |
 | — | Configurable scenario comparison (#37) | Shared monthly projection and configured phases | Completed | [#38](https://github.com/danielnguyen/lunchmoney-retirement-planner/pull/38) |
 
 ## Delivery rules
@@ -73,8 +72,8 @@ Planning order is project-management shorthand only. Production names must descr
 
 ## New-conversation handoff
 
-Resume #46 on its existing branch/PR. Recover current GitHub head, checks and
-independent review; do not start #47 or #48 before predecessor acceptance and merge.
+Resume #47 on its existing branch/PR. Recover current GitHub head, checks and
+independent review; #46 merged in #49. Do not begin #48.
 
 ## Issue #36 execution record
 
@@ -233,3 +232,53 @@ independent review; do not start #47 or #48 before predecessor acceptance and me
 - Scope remains two domain files, the existing career test file and this index.
   Reply to both review findings, push this correction on the existing draft PR and
   reapply `openhands-review`; owner alone controls readiness, merge and deployment.
+
+## Issue #47 execution record
+
+- Live issue SHA-256 verified:
+  `36090f9817f0a27d76b9986d02bacf8febc66adb9cb145f1f1eed368591c300f`.
+- Read shared AGENTS.md, WORKFLOW.md, AUTHORITY.md, ENGINEERING.md,
+  integrations/chatgpt.md and integrations/openhands.md at
+  `f3e619116a87fa872269460aa70c74ef9157ee4f`.
+- Read target AGENTS.md, roadmap/index, plan guide, architecture, retirement
+  strategy, #46 and PR #49 merge/review/check evidence, career materialization,
+  comparison, projection/requirement/return paths, UI/API and synthetic tests.
+- Separate clean checkout at current main, repository identity verified, origin
+  credential-free. Branch created before edits; automation bundle untouched.
+  No private planner configuration read. Storage: 140 GB and 11 million inodes free.
+- Scope includes opening-boundary retirement support because Full FIRE can already
+  meet conditions at projection start. Candidate checks reuse the existing monthly
+  engine without paying for an inverse asset-requirement search at every date.
+- Initial tests caught incorrect synthetic field/type names and an empty annual
+  report at an immediate unfunded debt boundary. Forward funding checks now report
+  that stopped candidate without requiring an annual report row. No assertions or
+  budgets were weakened.
+- First complete validation: 752 tests in 46 files passed, typecheck, lint,
+  production build and Compose config passed. Additional boundary/UI validation
+  follows; final evidence is recorded below.
+- Local Docker build denied access to `/var/run/docker.sock`; no escalation.
+  Hosted exact-head Docker is required before readiness; independent review and
+  owner-only merge/deployment remain unchanged.
+- Real Chromium testing found duplicate sibling React keys between the new panel
+  and comparison, causing remounts. Added a unique panel key and a dashboard
+  integration regression with both features enabled. A fresh browser run passed
+  synthetic baseline interception plus real projection HTTP, three cards, chart
+  labels and panel geometry at mobile (390) and desktop (1440) viewport widths,
+  with no runtime exceptions. This is new #47 evidence, not a retroactive #46 pass.
+- `components/spending-capacity.tsx` is directly implicated only to export its
+  existing read-only path-rate renderer for the milestone assumptions view.
+- Final domain/API suite: 757/757 tests in 46 files passed. Typecheck, lint and
+  production build passed. The expanded mobile form check then exposed controls
+  outside the inherited comparison-card width rules; scoped milestone styles fix
+  that overflow. Focused milestone/career UI regressions and the production browser
+  were rerun after that style change.
+- Final production Chromium run passed at 390×844 and 1440×1000: opt-in calculation,
+  configured Coast/Barista terms, three result cards, conditional chart markers,
+  expanded mobile controls/cards fitting the viewport, no panel horizontal overflow
+  and no runtime exceptions. Baseline responses were synthetic; projections used
+  the real built HTTP route. No live financial data or private config was used.
+- All eight built-server HTTP export privacy/boundary checks and Compose validation
+  passed after the final build. Hosted exact-head Docker/CI and independent review
+  remain pending publication. Git author metadata was absent; commits use the
+  repository's existing OpenHands attribution via per-command environment variables,
+  without changing Git configuration.

@@ -475,6 +475,17 @@ assumptions:
 # the advanced format; do not repeat account IDs here in this simple file.
 futureEvents: []
 
+
+# Conditional FIRE milestones reuse the single-interval Coast/Barista career
+# definitions in scenarioComparison. Select their terms in the dashboard,
+# choose a full retirement age and 1/3/12-month candidate spacing, then opt in to
+# calculation. Multi-interval career scenarios remain supported by comparison;
+# they are not interpreted as single-job milestone templates. Illustrative terms
+# require explicit selection and editing; no employer match is assumed.
+# Existing account returnPath and returnScenario.inflationPath entries supply the
+# separate configured stress calculation. Without dated paths, stress is unavailable.
+# Milestone edits/results are temporary and excluded from ordinary JSON/CSV exports.
+
 # Optional synthetic career comparison. Uncomment to enable the existing
 # comparison panel and editable preset buttons. None of these amounts assert
 # affordability or actual future employer terms. Keep permanent edits in private Git.

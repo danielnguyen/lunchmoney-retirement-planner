@@ -257,3 +257,33 @@ The commented example in `config/planner.example.yaml` shows the complete shape.
 Comparison definitions and free-text employment/savings descriptions remain outside
 the existing export allowlist. No new export or storage mechanism is introduced.
 Automatic FIRE-date and minimum-income searches remain follow-up work.
+
+## Conditional milestone search
+
+The dashboard's opt-in milestone search reuses single-interval Coast/Barista
+career assumptions and the same forward monthly simulation. It checks candidates
+chronologically without a monotonicity assumption. The selectable grid is 1, 3 or
+12 months, includes its final boundary, and has a maximum of 601 dates per strategy
+and path. The range ends at the earlier of baseline and chosen full retirement:
+the model does not invent accumulation employment beyond the configured baseline.
+
+The original employment/saving/spending schedules remain intact before transition.
+Coast also consumes uncommitted surplus above protected liquidity; the candidate
+cannot rely on retained future cash to fund retirement. Barista permits spending
+withdrawals but still checks cash-funded investing and required workplace terms.
+Full FIRE stops employment and contributions at the candidate, including the
+opening month, and starts the existing retirement spending assumptions then.
+Retirement phases retain their later age boundaries, as in career comparison.
+The floor is the configured unliquidated financial-asset floor, not home equity.
+
+Candidate evidence includes every earlier failed grid date and terminal financial
+assets. No result certifies intervening untested months. Different milestone
+ordering is valid. Baseline constants and explicit dated return/inflation stress
+paths are reported separately; neither is probabilistic. Sources, effective date,
+job terms, CPP multiplier and active baseline controls are shown with the results.
+The configured CPP estimate is not a forecast of entitlement from career earnings.
+
+No independent financial engine or inverse income solver is added. Forward checks
+skip the unrelated inverse asset-requirement search. A simulation error makes the
+milestone unavailable rather than producing a date. Existing exports do not include
+these temporary definitions, candidate results or free-text job assumptions.
