@@ -8,6 +8,8 @@ Public tracking must remain generic and must not contain private financial value
 
 - Active presentation work: #54, `openhands/issue-54`, from clean main
   `198ad5dd82b86aa585bb89c558129d9f9c0d39cf`. No open PR at execution start.
+- Draft [PR #55](https://github.com/danielnguyen/lunchmoney-retirement-planner/pull/55)
+  contains #54. Current head/check/review state is owned by GitHub.
 - PR #53 is merged. #48 remains open for owner deployed financial acceptance.
 - Scope: existing dashboard state and analysis views, navigation/CSS, synthetic
   tests/browser evidence and documentation. No financial-domain, API, schema,
