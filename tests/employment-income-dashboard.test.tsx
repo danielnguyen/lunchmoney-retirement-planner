@@ -95,3 +95,23 @@ it("shows actionable dated failures and keeps quantified trial evidence collapse
   expect(screen.getByText("Income curve active funding assumptions").closest("details")).not.toHaveAttribute("open");
   expect(screen.getByLabelText("Income curve full retirement age").closest("details")).toBeNull();
 });
+
+it("returns opening reserve evidence through the projection API before immediate salary", async () => {
+  const inputs = fireInputs();
+  inputs.accounts[0].openingBalance = 0;
+  inputs.surplusAllocation.targetCashReserveToday = 1000;
+  inputs.surplusAllocation.reserveIndexingRate = 0;
+  const career = careerPreset(inputs, "reduced_income").careerTransition!;
+  career.phases[0].employment = { mode: "gross_estimate", annualGrossToday: 100000 };
+  const response = await POST(new Request("http://localhost/api/v1/projections", {
+    method: "POST", body: JSON.stringify({ inputs, employmentIncome: {
+      career, retirementAge: 42, stepMonths: 12, maxAnnualGrossToday: 100000, resolutionAnnualGrossToday: 100,
+    } }),
+  }));
+  expect(response.status).toBe(200);
+  const result = await response.json();
+  expect(result.points[0].required.status).toBe("not_found");
+  expect(result.points[0].required.tested.at(-1).failure).toMatchObject({
+    date: "2026-01", category: "reserve", shortfallToday: 1000,
+  });
+});

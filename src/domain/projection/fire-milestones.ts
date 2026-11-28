@@ -2,7 +2,7 @@ import type { ProjectionInputsWithReturnPaths } from "./return-path-model";
 import type { CareerTransitionConfig, CareerPhaseConfig } from "@/src/config/types";
 import { parseCareerTransition } from "@/src/config/scenario-comparison";
 import { applyCareerTransition } from "@/src/domain/scenario/career";
-import { evaluateMilestoneFunding } from "./calculate";
+import { evaluateMilestoneFunding, openingReserveShortfall } from "./calculate";
 import { validateProjectionInputs, type ProjectionInputs, type FundingFailure } from "./types";
 
 export type FireKind = "coast" | "barista" | "full";
@@ -104,6 +104,11 @@ export function evaluateCareerFunding(inputs: ProjectionInputs, age: number, ret
     failure = evidence;
     reason = `${evidence.date}: ${evidence.message} ${evidence.action}`;
   };
+  if (Math.abs(age - inputs.person.currentAge) < 1e-8) {
+    const shortfallToday = openingReserveShortfall(inputs);
+    if (shortfallToday > .005) fail({ date: lastDate, category: "reserve", shortfallToday,
+      message: "Protected reserve is not funded at transition.", action: "Build the reserve before transition or choose a later transition." });
+  }
   const inCareer = (at: number) => at >= age - 1e-8 && at < retirementAge - 1e-8;
   const result = evaluateMilestoneFunding(inputs, {
     cashConstrainedPersonalContributionsAtAge: at => at >= age - 1e-8,

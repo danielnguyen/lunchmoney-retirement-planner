@@ -233,3 +233,19 @@ it("preserves quantified first failures for cap exhaustion, adjacent failure, wi
   r.career!.phases[0].contributions = [{ accountId: p.accounts[1].id, monthlyAmountToday: 100, employerMonthlyAmountToday: 0, funding: "income_withheld", requirement: "required", sourceDescription: "Synthetic withholding" }];
   expect(calculateEmploymentIncome(p, r).points[0].required.tested[0].failure).toMatchObject({ date: "2026-01", category: "required_savings", shortfallToday: 100 });
 });
+
+it("rejects an immediate income transition before its salary replenishes the opening reserve", () => {
+  const p = fireInputs(), r = request(p);
+  p.accounts[0].openingBalance = 0;
+  p.surplusAllocation.targetCashReserveToday = 1000;
+  p.surplusAllocation.reserveIndexingRate = 0;
+  const result = calculateEmploymentIncome(p, r);
+  const first = result.points[0];
+  expect(first.required.status).toBe("not_found");
+  expect(first.required.tested.every(t => !t.passes && t.failure?.date === "2026-01" &&
+    t.failure.category === "reserve" && t.failure.shortfallToday === 1000)).toBe(true);
+  expect(first.livingCosts.status).toBe("available");
+  expect(result.points[1].required.status).toBe("available");
+  p.accounts[0].openingBalance = 1000;
+  expect(calculateEmploymentIncome(p, r).points[0].required.status).toBe("available");
+});

@@ -1446,6 +1446,26 @@ function restoreMap<K, V>(target: Map<K, V>, source: ReadonlyMap<K, V>): void {
   for (const [key, value] of source) target.set(key, value);
 }
 
+/** Shared reserve policy for opening eligibility and monthly funding checks. */
+function reserveFundingShortfall(inputs: ProjectionInputs, balances: ReadonlyMap<string, number>, month: number): number {
+  const policy = inputs.surplusAllocation;
+  const reserveBalance = policy.reserveAccountIds.reduce((total, id) => total + (balances.get(id) ?? 0), 0);
+  const reserveGap = Math.max(0, policy.targetCashReserveToday * indexedFactor(policy.reserveIndexingRate, month) - reserveBalance);
+  const simplePolicy = inputs.savingsPolicy.mode === "simple" ? inputs.savingsPolicy : null;
+  if (!simplePolicy?.operatingCashTarget) return reserveGap;
+  const operatingGap = Math.max(0,
+    simplePolicy.operatingCashTarget.targetToday * indexedFactor(simplePolicy.operatingCashTarget.indexingRate, month) -
+    (balances.get(simplePolicy.operatingCashAccountId) ?? 0),
+  );
+  return simplePolicy.reserveAccountIds.includes(simplePolicy.operatingCashAccountId)
+    ? Math.max(reserveGap, operatingGap) : reserveGap + operatingGap;
+}
+
+/** Before salary, returns, events or any other first-month cash flow. */
+export function openingReserveShortfall(inputs: ProjectionInputs): number {
+  return reserveFundingShortfall(inputs, new Map(inputs.accounts.map(account => [account.id, account.openingBalance])), 0);
+}
+
 type MilestoneFundingEvaluation = { failure?: FundingFailure; complete: boolean; terminalFinancialAssetsToday: number; terminalFloorMet: boolean; provisionalTax: boolean };
 function simulateProjection(rawInputs: ProjectionInputs, options: RetirementSimulationOptions & { fundingCheckOnly: true }): MilestoneFundingEvaluation;
 function simulateProjection(rawInputs: ProjectionInputs, options?: RetirementSimulationOptions): SimulationOutcome;
@@ -3051,19 +3071,7 @@ function simulateProjection(
       liabilityCashPayment;
 
     // Comparison is opt-in. Existing projections retain their funding policy.
-    const reserveDeficit = () => {
-      const reserveBalance = inputs.surplusAllocation.reserveAccountIds.reduce(
-        (total, id) => total + (balances.get(id) ?? 0), 0,
-      );
-      const reserveGap = Math.max(0, monthlyFlow.surplusAllocation.reserveTarget - reserveBalance);
-      if (!simplePolicy?.operatingCashTarget) return reserveGap;
-      const operatingGap = Math.max(0,
-        simplePolicy.operatingCashTarget.targetToday * indexedFactor(simplePolicy.operatingCashTarget.indexingRate, month) -
-        (balances.get(simplePolicy.operatingCashAccountId) ?? 0),
-      );
-      return simplePolicy.reserveAccountIds.includes(simplePolicy.operatingCashAccountId)
-        ? Math.max(reserveGap, operatingGap) : reserveGap + operatingGap;
-    };
+    const reserveDeficit = () => reserveFundingShortfall(inputs, balances, month);
     if (!simplePolicy) {
       for (const route of inputs.contributionWaterfall.routes) {
         const available = (options.cashConstrainedPersonalContributions || options.cashConstrainedPersonalContributionsAtAge?.(workingAge))

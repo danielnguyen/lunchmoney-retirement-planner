@@ -663,7 +663,9 @@ registered room is not an unfunded required outflow. Preserve ordinary accumulat
 flows, mandatory withholding and required career contributions. Per the resolved
 #48 owner decision, historical reserve buildup may recover before transition;
 require funded reserves at transition and throughout the subsequent horizon,
-including retirement. Do not waive a later deficit because an earlier one recovered.
+including retirement. At projection start, check opening balances before the first
+salary, return or event; first-month replenishment is not pre-transition recovery.
+Do not waive a later deficit because an earlier one recovered.
 Carry each trial's first failing month, category, today-dollar shortfall or
 disallowed funding, and actionable explanation through the API and collapsed
 evidence. Keep core results and retirement controls prominent; ordinary salary

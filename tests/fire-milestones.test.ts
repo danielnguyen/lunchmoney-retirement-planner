@@ -262,3 +262,40 @@ describe("shared funding acceptance corrections", () => {
     expect(evaluateFireCandidate(reserve, fireRequest(reserve), "full", 42).passes).toBe(false);
   });
 });
+
+it("requires reserves before immediate FIRE, even when first-month salary fills the gap", () => {
+  const p = fireInputs(), r = fireRequest(p);
+  p.accounts[0].openingBalance = 0;
+  p.surplusAllocation.targetCashReserveToday = 1000;
+  p.surplusAllocation.reserveIndexingRate = 0;
+  r.barista!.phases[0].employment = { mode: "gross_estimate", annualGrossToday: 100000 };
+  const candidate = materializeFireCandidate(p, r, "barista", 40);
+  let firstMonthReserve: number | undefined;
+  evaluateMilestoneFunding(candidate, { onMonth: m => { firstMonthReserve ??= m.reserveShortfall; } });
+  expect(firstMonthReserve).toBe(0); // The salary cures the deficit too late.
+  for (const kind of ["full", "coast", "barista"] as const) {
+    expect(evaluateFireCandidate(p, r, kind, 40).failure).toMatchObject({ date: "2026-01", category: "reserve", shortfallToday: 1000 });
+  }
+  expect(calculateFireMilestones(p, r).results.find(x => x.kind === "barista")!.status).toBe("future");
+  p.accounts[0].openingBalance = 1000;
+  expect(evaluateFireCandidate(p, r, "barista", 40).passes).toBe(true);
+});
+
+it.each([true, false])("uses the same opening operating-cash protection when reserve membership is %s", async shared => {
+  const { constrainedSavingInputs } = await import("./fixtures/fire-milestones");
+  const { openingReserveShortfall } = await import("@/src/domain/projection/calculate");
+  const p = constrainedSavingInputs("cash");
+  if (p.savingsPolicy.mode !== "simple") throw new Error("Expected simple fixture");
+  p.accounts[0].openingBalance = 0;
+  p.savingsPolicy.operatingCashTarget = { targetToday: 2000, indexingRate: .03 };
+  p.surplusAllocation.targetCashReserveToday = 1000;
+  if (!shared) {
+    const reserve = { ...structuredClone(p.accounts[0]), id: "synthetic:reserve" };
+    p.accounts.push(reserve);
+    p.savingsPolicy.reserveAccountIds = p.surplusAllocation.reserveAccountIds = [reserve.id];
+    p.savingsPolicy.reserveRefillAccountId = p.surplusAllocation.reserveRefillAccountId = reserve.id;
+  }
+  const expected = shared ? 2000 : 3000;
+  expect(openingReserveShortfall(p)).toBe(expected);
+  expect(evaluateFireCandidate(p, fireRequest(p), "barista", 40).failure).toMatchObject({ category: "reserve", shortfallToday: expected });
+});

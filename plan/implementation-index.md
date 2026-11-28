@@ -405,3 +405,32 @@ independent review. #46 merged in #49; #47 merged in #50.
   New-head hosted Docker/CI and independent review remain required. Restore
   generated next-env declaration; retain only ignored build/dependency output.
   Issue #48 remains subject to owner deployed acceptance after merge.
+
+## PR #51 opening-transition correction
+
+- Continued from clean exact head `47d435a05c4954167227257f5e62712654eb24f8`
+  on the existing branch. Current issue, all reviews/inline comments/discussion and
+  checks read directly from GitHub. The latest independent review confirms the
+  prior two fixes and identifies one remaining opening-reserve defect.
+- Shared policy revision remains `f3e619116a87fa872269460aa70c74ef9157ee4f`;
+  the previously read shared instructions still apply. Re-read target AGENTS,
+  relevant roadmap/index and affected engine/evaluator/tests. Main and the issue
+  body hash recorded above are unchanged. PR #51 remains the only open PR.
+- Bounded scope: shared reserve calculation, career eligibility, existing synthetic
+  tests/browser/API checks and roadmap/index. No dependencies, workflows, private
+  configuration, new PR, readiness, merge or deployment changes.
+- Reuse the engine's reserve-account, indexed-target and operating-cash calculation
+  for opening eligibility. Immediate transitions now fail before salary, returns
+  or events can refill the reserve. Later-transition and subsequent-month checks
+  remain intact; ordinary forward monthly calculations use the same extracted rule.
+- Regressions cover immediate income and Full/Coast/Barista candidates, first-month
+  salary replenishment, funded-opening and recovered-later controls, and shared
+  versus separate operating-cash reserve accounts. API and production-browser
+  checks retain the opening month and quantified 1,000 reserve shortfall.
+- Executed: 797 tests in 48 files, typecheck, lint, production build, Compose,
+  production Chromium at 390px/1440px and eight HTTP export/privacy checks pass.
+  Local Docker build denied socket access; no escalation. Hosted new-head
+  CI/Docker and independent exact-head review remain required.
+- Prior independent findings need no further changes: the latest review confirms
+  their fixes, and the full regression suite still passes. Owner deployed
+  acceptance remains pending after merge; #48 stays open.
