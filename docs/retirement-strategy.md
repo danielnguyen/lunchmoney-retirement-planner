@@ -151,3 +151,109 @@ taxes and terminal liquidation assets with static priority, including adverse
 paths and the terminal floor. A tax reduction alone is not evidence of improvement.
 The [README](../README.md#retirement-spendable-cash-and-registered-bridge-withdrawals)
 defines monthly indexing, partial periods, infeasibility and surplus routing.
+
+## Career transitions, Coast and Barista scenarios
+
+An optional `careerTransition` within an existing `scenarioComparison` definition
+replaces employment, spending and savings from a selected transition age through
+full retirement. Earlier baseline phases are preserved. Retirement spending keeps
+its existing age boundaries; the first applicable retirement phase extends back
+to an earlier retirement date. No baseline inputs are mutated. Add an unchanged
+baseline definition (`spending: []`, `personalContributions: []`,
+`contributionPolicy: configured_fixed_plan`) alongside alternatives.
+
+The existing comparison offers reduced-income, Coast, Barista and combined
+Coast-to-Barista starters. They illustrate half the first baseline employment
+amounts, unchanged spending, inflation-paced growth, zero saving and zero employer
+match. These are editable illustrations, not market averages, forecasts or
+recommendations. Missing baseline taxable/eligible earnings use visible zero
+placeholders that must be replaced before relying on the plan. Split and name phases, choose accumulation/Coast/Barista, and edit
+income, spending, savings, full retirement and a lower CPP benefit test. A positive
+result is conditional on those assumptions, including the active return path.
+
+Each interval includes its start and excludes its end. Phases must be contiguous,
+non-overlapping, ordered and aligned to projection months. Transition must fall
+within the baseline working life; full retirement cannot exceed the horizon.
+Career income and contributions are expressed in today's dollars, inflated using
+the actual configured inflation path up to the phase start, then indexed using
+that phase's annual growth. Existing baseline indexing remains unchanged.
+
+Coast verification inspects actual monthly flows. Retirement investment deposits
+(including required withholding, optional saving, employer additions and automatic
+surplus investing) or withdrawals during Coast prevent verification. Required
+outflows and both reserve and operating liquidity targets must be funded. Optional
+cash-funded savings can be capped to zero under the cash-constrained policy; this
+is disclosed in planned versus actual deposits. Required savings and withheld
+amounts cannot remain unallocated. A Coast label alone never establishes success. Savings after the first Coast phase
+also prevent verification, even if a later phase is named accumulation or Barista.
+To avoid certifying a plan that depends on growing cash savings, a second run of
+the same engine consumes uncommitted surplus above protected liquidity from the
+first Coast phase through full retirement. It must meet working-life cash needs
+and the retirement terminal floor without that saving. Its funding margin is shown
+separately; the actual scenario ledger and balances remain unchanged.
+
+Barista permits intentional spending-funded withdrawals only inside selected
+Barista intervals. Withdrawals outside those working-life intervals, cash-funded
+investments exceeding current available income, unfunded expenses, unserved debt
+or a reserve breach fail the plan. Working-life cash feasibility is separate from
+full-horizon viability, which also requires the shared retirement requirement and
+terminal floor to pass. When any career scenario is selected, all comparison
+allocation ledgers cover the full horizon, including the unchanged baseline.
+
+### Hypothetical job terms
+
+Choose either independent net/taxable/RRSP-room-eligible earnings or explicitly
+select the Ontario gross-pay estimate. Net overrides are deposited cash **after**
+payroll deductions and employee withholding; the engine never taxes that cash a
+second time. Taxable employment still informs the annual tax brackets and benefit
+recovery. RRSP-eligible earnings, pension adjustments and other room reductions are
+separate and feed the existing registered-room ledger.
+
+The gross estimate uses the existing annual Canada/Ontario income-tax model and
+[CRA's January 2026 Ontario tables](https://www.canada.ca/en/revenue-agency/services/forms-publications/payroll/t4032-payroll-deductions-tables/t4032on-jan/t4032on-january-general-information.html)
+and [2026 payroll formulas](https://www.canada.ca/en/revenue-agency/services/forms-publications/payroll/payroll-deductions-t4127-payroll-deductions-formulas/t4127-jan-122nd-edition-effective-january-1-2026/t4127-jan-payroll-deductions-formulas-computer-programs.html).
+It deducts employee CPP at 5.95% between $3,500 and $74,600, CPP2 at 4% between
+$74,600 and $85,000, and EI at 1.63% up to $68,900. The supported age range is
+18–64; other ages require explicit overrides.
+
+This is an annual planning approximation, not payroll software: annualized net pay
+is divided by 12, including partial years. It does not recompute annual caps across
+jobs, partial-year refunds, or tax relief from CPP/EI credits, enhanced CPP or RRSP
+deductions. The supported tax model therefore gives conservative net estimates.
+For reproducible 2026 single-person cases with no other income or deductions:
+
+| Annual gross | Estimated deposited cash before employee savings |
+|---|---|
+| $30,000 | $25,088.61 |
+| $60,000 | $46,453.14 |
+| $85,000 | $62,460.87 |
+
+These are model outputs, not CRA paycheque quotes. The estimate is calculated in
+2026 dollars and indexed as a phase amount; future payroll rules are not forecast.
+The UI shows dated provenance, limitations and resolved net/taxable/eligible inputs.
+
+Savings select existing contribution routes: in simple mode, personal TFSA for
+cash-funded saving (then the existing waterfall), or workplace RRSP for withholding.
+Employee and employer amounts are separately editable. Estimated gross mode
+subtracts employee withholding once; net overrides already include it. Employer
+match tax treatment is unavailable in estimated mode, so a nonzero employer amount
+requires explicit net, taxable and eligible overrides that include those terms.
+An illustrative dollar-for-dollar match can be entered as equal employee/employer
+amounts, but is not presented as an employer promise or market average. Pension
+valuation, unknown insurance benefits and taxable benefit valuation are unavailable;
+enter their known cash costs and taxable effects through explicit overrides.
+
+CPP entitlement is not recomputed from hypothetical earnings. The configured CPP
+estimate remains under user control; a 0–1 multiplier offers an explicit lower
+benefit sensitivity test. OAS, pension, liabilities, taxes, room, reserves, terminal
+floor and deterministic return paths continue through the same monthly engine.
+
+### Persistence and privacy
+
+Comparison edits and preset selection stay temporary. Permanent definitions belong
+in the owner's private Git-managed YAML. Use the existing explicit sync, or the
+existing Save config action where enabled; no automatic writes or sync occur.
+The commented example in `config/planner.example.yaml` shows the complete shape.
+Comparison definitions and free-text employment/savings descriptions remain outside
+the existing export allowlist. No new export or storage mechanism is introduced.
+Automatic FIRE-date and minimum-income searches remain follow-up work.

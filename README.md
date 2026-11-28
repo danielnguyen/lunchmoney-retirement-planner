@@ -611,3 +611,13 @@ The existing inverse phase-spending analysis uses the active bridge strategy whe
 no fixed target is set. With a fixed target it returns an explicit unavailable
 reason: remove that target before solving discretionary phase capacity, since it
 would otherwise override the solver's candidate spending.
+
+Career transition comparisons can now start from editable reduced-income, Coast,
+Barista or combined presets within Scenario Comparison. Configure explicit career
+intervals, full retirement, future job cash/tax/room assumptions and savings;
+compare actual cash funding separately from lifetime retirement viability. An
+optional, dated Ontario payroll approximation and independent overrides make
+unknown job terms visible. Presets are illustrations, not forecasts. See
+[career transition assumptions and limits](docs/retirement-strategy.md#career-transitions-coast-and-barista-scenarios)
+and the commented example in `config/planner.example.yaml`. Permanent settings stay
+in private Git-managed YAML; browser changes remain temporary.

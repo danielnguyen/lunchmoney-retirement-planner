@@ -38,6 +38,7 @@ export type OasBenefitInput = {
 };
 
 export type EmploymentIncomePhase = {
+  phaseLocalIndexing?: boolean;
   id: string;
   label: string;
   startAge: number;
@@ -77,6 +78,7 @@ export type PersonInput = {
 };
 
 export type ContributionPhase = {
+  phaseLocalIndexing?: boolean;
   id: string;
   label: string;
   startAge: number;
@@ -1557,6 +1559,7 @@ export function validateProjectionInputs(value: unknown): ProjectionInputs {
   const employmentIds = new Set<string>();
   for (const [index, phase] of input.person.employmentIncomePhases.entries()) {
     const field = `employmentIncomePhases[${index}]`;
+    if (phase.phaseLocalIndexing !== undefined && typeof phase.phaseLocalIndexing !== "boolean") throw new Error(`${field}.phaseLocalIndexing must be boolean`);
     assertNonEmptyString(`${field}.id`, phase.id);
     assertNonEmptyString(`${field}.label`, phase.label);
     if (employmentIds.has(phase.id)) {
@@ -1703,6 +1706,7 @@ export function validateProjectionInputs(value: unknown): ProjectionInputs {
     const contributionIds = new Set<string>();
     for (const [index, phase] of account.contributionPhases.entries()) {
       const field = `contributionPhases[${index}] for ${account.id}`;
+      if (phase.phaseLocalIndexing !== undefined && typeof phase.phaseLocalIndexing !== "boolean") throw new Error(`${field}.phaseLocalIndexing must be boolean`);
       assertNonEmptyString(`${field}.id`, phase.id);
       assertNonEmptyString(`${field}.label`, phase.label);
       if (contributionIds.has(phase.id)) {

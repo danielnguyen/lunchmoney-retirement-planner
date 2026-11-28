@@ -6,19 +6,18 @@ Public tracking must remain generic and must not contain private financial value
 
 ## Current position
 
-- Active implementation: tax-aware retirement drawdown and spendable cash (#36).
-- Branch: `openhands/issue-36`, baseline `24975ab4e411bcba73c57d2ddbeefe02aeb6a596`.
-- #35 and #39 are closed; inverse capacity merged in PR #41. No open PR at start.
-- Scope: typed configuration, monthly withdrawal/target/ledger seams, existing
-  funding chart, synthetic tests, README, architecture, strategy and roadmap docs.
-- Excluded: private financial inputs, alternate engines, dependencies, CI privileges,
-  merge and deployment. One draft PR; independent exact-head review required.
-- Validation: 708 tests in 42 files passed; typecheck, lint, production build,
-  Compose config and eight built-server synthetic HTTP/export checks passed.
-- Local Docker build: socket permission denied, with no escalation. Hosted
-  exact-head Docker validation and independent review remain required before readiness.
-- Draft PR: [#44](https://github.com/danielnguyen/lunchmoney-retirement-planner/pull/44),
-  head branch `openhands/issue-36`. GitHub owns its changing head and review state.
+- Active implementation: career transition scenarios and editable FIRE presets (#46).
+- Branch: `openhands/issue-46`; clean main baseline `56e3da8d203f8f3aee211a0e0b5c202db93859d8`.
+- PR #44 merged; no open PRs at execution start. One draft capability PR only.
+- Scope: existing comparison/configuration, monthly projection indexing and surplus
+  seams, affected components/styles, synthetic tests, example config and existing docs.
+- Excluded: private data, new engines/services, automatic FIRE-date/income search,
+  dependencies, CI permissions, merge and deployment.
+- Draft PR: [#49](https://github.com/danielnguyen/lunchmoney-retirement-planner/pull/49).
+- Local validation passed as recorded below. Independent exact-head review and hosted
+  checks remain required.
+- Next actor: independent reviewer checks the revised exact head; owner
+  alone decides readiness, merge and deployment. #47/#48 remain held.
 
 ## Planned implementation sequence
 
@@ -34,10 +33,11 @@ Public tracking must remain generic and must not contain private financial value
 | 8 | Retirement funding requirement and terminal balance | Spending phases and retirement projection | Completed | [#24](https://github.com/danielnguyen/lunchmoney-retirement-planner/pull/24) |
 | 9 | RRIF minimum withdrawals and Canadian retirement taxes | Surplus policy, debt model, spending phases, and requirement contract | Completed | [#25 annual tax](https://github.com/danielnguyen/lunchmoney-retirement-planner/pull/25), [#26 RRIF](https://github.com/danielnguyen/lunchmoney-retirement-planner/pull/26), [#27 non-registered tax](https://github.com/danielnguyen/lunchmoney-retirement-planner/pull/27) |
 | 10 | Deterministic return paths and sequence-risk scenarios | Reconciled deterministic projection | Completed | [#33](https://github.com/danielnguyen/lunchmoney-retirement-planner/pull/33) |
-| 11 | Tax-aware retirement withdrawal strategies | Annual Canadian tax, RRIF, non-registered tax, retirement requirement, and deterministic return paths | In progress | [#44](https://github.com/danielnguyen/lunchmoney-retirement-planner/pull/44) |
+| 11 | Tax-aware retirement withdrawal strategies | Annual Canadian tax, RRIF, non-registered tax, retirement requirement, and deterministic return paths | Completed | [#44](https://github.com/danielnguyen/lunchmoney-retirement-planner/pull/44) |
 | 12 | Structured housing transitions | Net-worth, debt, spending, and event models | Planned | — |
 
 | — | Inverse retirement spending capacity (#35) | Shared monthly engine and retirement requirement | Completed | [#41](https://github.com/danielnguyen/lunchmoney-retirement-planner/pull/41) |
+| — | Career transitions and editable FIRE presets (#46) | Scenario comparison and shared monthly engine | In progress | [#49](https://github.com/danielnguyen/lunchmoney-retirement-planner/pull/49) |
 | — | Configurable scenario comparison (#37) | Shared monthly projection and configured phases | Completed | [#38](https://github.com/danielnguyen/lunchmoney-retirement-planner/pull/38) |
 
 ## Delivery rules
@@ -73,8 +73,8 @@ Planning order is project-management shorthand only. Production names must descr
 
 ## New-conversation handoff
 
-Resume #36 on its existing branch/PR. Recover current GitHub head, checks and
-independent review; do not start another roadmap capability before merge.
+Resume #46 on its existing branch/PR. Recover current GitHub head, checks and
+independent review; do not start #47 or #48 before predecessor acceptance and merge.
 
 ## Issue #36 execution record
 
@@ -159,3 +159,77 @@ independent review; do not start another roadmap capability before merge.
 - Correction: 24 focused tests passed; full 708/708 tests in 42 files passed.
   Typecheck, lint, build, Compose and eight production HTTP export checks passed.
   Hosted CI/Docker and independent review must confirm the corrected exact head.
+
+## Issue #46 execution record
+
+- Verified live issue SHA-256 `056644e212d269aef31d5f59b5b394191f68e659676d789b64d0ffce3190bf54`.
+- Worker read shared AGENTS.md, WORKFLOW.md, AUTHORITY.md, ENGINEERING.md,
+  integrations/openhands.md and integrations/chatgpt.md at
+  `07079695e12e52afe374cd754a7295817e957e1e`.
+- Read target AGENTS.md, roadmap, implementation index, plan guide, architecture,
+  retirement strategy, Git-managed config instructions, #37/PR #38 and PR #44 state,
+  comparison/parser/editor, monthly engine, tax ledger and synthetic tests.
+- Checkout is isolated from the automation bundle; origin has no credentials.
+  Verified branch and main before editing. No existing changes or private config read.
+- Storage preflight: 142 GB free and more than 11 million free inodes.
+- Reused comparison materialization and the shared monthly engine, annual tax and
+  retirement requirement. No alternate financial engine or new runtime dependency.
+- Directly implicated new files: career scenario materialization, dated payroll
+  approximation, career controls and focused synthetic tests. Existing monthly
+  engine changes are limited to opt-in career indexing and surplus retention.
+- Initial focused checks exposed a duplicated spending-phase ID after moving
+  retirement and empty savings routes after removing all career contributions.
+  Both are corrected without weakening validation; zero-saving routes remain explicit.
+- Gross estimates deliberately disclose the existing tax model's payroll-credit
+  limitations and partial-year annualization. Unknown employer-match taxation requires
+  explicit overrides; no actual employer benefits or CPP entitlement are invented.
+
+- Canonical task-brief SHA-256 (sorted JSON keys, compact separators):
+  `5d5e14ed79c6210069122aa8217ad9b5ce9d767020257f1cd3d72d3f33238063`.
+- Self-review identified retained cash as a possible hidden dependency on continued
+  saving. Coast now also runs the existing engine without uncommitted surplus from
+  first Coast through retirement; it cannot certify a cash-savings-dependent plan.
+- Final local validation: 739 tests in 44 files passed; typecheck, lint and
+  production build passed. Focused coverage includes real UI-to-API calculations,
+  full-horizon cash ledgers, no-saving Coast counterfactuals, Barista intervals,
+  payroll/room/withholding, CPP sensitivity, config examples and adverse paths.
+- Local Docker build was attempted and denied at `/var/run/docker.sock`; no
+  escalation. Compose config passed. Existing PR Docker CI must validate the final
+  head before readiness. Chromium could not establish a local debugging connection;
+  no browser geometry pass is claimed. The attempted browser harness was removed;
+  accessible controls and UI-to-engine behavior are covered by jsdom tests.
+- Export privacy regressions passed in the full suite. All eight built-server
+  HTTP/export boundary checks passed after the final production build.
+
+- Published draft PR #49 from the tested implementation commit `d39691be411f759152bf53bc8d9da2eac65dc790`.
+  This documentation-only follow-up records the PR link. GitHub owns the final head
+  and changing check/review status. Request `openhands-review` after this update is pushed.
+- Git author metadata was absent in the checkout. Used the repository's existing
+  OpenHands bot attribution through per-command environment variables; no Git
+  configuration was changed.
+
+## PR #49 review corrections
+
+- Resumed a clean checkout at requested head `47595843d95e7e55c2233dcab12da9a63f176516`.
+  Issue hash, current main and shared policy revision remain unchanged from the
+  execution record above. Read current review, both inline findings, discussion
+  and checks directly from GitHub; no failing checks or other open PRs were present.
+- Career cash retention now funds separate operating/reserve targets before
+  retaining the remainder, without investment sweeping. Target-funding attribution
+  reflects actual transfers; total cash and contribution reconciliation remains
+  exact to the cent. Ordinary non-career policy behavior is unchanged.
+- Reserve and unallocated-withholding eligibility use each scenario's own career
+  configuration. Adding an alternative changes the ledger horizon without changing
+  baseline feasibility, lifetime viability, warnings, summary or first shortfall.
+- Four synthetic regression cases fail against the reviewed implementation and
+  pass with the fixes. Coverage includes both simple unplanned-cash policies,
+  separate reserve accounts, actual and no-saving Coast flows, and independent
+  baseline reserve/withholding cases. Reused the existing simple-policy fixture setup.
+- Validation: all 743 tests in 44 files, typecheck, lint, production build, Compose
+  config and eight production HTTP/export checks passed. The strengthened isolated
+  withholding regression also passed after the full-suite run. Local Docker build
+  remains denied by socket permissions; hosted exact-head Docker validation is
+  required. No browser geometry validation is claimed for these domain corrections.
+- Scope remains two domain files, the existing career test file and this index.
+  Reply to both review findings, push this correction on the existing draft PR and
+  reapply `openhands-review`; owner alone controls readiness, merge and deployment.

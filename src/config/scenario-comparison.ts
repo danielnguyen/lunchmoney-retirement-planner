@@ -1,4 +1,4 @@
-import type { ComparisonScenarioConfig, PlannerConfig } from "./types";
+import type { ComparisonScenarioConfig, CareerTransitionConfig, CareerPhaseConfig, PlannerConfig } from "./types";
 import { PlannerRuntimeError } from "@/src/runtime/errors";
 
 function invalid(message: string): never {
@@ -30,7 +30,7 @@ function unique(values: string[]) {
 export function parseComparisonScenarios(value: unknown): ComparisonScenarioConfig[] {
   const scenarios = array(value).map((raw): ComparisonScenarioConfig => {
     const item = object(raw);
-    keys(item, ["id", "label", "spending", "personalContributions", "contributionPolicy"]);
+    keys(item, ["id", "label", "spending", "personalContributions", "contributionPolicy", "careerTransition"]);
     if (item.contributionPolicy !== "configured_fixed_plan" && item.contributionPolicy !== "cash_constrained") invalid("choose an explicit contributionPolicy");
     const spending = array(item.spending).map((raw) => {
       const entry = object(raw);
@@ -55,7 +55,7 @@ export function parseComparisonScenarios(value: unknown): ComparisonScenarioConf
     });
     unique(spending.map((entry) => entry.phaseId));
     unique(personalContributions.map((entry) => `${entry.target.mode === "account" ? entry.target.accountId : "personal_investing"}/${entry.phaseId}`));
-    return { id: label(item.id), label: label(item.label), spending, personalContributions, contributionPolicy: item.contributionPolicy } as ComparisonScenarioConfig;
+    return { ...(item.careerTransition === undefined ? {} : { careerTransition: parseCareerTransition(item.careerTransition) }), id: label(item.id), label: label(item.label), spending, personalContributions, contributionPolicy: item.contributionPolicy } as ComparisonScenarioConfig;
   });
   unique(scenarios.map((scenario) => scenario.id));
   return scenarios;
@@ -63,6 +63,14 @@ export function parseComparisonScenarios(value: unknown): ComparisonScenarioConf
 
 export function validateComparisonReferences(scenarios: ComparisonScenarioConfig[], config: PlannerConfig): void {
   for (const scenario of scenarios) {
+    const career = scenario.careerTransition;
+    if (career) {
+      if (career.transitionAge < config.currentAge || career.transitionAge > config.retirementAge || career.retirementAge > config.projectionEndAge) invalid("career ages must stay within the baseline working life and projection horizon");
+      for (const phase of career.phases) {
+        for (const age of [phase.startAge, phase.endAge]) if (Math.abs((age - config.currentAge) * 12 - Math.round((age - config.currentAge) * 12)) > 1e-7) invalid("career ages must align to projection months");
+        for (const contribution of phase.contributions) if (!config.accountMappings[contribution.accountId]?.include && !config.projectionAccounts?.[contribution.accountId]) invalid("career contribution must reference an included or projection account");
+      }
+    }
     for (const entry of scenario.spending) {
       const phase = config.spendingPhases?.find((phase) => phase.id === entry.phaseId);
       if (!phase) invalid("spending selection must reference an explicit existing phase");
@@ -78,4 +86,43 @@ export function validateComparisonReferences(scenarios: ComparisonScenarioConfig
       if (!phase || ("funding" in phase && phase.funding !== "cash")) invalid("personal contribution selection must reference an existing cash-funded phase");
     }
   }
+}
+
+export function parseCareerTransition(value: unknown): CareerTransitionConfig {
+  const item = object(value);
+  keys(item, ["transitionAge", "retirementAge", "cppBenefitMultiplier", "phases"]);
+  const transitionAge = amount(item.transitionAge);
+  const retirementAge = amount(item.retirementAge);
+  const cppBenefitMultiplier = amount(item.cppBenefitMultiplier);
+  if (cppBenefitMultiplier > 1) invalid("CPP lower-benefit multiplier must be between zero and one");
+  const phases = array(item.phases).map((raw): CareerPhaseConfig => {
+    const p = object(raw);
+    keys(p, ["id", "label", "kind", "startAge", "endAge", "annualGrowth", "employment", "annualPensionAdjustmentToday", "annualOtherRoomReductionToday", "essentialMultiplier", "discretionaryMultiplier", "surplusInvesting", "contributions"]);
+    if (!["accumulation", "coast", "barista"].includes(String(p.kind))) invalid("unknown career phase kind");
+    if (!["retain_as_cash", "configured"].includes(String(p.surplusInvesting))) invalid("choose surplus investing policy");
+    if (typeof p.annualGrowth !== "number" || !Number.isFinite(p.annualGrowth) || p.annualGrowth < -.2 || p.annualGrowth > .5) invalid("career growth must be between -0.2 and 0.5");
+    const e = object(p.employment);
+    keys(e, e.mode === "gross_estimate" ? ["mode", "annualGrossToday"] : ["mode", "annualNetCashToday", "annualTaxableEmploymentIncomeToday", "annualEligibleEarnedIncomeToday"]);
+    if (e.mode !== "gross_estimate" && e.mode !== "net_override") invalid("select gross estimate or explicit employment overrides");
+    const employment: CareerPhaseConfig["employment"] = e.mode === "gross_estimate"
+      ? { mode: e.mode, annualGrossToday: amount(e.annualGrossToday) }
+      : { mode: e.mode, annualNetCashToday: amount(e.annualNetCashToday), annualTaxableEmploymentIncomeToday: amount(e.annualTaxableEmploymentIncomeToday), annualEligibleEarnedIncomeToday: amount(e.annualEligibleEarnedIncomeToday) };
+    const contributions = array(p.contributions).map((raw): CareerPhaseConfig["contributions"][number] => {
+      const c = object(raw);
+      keys(c, ["accountId", "monthlyAmountToday", "funding", "employerMonthlyAmountToday", "requirement", "sourceDescription"]);
+      if (c.funding !== "cash" && c.funding !== "income_withheld") invalid("choose contribution funding");
+      if (c.requirement !== "required" && c.requirement !== "optional") invalid("choose required or optional contribution");
+      return { accountId: label(c.accountId), monthlyAmountToday: amount(c.monthlyAmountToday), funding: c.funding, employerMonthlyAmountToday: amount(c.employerMonthlyAmountToday), requirement: c.requirement, sourceDescription: label(c.sourceDescription) };
+    });
+    unique(contributions.map(c => c.accountId));
+    return { id: label(p.id), label: label(p.label), kind: p.kind as CareerPhaseConfig["kind"], startAge: amount(p.startAge), endAge: amount(p.endAge), annualGrowth: p.annualGrowth,
+      employment, annualPensionAdjustmentToday: amount(p.annualPensionAdjustmentToday), annualOtherRoomReductionToday: amount(p.annualOtherRoomReductionToday),
+      essentialMultiplier: amount(p.essentialMultiplier), discretionaryMultiplier: amount(p.discretionaryMultiplier), surplusInvesting: p.surplusInvesting as CareerPhaseConfig["surplusInvesting"], contributions };
+  });
+  unique(phases.map(p => p.id));
+  if (!phases.length || phases[0].startAge !== transitionAge || phases.at(-1)!.endAge !== retirementAge) invalid("career phases must cover transition through full retirement");
+  phases.forEach((p, i) => {
+    if (p.endAge <= p.startAge || (i > 0 && Math.abs(p.startAge - phases[i - 1].endAge) > 1e-8)) invalid("career phases must be ordered, contiguous and non-overlapping");
+  });
+  return { transitionAge, retirementAge, cppBenefitMultiplier, phases };
 }
