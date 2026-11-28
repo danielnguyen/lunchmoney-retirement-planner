@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import "@testing-library/jest-dom/vitest";
-import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, expect, it, vi } from "vitest";
 import type { ReactNode } from "react";
 import { EmploymentIncome } from "@/components/employment-income";
@@ -25,18 +25,23 @@ it("opts in, selects explicit terms, edits retirement and invalidates baseline o
   const { rerender } = render(<EmploymentIncome inputs={inputs} definitions={[]} />);
   expect(fetcher).not.toHaveBeenCalled();
   fireEvent.click(screen.getByLabelText("Calculate income by transition age"));
+  fireEvent.click(screen.getByRole("button", { name: "Calculate income curve" }));
   await screen.findByText("Baseline income curve");
   expect(screen.getAllByText(/Select explicit future employment/).length).toBeGreaterThan(0);
   fireEvent.click(screen.getByRole("button", { name: "Use illustrative Ontario terms (no match)" }));
+  fireEvent.click(screen.getByRole("button", { name: "Calculate income curve" }));
   await screen.findAllByText("Tested boundary");
   expect(screen.getByText(/Stress unavailable/)).toBeInTheDocument();
   expect(screen.getByText(/all amounts on this curve remain annual today/i)).toBeInTheDocument();
   fireEvent.change(screen.getByLabelText("Income curve full retirement age"), { target: { value: "41" } });
+  fireEvent.click(screen.getByRole("button", { name: "Calculate income curve" }));
   await waitFor(() => expect(JSON.parse(fetcher.mock.calls.at(-1)![1].body as string).employmentIncome.retirementAge).toBe(41));
   const changed = structuredClone(inputs);
   changed.retirementRequirement.minimumEndingFinancialAssetsToday = 10000000;
   rerender(<EmploymentIncome inputs={changed} definitions={[]} />);
   expect(screen.queryByText("Baseline income curve")).not.toBeInTheDocument();
+  await waitFor(() => expect(screen.getByRole("button", { name: "Calculate income curve" })).toBeEnabled());
+  fireEvent.click(screen.getByRole("button", { name: "Calculate income curve" }));
   await screen.findAllByText("No passing sampled income");
   fireEvent.click(screen.getByLabelText("Calculate income by transition age"));
   expect(screen.queryByText("Baseline income curve")).not.toBeInTheDocument();
@@ -50,6 +55,7 @@ it("shows unavailable net overrides and keeps temporary job terms out of exports
   render(<EmploymentIncome inputs={inputs} definitions={[definition]} />);
   fireEvent.click(screen.getByLabelText("Calculate income by transition age"));
   fireEvent.change(screen.getByLabelText("Income curve employment template"), { target: { value: definition.id } });
+  fireEvent.click(screen.getByRole("button", { name: "Calculate income curve" }));
   await screen.findAllByText(/reliable salary relation/);
   const baseline = structuredClone(currentBaselineFixture);
   baseline.scenarioComparison = [definition];
@@ -81,6 +87,7 @@ it("shows actionable dated failures and keeps quantified trial evidence collapse
   render(<EmploymentIncome inputs={inputs} definitions={[]} />);
   fireEvent.click(screen.getByLabelText("Calculate income by transition age"));
   fireEvent.click(screen.getByRole("button", { name: "Use illustrative Ontario terms (no match)" }));
+  fireEvent.click(screen.getByRole("button", { name: "Calculate income curve" }));
   await screen.findAllByText(/2027-01: Protected reserve is not funded at transition/);
   expect(screen.getAllByText(/928,000 today/).length).toBeGreaterThan(0);
   const result = responses.at(-1) as import("@/src/domain/projection/employment-income").EmploymentIncomeResult;
@@ -114,4 +121,27 @@ it("returns opening reserve evidence through the projection API before immediate
   expect(result.points[0].required.tested.at(-1).failure).toMatchObject({
     date: "2026-01", category: "reserve", shortfallToday: 1000,
   });
+});
+
+
+it("waits for explicit calculation and never submits another request during edits or an active calculation", async () => {
+  let finish!: () => Promise<void>;
+  const fetcher = vi.fn((_url: string, init: RequestInit) => new Promise<Response>(resolve => {
+    finish = async () => { resolve(await POST(new Request("http://localhost/api/v1/projections", init))); };
+  }));
+  vi.stubGlobal("fetch", fetcher);
+  render(<EmploymentIncome inputs={fireInputs()} definitions={[]}  />);
+  fireEvent.click(screen.getByLabelText("Calculate income by transition age"));
+  for (const value of ["41", "42", "41"]) fireEvent.change(screen.getByLabelText("Income curve full retirement age"), { target: { value } });
+  expect(fetcher).not.toHaveBeenCalled();
+  fireEvent.click(screen.getByRole("button", { name: "Calculate income curve" }));
+  expect(fetcher).toHaveBeenCalledTimes(1);
+  expect(screen.getByRole("button", { name: "Calculate income curve" })).toBeDisabled();
+  fireEvent.change(screen.getByLabelText("Income curve full retirement age"), { target: { value: "42" } });
+  fireEvent.click(screen.getByRole("button", { name: "Calculate income curve" }));
+  expect(fetcher).toHaveBeenCalledTimes(1);
+  await act(async () => { await finish(); });
+  expect(screen.getByRole("button", { name: "Calculate income curve" })).toBeEnabled();
+  expect(screen.getByRole("status")).toHaveTextContent(/Assumptions changed/);
+  expect(fetcher).toHaveBeenCalledTimes(1);
 });

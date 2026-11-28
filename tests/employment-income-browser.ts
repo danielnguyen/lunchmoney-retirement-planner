@@ -8,7 +8,7 @@ import { createServer } from "node:net";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { currentBaselineFixture } from "./fixtures/projection";
-import { fireInputs } from "./fixtures/fire-milestones";
+import { annualTaxCareerInputs, fireInputs } from "./fixtures/fire-milestones";
 
 async function port() {
   const server = createServer().listen(0, "127.0.0.1");
@@ -47,7 +47,7 @@ async function main() {
       ws!.send(JSON.stringify({ id: key, method, params }));
     });
     const baseline = structuredClone(currentBaselineFixture);
-    baseline.projectionInputs = fireInputs();
+    baseline.projectionInputs = annualTaxCareerInputs();
     const exceptions: string[] = [];
     let projections = 0;
     ws.onmessage = event => {
@@ -73,12 +73,31 @@ async function main() {
       return (r.result as { value: unknown }).value;
     };
     for (const width of [390, 1440]) {
+      baseline.projectionInputs = annualTaxCareerInputs();
       await send("Emulation.setDeviceMetricsOverride", { width, height: 1000, deviceScaleFactor: 1, mobile: width < 500 });
       await send("Page.navigate", { url: `http://127.0.0.1:${appPort}` });
       await until(() => evaluate('!!document.querySelector(".income-panel input[type=checkbox]")'), Boolean);
       await evaluate('document.querySelector(".income-panel input[type=checkbox]").click()');
       await evaluate('[...document.querySelectorAll(".income-panel button")].find(x=>x.textContent.includes("Use illustrative Ontario")).click()');
-      await until(() => evaluate('document.querySelector(".income-panel")?.textContent.includes("Tested boundary")'), Boolean);
+      await evaluate(`(() => {
+        window.incomeRequests = 0; window.incomeTicks = 0;
+        const originalFetch = window.fetch;
+        window.fetch = (...args) => { if (String(args[1]?.body).includes('"employmentIncome"')) window.incomeRequests++; return originalFetch(...args); };
+        window.incomeTimer = setInterval(() => window.incomeTicks++, 20);
+        [...document.querySelectorAll('.income-panel button')].find(x => x.textContent === 'Calculate income curve').click();
+      })()`);
+      await until(() => evaluate('[...document.querySelectorAll(".income-panel button")].find(x => x.textContent === "Calculate income curve")?.disabled'), Boolean);
+      await evaluate(`(() => {
+        const input = [...document.querySelectorAll('.income-panel label')].find(x => x.textContent.includes('Income curve full retirement age')).querySelector('input');
+        for (const value of ['64', '63', '65']) {
+          Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value').set.call(input, value);
+          input.dispatchEvent(new Event('input', { bubbles: true }));
+        }
+      })()`);
+      await until(() => evaluate('document.querySelector(".income-panel")?.textContent.includes("Tested boundary")'), Boolean, 35000);
+      assert.equal(await evaluate('window.incomeRequests'), 1, "Editing must not launch repeated expensive requests");
+      assert(Number(await evaluate('window.incomeTicks')) > 5, "Browser event loop must remain responsive during calculation");
+      await evaluate('clearInterval(window.incomeTimer)');
       await evaluate('[...document.querySelectorAll(".income-panel details")].find(x=>x.textContent.includes("Income curve job terms")).open = true');
       const geometry = await evaluate(`(() => {
         const panel = document.querySelector('.income-panel');
@@ -91,7 +110,8 @@ async function main() {
       })()`) as { width: number; scroll: number; controlsFit: boolean; svg: boolean; rows: number; text: boolean };
       assert(geometry.controlsFit, `Controls overflow at ${width}`);
       assert(geometry.scroll <= geometry.width + 1, `Panel overflow at ${width}`);
-      assert(geometry.svg && geometry.rows === 3 && geometry.text, "Chart and accessible exact values must render");
+      assert(geometry.svg && geometry.rows === 26 && geometry.text, "Chart and accessible exact values must render");
+      baseline.projectionInputs = fireInputs();
       baseline.projectionInputs.accounts[0].openingBalance = 0;
       baseline.projectionInputs.surplusAllocation.targetCashReserveToday = 1000;
       baseline.projectionInputs.surplusAllocation.reserveIndexingRate = 0;
@@ -99,12 +119,13 @@ async function main() {
       await until(() => evaluate('!!document.querySelector(".income-panel input[type=checkbox]")'), Boolean);
       await evaluate('document.querySelector(".income-panel input[type=checkbox]").click()');
       await evaluate('[...document.querySelectorAll(".income-panel button")].find(x=>x.textContent.includes("Use illustrative Ontario")).click()');
+      await evaluate('[...document.querySelectorAll(".income-panel button")].find(x => x.textContent === "Calculate income curve").click()');
       await until(() => evaluate('document.querySelector(".income-panel")?.textContent.includes("2026-01: Protected reserve is not funded at transition.")'), Boolean);
       assert.equal(await evaluate('document.querySelector(".income-table")?.textContent.includes("1,000 today")'), true);
       assert.equal(await evaluate('document.querySelectorAll(".income-panel details[open]").length'), 0);
       await evaluate('document.querySelector(".income-table details summary").click()');
       assert.equal(await evaluate('!!document.querySelector(".income-table details[open]")'), true);
-      baseline.projectionInputs = fireInputs();
+      baseline.projectionInputs = annualTaxCareerInputs();
       await evaluate('document.querySelector(".income-panel input[type=checkbox]").click()');
       assert.equal(await evaluate('!!document.querySelector(".income-panel .income-curve")'), false);
       console.log(`PASS: synthetic production income curve at ${width}px, expanded controls, chart, exact table, dated failure evidence and opt-out.`);

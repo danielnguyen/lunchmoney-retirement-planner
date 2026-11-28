@@ -1478,6 +1478,7 @@ function simulateProjection(
   );
   const taxCoverage = resolveTaxCoverage(inputs);
   const evaluationOnly = options.candidateBalancesToday !== undefined;
+  const buildReport = !evaluationOnly && !options.fundingCheckOnly;
   const benefits = governmentBenefitSummary(inputs);
   const startYear = Number(inputs.startDate.slice(0, 4));
   const startMonth = Number(inputs.startDate.slice(5, 7));
@@ -1956,7 +1957,7 @@ function simulateProjection(
       });
     }
     const ordinaryRetirementMonthOpening =
-      !evaluationOnly && month > retirementMonth
+      buildReport && month > retirementMonth
         ? {
             balances: new Map(balances),
             nonFinancialAssetValues: new Map(nonFinancialAssetValues),
@@ -2597,6 +2598,7 @@ function simulateProjection(
                 );
                 const candidatePosition = canadianTaxPosition({
                   state: candidateState,
+                  unchangedEmbeddedTax: currentPosition.embedded,
                   tax: canadianTax,
                   ageAtYearEnd: ageAtEndOfTaxYear(calendarYear),
                   pensionIncomeCreditEligible:
@@ -2683,6 +2685,7 @@ function simulateProjection(
               );
               const candidatePosition = canadianTaxPosition({
                 state: candidateTaxState,
+                unchangedEmbeddedTax: currentPosition.embedded,
                 tax: canadianTax,
                 ageAtYearEnd: ageAtEndOfTaxYear(calendarYear),
                 pensionIncomeCreditEligible:
@@ -2827,110 +2830,115 @@ function simulateProjection(
     let mandatoryRrifTrueUp = 0;
     let availableCurrentMonthCash =
       income.total + unassignedEventInflows + plannedNetCash;
-    const previewCanadianTaxState = canadianTaxYearState
-      ? cloneCanadianTaxYearState(canadianTaxYearState)
-      : null;
-    const previewNonRegisteredState =
-      cloneNonRegisteredSimulationState(nonRegisteredState);
-    const availableNetWithdrawalCash = withdrawalAccounts.reduce(
-      (total, account) => {
-        const balance = balances.get(account.id) ?? 0;
-        if (
-          account.type === "non_registered" &&
-          inputs.nonRegisteredTaxation.mode === "simplified_canadian"
-        ) {
-          if (inputs.tax.mode !== "canadian_annual") {
-            throw new Error("Simplified non-registered preview requires Canadian annual tax");
+    // Liquidation is only a preflight for debt that current cash cannot fund.
+    // Its hypothetical tax positions are otherwise unused.
+    let availableNetWithdrawalCash = 0;
+    if (requiredLiabilityCashPayment > availableCurrentMonthCash) {
+      const previewCanadianTaxState = canadianTaxYearState
+        ? cloneCanadianTaxYearState(canadianTaxYearState)
+        : null;
+      const previewNonRegisteredState =
+        cloneNonRegisteredSimulationState(nonRegisteredState);
+      availableNetWithdrawalCash = withdrawalAccounts.reduce(
+        (total, account) => {
+          const balance = balances.get(account.id) ?? 0;
+          if (
+            account.type === "non_registered" &&
+            inputs.nonRegisteredTaxation.mode === "simplified_canadian"
+          ) {
+            if (inputs.tax.mode !== "canadian_annual") {
+              throw new Error("Simplified non-registered preview requires Canadian annual tax");
+            }
+            const canadianTax = inputs.tax;
+            const gross = Math.max(
+              0,
+              Math.floor((balance + 1e-9) * 100) / 100,
+            );
+            const before = canadianTaxPosition({
+              state: previewCanadianTaxState!,
+              tax: canadianTax,
+              ageAtYearEnd: ageAtEndOfTaxYear(calendarYear),
+              pensionIncomeCreditEligible:
+                inputs.person.pensionIncomeCreditEligible,
+            });
+            const preview = previewNonRegisteredDisposition({
+              state: previewNonRegisteredState,
+              accountId: account.id,
+              grossProceeds: gross,
+            });
+            addCanadianTaxIncome(
+              previewCanadianTaxState!,
+              "capitalGains",
+              preview.realizedCapitalGain,
+              false,
+            );
+            addCanadianTaxIncome(
+              previewCanadianTaxState!,
+              "capitalLosses",
+              preview.realizedCapitalLoss,
+              false,
+            );
+            const after = canadianTaxPosition({
+              state: previewCanadianTaxState!,
+              tax: canadianTax,
+              ageAtYearEnd: ageAtEndOfTaxYear(calendarYear),
+              pensionIncomeCreditEligible:
+                inputs.person.pensionIncomeCreditEligible,
+            });
+            commitNonRegisteredDisposition({
+              state: previewNonRegisteredState,
+              preview,
+              calendarYear,
+              inflationFactor: factor,
+              openingInflationFactor: previousFactor,
+            });
+            return total + gross -
+              (after.projectionFundedTax - before.projectionFundedTax);
           }
-          const canadianTax = inputs.tax;
-          const gross = Math.max(
-            0,
-            Math.floor((balance + 1e-9) * 100) / 100,
-          );
+          if (
+            account.type !== "rrsp_rrif" ||
+            inputs.tax.mode === "flat_compatibility"
+          ) {
+            return (
+              total +
+              (account.type === "rrsp_rrif"
+                ? balance * (1 - inputs.tax.effectiveTaxRate)
+                : balance)
+            );
+          }
+          const gross = Math.max(0, Math.floor((balance + 1e-9) * 100) / 100);
+          const taxIncomeSource = registeredWithdrawalSource(account);
           const before = canadianTaxPosition({
             state: previewCanadianTaxState!,
-            tax: canadianTax,
+            tax: inputs.tax,
             ageAtYearEnd: ageAtEndOfTaxYear(calendarYear),
             pensionIncomeCreditEligible:
               inputs.person.pensionIncomeCreditEligible,
           });
-          const preview = previewNonRegisteredDisposition({
-            state: previewNonRegisteredState,
-            accountId: account.id,
-            grossProceeds: gross,
-          });
           addCanadianTaxIncome(
             previewCanadianTaxState!,
-            "capitalGains",
-            preview.realizedCapitalGain,
-            false,
-          );
-          addCanadianTaxIncome(
-            previewCanadianTaxState!,
-            "capitalLosses",
-            preview.realizedCapitalLoss,
+            taxIncomeSource,
+            gross,
             false,
           );
           const after = canadianTaxPosition({
             state: previewCanadianTaxState!,
-            tax: canadianTax,
+            tax: inputs.tax,
             ageAtYearEnd: ageAtEndOfTaxYear(calendarYear),
             pensionIncomeCreditEligible:
               inputs.person.pensionIncomeCreditEligible,
           });
-          commitNonRegisteredDisposition({
-            state: previewNonRegisteredState,
-            preview,
-            calendarYear,
-            inflationFactor: factor,
-            openingInflationFactor: previousFactor,
-          });
-          return total + gross -
-            (after.projectionFundedTax - before.projectionFundedTax);
-        }
-        if (
-          account.type !== "rrsp_rrif" ||
-          inputs.tax.mode === "flat_compatibility"
-        ) {
+          const incrementalTax =
+            after.projectionFundedTax - before.projectionFundedTax;
           return (
             total +
-            (account.type === "rrsp_rrif"
-              ? balance * (1 - inputs.tax.effectiveTaxRate)
-              : balance)
+            gross -
+            incrementalTax
           );
-        }
-        const gross = Math.max(0, Math.floor((balance + 1e-9) * 100) / 100);
-        const taxIncomeSource = registeredWithdrawalSource(account);
-        const before = canadianTaxPosition({
-          state: previewCanadianTaxState!,
-          tax: inputs.tax,
-          ageAtYearEnd: ageAtEndOfTaxYear(calendarYear),
-          pensionIncomeCreditEligible:
-            inputs.person.pensionIncomeCreditEligible,
-        });
-        addCanadianTaxIncome(
-          previewCanadianTaxState!,
-          taxIncomeSource,
-          gross,
-          false,
-        );
-        const after = canadianTaxPosition({
-          state: previewCanadianTaxState!,
-          tax: inputs.tax,
-          ageAtYearEnd: ageAtEndOfTaxYear(calendarYear),
-          pensionIncomeCreditEligible:
-            inputs.person.pensionIncomeCreditEligible,
-        });
-        const incrementalTax =
-          after.projectionFundedTax - before.projectionFundedTax;
-        return (
-          total +
-          gross -
-          incrementalTax
-        );
-      },
-      0,
-    );
+        },
+        0,
+      );
+    }
     const anticipatedRequiredLiabilityShortfall = Math.max(
       0,
       requiredLiabilityCashPayment -
@@ -3594,11 +3602,11 @@ function simulateProjection(
         electiveRegisteredWithdrawals: monthlyFlow.withdrawals.rrspRrif - mandatoryRrifPayments,
       };
     }
-    if (!evaluationOnly) {
+    if (buildReport) {
       addMonthlyFlow(annualNominalFlow, monthlyFlow, 1);
       addMonthlyFlow(annualRealFlow, monthlyFlow, factor);
     }
-    if (!evaluationOnly && month <= retirementMonth) {
+    if (buildReport && month <= retirementMonth) {
       addSurplusTotals(nominalSurplusThroughRetirement, monthlyFlow, 1);
       addSurplusTotals(realSurplusThroughRetirement, monthlyFlow, factor);
       addSavingsTotals(nominalSavingsThroughRetirement, monthlyFlow, 1);
@@ -3702,7 +3710,8 @@ function simulateProjection(
       liabilityBalances,
     );
     if (!evaluationOnly && options.onMonth) {
-      const flow = structuredClone(monthlyFlow);
+      // Funding checks do not build reports or reuse this fresh monthly view.
+      const flow = options.fundingCheckOnly ? monthlyFlow : structuredClone(monthlyFlow);
       flow.balances = currentBalances;
       options.onMonth({
         date: calendarMonthKey, age: workingAge,
@@ -3748,7 +3757,7 @@ function simulateProjection(
         nonRegisteredState:
           cloneNonRegisteredSimulationState(nonRegisteredState),
       };
-      if (!evaluationOnly) {
+      if (buildReport) {
         const retirementRealMonthlyFlow = emptyView();
         addMonthlyFlow(retirementRealMonthlyFlow, monthlyFlow, factor);
         retirementSnapshot = {
@@ -3843,7 +3852,7 @@ function simulateProjection(
       }
     }
     if (
-      !evaluationOnly &&
+      buildReport &&
       (calendarMonth === MONTHS_PER_YEAR || month === totalMonths)
     ) {
       snapshot(month, previousSnapshotMonth, calendarYear);

@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import "@testing-library/jest-dom/vitest";
-import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, expect, it, vi } from "vitest";
 import type { ReactNode } from "react";
 import { PlannerDashboard } from "@/components/planner-dashboard";
@@ -29,22 +29,30 @@ it("calculates opt-in through the real API, edits terms and clears stale chart r
   const { rerender } = render(<FireMilestones inputs={inputs} definitions={definitions} onResult={onResult} />);
   expect(fetcher).not.toHaveBeenCalled();
   fireEvent.click(screen.getByLabelText("Calculate conditional FIRE milestones"));
+  fireEvent.click(screen.getByRole("button", { name: "Calculate FIRE milestones" }));
   await screen.findByText("Coast FIRE — Baseline");
   expect(screen.getByText(/Stress unavailable/)).toBeInTheDocument();
   expect(screen.getByText(/Select explicit barista/)).toBeInTheDocument();
   expect(screen.getAllByText(/Condition met at modeled start/)).toHaveLength(2);
   fireEvent.click(screen.getByText("Barista employment assumptions and sources"));
   fireEvent.click(screen.getByRole("button", { name: "Use illustrative barista terms" }));
+  fireEvent.click(screen.getByRole("button", { name: "Calculate FIRE milestones" }));
   await waitFor(() => expect(screen.getAllByText(/Condition met at modeled start/)).toHaveLength(3));
   const barista = screen.getByText("Barista employment assumptions and sources").closest("details")!;
   fireEvent.change(within(barista).getByLabelText("Annual net cash after payroll and employee withholding"), { target: { value: "6000" } });
+  await waitFor(() => expect(screen.getByRole("button", { name: "Calculate FIRE milestones" })).toBeEnabled());
+  fireEvent.click(screen.getByRole("button", { name: "Calculate FIRE milestones" }));
   await waitFor(() => expect(JSON.parse(fetcher.mock.calls.at(-1)![1].body as string).fireMilestones.barista.phases[0].employment.annualNetCashToday).toBe(6000));
   fireEvent.change(screen.getByLabelText("Milestone full retirement age"), { target: { value: "41" } });
+  await waitFor(() => expect(screen.getByRole("button", { name: "Calculate FIRE milestones" })).toBeEnabled());
+  fireEvent.click(screen.getByRole("button", { name: "Calculate FIRE milestones" }));
   await waitFor(() => expect(JSON.parse(fetcher.mock.calls.at(-1)![1].body as string).fireMilestones.retirementAge).toBe(41));
   const changed = structuredClone(inputs);
   changed.retirementRequirement.minimumEndingFinancialAssetsToday = 10000000;
   rerender(<FireMilestones inputs={changed} definitions={definitions} onResult={onResult} />);
   expect(onResult).toHaveBeenLastCalledWith(JSON.stringify(changed), null);
+  await waitFor(() => expect(screen.getByRole("button", { name: "Calculate FIRE milestones" })).toBeEnabled());
+  fireEvent.click(screen.getByRole("button", { name: "Calculate FIRE milestones" }));
   await waitFor(() => expect(screen.getAllByText(/No milestone in tested range/)).toHaveLength(3));
   fireEvent.click(screen.getByLabelText("Calculate conditional FIRE milestones"));
   expect(onResult).toHaveBeenLastCalledWith(JSON.stringify(changed), null);
@@ -63,6 +71,7 @@ it("rejects malformed requests and renders unavailable rather than inventing a d
   render(<FireMilestones inputs={inputs} definitions={[]} onResult={vi.fn()} />);
   fireEvent.click(screen.getByLabelText("Calculate conditional FIRE milestones"));
   fireEvent.change(screen.getByLabelText("Milestone full retirement age"), { target: { value: "40" } });
+  fireEvent.click(screen.getByRole("button", { name: "Calculate FIRE milestones" }));
   expect(await screen.findByRole("alert")).toHaveTextContent(/after the starting age/);
 });
 
@@ -81,6 +90,7 @@ it("keeps milestone state alongside scenario comparison and removes chart marker
   render(<PlannerDashboard />);
   await screen.findByRole("region", { name: "Side-by-side scenario scorecard" });
   fireEvent.click(screen.getByLabelText("Calculate conditional FIRE milestones"));
+  fireEvent.click(screen.getByRole("button", { name: "Calculate FIRE milestones" }));
   await screen.findByText(/2026-01: conditional full FIRE/);
   expect(screen.getByText("Full FIRE — Baseline")).toBeInTheDocument();
   expect(screen.getAllByTestId("chart-marker").some(x => x.textContent === "2026")).toBe(true);
@@ -88,4 +98,27 @@ it("keeps milestone state alongside scenario comparison and removes chart marker
   fireEvent.click(screen.getByLabelText("Calculate conditional FIRE milestones"));
   await waitFor(() => expect(screen.queryByText(/conditional full FIRE/)).not.toBeInTheDocument());
   expect(screen.getByRole("region", { name: "Side-by-side scenario scorecard" })).toBeInTheDocument();
+});
+
+
+it("waits for explicit calculation and never submits another request during edits or an active calculation", async () => {
+  let finish!: () => Promise<void>;
+  const fetcher = vi.fn((_url: string, init: RequestInit) => new Promise<Response>(resolve => {
+    finish = async () => { resolve(await POST(new Request("http://localhost/api/v1/projections", init))); };
+  }));
+  vi.stubGlobal("fetch", fetcher);
+  render(<FireMilestones inputs={fireInputs()} definitions={[]} onResult={vi.fn()} />);
+  fireEvent.click(screen.getByLabelText("Calculate conditional FIRE milestones"));
+  for (const value of ["41", "42", "41"]) fireEvent.change(screen.getByLabelText("Milestone full retirement age"), { target: { value } });
+  expect(fetcher).not.toHaveBeenCalled();
+  fireEvent.click(screen.getByRole("button", { name: "Calculate FIRE milestones" }));
+  expect(fetcher).toHaveBeenCalledTimes(1);
+  expect(screen.getByRole("button", { name: "Calculate FIRE milestones" })).toBeDisabled();
+  fireEvent.change(screen.getByLabelText("Milestone full retirement age"), { target: { value: "42" } });
+  fireEvent.click(screen.getByRole("button", { name: "Calculate FIRE milestones" }));
+  expect(fetcher).toHaveBeenCalledTimes(1);
+  await act(async () => { await finish(); });
+  expect(screen.getByRole("button", { name: "Calculate FIRE milestones" })).toBeEnabled();
+  expect(screen.getByRole("status")).toHaveTextContent(/Assumptions changed/);
+  expect(fetcher).toHaveBeenCalledTimes(1);
 });

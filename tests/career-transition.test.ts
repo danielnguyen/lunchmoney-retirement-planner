@@ -343,3 +343,28 @@ it.each([false, true])("keeps baseline assessment invariant with a career altern
   expect(alone.allocationHorizon).toBe("working_life");
   expect(paired.allocationHorizon).toBe("full_horizon");
 });
+
+it("preserves simple reserve-building and indexed optional personal plans across a transition", async () => {
+  const { constrainedSavingInputs } = await import("./fixtures/fire-milestones");
+  const { evaluateMilestoneFunding } = await import("@/src/domain/projection/calculate");
+  const input = constrainedSavingInputs("cash");
+  if (input.savingsPolicy.mode !== "simple") throw new Error("Expected simple policy");
+  input.savingsPolicy.reserveBuildingPhases = [{ id: "reserve-plan", label: "Synthetic reserve saving", startAge: 40, endAge: 42, monthlyAmountToday: 100, indexingRate: .03 }];
+  input.accounts[1].contributionPhases[0].indexingRate = .02;
+  input.accounts[1].contributionPhases[0].monthlyAmountToday = 1000;
+  const scenario = careerPreset(input, "reduced_income");
+  scenario.careerTransition!.transitionAge = 41;
+  const phase = scenario.careerTransition!.phases[0];
+  phase.startAge = 41;
+  phase.employment = { mode: "net_override", annualNetCashToday: 84000, annualTaxableEmploymentIncomeToday: 0, annualEligibleEarnedIncomeToday: 100000 };
+  const actual = materializeComparisonInputs(input, scenario);
+  const ledger = (p: typeof input) => {
+    const amounts: number[][] = [];
+    evaluateMilestoneFunding(p, { onMonth: m => amounts.push([m.flow.savingsPolicy.reservePlanned,
+      m.flow.savingsPolicy.personalPlanned, m.flow.contributions.cashFunded, m.flow.balances.financialAssets]) });
+    return amounts;
+  };
+  const ordinary = ledger(input), transitioned = ledger(actual);
+  transitioned.forEach((month, i) => month.forEach((amount, j) => expect(amount).toBeCloseTo(ordinary[i][j], 6)));
+  expect(actual.savingsPolicy).toMatchObject({ unplannedCash: "retain_in_operating_cash", reserveAfterTarget: "personal_investing" });
+});

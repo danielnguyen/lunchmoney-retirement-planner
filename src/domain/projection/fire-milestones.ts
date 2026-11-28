@@ -1,7 +1,7 @@
 import type { ProjectionInputsWithReturnPaths } from "./return-path-model";
 import type { CareerTransitionConfig, CareerPhaseConfig } from "@/src/config/types";
 import { parseCareerTransition } from "@/src/config/scenario-comparison";
-import { applyCareerTransition } from "@/src/domain/scenario/career";
+import { applyCareerTransition, careerPhasesForInterval } from "@/src/domain/scenario/career";
 import { evaluateMilestoneFunding, openingReserveShortfall } from "./calculate";
 import { validateProjectionInputs, type ProjectionInputs, type FundingFailure } from "./types";
 
@@ -40,7 +40,7 @@ export function parseFireMilestoneRequest(raw: unknown): FireMilestoneRequest {
   const template = (value: unknown, kind: "coast" | "barista") => {
     if (value === null) return null;
     const career = parseCareerTransition(value);
-    if (career.phases.length !== 1 || career.phases[0].kind !== kind) throw new Error(`Select one ${kind} interval as the milestone employment template.`);
+    if (career.phases.some(p => p.kind !== kind)) throw new Error(`Select ${kind} intervals as the milestone employment template.`);
     return career;
   };
   return { retirementAge: r.retirementAge, stepMonths: r.stepMonths, fullCppBenefitMultiplier: r.fullCppBenefitMultiplier,
@@ -65,7 +65,7 @@ export function materializeFireCandidate(baseline: ProjectionInputs, request: Fi
     const template = request[kind];
     if (!template) throw new Error(`Configure ${kind} employment terms first.`);
     applyCareerTransition(inputs, { ...template, transitionAge: age, retirementAge: request.retirementAge,
-      phases: [{ ...template.phases[0], startAge: age, endAge: request.retirementAge }] });
+      phases: careerPhasesForInterval(template, age, request.retirementAge) });
   } else {
     const oldRetirement = inputs.person.retirementAge;
     const prefix = <T extends { startAge: number; endAge: number }>(phases: T[]) => phases.filter(p => p.startAge < age - 1e-8).map(p => ({ ...p, endAge: Math.min(p.endAge, age) }));
@@ -85,13 +85,14 @@ export function materializeFireCandidate(baseline: ProjectionInputs, request: Fi
 
 export function evaluateFireCandidate(baseline: ProjectionInputs, request: FireMilestoneRequest, kind: FireKind, age: number): Omit<FireCandidate, "date"> {
   const inputs = materializeFireCandidate(baseline, request, kind, age);
-  const phase = kind === "full" ? undefined : request[kind]?.phases[0];
+  const phase = kind === "full" ? undefined : request[kind] ? careerPhasesForInterval(request[kind]!, age, request.retirementAge) : undefined;
   const result = evaluateCareerFunding(inputs, age, request.retirementAge, kind, phase);
   return { failure: result.failure, age: result.age, passes: result.passes, reason: result.reason, provisionalTax: result.provisionalTax, terminalFinancialAssetsToday: result.terminalFinancialAssetsToday };
 }
 
 /** Shared forward constraints for milestones and income candidates. */
-export function evaluateCareerFunding(inputs: ProjectionInputs, age: number, retirementAge: number, kind: FireKind | "accumulation", phase?: CareerPhaseConfig): Omit<FireCandidate, "date"> & { livingCostsFunded: boolean; livingCostsFailure: FundingFailure | null } {
+export function evaluateCareerFunding(inputs: ProjectionInputs, age: number, retirementAge: number, kind: FireKind | "accumulation", phases?: CareerPhaseConfig | CareerPhaseConfig[]): Omit<FireCandidate, "date"> & { livingCostsFunded: boolean; livingCostsFailure: FundingFailure | null } {
+  const phaseAt = (at: number) => Array.isArray(phases) ? phases.find(p => at >= p.startAge - 1e-8 && at < p.endAge - 1e-8) : phases;
   let livingCostsFunded = true;
   let observedCareerMonths = 0;
   let reason: string | null = null;
@@ -112,10 +113,11 @@ export function evaluateCareerFunding(inputs: ProjectionInputs, age: number, ret
   const inCareer = (at: number) => at >= age - 1e-8 && at < retirementAge - 1e-8;
   const result = evaluateMilestoneFunding(inputs, {
     cashConstrainedPersonalContributionsAtAge: at => at >= age - 1e-8,
-    retainSurplusAtAge: at => kind !== "full" && inCareer(at) && phase?.surplusInvesting === "retain_as_cash",
+    retainSurplusAtAge: at => kind !== "full" && inCareer(at) && phaseAt(at)?.surplusInvesting === "retain_as_cash",
     // Coast must survive without adding uncommitted cash to retirement savings.
     consumeUncommittedSurplusAtAge: at => kind === "coast" && inCareer(at),
     onMonth: ({ date, age: at, working, inflationFactor, flow, reserveShortfall, targetedEventDeposits }) => {
+      const phase = phaseAt(at);
       lastDate = date;
       const evidence = (category: FundingFailure["category"], shortfall: number, message: string, action: string): FundingFailure =>
         ({ date, category, shortfallToday: shortfall / inflationFactor, message, action });
@@ -132,12 +134,12 @@ export function evaluateCareerFunding(inputs: ProjectionInputs, age: number, ret
       }
       if (out.unmetSpending > .005 || out.unmetRequiredOutflow > .005) fail(evidence("required_outflow", Math.max(out.unmetSpending, out.unmetRequiredOutflow), "Required spending, tax or debt is unfunded.", "Review spending, debt payments and available withdrawal assets."));
       // A recovered historical buildup is allowed, but the opening transition
-      // balance and every subsequent month must retain the protected reserve.
+      // balance and remaining working months must retain the protected reserve.
       if (Math.abs(at - age) < 1e-8 && previousReserve && previousReserve.shortfall > .005) {
         fail({ date, category: "reserve", shortfallToday: previousReserve.shortfall / previousReserve.factor,
           message: "Protected reserve is not funded at transition.", action: "Build the reserve before transition or choose a later transition." });
       }
-      if ((at >= age - 1e-8 || !working) && reserveShortfall > .005) fail(evidence("reserve", reserveShortfall, "Protected reserve is not funded.", "Build the reserve before transition or revise income and spending."));
+      if (working && at >= age - 1e-8 && reserveShortfall > .005) fail(evidence("reserve", reserveShortfall, "Protected reserve is not funded.", "Build the reserve before transition or revise income and spending."));
       previousReserve = { shortfall: reserveShortfall, factor: inflationFactor };
       if (flow.spendableCash && (flow.spendableCash.shortfall > .005 || flow.spendableCash.consumption > flow.spendableCash.target + .01)) fail(evidence("spendable_cash", Math.max(flow.spendableCash.shortfall, flow.spendableCash.consumption - flow.spendableCash.target), "Configured spendable cash target is not satisfied.", "Review the spendable cash target and spending."));
       if (!working) return;
@@ -192,6 +194,8 @@ export function calculateFireMilestones(inputs: ProjectionInputsWithReturnPaths,
   delete normal.returnScenario;
   normal.accounts.forEach(a => { delete a.returnPath; });
   const paths = stressConfigured ? [{ path: "baseline" as const, inputs: normal }, { path: "stress" as const, inputs }] : [{ path: "baseline" as const, inputs }];
+  const deadline = Date.now() + 30000;
+  let simulatedMonths = 0;
   const results = paths.flatMap(({ path, inputs: active }) => (["coast", "barista", "full"] as const).map((kind): FireMilestone => {
     const tested: FireCandidate[] = [];
     const empty = { kind, path, candidate: null, tested };
@@ -200,6 +204,8 @@ export function calculateFireMilestones(inputs: ProjectionInputsWithReturnPaths,
       const searched = searchFireCandidates(offsets.map(n => start + n / 12), age => {
         const offset = Math.round((age - start) * 12);
         const date = new Date(Date.UTC(Number(inputs.startDate.slice(0, 4)), Number(inputs.startDate.slice(5, 7)) - 1 + offset, 1)).toISOString().slice(0, 7);
+        if (Date.now() > deadline || simulatedMonths > 2000000) throw new Error("Bounded simulation budget reached; remaining candidates were not computed.");
+        simulatedMonths += Math.round((active.endAge - start) * 12);
         const candidate = { ...evaluateFireCandidate(active, request, kind, age), date };
         tested.push(candidate);
         return candidate;

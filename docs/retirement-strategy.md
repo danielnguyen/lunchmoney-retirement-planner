@@ -155,7 +155,7 @@ defines monthly indexing, partial periods, infeasibility and surplus routing.
 ## Career transitions, Coast and Barista scenarios
 
 An optional `careerTransition` within an existing `scenarioComparison` definition
-replaces employment, spending and savings from a selected transition age through
+sets employment, spending and explicit saving overrides from a transition age through
 full retirement. Earlier baseline phases are preserved. Retirement spending keeps
 its existing age boundaries; the first applicable retirement phase extends back
 to an earlier retirement date. No baseline inputs are mutated. Add an unchanged
@@ -164,8 +164,11 @@ baseline definition (`spending: []`, `personalContributions: []`,
 
 The existing comparison offers reduced-income, Coast, Barista and combined
 Coast-to-Barista starters. They illustrate half the first baseline employment
-amounts, unchanged spending, inflation-paced growth, zero saving and zero employer
-match. These are editable illustrations, not market averages, forecasts or
+amounts, the configured working spending schedule, inflation-paced growth and zero
+employer match. Accumulation and Barista keep configured personal cash-funded
+saving and surplus routing; Coast removes saving and retains only needed liquidity.
+Explicit per-account saving terms replace the personal plan in that interval; a
+zero amount stops it. Unspecified workplace withholding is not carried forward. These are editable illustrations, not market averages, forecasts or
 recommendations. Missing baseline taxable/eligible earnings use visible zero
 placeholders that must be replaced before relying on the plan. Split and name phases, choose accumulation/Coast/Barista, and edit
 income, spending, savings, full retirement and a lower CPP benefit test. A positive
@@ -260,11 +263,12 @@ Conditional FIRE-date and required-income analyses are described below.
 
 ## Conditional milestone search
 
-The dashboard's opt-in milestone search reuses single-interval Coast/Barista
+The dashboard's opt-in milestone search reuses dated Coast/Barista
 career assumptions and the same forward monthly simulation. It checks candidates
 chronologically without a monotonicity assumption. The selectable grid is 1, 3 or
 12 months, includes its final boundary, and has a maximum of 601 dates per strategy
-and path. The range ends at the earlier of baseline and chosen full retirement:
+and path, within 30 seconds and 2 million charged horizon-months per request.
+Budget exhaustion is unavailable, not a failed financial condition. The range ends at the earlier of baseline and chosen full retirement:
 the model does not invent accumulation employment beyond the configured baseline.
 
 The original employment/saving/spending schedules remain intact before transition.
@@ -296,17 +300,18 @@ these temporary definitions, candidate results or free-text job assumptions.
 ## Career independence: required employment income
 
 Select **Calculate income by transition age** to compare lower-paid employment
-against lifetime funding needs. Choose the full-retirement age and a single
-accumulation or Barista job template. The explicit Ontario illustration starts
+against lifetime funding needs. Choose the full-retirement age and an
+accumulation or Barista job template (all intervals must use the same strategy). The explicit Ontario illustration starts
 with no match or required savings; edit the assumptions before relying on it.
-Configured single-interval `scenarioComparison` career templates are reusable.
-Dates and salary are replaced for each candidate; growth, spending, pension
+Configured `scenarioComparison` career templates are reusable. Internal phase
+boundaries remain at their selected ages; only edge dates extend to the candidate
+and full-retirement ages. The searched salary replaces each interval’s gross; growth, spending, pension
 adjustments, savings, CPP and surplus treatment remain selected assumptions.
 
 The curve uses annual gross and estimated deposited net in today's dollars,
 even when the main report shows future dollars. The existing dated 2026 Ontario
 estimate supplies taxable and room-eligible earnings alongside net cash. Net
-is after payroll and employee withholding, before incremental tax on other
+shown at transition is after payroll and employee withholding, before incremental tax on other
 income. Independent net/taxable/eligible overrides cannot establish a salary
 relation and are unavailable. Gross estimates with employer matches or employment
 outside ages 18–64 are also unavailable; no new payroll model is introduced.
@@ -341,12 +346,23 @@ computational settings, not employment forecasts.
 
 Transition grids are 1, 3 or 12 months, include the last eligible month, and stop
 before chosen full retirement and no later than baseline retirement. At most 61
-dates, 2 million simulated months and 30 seconds are allowed per request. Exhausted
+dates, 2 million charged horizon-months and 30 seconds are allowed per request. Exhausted
 work is shown as unavailable points rather than silently omitted. Constant fallback
 returns/inflation and configured dated stress paths are separate; no stress path
 is invented. These are deterministic comparisons, not probability guarantees.
 
 The dashboard exposes exact amounts, tested boundaries, source/limitations and
-active baseline overrides. Refresh and edits clear stale curves. This temporary
+active baseline overrides. Refresh and edits clear stale curves. Press Calculate
+after editing; changes do not launch requests while typing, and another calculation
+cannot be submitted while one is pending. The response keeps range endpoints,
+boundary evidence and the number of salaries sampled instead of every trial. This temporary
 analysis adds no persistence or export schema: ordinary anonymized JSON/CSV still
 describe the configured forward projection, excluding temporary job terms/results.
+
+
+For both FIRE and required income, reserves must be funded at transition and
+through remaining employment. A historical buildup may recover before transition;
+opening-month replenishment cannot substitute for opening reserves. From full
+retirement, cash reserves participate in ordinary withdrawals. Required spending,
+tax and debt must remain funded and the configured terminal financial-assets floor
+still applies. A permanent post-retirement cash floor is not imposed.

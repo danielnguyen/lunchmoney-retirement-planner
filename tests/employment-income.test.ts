@@ -249,3 +249,81 @@ it("rejects an immediate income transition before its salary replenishes the ope
   p.accounts[0].openingBalance = 1000;
   expect(calculateEmploymentIncome(p, r).points[0].required.status).toBe("available");
 });
+
+it("finds income with retirement reserve spend-down and still fails required outflows and terminal floors", () => {
+  const p = fireInputs(), r = request(p);
+  p.surplusAllocation.targetCashReserveToday = 20000;
+  p.surplusAllocation.reserveIndexingRate = 0;
+  p.accounts[1].openingBalance = 4000;
+  const point = calculateEmploymentIncome(p, r).points[0];
+  expect(point.required.status, point.required.reason).toBe("available");
+  expect(point.required.annualGrossToday).toBe(point.livingCosts.annualGrossToday);
+  const active = materializeIncomeCandidate(p, r, 40, point.required.annualGrossToday!);
+  expect(evaluateCareerFunding(active, 40, 42, "accumulation", r.career!.phases).passes).toBe(true);
+  expect(calculateProjection(active).summary.endingFinancialAssetsToday).toBeCloseTo(point.terminalFinancialAssetsToday!, 2);
+  p.retirementRequirement.minimumEndingFinancialAssetsToday = 1000000;
+  expect(calculateEmploymentIncome(p, r).points[0].required.status).toBe("not_found");
+  p.retirementRequirement.minimumEndingFinancialAssetsToday = 0;
+  p.events.push({ id: "required-retirement-cost", label: "Synthetic required cost", calendarYear: 2028, month: 1, amountToday: 1000000, direction: "outflow" });
+  expect(calculateEmploymentIncome(p, r).points[0].required.tested.at(-1)!.failure?.category).toBe("required_outflow");
+});
+
+it("preserves a multi-phase spending, mortgage and optional-saving ledger when career terms match", async () => {
+  const { annualTaxCareerInputs } = await import("./fixtures/fire-milestones");
+  const p = annualTaxCareerInputs();
+  p.person.retirementAge = 43; p.endAge = 45;
+  const payroll = estimateOntarioEmployment(100000);
+  Object.assign(p.person.employmentIncomePhases[0], { endAge: 43, annualNetCashToday: payroll.annualNetCashToday,
+    annualTaxableEmploymentIncomeToday: 100000, annualGrowth: .02,
+    rrspRoomGeneration: { annualEligibleEarnedIncomeToday: 100000, annualPensionAdjustmentToday: 0, annualOtherRoomReductionToday: 0, annualGrowth: .02 } });
+  p.accounts[1].contributionPhases[0].endAge = 43;
+  p.accounts[1].contributionPhases[0].indexingRate = .03;
+  p.accounts[1].contributionPhases[0].monthlyAmountToday = 100;
+  p.spendingPhases = [
+    { ...p.spendingPhases[0], id: "work-a", startAge: 40, endAge: 41, essentialMultiplier: 1.1 },
+    { ...p.spendingPhases[1], id: "work-b", startAge: 41, endAge: 43, essentialMultiplier: .8, discretionaryMultiplier: 1.4 },
+    { ...p.spendingPhases[2], id: "retired-a", startAge: 43, endAge: 44 },
+    { ...p.spendingPhases[2], id: "retired-b", startAge: 44, endAge: 45, discretionaryMultiplier: .5 },
+  ];
+  const r = { ...request(p), retirementAge: 43 };
+  r.career!.phases.forEach(x => { x.employment = { mode: "gross_estimate", annualGrossToday: 0 }; });
+  type Month = Parameters<NonNullable<ComparisonProjectionOptions["onMonth"]>>[0];
+  const ledger = (input: typeof p) => {
+    const months: Month[] = [];
+    evaluateMilestoneFunding(input, { onMonth: m => months.push(m) });
+    return months;
+  };
+  const ordinary = ledger(p);
+  const candidate = materializeIncomeCandidate(p, r, 40.5, 100000);
+  const matched = ledger(candidate);
+  expect(matched).toHaveLength(60);
+  // Labels identify materialized assumptions; compare actual monetary ledgers.
+  for (let i = 0; i < matched.length; i++) {
+    expect(matched[i].flow.income.employment).toBeCloseTo(ordinary[i].flow.income.employment, 6);
+    for (const key of Object.keys(matched[i].flow.outflows) as Array<keyof typeof matched[number]["flow"]["outflows"]>) {
+      expect(matched[i].flow.outflows[key]).toBeCloseTo(ordinary[i].flow.outflows[key], 6);
+    }
+    expect(matched[i].flow.balances.financialAssets).toBeCloseTo(ordinary[i].flow.balances.financialAssets, 6);
+    expect(matched[i].flow.contributions.cashFunded).toBeCloseTo(ordinary[i].flow.contributions.cashFunded, 6);
+  }
+  expect(r.career!.phases.map(x => [x.essentialMultiplier, x.discretionaryMultiplier])).toEqual([[1.1, 1], [.8, 1.4]]);
+  expect(r.career!.phases.every(x => x.surplusInvesting === "configured" && x.contributions.length === 0)).toBe(true);
+  const result = calculateEmploymentIncome(p, r).points[0];
+  expect(result.required.status, result.required.reason).toBe("available");
+  const gross = result.required.annualGrossToday!;
+  const passing = materializeIncomeCandidate(p, r, 40, gross);
+  expect(evaluateCareerFunding(passing, 40, 43, "accumulation", r.career!.phases).passes).toBe(true);
+  expect(evaluateCareerFunding(materializeIncomeCandidate(p, r, 40, gross - 100), 40, 43, "accumulation", r.career!.phases).passes).toBe(false);
+  const first = ledger(passing)[0];
+  expect(first.flow.income.employment / first.inflationFactor * 12).toBeCloseTo(result.required.annualNetCashToday!, 6);
+  expect(result.required.annualNetCashToday).toBe(estimateOntarioEmployment(gross).annualNetCashToday);
+  // Explicit spending and saving overrides affect only their selected interval/account.
+  r.career!.phases[1].discretionaryMultiplier = 2;
+  r.career!.phases[1].contributions = [{ accountId: p.accounts[1].id, monthlyAmountToday: 0, employerMonthlyAmountToday: 0,
+    funding: "cash", requirement: "optional", sourceDescription: "Explicitly stop personal saving in this interval" }];
+  const overridden = materializeIncomeCandidate(p, r, 40.5, 100000);
+  expect(ledger(overridden).slice(0, 12)).toEqual(matched.slice(0, 12));
+  expect(overridden.spendingPhases.find(x => x.startAge === 41)!.discretionaryMultiplier).toBe(2);
+  expect(overridden.accounts[1].contributionPhases.find(x => x.startAge === 41)!.monthlyAmountToday).toBe(0);
+  expect(overridden.spendingPhases.filter(x => x.startAge >= 43)).toEqual(candidate.spendingPhases.filter(x => x.startAge >= 43));
+});

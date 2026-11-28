@@ -1,6 +1,6 @@
 import type { CareerTransitionConfig } from "@/src/config/types";
 import { parseCareerTransition } from "@/src/config/scenario-comparison";
-import { applyCareerTransition } from "@/src/domain/scenario/career";
+import { applyCareerTransition, careerPhasesForInterval } from "@/src/domain/scenario/career";
 import { estimateOntarioEmployment } from "@/src/domain/scenario/payroll";
 import { assertUnchangedCppBeforeTransition, evaluateCareerFunding } from "./fire-milestones";
 import type { ProjectionInputsWithReturnPaths } from "./return-path-model";
@@ -19,6 +19,7 @@ export type IncomeBoundary = {
   annualNetCashToday: number | null;
   adjacentLowerFails: boolean | null;
   reason: string;
+  testedCount: number;
   tested: Array<{ annualGrossToday: number; passes: boolean; failure?: FundingFailure | null }>;
 };
 export type EmploymentIncomePoint = {
@@ -29,6 +30,7 @@ export type EmploymentIncomePoint = {
 export type EmploymentIncomeResult = {
   request: EmploymentIncomeRequest; effectiveDate: string; stressConfigured: boolean;
   points: EmploymentIncomePoint[];
+  work: { simulations: number; simulatedMonths: number };
 };
 
 export function parseEmploymentIncomeRequest(raw: unknown): EmploymentIncomeRequest {
@@ -40,11 +42,11 @@ export function parseEmploymentIncomeRequest(raw: unknown): EmploymentIncomeRequ
   if (typeof r.maxAnnualGrossToday !== "number" || !Number.isFinite(r.maxAnnualGrossToday) || r.maxAnnualGrossToday <= 0 || r.maxAnnualGrossToday > 1000000) throw new Error("Gross search cap must be positive and at most 1,000,000 today.");
   if (typeof r.resolutionAnnualGrossToday !== "number" || ![1, 10, 100, 1000].includes(r.resolutionAnnualGrossToday) || r.maxAnnualGrossToday % r.resolutionAnnualGrossToday !== 0) throw new Error("Resolution must be 1, 10, 100 or 1,000 annual gross dollars and divide the search cap.");
   const career = r.career === null ? null : parseCareerTransition(r.career);
-  if (career && (career.phases.length !== 1 || career.phases[0].kind === "coast")) throw new Error("Select one accumulation or Barista employment interval; Coast is a separate no-saving objective.");
+  if (career && (career.phases.some(p => p.kind === "coast" || p.kind !== career.phases[0].kind))) throw new Error("Select accumulation or Barista employment intervals of the same kind; Coast is a separate no-saving objective.");
   return { retirementAge: r.retirementAge, stepMonths: r.stepMonths as number, maxAnnualGrossToday: r.maxAnnualGrossToday, resolutionAnnualGrossToday: r.resolutionAnnualGrossToday, career };
 }
 
-const unavailable = (reason: string): IncomeBoundary => ({ status: "unavailable", annualGrossToday: null, annualNetCashToday: null, adjacentLowerFails: null, reason, tested: [] });
+const unavailable = (reason: string): IncomeBoundary => ({ status: "unavailable", annualGrossToday: null, annualNetCashToday: null, adjacentLowerFails: null, reason, testedCount: 0, tested: [] });
 
 /** Sample the full bounded range before binary refinement. Certify a tested
  * boundary only: arbitrary unsampled feasible islands are not ruled out. */
@@ -64,7 +66,7 @@ export function solveIncomeBoundary(cap: number, resolution: number, evaluate: (
   try {
     const max = cap / resolution;
     for (let i = 0; i <= 16; i++) check(Math.floor(max * i / 16));
-    if (!samples.get(max)) return { ...result, status: "not_found", reason: "No passing sampled income within the search cap; this does not prove impossibility or rule out unsampled feasible islands.", tested: [...samples].map(([n, passes]) => ({ annualGrossToday: n * resolution, passes })) };
+    if (!samples.get(max)) return { ...result, status: "not_found", reason: "No passing sampled income within the search cap; this does not prove impossibility or rule out unsampled feasible islands.", testedCount: samples.size, tested: [...samples].map(([n, passes]) => ({ annualGrossToday: n * resolution, passes })) };
     let high = Math.min(...[...samples].filter(([, passes]) => passes).map(([n]) => n));
     let low = Math.max(-1, ...[...samples].filter(([n, passes]) => !passes && n < high).map(([n]) => n));
     while (high - low > 1) {
@@ -74,21 +76,21 @@ export function solveIncomeBoundary(cap: number, resolution: number, evaluate: (
     if (!check(high, true) || (high > 0 && check(high - 1, true))) throw new Error("Adjacent lower income boundary was not verified.");
     return { ...result, status: "available", annualGrossToday: high * resolution, adjacentLowerFails: high > 0 ? true : null,
       reason: high === 0 ? "Zero income passes; no lower non-negative income exists." : "Tested passing boundary with adjacent lower income failing. Conditional on monotone feasibility; not a certified global minimum.",
-      tested: [...samples].sort(([a], [b]) => a - b).map(([n, passes]) => ({ annualGrossToday: n * resolution, passes })) };
+      testedCount: samples.size, tested: [...samples].sort(([a], [b]) => a - b).map(([n, passes]) => ({ annualGrossToday: n * resolution, passes })) };
   } catch (error) {
-    return { ...result, reason: error instanceof Error ? error.message : "Candidate evaluation failed.", tested: [...samples].map(([n, passes]) => ({ annualGrossToday: n * resolution, passes })) };
+    return { ...result, reason: error instanceof Error ? error.message : "Candidate evaluation failed.", testedCount: samples.size, tested: [...samples].map(([n, passes]) => ({ annualGrossToday: n * resolution, passes })) };
   }
 }
 
 export function materializeIncomeCandidate(baseline: ProjectionInputs, request: EmploymentIncomeRequest, age: number, gross: number): ProjectionInputs {
   const template = request.career;
   if (!template) throw new Error("Select explicit future employment assumptions.");
-  if (template.phases[0].employment.mode !== "gross_estimate") throw new Error("Unavailable: independent net/taxable/eligible overrides do not define a reliable salary relation. Explicitly select the supported gross estimate.");
-  if (template.phases[0].contributions.some(c => c.employerMonthlyAmountToday > 0)) throw new Error("Unavailable: employer match taxation has no supported gross-to-net relation.");
+  if (template.phases.some(p => p.employment.mode !== "gross_estimate")) throw new Error("Unavailable: independent net/taxable/eligible overrides do not define a reliable salary relation. Explicitly select the supported gross estimate.");
+  if (template.phases.some(p => p.contributions.some(c => c.employerMonthlyAmountToday > 0))) throw new Error("Unavailable: employer match taxation has no supported gross-to-net relation.");
   assertUnchangedCppBeforeTransition(baseline, template.cppBenefitMultiplier, age);
   const inputs = structuredClone(baseline);
   applyCareerTransition(inputs, { ...template, transitionAge: age, retirementAge: request.retirementAge,
-    phases: [{ ...template.phases[0], startAge: age, endAge: request.retirementAge, employment: { mode: "gross_estimate", annualGrossToday: gross } }] });
+    phases: careerPhasesForInterval(template, age, request.retirementAge).map(p => ({ ...p, employment: { mode: "gross_estimate", annualGrossToday: gross } })) });
   return validateProjectionInputs(inputs);
 }
 
@@ -109,21 +111,27 @@ export function calculateEmploymentIncome(inputs: ProjectionInputsWithReturnPath
   // across dates/paths. Remaining points are explicitly unavailable, never omitted.
   const deadline = Date.now() + 30000;
   let simulatedMonths = 0;
+  let simulations = 0;
   const points = paths.flatMap(({ path, inputs: active }) => offsets.map(offset => {
     const age = start + offset / 12;
     const date = new Date(Date.UTC(Number(inputs.startDate.slice(0, 4)), Number(inputs.startDate.slice(5, 7)) - 1 + offset, 1)).toISOString().slice(0, 7);
-    const phase = request.career?.phases[0];
+    const phases = request.career ? careerPhasesForInterval(request.career, age, request.retirementAge) : [];
+    const phase = phases[0];
     type Evaluation = ReturnType<typeof evaluateCareerFunding>;
     const cache = new Map<number, Evaluation>();
+    const rechecked = new Set<number>();
     const evaluate = (gross: number, fresh = false): Evaluation => {
-      if (!fresh && cache.has(gross)) return cache.get(gross)!;
-      if (Date.now() > deadline || simulatedMonths > 2000000) throw new Error("Bounded simulation budget reached; choose coarser transition spacing or a shorter horizon.");
+      if ((!fresh || rechecked.has(gross)) && cache.has(gross)) return cache.get(gross)!;
+      if (Date.now() > deadline || simulatedMonths > 2000000) throw new Error("Bounded simulation budget reached; this point was not completed.");
       // Below required employee withholding is a known failing salary, not a
       // broken model. Probe a valid candidate first to validate all other terms.
-      const withheld = phase?.contributions.filter(c => c.funding === "income_withheld").reduce((n, c) => n + c.monthlyAmountToday * 12, 0) ?? 0;
-      if (estimateOntarioEmployment(gross).annualNetCashToday < withheld) {
-        const failure: FundingFailure = { date, category: "required_savings",
-          shortfallToday: (withheld - estimateOntarioEmployment(gross).annualNetCashToday) / 12,
+      const net = estimateOntarioEmployment(gross).annualNetCashToday;
+      const withholding = phases.map(p => ({ age: p.startAge, amount: p.contributions.filter(c => c.funding === "income_withheld").reduce((n, c) => n + c.monthlyAmountToday * 12, 0) })).find(p => p.amount > net);
+      if (withholding) {
+        const month = Math.round((withholding.age - start) * 12);
+        const failedDate = new Date(Date.UTC(Number(inputs.startDate.slice(0, 4)), Number(inputs.startDate.slice(5, 7)) - 1 + month, 1)).toISOString().slice(0, 7);
+        const failure: FundingFailure = { date: failedDate, category: "required_savings",
+          shortfallToday: (withholding.amount - net) / 12,
           message: "Employee withholding exceeds net cash.", action: "Increase gross salary or review mandatory withholding." };
         const result: Evaluation = { age, passes: false, livingCostsFunded: false, livingCostsFailure: failure, failure,
           reason: failure.message, terminalFinancialAssetsToday: null, provisionalTax: false };
@@ -131,20 +139,29 @@ export function calculateEmploymentIncome(inputs: ProjectionInputsWithReturnPath
         return result;
       }
       const candidate = materializeIncomeCandidate(active, request, age, gross);
+      simulations++;
       simulatedMonths += Math.ceil((candidate.endAge - start) * 12);
-      const result = evaluateCareerFunding(candidate, age, request.retirementAge, phase!.kind, phase);
+      const result = evaluateCareerFunding(candidate, age, request.retirementAge, phase!.kind, phases);
       cache.set(gross, result);
+      if (fresh) rechecked.add(gross);
       return result;
     };
     try {
       materializeIncomeCandidate(active, request, age, request.maxAnnualGrossToday);
       const required = solveIncomeBoundary(request.maxAnnualGrossToday, request.resolutionAnnualGrossToday, (gross, fresh) => evaluate(gross, fresh).passes);
       const livingCosts = solveIncomeBoundary(request.maxAnnualGrossToday, request.resolutionAnnualGrossToday, (gross, fresh) => evaluate(gross, fresh).livingCostsFunded);
-      // Retain the first dated cause for every sampled failure, including a
+      // Retain the first dated cause for each displayed failure, including a
       // failed adjacent salary. Use the comparator's own cause, not a floor or
       // reserve constraint that the living-cost comparison does not enforce.
       for (const [boundary, field] of [[required, "failure"], [livingCosts, "livingCostsFailure"]] as const) {
-        boundary.tested = boundary.tested.map(trial => ({ ...trial,
+        boundary.testedCount = boundary.tested.length;
+        // Keep bounded evidence: range endpoints, passing boundary and its
+        // adjacent failure. The search still checks every original sample.
+        const keep = new Set([0, request.maxAnnualGrossToday, boundary.annualGrossToday,
+          boundary.annualGrossToday === null ? null : boundary.annualGrossToday - request.resolutionAnnualGrossToday,
+          ...boundary.tested.filter(t => t.passes).slice(0, 1).map(t => t.annualGrossToday),
+          ...boundary.tested.filter(t => !t.passes).slice(-1).map(t => t.annualGrossToday)]);
+        boundary.tested = boundary.tested.filter(trial => keep.has(trial.annualGrossToday)).map(trial => ({ ...trial,
           failure: trial.passes ? null : cache.get(trial.annualGrossToday)?.[field] ?? null }));
       }
       for (const boundary of [required, livingCosts]) if (boundary.annualGrossToday !== null) {
@@ -157,5 +174,5 @@ export function calculateEmploymentIncome(inputs: ProjectionInputsWithReturnPath
       return { age, date, path, required: unavailable(reason), livingCosts: unavailable(reason), terminalFinancialAssetsToday: null, provisionalTax: false };
     }
   }));
-  return { request, effectiveDate: inputs.startDate, stressConfigured, points };
+  return { request, effectiveDate: inputs.startDate, stressConfigured, points, work: { simulations, simulatedMonths } };
 }

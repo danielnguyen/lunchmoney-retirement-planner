@@ -4,6 +4,7 @@ import {
   annualCanadianTaxResult,
   canadianTaxPosition,
   createCanadianTaxYearState,
+  cloneCanadianTaxYearState,
   recognizeCanadianProjectionTax,
 } from "@/src/domain/projection/canadian-tax-ledger";
 import type { TaxAssumptions } from "@/src/domain/projection/types";
@@ -148,4 +149,21 @@ describe("Canadian annual tax YTD ledger", () => {
     );
     expect(result.reconciled).toBe(true);
   });
+});
+
+
+it("reuses unchanged embedded tax in withdrawal previews without altering the ledger or tax result", () => {
+  const state = createCanadianTaxYearState(2026);
+  addCanadianTaxIncome(state, "employment", 50000, true);
+  addCanadianTaxIncome(state, "oas", 8400, false);
+  const common = { tax, ageAtYearEnd: 70, pensionIncomeCreditEligible: true };
+  const position = canadianTaxPosition({ ...common, state });
+  const original = structuredClone(state);
+  for (const source of ["rrspWithdrawals", "rrifWithdrawals", "capitalGains"] as const) {
+    const preview = cloneCanadianTaxYearState(state);
+    addCanadianTaxIncome(preview, source, 30000, false);
+    expect(canadianTaxPosition({ ...common, state: preview, unchangedEmbeddedTax: position.embedded }))
+      .toEqual(canadianTaxPosition({ ...common, state: preview }));
+    expect(state).toEqual(original);
+  }
 });
