@@ -282,6 +282,11 @@ ordering is valid. Baseline constants and explicit dated return/inflation stress
 paths are reported separately; neither is probabilistic. Sources, effective date,
 job terms, CPP multiplier and active baseline controls are shown with the results.
 The configured CPP estimate is not a forecast of entitlement from career earnings.
+CPP multipliers apply to the whole projection. If a changed multiplier would alter
+CPP payable during accumulation before a candidate (including its month-end claim
+boundary), that milestone is unavailable. Set the multiplier to 1 to preserve
+baseline CPP; dated CPP adjustments are not supported. Opening-month transitions
+and candidates before CPP becomes payable still support changed multipliers.
 
 No independent financial engine or inverse income solver is added. Forward checks
 skip the unrelated inverse asset-requirement search. A simulation error makes the

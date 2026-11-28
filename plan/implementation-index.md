@@ -289,3 +289,36 @@ independent review; #46 merged in #49. Do not begin #48.
   `f2ff15c` (use GitHub for the full current head). This documentation follow-up
   records the PR link; apply `openhands-review` after pushing it so the independent
   reviewer receives the final head. Hosted checks and review state live on the PR.
+
+## PR #50 review correction
+
+- Resumed the clean existing branch at requested head
+  `93168c28b8187848c3519ab70f53af9212ea7962`; main remains
+  `4ff755971aac8345a854bdbca40fbe427b4fcb3b`. PR #50 is the only open PR.
+  Re-read issue/comments, PR discussion/review/inline finding and checks, target
+  rules/roadmap/index and shared rules at unchanged `f3e619116a87fa872269460aa70c74ef9157ee4f`.
+  The issue body still matches the recorded dispatch hash.
+- Addressed review comment 4725561249: global CPP scaling can change accumulation
+  before a candidate. Use the review's explicit unavailable alternative when a
+  changed multiplier would affect CPP payable before the transition, including
+  the engine's month-end claim boundary. Do not skip an unsupported candidate and
+  falsely claim a later date is earliest. Opening transitions, unchanged CPP and
+  transitions before CPP starts remain supported. No dated benefit model added.
+- Bounded files: milestone materializer, its synthetic tests, existing strategy
+  documentation and this execution index. No UI, engine, dependencies, private
+  configuration or export behavior changed.
+- Three new strategy regressions compare all 12 monthly pre-transition flows and
+  balances with baseline for supported unchanged CPP, reject reduced CPP for a
+  future candidate, and verify unavailable search results retain earlier failures.
+  They cover opening transitions and claim-age boundaries. The initial regression
+  helper passed the baseline directly to the engine's normalizing validator;
+  cloning that independent probe input corrected the test's mutation assertion.
+- Validation: 17 focused tests and all 760 tests in 46 files passed; typecheck,
+  lint, production build, eight production HTTP export checks, Compose config and
+  diff whitespace passed. Local Docker again denied socket access; hosted checks
+  must validate the revised head. No new browser geometry claim is made for this
+  domain-only correction. Non-monotonic coverage remains an evaluator-grid test,
+  not evidence of a financially non-monotonic example.
+- Next: push this correction to the existing draft, reply to the inline finding,
+  and remove/reapply `openhands-review` for independent review of the new head.
+  Owner-only ready/merge/deploy restrictions remain in force.

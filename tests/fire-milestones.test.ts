@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { calculateFireMilestones, evaluateFireCandidate, materializeFireCandidate, parseFireMilestoneRequest, searchFireCandidates } from "@/src/domain/projection/fire-milestones";
-import { calculateProjection } from "@/src/domain/projection/calculate";
+import { calculateProjection, evaluateMilestoneFunding, type ComparisonProjectionOptions } from "@/src/domain/projection/calculate";
 import { fireInputs, fireRequest } from "./fixtures/fire-milestones";
 import { projectionFixture } from "./fixtures/projection";
 
@@ -19,6 +19,48 @@ describe("conditional FIRE candidate simulation", () => {
     expect(projection.retirementSnapshot.real.balances.financialAssets).toBe(120000);
     expect(evaluateFireCandidate(p, r, "full", 40).terminalFinancialAssetsToday).toBe(projection.summary.endingFinancialAssetsToday);
     expect(p).toEqual(before);
+  });
+  it.each(["full", "coast", "barista"] as const)("rejects retroactive CPP changes for %s and preserves supported accumulation", kind => {
+    const p = fireInputs();
+    p.person.currentAge = 60;
+    p.person.retirementAge = 62;
+    p.endAge = 64;
+    p.person.cpp.startAge = 60;
+    p.person.cpp.monthlyAmountAt65Today = 1000;
+    p.person.employmentIncomePhases.forEach(phase => { phase.startAge += 20; phase.endAge += 20; });
+    p.spendingPhases.forEach(phase => { phase.startAge += 20; phase.endAge += 20; });
+    p.accounts.forEach(account => account.contributionPhases.forEach(phase => { phase.startAge += 20; phase.endAge += 20; }));
+    const r = { ...fireRequest(p), retirementAge: 62 };
+    const before = structuredClone(p);
+    type Month = Parameters<NonNullable<ComparisonProjectionOptions["onMonth"]>>[0];
+    const prefix = (inputs: typeof p) => {
+      const months: Month[] = [];
+      evaluateMilestoneFunding(structuredClone(inputs), { onMonth: month => { if (month.age < 61 - 1e-8) months.push(month); } });
+      return months;
+    };
+    const expected = prefix(p);
+    expect(expected).toHaveLength(12);
+    expect(expected.reduce((total, month) => total + month.flow.income.cpp, 0)).toBeGreaterThan(0);
+    expect(prefix(materializeFireCandidate(p, r, kind, 61))).toEqual(expected);
+    if (kind === "full") r.fullCppBenefitMultiplier = .5;
+    else r[kind]!.cppBenefitMultiplier = .5;
+    expect(() => materializeFireCandidate(p, r, kind, 61)).toThrow(/CPP adjustment unavailable/);
+    // The opening candidate has no accumulation prefix to alter.
+    expect(() => materializeFireCandidate(p, r, kind, 60)).not.toThrow();
+    p.retirementRequirement.minimumEndingFinancialAssetsToday = 10000000;
+    const result = calculateFireMilestones(p, r).results.find(result => result.kind === kind)!;
+    expect(result.status).toBe("unavailable");
+    expect(result.candidate).toBeNull();
+    expect(result.reason).toMatch(/CPP is payable before this transition/);
+    expect(result.tested.map(candidate => candidate.age)).toEqual([60]);
+    expect(result.tested[0].passes).toBe(false);
+    p.retirementRequirement = before.retirementRequirement;
+    expect(p).toEqual(before);
+    // Month-end benefit timing also reaches the claim age at the boundary.
+    p.person.cpp.startAge = 61;
+    expect(() => materializeFireCandidate(p, r, kind, 61)).toThrow(/CPP adjustment unavailable/);
+    p.person.cpp.startAge = 62;
+    expect(() => materializeFireCandidate(p, r, kind, 61)).not.toThrow();
   });
   it("finds the first passing month and independently verifies every earlier monthly candidate", () => {
     const p = fireInputs();

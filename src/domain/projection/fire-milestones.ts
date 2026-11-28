@@ -49,6 +49,13 @@ export function parseFireMilestoneRequest(raw: unknown): FireMilestoneRequest {
 
 /** Keep every accumulation assumption before the boundary, including dated events. */
 export function materializeFireCandidate(baseline: ProjectionInputs, request: FireMilestoneRequest, kind: FireKind, age: number): ProjectionInputs {
+  const multiplier = kind === "full" ? request.fullCppBenefitMultiplier : request[kind]?.cppBenefitMultiplier;
+  // CPP is a whole-projection amount in the existing engine. Benefits use the
+  // month-end age, so a claim age equal to the transition can affect its prefix.
+  if (multiplier !== undefined && multiplier !== 1 && baseline.person.cpp.monthlyAmountAt65Today > 0 &&
+      age > baseline.person.currentAge + 1e-8 && baseline.person.cpp.startAge <= age + 1e-8) {
+    throw new Error("CPP adjustment unavailable: CPP is payable before this transition. Use a multiplier of 1 to preserve unchanged accumulation; dated CPP adjustments are not supported.");
+  }
   const inputs = structuredClone(baseline);
   if (kind !== "full" && age < request.retirementAge - 1e-8) {
     const template = request[kind];
