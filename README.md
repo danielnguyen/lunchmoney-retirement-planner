@@ -646,3 +646,19 @@ The cards distinguish the modeled starting month from future dates; chart lines
 mark calendar years and the adjacent labels give exact months. Calculation is
 opt-in and bounded to 601 candidates per strategy/path. Ordinary exports exclude
 this temporary analysis and retain their existing privacy boundary.
+
+### Income by career-transition age
+
+Enable **Calculate income by transition age** to compare lower-paid work with
+lifetime funding needs at a chosen full-retirement age. Select configured job
+terms or explicitly choose the editable Ontario no-match illustration. The chart
+shows required annual gross income and a living-cost funding comparator; the table
+also shows estimated net cash, unavailable points and tested boundary evidence.
+All curve values remain in today's dollars. Lower-income work may still need
+ongoing saving; it is a different objective from Coast, Barista and Full FIRE.
+
+Salary boundaries use the existing monthly engine, benefits, tax, reserves,
+liabilities and terminal floor. Results depend on the selected salary relation
+and sampled monotonicity checks; they are not certified global minima or safety
+guarantees. Unsupported net overrides/matching are unavailable. Baseline and
+configured stress paths are separate. See [required income assumptions and limits](docs/retirement-strategy.md#career-independence-required-employment-income).

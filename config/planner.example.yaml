@@ -489,6 +489,10 @@ futureEvents: []
 # Optional synthetic career comparison. Uncomment to enable the existing
 # comparison panel and editable preset buttons. None of these amounts assert
 # affordability or actual future employer terms. Keep permanent edits in private Git.
+# The income-by-transition-age dashboard can reuse a single accumulation or Barista
+# interval from scenarioComparison. Explicit gross_estimate terms support the
+# salary search; independent net overrides and employer match return unavailable.
+# Its cap/resolution and full-retirement age are temporary dashboard controls.
 # scenarioComparison:
 #   - id: baseline
 #     label: Unchanged baseline

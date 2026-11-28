@@ -1,6 +1,7 @@
 "use client";
 
 import { usePlannerConfigSync } from "./planner-config-sync";
+import { EmploymentIncome } from "@/components/employment-income";
 import { FireMilestones } from "@/components/fire-milestones";
 import type { FireMilestoneResult } from "@/src/domain/projection/fire-milestones";
 import { SpendingCapacity } from "@/components/spending-capacity";
@@ -1974,6 +1975,7 @@ export function PlannerDashboard() {
         </section>
       ) : null}
 
+      <EmploymentIncome key={`income:${baseline.connection.checkedAt}`} inputs={inputs} definitions={baseline.scenarioComparison ?? []} />
       <FireMilestones key={`fire:${baseline.connection.checkedAt}`} inputs={inputs} definitions={baseline.scenarioComparison ?? []} onResult={acceptFireResult} />
       <SpendingCapacity inputs={inputs} />
       {baseline.scenarioComparison?.length ? <ScenarioComparison key={baseline.connection.checkedAt} inputs={inputs} definitions={baseline.scenarioComparison} /> : null}

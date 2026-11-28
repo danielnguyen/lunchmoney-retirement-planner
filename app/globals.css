@@ -479,3 +479,10 @@ code, pre, .mapping-reference-row, .config-editor-meta strong, .assumption-grid 
 .fire-panel input:not([type="checkbox"]), .fire-panel select { width: 100%; max-width: 100%; min-width: 0; padding: .5rem; }
 .fire-panel input[type="checkbox"] { justify-self: start; }
 .fire-panel p, .fire-panel li { overflow-wrap: anywhere; }
+
+.income-panel { min-width: 0; }
+.income-curve { width: 100%; min-width: 0; }
+.income-table { max-width: 100%; overflow-x: auto; }
+.income-table table { width: 100%; border-collapse: collapse; }
+.income-table th, .income-table td { padding: 0.6rem; text-align: left; vertical-align: top; }
+.income-panel p, .income-panel li { overflow-wrap: anywhere; }

@@ -6,18 +6,16 @@ Public tracking must remain generic and must not contain private financial value
 
 ## Current position
 
-- Active implementation: conditional FIRE milestones (#47), branch `openhands/issue-47`.
-- Clean main baseline `4ff755971aac8345a854bdbca40fbe427b4fcb3b`; PR #49 merged
-  2026-11-28 with independent exact-head approval and successful CI/Docker checks.
-- No open PR at execution start. #46 is complete; #48 remains held.
-- Scope: existing monthly engine/configured career assumptions, projection API,
-  dashboard/charts/controls, synthetic tests and existing documentation.
-- Excluded: inverse income solver, new financial engine, optimization, private data,
+- Active implementation: required employment income by transition age (#48), branch `openhands/issue-48`.
+- Clean main baseline `429a5f4a26e0e7e584658f3a4dcc4fdf25339091`; PR #50 merged.
+  #46/#47 are complete; no open PR at execution start.
+- Scope: career income inverse search through existing monthly funding checks,
+  projection API/dashboard/styles, synthetic tests and existing documentation.
+- Excluded: independent payroll engine, unrelated optimization, private data,
   dependencies, CI permissions, merge and deployment.
-- Draft PR: [#50](https://github.com/danielnguyen/lunchmoney-retirement-planner/pull/50).
-  Independent exact-head review and hosted validation are requested on the final
-  head; only the owner may mark ready, merge or deploy. #47 browser evidence is
-  recorded below; #46 had not verified real-browser geometry.
+- Draft PR: [#51](https://github.com/danielnguyen/lunchmoney-retirement-planner/pull/51).
+  Correction of the later independent findings is implemented; new exact-head
+  review and hosted checks are required. Owner controls readiness and deployed acceptance.
 
 ## Planned implementation sequence
 
@@ -37,7 +35,8 @@ Public tracking must remain generic and must not contain private financial value
 | 12 | Structured housing transitions | Net-worth, debt, spending, and event models | Planned | — |
 
 | — | Inverse retirement spending capacity (#35) | Shared monthly engine and retirement requirement | Completed | [#41](https://github.com/danielnguyen/lunchmoney-retirement-planner/pull/41) |
-| — | Conditional FIRE milestones (#47) | Career transitions and shared monthly engine | In progress | [#50](https://github.com/danielnguyen/lunchmoney-retirement-planner/pull/50) |
+| — | Required employment income (#48) | Career scenarios and conditional funding checks | In progress | [#51](https://github.com/danielnguyen/lunchmoney-retirement-planner/pull/51) |
+| — | Conditional FIRE milestones (#47) | Career transitions and shared monthly engine | Completed | [#50](https://github.com/danielnguyen/lunchmoney-retirement-planner/pull/50) |
 | — | Career transitions and editable FIRE presets (#46) | Scenario comparison and shared monthly engine | Completed | [#49](https://github.com/danielnguyen/lunchmoney-retirement-planner/pull/49) |
 | — | Configurable scenario comparison (#37) | Shared monthly projection and configured phases | Completed | [#38](https://github.com/danielnguyen/lunchmoney-retirement-planner/pull/38) |
 
@@ -74,8 +73,8 @@ Planning order is project-management shorthand only. Production names must descr
 
 ## New-conversation handoff
 
-Resume #47 on its existing branch/PR. Recover current GitHub head, checks and
-independent review; #46 merged in #49. Do not begin #48.
+Resume #48 on its existing branch/PR. Recover current GitHub head, checks and
+independent review. #46 merged in #49; #47 merged in #50.
 
 ## Issue #36 execution record
 
@@ -322,3 +321,116 @@ independent review; #46 merged in #49. Do not begin #48.
 - Next: push this correction to the existing draft, reply to the inline finding,
   and remove/reapply `openhands-review` for independent review of the new head.
   Owner-only ready/merge/deploy restrictions remain in force.
+
+
+## Issue #48 execution record
+
+- Verified live issue SHA-256 `3dcf26529648fab6dd71a5885692a42749be9a86cba5753af4ba06df4e0fd100`.
+- Read shared AGENTS, WORKFLOW, AUTHORITY, ENGINEERING and ChatGPT/OpenHands
+  integration rules at `f3e619116a87fa872269460aa70c74ef9157ee4f`.
+- Read target AGENTS, roadmap/index, plan guide, architecture/strategy, #46/#47,
+  PR #50 merge/review/checks, career/payroll, milestone/inverse/funding engine,
+  route/dashboard and synthetic fixtures. No nested instructions found.
+- Separate clean checkout from main `429a5f4a26e0e7e584658f3a4dcc4fdf25339091`,
+  credential-free origin and expected branch verified. Automation bundle untouched.
+  Storage: 136 GB and more than 11 million inodes free. No private config read.
+- Reuse the career materializer and extract shared forward constraints from FIRE
+  evaluation; existing milestone response shape is preserved. No new payroll model.
+- Bound search to supported gross relations, explicit cap/resolution, 61 dates,
+  2 million simulated months and 30 seconds. Report unavailable remaining points,
+  sampled reversals, cap exhaustion and adjacent lower failures without global claims.
+- Initial focused checks exposed floating-point assertion precision and incomplete
+  synthetic stress metadata; corrected the fixtures/assertions without weakening
+  cent reconciliation or product constraints. Export tests target new analysis
+  fields rather than the pre-existing exported employment-income ledger field.
+- Validation and independent review pending; owner-only readiness/merge/deploy.
+- Final validation: 783 tests in 48 files, typecheck, lint, production build,
+  Compose config and all eight production HTTP export checks passed.
+- Production Chromium passed at 390px and 1440px with synthetic baseline
+  interception and real projection HTTP: opt-in calculation, expanded job controls,
+  chart/accessible table, no panel/control overflow, opt-out and no runtime exceptions.
+  The reproducible test uses a temporary browser profile/config/cache, cleaned on exit.
+- Analytical and full-engine fixtures cover zero/capped/unavailable boundaries,
+  fresh adjacent failure checks, tax/CPP/EI thresholds, RRSP earned room/withholding,
+  unchanged prefixes, CPP guard, debt/reserves/terminal floor, adverse return paths,
+  month-end real-dollar indexing, temporary overrides and export privacy.
+  Nonmonotonic counterexamples are evaluator-grid tests, not a financial proof of
+  monotonicity. The UI explicitly disclaims a global minimum across unsampled islands.
+- Local Docker build failed with permission denied at the Docker socket. No
+  escalation; hosted exact-head Docker/CI and independent review remain required.
+- Generated next-env build changes were restored; no unignored build/scratch output
+  retained. Git author metadata is supplied per command using existing OpenHands
+  attribution because the checkout has no configured identity; Git config unchanged.
+
+- Published draft PR #51 from implementation commit `7d74844`. This documentation
+  update records the PR; request `openhands-review` after pushing its final head.
+  Current hosted checks and independent review state remain on GitHub.
+
+## PR #51 review correction
+
+- Resumed the clean existing branch at requested head
+  `6241287e16054c3af0857f148db3abc551518433`; main remains `429a5f4`.
+  PR #51 is the only open implementation PR; no new PR or deployment.
+- Read current issue, discussion, both reviews, both inline findings and checks
+  directly from GitHub. Original-head CI and Docker pass. Re-read shared AGENTS,
+  WORKFLOW, AUTHORITY, ENGINEERING and ChatGPT/OpenHands integration rules at
+  `f3e619116a87fa872269460aa70c74ef9157ee4f`, plus target AGENTS and roadmap/index.
+  Current issue body SHA-256 (gh body output including trailing newline):
+  `6b1e59d4fe3146a0b40ef2ccb799426d4aa1fe43162f1f795446c43b9d2fc07e`.
+- Corrected shared FIRE/income eligibility for optional cash/room-capped personal
+  savings. Kept unchanged ordinary flows, mandatory withholding, required career
+  savings, outflow, withdrawal and terminal-floor constraints.
+- Applied the recorded reserve decision: allow recovered historical buildup,
+  require recovery before later transition, and retain subsequent/retirement checks.
+  Synthetic cash-cap and recovered-reserve retirement boundaries match ordinary
+  forward terminal assets (270,000 and 220,000 respectively); month flows match.
+  A later retirement reserve breach still fails with its actual month and amount.
+- Both inline findings addressed: each failed income trial now retains dated,
+  categorized, quantified evidence and a next action, including early-stopping
+  debt failures. Living-cost evidence describes its own funding constraint.
+  Income and FIRE evidence show amounts; search qualifications remain intact.
+- Scope remains projection domain/types, existing components, tests and plan docs.
+  Scenario comparison summary/link changes are directly implicated by the
+  acceptance hold's request to discover ordinary pay and retirement controls.
+  Search limits/technical assumptions remain collapsed; no broader UI overhaul.
+- Initial new tests exposed an incorrectly assumed early-retirement pass (a later
+  reserve breach is real) and ordinary projection normalization in a fixture.
+  Corrected test setup/expectations without relaxing safeguards. The first full
+  suite also identified old UI label assertions; updated those assertions.
+- Final executed validation: 792 tests across 48 files, typecheck, lint, production
+  build, Compose config, synthetic production Chromium at 390px and 1440px,
+  and eight production HTTP export checks pass. Browser checks include real API
+  failure diagnostics, collapsed evidence, expanded controls and opt-out.
+- Local Docker build denied access to /var/run/docker.sock; no escalation.
+  New-head hosted Docker/CI and independent review remain required. Restore
+  generated next-env declaration; retain only ignored build/dependency output.
+  Issue #48 remains subject to owner deployed acceptance after merge.
+
+## PR #51 opening-transition correction
+
+- Continued from clean exact head `47d435a05c4954167227257f5e62712654eb24f8`
+  on the existing branch. Current issue, all reviews/inline comments/discussion and
+  checks read directly from GitHub. The latest independent review confirms the
+  prior two fixes and identifies one remaining opening-reserve defect.
+- Shared policy revision remains `f3e619116a87fa872269460aa70c74ef9157ee4f`;
+  the previously read shared instructions still apply. Re-read target AGENTS,
+  relevant roadmap/index and affected engine/evaluator/tests. Main and the issue
+  body hash recorded above are unchanged. PR #51 remains the only open PR.
+- Bounded scope: shared reserve calculation, career eligibility, existing synthetic
+  tests/browser/API checks and roadmap/index. No dependencies, workflows, private
+  configuration, new PR, readiness, merge or deployment changes.
+- Reuse the engine's reserve-account, indexed-target and operating-cash calculation
+  for opening eligibility. Immediate transitions now fail before salary, returns
+  or events can refill the reserve. Later-transition and subsequent-month checks
+  remain intact; ordinary forward monthly calculations use the same extracted rule.
+- Regressions cover immediate income and Full/Coast/Barista candidates, first-month
+  salary replenishment, funded-opening and recovered-later controls, and shared
+  versus separate operating-cash reserve accounts. API and production-browser
+  checks retain the opening month and quantified 1,000 reserve shortfall.
+- Executed: 797 tests in 48 files, typecheck, lint, production build, Compose,
+  production Chromium at 390px/1440px and eight HTTP export/privacy checks pass.
+  Local Docker build denied socket access; no escalation. Hosted new-head
+  CI/Docker and independent exact-head review remain required.
+- Prior independent findings need no further changes: the latest review confirms
+  their fixes, and the full regression suite still passes. Owner deployed
+  acceptance remains pending after merge; #48 stays open.

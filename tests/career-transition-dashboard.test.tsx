@@ -44,7 +44,7 @@ it.each(["reduced_income", "coast", "barista", "coast_to_barista"] as const)("ed
   await waitFor(() => expect(results.at(-1)).toHaveLength(2));
   const before = results.at(-1)![1].summary!.endingFinancialAssetsToday;
   expect(results.at(-1)![0].definition).toEqual(baseline);
-  fireEvent.click(screen.getByText("Active comparison inputs and temporary edits"));
+  fireEvent.click(screen.getByText("Edit gross/net pay, retirement age and scenario assumptions"));
   fireEvent.change(screen.getAllByLabelText("Annual net cash after payroll and employee withholding")[0], { target: { value: "90000" } });
   await waitFor(() => expect(results.at(-1)![1].summary!.endingFinancialAssetsToday).not.toBe(before));
   const card = await screen.findByRole("region", { name: "Side-by-side scenario scorecard" });
@@ -65,7 +65,7 @@ it("preserves mobile control structure, explicit payroll selection and export pr
   vi.stubGlobal("fetch", vi.fn(async (_url: string, init: RequestInit) => POST(new Request("http://localhost/api/v1/projections", init))));
   render(<ScenarioComparison inputs={inputs} definitions={[scenario]} />);
   await screen.findByRole("region", { name: "Side-by-side scenario scorecard" });
-  fireEvent.click(screen.getByText("Active comparison inputs and temporary edits"));
+  fireEvent.click(screen.getByText("Edit gross/net pay, retirement age and scenario assumptions"));
   fireEvent.change(screen.getByLabelText("Employment assumption"), { target: { value: "gross_estimate" } });
   expect(screen.getByLabelText("Annual gross pay today")).toHaveValue(0);
   fireEvent.change(screen.getByLabelText("Annual gross pay today"), { target: { value: "30000" } });

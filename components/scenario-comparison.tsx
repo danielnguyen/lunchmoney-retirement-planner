@@ -53,7 +53,7 @@ export function ScenarioComparison({ inputs, definitions }: { inputs: Projection
       const preset = careerPreset(inputs, kind);
       return [...previous, { ...preset, id: `${preset.id}-${previous.length}` }];
     })}>Add {kind.replaceAll("_", " ")} preset</button>)}</p>
-    <details><summary>Active comparison inputs and temporary edits</summary>
+    <details><summary>Edit gross/net pay, retirement age and scenario assumptions</summary>
       <p>Retirement age: {inputs.person.retirementAge}; terminal age: {inputs.endAge}. Phase boundaries, liabilities, returns, inflation and tax assumptions come from the active plan.</p>
       <div className="comparison-cards">{scenarios.map((scenario) => <fieldset key={scenario.id}>
         <legend>{scenario.label}</legend>

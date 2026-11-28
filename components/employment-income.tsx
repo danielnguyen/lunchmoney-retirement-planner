@@ -1,0 +1,110 @@
+"use client";
+
+import { useEffect, useState } from "react";
+import { CartesianGrid, Legend, Line, LineChart, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
+import type { ComparisonScenarioConfig } from "@/src/config/types";
+import type { ProjectionInputsWithReturnPaths } from "@/src/domain/projection/return-path-model";
+import type { EmploymentIncomeRequest, EmploymentIncomeResult, IncomeBoundary } from "@/src/domain/projection/employment-income";
+import { careerPreset } from "@/src/domain/scenario/career";
+import { CareerTransitionEditor } from "./career-transition";
+import { PathRates } from "./spending-capacity";
+
+const amount = (n: number | null) => n === null ? "Unavailable" : n.toLocaleString(undefined, { maximumFractionDigits: 2 });
+export function EmploymentIncome({ inputs, definitions }: { inputs: ProjectionInputsWithReturnPaths; definitions: ComparisonScenarioConfig[] }) {
+  const initial = (): EmploymentIncomeRequest => ({ retirementAge: inputs.person.retirementAge, stepMonths: 12,
+    maxAnnualGrossToday: 200000, resolutionAnnualGrossToday: 100, career: null });
+  const [request, setRequest] = useState(initial);
+  const [assumptionSource, setAssumptionSource] = useState("No job terms selected");
+  const [enabled, setEnabled] = useState(false);
+  const [response, setResponse] = useState<{ key: string; result?: EmploymentIncomeResult; error?: string } | null>(null);
+  const key = JSON.stringify({ inputs, employmentIncome: request });
+  useEffect(() => {
+    if (!enabled) return;
+    const controller = new AbortController();
+    const timer = setTimeout(() => {
+      void fetch("/api/v1/projections", { method: "POST", headers: { "Content-Type": "application/json" }, body: key, signal: controller.signal })
+        .then(async res => {
+          const body = await res.json();
+          if (!res.ok) throw new Error(body.message ?? "Income curve unavailable.");
+          if (!controller.signal.aborted) setResponse({ key, result: body });
+        }).catch((error: unknown) => { if (!controller.signal.aborted) setResponse({ key, error: error instanceof Error ? error.message : "Income curve unavailable." }); });
+    }, 300);
+    return () => { clearTimeout(timer); controller.abort(); };
+  }, [key, enabled]);
+  const current = enabled && response?.key === key ? response : null;
+  const field = (label: string, name: "retirementAge" | "maxAnnualGrossToday") => <label>{label}<input type="number" step="any" value={request[name]} onChange={e => { if (Number.isFinite(e.target.valueAsNumber)) setRequest({ ...request, [name]: e.target.valueAsNumber }); }} /></label>;
+  const evidence = (boundary: IncomeBoundary) => {
+    const failure = boundary.status === "not_found" ? boundary.tested.at(-1)?.failure : null;
+    return <>
+      {failure && <p>{failure.date}: {failure.message} {failure.action}</p>}
+      <details><summary>{boundary.status === "available" ? "Tested boundary" : boundary.status === "not_found" ? "No passing sampled income" : "Unavailable"}</summary>
+        <p>{boundary.reason}</p><p>{boundary.adjacentLowerFails ? "Adjacent lower salary fails at the selected resolution." : "No adjacent lower boundary certified."}</p>
+        <ul>{boundary.tested.map(t => <li key={t.annualGrossToday}>{amount(t.annualGrossToday)} gross: {t.passes ? "Pass" : "Fail"}
+          {t.failure && <span> — {t.failure.date}: {t.failure.message} Category: {t.failure.category}; shortfall / disallowed funding: {amount(t.failure.shortfallToday)} today. {t.failure.action}</span>}
+        </li>)}</ul>
+      </details>
+    </>;
+  };
+  return <section className="comparison-panel fire-panel income-panel" aria-labelledby="income-heading">
+    <h2 id="income-heading">Career independence: minimum required employment income</h2>
+    <p>Compare a lower-paying job with the income needed to fund the whole plan at each transition age. Lower income can still require ongoing saving. This is distinct from Coast (no retirement saving), Barista (authorized spending withdrawals), and Full FIRE (no employment).</p>
+    {definitions.length > 0 && <p><a href="#comparison-heading">Set a specific gross/net salary and retirement age in Scenario Comparison</a>; this curve solves the required salary instead.</p>}
+    <label><input type="checkbox" checked={enabled} onChange={e => setEnabled(e.target.checked)} /> Calculate income by transition age</label>
+    {enabled && <>
+      <div className="career-editor">
+        {field("Income curve full retirement age", "retirementAge")}
+        <label>Income curve employment template<select value="" onChange={e => { const selected = definitions.find(s => s.id === e.target.value); if (selected?.careerTransition) { setAssumptionSource(`Configured scenarioComparison: ${selected.label}; temporary selection`); setRequest({ ...request, career: structuredClone(selected.careerTransition) }); } }}><option value="">Select configured job terms</option>{definitions.filter(s => s.careerTransition?.phases.length === 1 && s.careerTransition.phases[0].kind !== "coast").map(s => <option key={s.id} value={s.id}>{s.label}</option>)}</select></label>
+      </div>
+      <button type="button" disabled={!inputs.person.employmentIncomePhases.length} onClick={() => {
+        const career = careerPreset(inputs, "reduced_income").careerTransition!;
+        career.phases[0].employment = { mode: "gross_estimate", annualGrossToday: 0 };
+        setAssumptionSource("Explicitly selected Ontario illustration; no actual employer terms asserted");
+        setRequest({ ...request, career });
+      }}>Use illustrative Ontario terms (no match)</button>
+      <button type="button" onClick={() => { setRequest(initial()); setAssumptionSource("No job terms selected"); }}>Reset income assumptions</button>
+      <details><summary>Income curve search limits</summary><div className="career-editor">
+        {field("Maximum annual gross income today", "maxAnnualGrossToday")}
+        <label>Income curve transition spacing<select value={request.stepMonths} onChange={e => setRequest({ ...request, stepMonths: Number(e.target.value) })}><option value={12}>12 months</option><option value={3}>3 months</option><option value={1}>1 month</option></select></label>
+        <label>Annual gross income resolution<select value={request.resolutionAnnualGrossToday} onChange={e => setRequest({ ...request, resolutionAnnualGrossToday: Number(e.target.value) })}>{[1, 10, 100, 1000].map(n => <option key={n} value={n}>{n} today</option>)}</select></label>
+      </div><p>Search cap and resolution are computational limits, not salary forecasts. Up to 61 dates, 2 million simulated months and 30 seconds per request; uncomputed points are unavailable.</p></details>
+      <p>Source: {assumptionSource}. Effective baseline date: {inputs.startDate}. Edits below are temporary overrides. The solver replaces salary and interval dates only. All amounts on this curve remain annual today’s dollars, regardless of the main report’s dollar mode. Income inflates to transition, then follows the selected local growth.</p>
+      {request.career && <details><summary>Income curve job terms and payroll sources</summary>
+        <p>The salary field is replaced by the search. All other terms remain fixed. Only the dated Ontario gross estimate defines a supported salary relation; independent net overrides and employer match return unavailable. Accumulation prohibits working-life withdrawals; Barista permits spending withdrawals during the selected interval.</p>
+        <CareerTransitionEditor milestoneTemplate value={request.career} inputs={inputs} onChange={career => setRequest({ ...request, career })} />
+      </details>}
+
+      {!current && <p role="status">Calculating income boundaries…</p>}
+      {current?.error && <p role="alert">{current.error}</p>}
+      {current?.result && <div aria-live="polite">
+        {!current.result.stressConfigured && <p>Stress unavailable: no explicit return or inflation path configured.</p>}
+        {(["baseline", "stress"] as const).filter(path => path === "baseline" || current.result!.stressConfigured).map(path => {
+          const points = current.result!.points.filter(p => p.path === path);
+          return <article key={path}>
+            <h3>{path === "baseline" ? "Baseline income curve" : "Configured stress income curve"}</h3>
+            <p>{path === "baseline" ? "Constant fallback returns and inflation." : "Explicit dated paths; configured stress is not necessarily adverse."} Gaps mean unavailable or no passing sampled income; see the table.</p>
+            <div className="income-curve" role="img" aria-label={`${path} annual gross income by transition age; exact values in table`}>
+              <ResponsiveContainer width="100%" height={300}><LineChart data={points.map(p => ({ age: p.age, required: p.required.annualGrossToday, living: p.livingCosts.annualGrossToday }))} margin={{ left: 15, right: 15, bottom: 20 }}>
+                <CartesianGrid strokeDasharray="3 3" /><XAxis dataKey="age" type="number" domain={["dataMin", "dataMax"]} tickFormatter={n => Number(n).toFixed(1)} label={{ value: "Transition age", position: "bottom" }} /><YAxis width={75} /><Tooltip /><Legend verticalAlign="top" />
+                <Line dataKey="required" name="Required annual gross today" stroke="#15803d" connectNulls={false} isAnimationActive={false} />
+                <Line dataKey="living" name="Living-cost annual gross today" stroke="#2563eb" strokeDasharray="5 5" connectNulls={false} isAnimationActive={false} />
+              </LineChart></ResponsiveContainer>
+            </div>
+            <div className="income-table"><table><caption>{path} tested income boundaries, annual today’s dollars</caption><thead><tr><th>Transition</th><th>Required gross / estimated net cash</th><th>Living-cost gross / estimated net cash</th><th>Terminal assets today</th></tr></thead><tbody>{points.map(p => <tr key={p.date}><th>{p.date}, age {p.age.toFixed(2)}</th><td>{amount(p.required.annualGrossToday)} / {amount(p.required.annualNetCashToday)}{evidence(p.required)}</td><td>{amount(p.livingCosts.annualGrossToday)} / {amount(p.livingCosts.annualNetCashToday)}{evidence(p.livingCosts)}</td><td>{amount(p.terminalFinancialAssetsToday)}{p.provisionalTax && <p>Provisional tax assumptions</p>}</td></tr>)}</tbody></table></div>
+          </article>;
+        })}
+        <details><summary>Income curve active funding assumptions</summary>
+        <p>Effective {current.result.effectiveDate}; horizon age {inputs.endAge}; terminal financial asset floor {amount(inputs.retirementRequirement.minimumEndingFinancialAssetsToday)} today ({inputs.retirementRequirement.activeValueSource}). Tax mode: {inputs.tax.mode}. Home equity cannot fund withdrawals.</p>
+        <p>The required-income curve checks spending, taxes, debt, reserves, required savings and the terminal floor through the shared monthly engine. The living-cost comparator funds every career month’s essential/discretionary costs, debt, events and incremental tax from current income, after payroll/employee withholding and other income offsets. It excludes additional saving, reserve building and retirement funding; it uses the same actual candidate flows, not a second budget calculator.</p>
+        <p>Positive results are passing tested boundaries with an adjacent lower failure, conditional on monotone feasibility. Full-range sampling detects observed reversals but cannot exclude unsampled feasible islands. No global minimum or probability of success is claimed. Zero is the non-negative lower bound.</p>
+          <p>Baseline flows remain unchanged before transition. Optional personal savings capped by cash or contribution room do not alone fail funding. Historical reserve buildup may recover before transition; the reserve must be funded at transition and throughout the remaining horizon. Required outflows and employment savings remain protected.</p>
+          <p>Active resolved baseline plus temporary report overrides. Monthly essential {amount(inputs.monthlyEssentialSpendingToday)}, discretionary {amount(inputs.monthlyDiscretionarySpendingToday)} before phase multipliers. Protected reserve {amount(inputs.surplusAllocation.targetCashReserveToday)} today, indexing {inputs.surplusAllocation.reserveIndexingRate * 100}%. Inflation fallback {inputs.annualInflation * 100}%.</p>
+          <ul>{inputs.spendingPhases.map(p => <li key={p.id}>Ages {p.startAge}–{p.endAge}: essential ×{p.essentialMultiplier}, discretionary ×{p.discretionaryMultiplier}; {p.source}.</li>)}</ul>
+          <p>CPP {amount(inputs.person.cpp.monthlyAmountAt65Today)}/month at 65 before selected multiplier, claim age {inputs.person.cpp.startAge}. CPP entitlement is not recalculated from salary; retroactive benefit changes are unavailable. OAS {amount(inputs.person.oas.fullMonthlyAmountAt65Today)}/month before configured eligibility, claim age {inputs.person.oas.startAge}; pension {amount(inputs.person.annualPensionToday)}/year from {inputs.person.pensionStartAge}. Existing benefit indexing, room, liabilities, events and drawdown policies remain active; see Planner Config and report explanations for their schedules.</p>
+          {inputs.returnScenario?.inflationPath && <PathRates path={inputs.returnScenario.inflationPath} />}
+          <ul>{inputs.accounts.map(a => <li key={a.id}>{a.label}: {a.type}, opening {amount(a.openingBalance)}, fallback return {a.annualReturn * 100}%, withdrawal priority {a.withdrawalPriority}.{a.returnPath && <PathRates path={a.returnPath} />}</li>)}</ul>
+        </details>
+        <p>Estimated net is deposited cash after dated approximate payroll and employee withholding, before the engine’s incremental taxes on other income. The payroll model’s partial-year, benefit and tax-credit limitations apply. These temporary curves and job descriptions are excluded from JSON/CSV exports.</p>
+      </div>}
+    </>}
+  </section>;
+}

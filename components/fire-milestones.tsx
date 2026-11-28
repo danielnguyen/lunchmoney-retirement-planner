@@ -74,7 +74,7 @@ export function FireMilestones({ inputs, definitions, onResult }: {
           <p>{r.status === "met_at_start" ? "Condition met at modeled start" : r.status === "future" ? "Conditional future milestone" : r.status === "not_found" ? "No milestone in tested range" : "Unavailable"}{r.candidate ? `: ${r.candidate.date}, age ${r.candidate.age.toFixed(2)}` : ""}.</p>
           <p>{r.reason}</p>
           {r.tested.some(c => c.provisionalTax) && <p>Tax modelling is provisional under the active compatibility assumptions.</p>}
-          <details><summary>Candidate evidence ({r.tested.length} tested)</summary><ul>{r.tested.map(c => <li key={c.date}>{c.date}: {c.passes ? "Pass" : c.reason}; terminal financial assets today {c.terminalFinancialAssetsToday?.toFixed(2) ?? "unavailable"}.</li>)}</ul></details>
+          <details><summary>Candidate evidence ({r.tested.length} tested)</summary><ul>{r.tested.map(c => <li key={c.date}>{c.date}: {c.passes ? "Pass" : c.reason}{c.failure && <> Shortfall / disallowed funding: {c.failure.shortfallToday?.toFixed(2) ?? "unavailable"} today ({c.failure.category}).</>}; terminal financial assets today {c.terminalFinancialAssetsToday?.toFixed(2) ?? "unavailable"}.</li>)}</ul></details>
         </article>)}</div>
         <details><summary>Exact active assumptions</summary>
           <p>Source: active resolved baseline plus temporary controls, effective {inputs.startDate}. Employment, savings and CPP overrides are shown in the editable assumptions above. Full FIRE uses retirement spending from its candidate month; Coast and Barista use template spending until full retirement.</p>
