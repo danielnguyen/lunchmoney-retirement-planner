@@ -13,7 +13,8 @@ Public tracking must remain generic and must not contain private financial value
   projection API/dashboard/styles, synthetic tests and existing documentation.
 - Excluded: independent payroll engine, unrelated optimization, private data,
   dependencies, CI permissions, merge and deployment.
-- Draft publication, independent exact-head review and hosted checks pending.
+- Draft PR: [#51](https://github.com/danielnguyen/lunchmoney-retirement-planner/pull/51).
+  Independent exact-head review and hosted checks pending; owner controls readiness.
 
 ## Planned implementation sequence
 
@@ -33,7 +34,7 @@ Public tracking must remain generic and must not contain private financial value
 | 12 | Structured housing transitions | Net-worth, debt, spending, and event models | Planned | — |
 
 | — | Inverse retirement spending capacity (#35) | Shared monthly engine and retirement requirement | Completed | [#41](https://github.com/danielnguyen/lunchmoney-retirement-planner/pull/41) |
-| — | Required employment income (#48) | Career scenarios and conditional funding checks | In progress | Pending |
+| — | Required employment income (#48) | Career scenarios and conditional funding checks | In progress | [#51](https://github.com/danielnguyen/lunchmoney-retirement-planner/pull/51) |
 | — | Conditional FIRE milestones (#47) | Career transitions and shared monthly engine | Completed | [#50](https://github.com/danielnguyen/lunchmoney-retirement-planner/pull/50) |
 | — | Career transitions and editable FIRE presets (#46) | Scenario comparison and shared monthly engine | Completed | [#49](https://github.com/danielnguyen/lunchmoney-retirement-planner/pull/49) |
 | — | Configurable scenario comparison (#37) | Shared monthly projection and configured phases | Completed | [#38](https://github.com/danielnguyen/lunchmoney-retirement-planner/pull/38) |
@@ -359,3 +360,7 @@ independent review. #46 merged in #49; #47 merged in #50.
 - Generated next-env build changes were restored; no unignored build/scratch output
   retained. Git author metadata is supplied per command using existing OpenHands
   attribution because the checkout has no configured identity; Git config unchanged.
+
+- Published draft PR #51 from implementation commit `7d74844`. This documentation
+  update records the PR; request `openhands-review` after pushing its final head.
+  Current hosted checks and independent review state remain on GitHub.
