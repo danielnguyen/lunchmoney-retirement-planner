@@ -8,6 +8,9 @@ Public tracking must remain generic and must not contain private financial value
 
 - Active correction: FIRE and career-income funding/performance (#52), branch
   `openhands/issue-52`, based on clean main `4fb152ee5c3cad763bb36be685e4ccba6479a338`.
+- Draft correction: [PR #53](https://github.com/danielnguyen/lunchmoney-retirement-planner/pull/53).
+  Implementation commit `b907b0e072c5158948323ce06fd7ac25471e8efc`; current head and
+  review/check state are owned by GitHub.
 - PR #51 is merged. #48 remains open for owner deployed acceptance; its deployed
   findings are addressed here. No other open PR at execution start.
 - Scope: career materialization, shared monthly funding/search and implicated tax
@@ -493,6 +496,8 @@ Do not begin another capability or the deferred page redesign.
   checks, request budgets, repeated edits, tax-preview parity and export privacy.
 - Git identity was absent; commits use the existing OpenHands bot attribution via
   per-command environment variables without changing Git configuration.
-- Draft PR publication and `openhands-review` request follow this tested change.
-  Hosted Docker/CI and independent exact-head review must confirm it; #48 remains
+- Draft PR #53 is open and `openhands-review` was applied through the repository
+  labels API. This documentation-only handoff records publication; request review
+  of the resulting current head. Hosted Docker/CI and independent exact-head review
+  must confirm it; #48 remains
   open for owner deployed acceptance. No merge, deployment or Git Sync performed.
