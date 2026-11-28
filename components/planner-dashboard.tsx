@@ -1,6 +1,8 @@
 "use client";
 
 import { usePlannerConfigSync } from "./planner-config-sync";
+import { FireMilestones } from "@/components/fire-milestones";
+import type { FireMilestoneResult } from "@/src/domain/projection/fire-milestones";
 import { SpendingCapacity } from "@/components/spending-capacity";
 import { ScenarioComparison } from "@/components/scenario-comparison";
 
@@ -1323,6 +1325,8 @@ export function PlannerDashboard() {
   const [mode, setMode] = useState<DisplayMode>("real");
   const [allocationYear, setAllocationYear] = useState<number | null>(null);
   const [exportStatus, setExportStatus] = useState("");
+  const [fireResult, setFireResult] = useState<{ key: string; result: FireMilestoneResult | null } | null>(null);
+  const acceptFireResult = useCallback((key: string, result: FireMilestoneResult | null) => setFireResult({ key, result }), []);
   const [activeExplanation, setActiveExplanation] = useState<{
     target: ExplanationTarget;
     opener: HTMLButtonElement;
@@ -1794,6 +1798,7 @@ export function PlannerDashboard() {
         additionalTaxPaidByProjection: latestCanadianTax.projectionFundedTax,
       }
     : null;
+  const fireMarkers = fireResult?.key === inputsKey ? fireResult.result?.results.filter(r => r.candidate) ?? [] : [];
   const milestonePoints = projection?.annual.filter((point) => point.milestones.length > 0) ?? [];
   const selectedAllocationPoint = projection && allocationYear !== null
     ? closestAnnualPoint(projection.annual, allocationYear)
@@ -1969,6 +1974,7 @@ export function PlannerDashboard() {
         </section>
       ) : null}
 
+      <FireMilestones key={`fire:${baseline.connection.checkedAt}`} inputs={inputs} definitions={baseline.scenarioComparison ?? []} onResult={acceptFireResult} />
       <SpendingCapacity inputs={inputs} />
       {baseline.scenarioComparison?.length ? <ScenarioComparison key={baseline.connection.checkedAt} inputs={inputs} definitions={baseline.scenarioComparison} /> : null}
 
@@ -2366,6 +2372,7 @@ export function PlannerDashboard() {
                           <Line dataKey="financialAssets" name="Retirement funding assets" stroke={chartColors.blue} strokeWidth={2} dot={false} />
                           <Line dataKey="residenceValue" name="Residence value" stroke={chartColors.violet} strokeWidth={2} dot={false} />
                           <Line dataKey="totalNetWorth" name="Total net worth" stroke={chartColors.text} strokeWidth={3} dot={false} />
+                          {fireMarkers.map(r => <ReferenceLine key={`fire-${r.path}-${r.kind}`} x={Number(r.candidate!.date.slice(0, 4))} stroke={r.path === "stress" ? chartColors.coral : chartColors.blue} strokeDasharray={r.path === "stress" ? "2 6" : "6 3"} />)}
                         </ComposedChart>
                       </ResponsiveContainer>
                     </figure>
@@ -2429,6 +2436,7 @@ export function PlannerDashboard() {
                       ))}
                       <Line dataKey="financialAssets" name="Financial assets" stroke={chartColors.text} strokeWidth={3} dot={false} />
                       <Line dataKey="goal" name="Goal" stroke={chartColors.coral} strokeWidth={2} strokeDasharray="7 6" dot={false} />
+                      {fireMarkers.map(r => <ReferenceLine key={`fire-${r.path}-${r.kind}`} x={Number(r.candidate!.date.slice(0, 4))} stroke={r.path === "stress" ? chartColors.coral : chartColors.blue} strokeDasharray={r.path === "stress" ? "2 6" : "6 3"} />)}
                       {milestonePoints.slice(0, 10).map((point) => (
                         <ReferenceLine key={`${point.calendarYear}-${point.milestones.join("-")}`} x={point.calendarYear} stroke={chartColors.axis} strokeDasharray="4 4" />
                       ))}
@@ -2436,6 +2444,7 @@ export function PlannerDashboard() {
                   </ResponsiveContainer>
                 </figure>
                 <div className="milestone-list">
+                  {fireMarkers.map(r => <span className="milestone" key={`fire-${r.path}-${r.kind}`}>{r.candidate!.date}: conditional {r.kind} FIRE ({r.path}); marker at calendar year</span>)}
                   {milestonePoints.map((point) => (
                     <span className="milestone" key={`${point.calendarYear}-${point.milestones.join("-")}`}>
                       {point.calendarYear}: {point.milestones.join(" · ")}

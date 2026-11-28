@@ -584,3 +584,45 @@ private data, deployment or automatic writes. Validate focused UI-to-engine and
 cash-flow cases, full tests/typecheck/lint/build, Docker, Compose, production HTTP
 and synthetic mobile controls. #47 conditional milestones and #48 minimum-income
 search remain out of scope until predecessor acceptance and merge.
+
+## Conditional FIRE milestones (#47)
+
+Opt-in dashboard analysis tests dated career transitions through the existing
+monthly engine. Coast and Barista reuse explicitly selected single-interval
+`scenarioComparison` career definitions or editable illustrative presets; Full
+FIRE has zero employment and saving from its candidate month. The chosen full
+retirement age and CPP assumptions are explicit. No income inverse search,
+optimization, private configuration, new dependency or deployment is included.
+
+Search every candidate chronologically on the selected 1-, 3- or 12-month grid,
+including the opening month and final eligible boundary. Bound the range by the
+earlier of baseline retirement and chosen full retirement, with at most 601
+candidates per strategy/path. Stop at the first pass without assuming monotonic
+feasibility. Report all earlier tested failures; never certify untested dates.
+A missing employment template or simulation error is unavailable, not a milestone.
+
+Preserve accumulation before transition. Reuse career materialization, monthly
+flows, tax/benefits, liabilities, protected liquidity and the configured terminal
+financial asset floor. Coast consumes uncommitted surplus during its interval so
+future retirement cannot depend on continued cash saving. Barista permits spending
+withdrawals, but no withdrawal-funded investing or unserved required terms. Full
+FIRE uses retirement spending from its candidate and supports the opening boundary
+without an extra month of salary. Unfunded debt stops the candidate, not the search.
+Home equity is not spendable financial assets.
+
+Constant fallback returns/inflation form the baseline. Separately test explicitly
+configured dated paths as stress; no stress is invented and configured paths need
+not be adverse. Cards distinguish modeled-start conditions, conditional future
+dates, no passing date and unavailable results. Existing annual balance-sheet and
+account charts show their calendar-year markers; accompanying text gives exact
+candidate months. Assumptions and tested evidence remain available on the dashboard.
+Refresh/input edits invalidate stale results. JSON/CSV exports remain unchanged.
+
+Scope: affected projection domain/types, projection API, dashboard/career controls,
+styles, synthetic tests/fixtures, example config, README and existing docs/plan.
+Opening-boundary simulation and age validation are directly implicated by the
+required already-met Full FIRE case. Validation includes independent earlier
+candidate failures, non-monotonic grids, different ordering, engine parity,
+benefits/debt/reserves/tax/floor/path changes, controls/API and export privacy,
+plus all repository checks. Independent exact-head review and hosted Docker remain
+required; only the owner may mark ready, merge or deploy.

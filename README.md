@@ -621,3 +621,28 @@ unknown job terms visible. Presets are illustrations, not forecasts. See
 [career transition assumptions and limits](docs/retirement-strategy.md#career-transitions-coast-and-barista-scenarios)
 and the commented example in `config/planner.example.yaml`. Permanent settings stay
 in private Git-managed YAML; browser changes remain temporary.
+
+### Conditional FIRE milestones
+
+Enable **Calculate conditional FIRE milestones** on the dashboard to test Coast,
+Barista and Full FIRE dates. Select a full retirement age and monthly, quarterly or
+annual candidate spacing. Coast and Barista need explicit employment terms: select
+a single-interval career definition from `scenarioComparison`, or choose and edit
+a labelled illustrative preset. Existing Planner Config/save controls remain the
+way to persist career definitions; milestone edits and calculation are temporary.
+
+The search preserves accumulation before each candidate and uses the same monthly
+engine through the horizon. It reports the earliest passing tested month, including
+all earlier tested failures, rather than assuming milestones have a fixed order.
+Coast cannot depend on future saving or spending withdrawals; Barista can fund
+spending from investments while meeting its specified job terms. Full FIRE stops
+employment at the candidate and applies retirement spending immediately. All need
+funded expenses/debt, protected liquidity and the configured terminal asset floor.
+
+Baseline uses constant fallback returns/inflation. A separate configured stress
+result uses any explicit dated paths in the active inputs; absent paths produce no
+stress result. Dates are conditional deterministic results, not guaranteed safety.
+The cards distinguish the modeled starting month from future dates; chart lines
+mark calendar years and the adjacent labels give exact months. Calculation is
+opt-in and bounded to 601 candidates per strategy/path. Ordinary exports exclude
+this temporary analysis and retain their existing privacy boundary.

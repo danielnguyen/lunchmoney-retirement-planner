@@ -6,7 +6,7 @@ import type { ProjectionInputs } from "@/src/domain/projection/types";
 import type { SpendingCapacityResult } from "@/src/domain/projection/spending-capacity";
 
 const money = new Intl.NumberFormat("en-CA", { style: "currency", currency: "CAD" });
-function PathRates({ path }: { path: DeterministicInflationPath | DeterministicReturnPath }) {
+export function PathRates({ path }: { path: DeterministicInflationPath | DeterministicReturnPath }) {
   return <p>Explicit {path.mode} path: {path.entries.map((entry) => {
     const period = "calendarYear" in entry ? entry.calendarYear : entry.calendarMonth;
     const rate = "annualReturn" in entry ? entry.annualReturn : "monthlyReturn" in entry ? entry.monthlyReturn : "annualInflation" in entry ? entry.annualInflation : entry.monthlyInflation;

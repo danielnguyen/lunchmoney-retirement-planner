@@ -958,7 +958,7 @@ export type RetirementSnapshot = {
   calendarDate: string;
   age: number;
   flowPeriod: {
-    kind: "final_working_month";
+    kind: "final_working_month" | "projection_start";
     calendarMonth: string;
   };
   nominal: ProjectionView;
@@ -1252,8 +1252,8 @@ export function validateProjectionInputs(value: unknown): ProjectionInputs {
   if (!isFiniteNumber(input.endAge) || input.endAge <= input.person.currentAge || input.endAge > 120) {
     throw new Error("endAge must exceed currentAge and be no greater than 120");
   }
-  if (input.person.retirementAge <= input.person.currentAge || input.person.retirementAge > input.endAge) {
-    throw new Error("retirementAge must be after currentAge and no later than endAge");
+  if (input.person.retirementAge < input.person.currentAge || input.person.retirementAge > input.endAge) {
+    throw new Error("retirementAge must be at or after currentAge and no later than endAge");
   }
   assertMonthAligned("retirementAge", input.person.retirementAge, input.person.currentAge);
   assertMonthAligned("endAge", input.endAge, input.person.currentAge);
@@ -1552,7 +1552,7 @@ export function validateProjectionInputs(value: unknown): ProjectionInputs {
   }
   if (
     !Array.isArray(input.person.employmentIncomePhases) ||
-    input.person.employmentIncomePhases.length === 0
+    (input.person.employmentIncomePhases.length === 0 && input.person.retirementAge > input.person.currentAge)
   ) {
     throw new Error("At least one resolved employment income phase is required");
   }
@@ -1633,7 +1633,7 @@ export function validateProjectionInputs(value: unknown): ProjectionInputs {
     }
   }
   if (
-    !sameAge(
+    input.person.employmentIncomePhases.length > 0 && !sameAge(
       input.person.employmentIncomePhases[0]!.startAge,
       input.person.currentAge,
     )
@@ -1641,7 +1641,7 @@ export function validateProjectionInputs(value: unknown): ProjectionInputs {
     throw new Error("The first employment income phase must begin at currentAge");
   }
   if (
-    !sameAge(
+    input.person.employmentIncomePhases.length > 0 && !sameAge(
       input.person.employmentIncomePhases.at(-1)!.endAge,
       input.person.retirementAge,
     )

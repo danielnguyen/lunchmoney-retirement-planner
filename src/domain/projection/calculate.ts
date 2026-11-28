@@ -1387,6 +1387,7 @@ type CoreProjectionResult = Omit<
 
 export type ComparisonProjectionOptions = {
   cashConstrainedPersonalContributions?: boolean;
+  cashConstrainedPersonalContributionsAtAge?: (age: number) => boolean;
   retainSurplusAtAge?: (age: number) => boolean;
   /** Counterfactual Coast check only: consume cash above required liquidity. */
   consumeUncommittedSurplusAtAge?: (age: number) => boolean;
@@ -1402,6 +1403,7 @@ export type ComparisonProjectionOptions = {
 };
 
 type RetirementSimulationOptions = ComparisonProjectionOptions & {
+  fundingCheckOnly?: boolean;
   liquidateAtTerminal?: boolean;
   candidateBalancesToday?: ReadonlyMap<string, number>;
   continuation?: RetirementContinuationState;
@@ -1443,10 +1445,13 @@ function restoreMap<K, V>(target: Map<K, V>, source: ReadonlyMap<K, V>): void {
   for (const [key, value] of source) target.set(key, value);
 }
 
+type MilestoneFundingEvaluation = { complete: boolean; terminalFinancialAssetsToday: number; terminalFloorMet: boolean; provisionalTax: boolean };
+function simulateProjection(rawInputs: ProjectionInputs, options: RetirementSimulationOptions & { fundingCheckOnly: true }): MilestoneFundingEvaluation;
+function simulateProjection(rawInputs: ProjectionInputs, options?: RetirementSimulationOptions): SimulationOutcome;
 function simulateProjection(
   rawInputs: ProjectionInputs,
   options: RetirementSimulationOptions = {},
-): SimulationOutcome {
+): SimulationOutcome | MilestoneFundingEvaluation {
   const inputs = validateReturnPathProjectionInputs(
     validateProjectionInputs(rawInputs),
   );
@@ -1858,6 +1863,27 @@ function simulateProjection(
     annualEmploymentPhaseLabels = new Set<string>();
     annualContributionPhaseLabels = new Map<string, Set<string>>();
     previousSnapshotMonth = month;
+  }
+
+  // A candidate can retire at the opening boundary, before any modeled pay or return.
+  if (retirementMonth === 0 && !continuation) {
+    rawRetirementState = { accountBalances: new Map(balances), financialAssetsToday: startingFinancialAssets,
+      totalLiabilitiesToday: startingSheet.totalLiabilities, inflationFactor: 1 };
+    retirementContinuation = { retirementState: rawRetirementState,
+      nonFinancialAssetValues: new Map(nonFinancialAssetValues), liabilityBalances: new Map(liabilityBalances),
+      liabilityPayoffDates: { ...liabilityPayoffDates }, tfsaRoom, rrspRoom,
+      tfsaWithdrawalsByYear: new Map(tfsaWithdrawalsByYear), rrspGenerationByYear: new Map(rrspGenerationByYear),
+      canadianTaxYearState: canadianTaxYearState ? cloneCanadianTaxYearState(canadianTaxYearState) : null,
+      rrifState: cloneRrifSimulationState(rrifState), nonRegisteredState: cloneNonRegisteredSimulationState(nonRegisteredState) };
+    const opening = snapshotView(emptyView(), inputs.accounts, balances, inputs.nonFinancialAssets,
+      nonFinancialAssetValues, inputs.liabilities, liabilityBalances, 1);
+    retirementSnapshot = { calendarDate: inputs.startDate, age: inputs.person.currentAge,
+      flowPeriod: { kind: "projection_start", calendarMonth: inputs.startDate.slice(0, 7) }, nominal: opening, real: structuredClone(opening) };
+    reserveTargetAtRetirementNominal = reserveTargetAtRetirementReal = inputs.surplusAllocation.targetCashReserveToday;
+    reserveBalanceAtRetirementNominal = reserveBalanceAtRetirementReal = reserveAccounts.reduce((sum, a) => sum + (balances.get(a.id) ?? 0), 0);
+    destinationBalanceAtRetirementNominal = destinationBalanceAtRetirementReal = destinationAccount ? balances.get(destinationAccount.id) ?? 0 : 0;
+    nominalBridge.endingFinancialAssets = realBridge.endingFinancialAssets = startingFinancialAssets;
+    nominalNetWorthBridge.endingNetWorth = realNetWorthBridge.endingNetWorth = startingSheet.totalNetWorth;
   }
 
   const firstSimulationMonth = continuation ? retirementMonth + 1 : 1;
@@ -2891,6 +2917,7 @@ function simulateProjection(
         availableNetWithdrawalCash,
     );
     if (anticipatedRequiredLiabilityShortfall > 0.005) {
+      if (options.fundingCheckOnly) return { complete: false, terminalFinancialAssetsToday: 0, terminalFloorMet: false, provisionalTax: !taxCoverage.supportedComplete };
       if (month <= retirementMonth) {
         throw new Error(
           `Required liability payment could not be funded for ${calendarMonthKey}`,
@@ -2971,6 +2998,7 @@ function simulateProjection(
     availableCurrentMonthCash +=
       liabilityWithdrawalFunding.excessNetCash;
     if (liabilityWithdrawalFunding.unmetNetCash > 0.005) {
+      if (options.fundingCheckOnly) return { complete: false, terminalFinancialAssetsToday: 0, terminalFloorMet: false, provisionalTax: !taxCoverage.supportedComplete };
       throw new Error(
         `Required liability payment could not be funded for ${calendarMonthKey}`,
       );
@@ -3033,7 +3061,7 @@ function simulateProjection(
     };
     if (!simplePolicy) {
       for (const route of inputs.contributionWaterfall.routes) {
-        const available = options.cashConstrainedPersonalContributions
+        const available = (options.cashConstrainedPersonalContributions || options.cashConstrainedPersonalContributionsAtAge?.(workingAge))
           ? Math.max(0, availableCurrentMonthCash - essential - discretionary - regularTax - recoveryTax - eventOutflows - cashFundedContributions - reserveDeficit())
           : Number.POSITIVE_INFINITY;
         processContributionRoute(route, available);
@@ -3171,7 +3199,7 @@ function simulateProjection(
       if (personalRoute) {
         const personal = processContributionRoute(
           personalRoute,
-          options.cashConstrainedPersonalContributions
+          (options.cashConstrainedPersonalContributions || options.cashConstrainedPersonalContributionsAtAge?.(workingAge))
             ? Math.max(0, positiveCashAvailable - reserveDeficit())
             : positiveCashAvailable,
         );
@@ -3821,6 +3849,13 @@ function simulateProjection(
     }
   }
 
+  if (options.fundingCheckOnly) {
+    return { complete: projectedRetirementLiabilityShortfall === null,
+      terminalFinancialAssetsToday,
+      terminalFloorMet: terminalFinancialAssetsToday + .005 >= inputs.retirementRequirement.minimumEndingFinancialAssetsToday,
+      provisionalTax: !taxCoverage.supportedComplete };
+  }
+
   if (!rawRetirementState) {
     throw new Error("The raw retirement state could not be captured");
   }
@@ -3884,7 +3919,9 @@ function simulateProjection(
     );
   }
 
-  const ending = annual.at(-1)!;
+  const ending = annual.at(-1) ?? {
+    period: { endDate: inputs.startDate }, age: inputs.person.currentAge, real: retirementSnapshot.real,
+  };
   const projectionCompletionEvidence = {
     plannedTerminalAge: inputs.endAge,
     completedThroughDate: ending.period.endDate,
@@ -4471,4 +4508,9 @@ export function calculateSpendingCapacity(rawInputs: ProjectionInputs, selection
     if (!candidate) throw new Error("Spending candidate evaluation was not captured");
     return candidate;
   });
+}
+
+/** Forward funding check without the unrelated inverse asset-requirement search. */
+export function evaluateMilestoneFunding(inputs: ProjectionInputs, options: ComparisonProjectionOptions) {
+  return simulateProjection(inputs, { ...options, fundingCheckOnly: true });
 }
