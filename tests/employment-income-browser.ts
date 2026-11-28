@@ -3,12 +3,12 @@
 import assert from "node:assert/strict";
 import { spawn } from "node:child_process";
 import { once } from "node:events";
-import { cp, mkdtemp, rm } from "node:fs/promises";
+import { cp, mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { createServer } from "node:net";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { currentBaselineFixture } from "./fixtures/projection";
-import { fireInputs } from "./fixtures/fire-milestones";
+import { annualTaxCareerInputs, fireInputs } from "./fixtures/fire-milestones";
 
 async function port() {
   const server = createServer().listen(0, "127.0.0.1");
@@ -47,9 +47,10 @@ async function main() {
       ws!.send(JSON.stringify({ id: key, method, params }));
     });
     const baseline = structuredClone(currentBaselineFixture);
-    baseline.projectionInputs = fireInputs();
+    baseline.projectionInputs = annualTaxCareerInputs();
     const exceptions: string[] = [];
     let projections = 0;
+    const projectionResponses: Array<{ status: number; mimeType: string }> = [];
     ws.onmessage = event => {
       const message = JSON.parse(String(event.data));
       if (message.id) {
@@ -58,6 +59,9 @@ async function main() {
       }
       if (message.method === "Runtime.exceptionThrown") exceptions.push(message.params.exceptionDetails.text);
       if (message.method === "Network.requestWillBeSent" && message.params.request.url.endsWith("/api/v1/projections")) projections++;
+      if (message.method === "Network.responseReceived" && message.params.response.url.endsWith("/api/v1/projections")) {
+        projectionResponses.push({ status: message.params.response.status, mimeType: message.params.response.mimeType });
+      }
       if (message.method === "Fetch.requestPaused") {
         const config = message.params.request.url.includes("/config/sync");
         void send("Fetch.fulfillRequest", { requestId: message.params.requestId, responseCode: 200,
@@ -72,13 +76,50 @@ async function main() {
       if (r.exceptionDetails) throw new Error("Browser script failed");
       return (r.result as { value: unknown }).value;
     };
+    const evidenceDir = process.env.CAREER_EVIDENCE_DIR;
+    const evidence: Array<Record<string, unknown>> = [];
+    if (evidenceDir) await mkdir(evidenceDir, { recursive: true });
+    const capture = async (name: string, selector: string) => {
+      if (!evidenceDir) return;
+      await evaluate(`document.querySelector(${JSON.stringify(selector)}).scrollIntoView()`);
+      const bounds = await evaluate(`(() => { const r = document.querySelector(${JSON.stringify(selector)}).getBoundingClientRect(); return { x: r.x + scrollX, y: r.y + scrollY, width: r.width, height: r.height }; })()`) as Record<string, number>;
+      const shot = await send("Page.captureScreenshot", { format: "png", captureBeyondViewport: true, clip: { ...bounds, scale: 1 } });
+      await writeFile(join(evidenceDir, `${name}.png`), Buffer.from(String(shot.data), "base64"));
+      evidence.push({ capture: name, projectionRequests: projections,
+        text: await evaluate(`document.querySelector(${JSON.stringify(selector)}).innerText`) });
+    };
+    const changeAge = async (panel: string, age: number) => evaluate(`(() => {
+      const input = document.querySelector('${panel} input[type=number]');
+      Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value').set.call(input, '${age}');
+      input.dispatchEvent(new Event('input', { bubbles: true }));
+    })()`);
     for (const width of [390, 1440]) {
+      baseline.projectionInputs = annualTaxCareerInputs();
       await send("Emulation.setDeviceMetricsOverride", { width, height: 1000, deviceScaleFactor: 1, mobile: width < 500 });
       await send("Page.navigate", { url: `http://127.0.0.1:${appPort}` });
       await until(() => evaluate('!!document.querySelector(".income-panel input[type=checkbox]")'), Boolean);
       await evaluate('document.querySelector(".income-panel input[type=checkbox]").click()');
       await evaluate('[...document.querySelectorAll(".income-panel button")].find(x=>x.textContent.includes("Use illustrative Ontario")).click()');
-      await until(() => evaluate('document.querySelector(".income-panel")?.textContent.includes("Tested boundary")'), Boolean);
+      await evaluate(`(() => {
+        window.incomeRequests = 0; window.incomeTicks = 0;
+        const originalFetch = window.fetch;
+        window.fetch = (...args) => { if (String(args[1]?.body).includes('"employmentIncome"')) window.incomeRequests++; return originalFetch(...args); };
+        window.incomeTimer = setInterval(() => window.incomeTicks++, 20);
+        [...document.querySelectorAll('.income-panel button')].find(x => x.textContent === 'Calculate income curve').click();
+      })()`);
+      await until(() => evaluate('[...document.querySelectorAll(".income-panel button")].find(x => x.textContent === "Calculate income curve")?.disabled'), Boolean);
+      await evaluate(`(() => {
+        const input = [...document.querySelectorAll('.income-panel label')].find(x => x.textContent.includes('Income curve full retirement age')).querySelector('input');
+        for (const value of ['64', '63', '65']) {
+          Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value').set.call(input, value);
+          input.dispatchEvent(new Event('input', { bubbles: true }));
+        }
+      })()`);
+      await capture(`income-${width}-busy-edited`, '.income-panel');
+      await until(() => evaluate('document.querySelector(".income-panel")?.textContent.includes("Tested boundary")'), Boolean, 35000);
+      assert.equal(await evaluate('window.incomeRequests'), 1, "Editing must not launch repeated expensive requests");
+      assert(Number(await evaluate('window.incomeTicks')) > 5, "Browser event loop must remain responsive during calculation");
+      await evaluate('clearInterval(window.incomeTimer)');
       await evaluate('[...document.querySelectorAll(".income-panel details")].find(x=>x.textContent.includes("Income curve job terms")).open = true');
       const geometry = await evaluate(`(() => {
         const panel = document.querySelector('.income-panel');
@@ -91,7 +132,32 @@ async function main() {
       })()`) as { width: number; scroll: number; controlsFit: boolean; svg: boolean; rows: number; text: boolean };
       assert(geometry.controlsFit, `Controls overflow at ${width}`);
       assert(geometry.scroll <= geometry.width + 1, `Panel overflow at ${width}`);
-      assert(geometry.svg && geometry.rows === 3 && geometry.text, "Chart and accessible exact values must render");
+      assert(geometry.svg && geometry.rows === 26 && geometry.text, "Chart and accessible exact values must render");
+      await capture(`income-${width}-completed`, '.income-panel');
+      await changeAge('.income-panel', 64);
+      await until(() => evaluate('!document.querySelector(".income-curve")'), Boolean);
+      assert.equal(await evaluate('window.incomeRequests'), 1);
+      await capture(`income-${width}-stale`, '.income-panel');
+      await evaluate('document.querySelector(".fire-panel:not(.income-panel) input[type=checkbox]").click()');
+      await until(() => evaluate('[...document.querySelectorAll(".fire-panel:not(.income-panel) button")].some(x => x.textContent === "Calculate FIRE milestones")'), Boolean);
+      for (const kind of ['coast', 'barista']) await evaluate(`[...document.querySelectorAll('.fire-panel:not(.income-panel) button')].find(x => x.textContent === 'Use illustrative ${kind} terms').click()`);
+      await evaluate(`(() => {
+        window.fireRequests = 0;
+        const originalFetch = window.fetch;
+        window.fetch = (...args) => { if (String(args[1]?.body).includes('"fireMilestones"')) window.fireRequests++; return originalFetch(...args); };
+        [...document.querySelectorAll('.fire-panel:not(.income-panel) button')].find(x => x.textContent === 'Calculate FIRE milestones').click();
+      })()`);
+      await until(() => evaluate('document.querySelector(".fire-panel:not(.income-panel) [role=status]")?.textContent.includes("Calculating")'), Boolean);
+      await changeAge('.fire-panel:not(.income-panel)', 64);
+      await capture(`fire-${width}-busy-edited`, '.fire-panel:not(.income-panel)');
+      await changeAge('.fire-panel:not(.income-panel)', 65);
+      await until(() => evaluate('!!document.querySelector(".fire-panel:not(.income-panel) .comparison-cards")'), Boolean, 35000);
+      assert.equal(await evaluate('window.fireRequests'), 1, "FIRE edits must not repeat requests");
+      await capture(`fire-${width}-completed`, '.fire-panel:not(.income-panel)');
+      await changeAge('.fire-panel:not(.income-panel)', 64);
+      await until(() => evaluate('!document.querySelector(".fire-panel:not(.income-panel) .comparison-cards")'), Boolean);
+      await capture(`fire-${width}-stale`, '.fire-panel:not(.income-panel)');
+      baseline.projectionInputs = fireInputs();
       baseline.projectionInputs.accounts[0].openingBalance = 0;
       baseline.projectionInputs.surplusAllocation.targetCashReserveToday = 1000;
       baseline.projectionInputs.surplusAllocation.reserveIndexingRate = 0;
@@ -99,17 +165,29 @@ async function main() {
       await until(() => evaluate('!!document.querySelector(".income-panel input[type=checkbox]")'), Boolean);
       await evaluate('document.querySelector(".income-panel input[type=checkbox]").click()');
       await evaluate('[...document.querySelectorAll(".income-panel button")].find(x=>x.textContent.includes("Use illustrative Ontario")).click()');
+      await evaluate('[...document.querySelectorAll(".income-panel button")].find(x => x.textContent === "Calculate income curve").click()');
       await until(() => evaluate('document.querySelector(".income-panel")?.textContent.includes("2026-01: Protected reserve is not funded at transition.")'), Boolean);
       assert.equal(await evaluate('document.querySelector(".income-table")?.textContent.includes("1,000 today")'), true);
       assert.equal(await evaluate('document.querySelectorAll(".income-panel details[open]").length'), 0);
       await evaluate('document.querySelector(".income-table details summary").click()');
       assert.equal(await evaluate('!!document.querySelector(".income-table details[open]")'), true);
-      baseline.projectionInputs = fireInputs();
+      await capture(`income-${width}-failure`, '.income-panel');
+      await evaluate('document.querySelector(".fire-panel:not(.income-panel) input[type=checkbox]").click()');
+      await until(() => evaluate('[...document.querySelectorAll(".fire-panel:not(.income-panel) button")].some(x => x.textContent === "Calculate FIRE milestones")'), Boolean);
+      await evaluate('[...document.querySelectorAll(".fire-panel:not(.income-panel) button")].find(x => x.textContent === "Calculate FIRE milestones").click()');
+      await until(() => evaluate('!!document.querySelector(".fire-panel:not(.income-panel) .comparison-cards")'), Boolean);
+      await evaluate('[...document.querySelectorAll(".fire-panel:not(.income-panel) .comparison-cards article")].find(x => x.querySelector("h3").textContent.includes("Full FIRE")).querySelector("details").open = true');
+      await capture(`fire-${width}-failure`, '.fire-panel:not(.income-panel)');
+      baseline.projectionInputs = annualTaxCareerInputs();
       await evaluate('document.querySelector(".income-panel input[type=checkbox]").click()');
       assert.equal(await evaluate('!!document.querySelector(".income-panel .income-curve")'), false);
-      console.log(`PASS: synthetic production income curve at ${width}px, expanded controls, chart, exact table, dated failure evidence and opt-out.`);
+      console.log(`PASS: synthetic production income and FIRE at ${width}px, expanded controls, chart, exact table, dated failure evidence and opt-out.`);
     }
-    assert(projections >= 4, "Projection requests must use the real HTTP route");
+    if (evidenceDir) await writeFile(join(evidenceDir, "evidence.json"), JSON.stringify({
+      fixture: "Synthetic annualTaxCareerInputs and underfunded fireInputs; no private configuration",
+      productionProjectionRoute: true, projectionResponses, evidence,
+    }, null, 2));
+    assert(projections >= 8, "Projection requests must use the real HTTP route");
     assert.deepEqual(exceptions, []);
   } finally {
     ws?.close();

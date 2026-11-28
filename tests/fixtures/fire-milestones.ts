@@ -1,6 +1,7 @@
 import type { ProjectionInputsWithReturnPaths } from "@/src/domain/projection/return-path-model";
 import type { FireMilestoneRequest } from "@/src/domain/projection/fire-milestones";
 import { careerPreset } from "@/src/domain/scenario/career";
+import { ZERO_CANADIAN_TAX_INCOME } from "@/src/domain/projection/canadian-tax";
 import { projectionFixture } from "./projection";
 
 export function fireInputs(): ProjectionInputsWithReturnPaths {
@@ -59,5 +60,38 @@ export function constrainedSavingInputs(mode: "room" | "cash" | "reserve") {
       workplaceOverflow: "unallocated", reserveAfterTarget: "personal_investing",
     };
   }
+  return p;
+}
+
+/** Synthetic long-horizon acceptance plan; no private configuration. */
+export function annualTaxCareerInputs(): ProjectionInputsWithReturnPaths {
+  const p = structuredClone(projectionFixture);
+  p.startDate = "2026-01-01";
+  p.events = [];
+  p.person.employmentIncomePhases[0].annualTaxableEmploymentIncomeToday = 110000;
+  p.tax = { ...p.tax, mode: "canadian_annual", source: "explicit_configuration", province: "ON", referenceYear: 2026,
+    futureIndexingRate: .02, limitations: ["full_tax_return_deductions_and_refundable_credits_not_modelled"],
+    openingTaxYearBeforeProjectionMonth: { source: "explicit_configuration", calendarYear: 2026, throughMonth: 0,
+      income: { ...ZERO_CANADIAN_TAX_INCOME } } };
+  p.rrifMinimumWithdrawals = { mode: "statutory", source: "explicit_configuration", ageBasis: "owner_age", settlementTiming: "december_true_up", supportedRrifClass: "all_other_rrifs" };
+  p.accounts.push(
+    { ...structuredClone(p.accounts[1]), id: "synthetic-tfsa", type: "tfsa", contributionPhases: [], openingBalance: 100000, withdrawalPriority: 3 },
+    { ...structuredClone(p.accounts[1]), id: "synthetic-taxable", type: "non_registered", contributionPhases: [], openingBalance: 50000, withdrawalPriority: 4 },
+  );
+  p.nonRegisteredTaxation = { mode: "simplified_canadian", source: "explicit_configuration", limitations: [], accounts: [{
+    accountId: "synthetic-taxable", openingAdjustedCostBase: { amount: 40000, effectiveDate: p.startDate, sourceDescription: "Synthetic ACB", source: "explicit_configuration" },
+    annualDistributionYields: { interest: .005, eligibleCanadianDividends: .01, foreignIncome: .005, capitalGains: 0 },
+  }] };
+  p.surplusAllocation.excess = { mode: "allocate_to_account", destinationAccountId: "synthetic-taxable" };
+  p.spendingPhases = [
+    { ...p.spendingPhases[0], id: "early", endAge: 50 },
+    { ...p.spendingPhases[0], id: "later", startAge: 50, endAge: 65, discretionaryMultiplier: 1.3 },
+    { ...p.spendingPhases[0], id: "retirement", startAge: 65, essentialMultiplier: .9 },
+  ];
+  p.nonFinancialAssets = [{ id: "synthetic-home", label: "Synthetic home", origin: "lunchmoney", type: "primary_residence", valueAsOf: p.startDate, openingValue: 400000, annualAppreciation: .02, availableForWithdrawals: false }];
+  p.liabilities = [{ id: "synthetic-mortgage", label: "Synthetic mortgage", origin: "lunchmoney", openingBalance: 100000,
+    balanceAsOf: p.startDate, role: "primary_mortgage", historicalPaymentHandling: "already_excluded_or_transfer", historicalMonthlyAverage: 0,
+    treatment: { mode: "amortizing", annualInterestRate: .04, interestRateConvention: "canadian_mortgage",
+      regularPayment: { amount: 1000, frequency: "monthly", monthlyEquivalent: 1000 }, scheduleStartDate: p.startDate, lumpSumPayments: [] } }];
   return p;
 }

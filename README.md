@@ -627,8 +627,9 @@ in private Git-managed YAML; browser changes remain temporary.
 Enable **Calculate conditional FIRE milestones** on the dashboard to test Coast,
 Barista and Full FIRE dates. Select a full retirement age and monthly, quarterly or
 annual candidate spacing. Coast and Barista need explicit employment terms: select
-a single-interval career definition from `scenarioComparison`, or choose and edit
-a labelled illustrative preset. Existing Planner Config/save controls remain the
+a career definition with intervals of one strategy from `scenarioComparison`, or choose and edit
+a labelled illustrative preset, then press **Calculate FIRE milestones**.
+Existing Planner Config/save controls remain the
 way to persist career definitions; milestone edits and calculation are temporary.
 
 The search preserves accumulation before each candidate and uses the same monthly
@@ -637,7 +638,8 @@ all earlier tested failures, rather than assuming milestones have a fixed order.
 Coast cannot depend on future saving or spending withdrawals; Barista can fund
 spending from investments while meeting its specified job terms. Full FIRE stops
 employment at the candidate and applies retirement spending immediately. All need
-funded expenses/debt, protected liquidity and the configured terminal asset floor.
+funded expenses/debt, protected liquidity through working life and the configured
+terminal asset floor. From full retirement, reserves can fund ordinary withdrawals.
 
 Baseline uses constant fallback returns/inflation. A separate configured stress
 result uses any explicit dated paths in the active inputs; absent paths produce no
@@ -651,7 +653,10 @@ this temporary analysis and retain their existing privacy boundary.
 
 Enable **Calculate income by transition age** to compare lower-paid work with
 lifetime funding needs at a chosen full-retirement age. Select configured job
-terms or explicitly choose the editable Ontario no-match illustration. The chart
+terms or explicitly choose the editable Ontario no-match illustration, then press
+**Calculate income curve**. Edits invalidate results without submitting another
+request. Illustrations preserve configured spending phases, personal cash-funded
+saving and surplus routing; workplace benefits require explicit terms. The chart
 shows required annual gross income and a living-cost funding comparator; the table
 also shows estimated net cash, unavailable points and tested boundary evidence.
 All curve values remain in today's dollars. Lower-income work may still need

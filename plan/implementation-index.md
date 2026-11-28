@@ -6,16 +6,18 @@ Public tracking must remain generic and must not contain private financial value
 
 ## Current position
 
-- Active implementation: required employment income by transition age (#48), branch `openhands/issue-48`.
-- Clean main baseline `429a5f4a26e0e7e584658f3a4dcc4fdf25339091`; PR #50 merged.
-  #46/#47 are complete; no open PR at execution start.
-- Scope: career income inverse search through existing monthly funding checks,
-  projection API/dashboard/styles, synthetic tests and existing documentation.
-- Excluded: independent payroll engine, unrelated optimization, private data,
-  dependencies, CI permissions, merge and deployment.
-- Draft PR: [#51](https://github.com/danielnguyen/lunchmoney-retirement-planner/pull/51).
-  Correction of the later independent findings is implemented; new exact-head
-  review and hosted checks are required. Owner controls readiness and deployed acceptance.
+- Active correction: FIRE and career-income funding/performance (#52), branch
+  `openhands/issue-52`, based on clean main `4fb152ee5c3cad763bb36be685e4ccba6479a338`.
+- Draft correction: [PR #53](https://github.com/danielnguyen/lunchmoney-retirement-planner/pull/53).
+  Implementation commit `b907b0e072c5158948323ce06fd7ac25471e8efc`; current head and
+  review/check state are owned by GitHub.
+- PR #51 is merged. #48 remains open for owner deployed acceptance; its deployed
+  findings are addressed here. No other open PR at execution start.
+- Scope: career materialization, shared monthly funding/search and implicated tax
+  preview reuse, minimal calculation controls/evidence, synthetic tests and docs.
+- No new config schema, dependencies, infrastructure, page redesign, private data,
+  workflow changes, merge or deployment. Independent exact-head review and hosted
+  checks follow the draft PR; owner retains deployed acceptance.
 
 ## Planned implementation sequence
 
@@ -35,7 +37,7 @@ Public tracking must remain generic and must not contain private financial value
 | 12 | Structured housing transitions | Net-worth, debt, spending, and event models | Planned | — |
 
 | — | Inverse retirement spending capacity (#35) | Shared monthly engine and retirement requirement | Completed | [#41](https://github.com/danielnguyen/lunchmoney-retirement-planner/pull/41) |
-| — | Required employment income (#48) | Career scenarios and conditional funding checks | In progress | [#51](https://github.com/danielnguyen/lunchmoney-retirement-planner/pull/51) |
+| — | Required employment income (#48) | Career scenarios and conditional funding checks | Merged; deployed acceptance pending | [#51](https://github.com/danielnguyen/lunchmoney-retirement-planner/pull/51) |
 | — | Conditional FIRE milestones (#47) | Career transitions and shared monthly engine | Completed | [#50](https://github.com/danielnguyen/lunchmoney-retirement-planner/pull/50) |
 | — | Career transitions and editable FIRE presets (#46) | Scenario comparison and shared monthly engine | Completed | [#49](https://github.com/danielnguyen/lunchmoney-retirement-planner/pull/49) |
 | — | Configurable scenario comparison (#37) | Shared monthly projection and configured phases | Completed | [#38](https://github.com/danielnguyen/lunchmoney-retirement-planner/pull/38) |
@@ -73,8 +75,9 @@ Planning order is project-management shorthand only. Production names must descr
 
 ## New-conversation handoff
 
-Resume #48 on its existing branch/PR. Recover current GitHub head, checks and
-independent review. #46 merged in #49; #47 merged in #50.
+Resume #52 on its existing branch/PR and recover current GitHub head, checks and
+independent review. Keep #48 open until the owner verifies the deployed correction.
+Do not begin another capability or the deferred page redesign.
 
 ## Issue #36 execution record
 
@@ -434,3 +437,103 @@ independent review. #46 merged in #49; #47 merged in #50.
 - Prior independent findings need no further changes: the latest review confirms
   their fixes, and the full regression suite still passes. Owner deployed
   acceptance remains pending after merge; #48 stays open.
+
+
+## Issue #52 execution record
+
+- Live issue SHA-256 matched `8a4d9b3fc483b04610fdc46dca9f8f11dedced79995176f2532d72504be155fe`.
+- Read shared AGENTS, WORKFLOW, AUTHORITY, ENGINEERING and OpenHands/ChatGPT guidance
+  at `f3e619116a87fa872269460aa70c74ef9157ee4f`; read target AGENTS, roadmap/index,
+  architecture/strategy, #48 discussion, PR #51 review history and affected code/tests.
+- Separate clean target checkout and credential-free origin verified before edits.
+  Main was `4fb152ee5c3cad763bb36be685e4ccba6479a338`; automation bundle untouched.
+- Baseline CPU profile identified unnecessary report aggregation/cloning and repeated
+  tax work. Funding-only checks now skip report construction. Debt liquidation
+  previews run only when debt exceeds current cash; withdrawal previews reuse the
+  unchanged embedded tax calculation. No formula, solver precision, sample count,
+  annual grid coverage or request budget was relaxed.
+- Existing phase schema preserves working spending and personal saving, including
+  clipping/indexing and explicit account overrides. No employer terms are inferred.
+  Reserve protection ends at full retirement, with required outflows/floor retained.
+- Repeatable benchmark: `node --import tsx tests/career-analysis-performance.ts`.
+  Synthetic ages 40–95, retirement 65, 26 annual grid points, four accounts,
+  annual Canadian tax, statutory RRIF, taxable distributions/ACB, mortgage and three
+  spending phases. Baseline was instrumented only to count simulations in an
+  isolated main worktree. Measurements are local wall times, not service guarantees.
+
+| Case | Main income elapsed / completed / simulations / payload | Revised income elapsed / completed / simulations / payload |
+|---|---|---|
+| Fundable | 30.045s / 15 of 26 / 543 / 138,901 bytes | 12.318s / 26 of 26 / 675 / 50,789 bytes |
+| Unfundable terminal floor | 30.035s / 19 of 26 / 513 / 171,688 bytes | 12.058s / 26 of 26 / 675 / 47,862 bytes |
+
+- Main FIRE: 6.418s/78 candidates (all not found); revised: 1.649s/65 candidates,
+  all three conditional milestones found. Negative floor: main 6.225s, revised
+  1.966s, all 78 candidates tested and no passing milestone. Changed results reflect
+  the deliberate funding/preset corrections, not just performance changes.
+- Browser requests require explicit calculation, retain stale-result invalidation,
+  and prevent resubmission during a calculation. Compact income evidence retains
+  range endpoints and boundary/failure witnesses plus sample counts. Work counts
+  charge each invoked simulation's full horizon even when it stops early.
+- Production HTTP benchmark: income 11.041s (fundable) / 10.381s (negative), all
+  26 points complete in each; FIRE 1.542s / 1.774s. Same counts and payloads as above.
+- The complete ordinary long-horizon projection deep-equals main's result, including
+  report and financial fields. No ordinary projection/export behavior change found.
+- Chromium production acceptance passed at 390px and 1440px: 26-point chart/table,
+  expanded assumptions, negative reserve evidence, opt-out and no runtime exceptions.
+  Repeated edits during calculation made only one income request; a 20ms browser
+  heartbeat continued. A harness selector initially matched another disabled button;
+  correcting it allowed the intended busy-state check to run. Firefox is not installed;
+  no Firefox acceptance or cause of the reported crash is claimed.
+- Local Docker build was attempted and denied at the Docker socket. No escalation
+  or waiver; exact-head hosted Docker must pass. Compose config and all eight
+  production HTTP export/privacy checks passed. Final repository checks and
+  independent review status are recorded below.
+
+- Final local checks: 805 tests across 48 files, typecheck, lint and production build
+  passed. Focused regressions include funded retirement spend-down, real outflow and
+  floor failures, opening/recovered/working reserves, multi-phase monthly parity,
+  mortgage/saving and explicit overrides, independent payroll/adjacent salary
+  checks, request budgets, repeated edits, tax-preview parity and export privacy.
+- Git identity was absent; commits use the existing OpenHands bot attribution via
+  per-command environment variables without changing Git configuration.
+- Draft PR #53 is open and `openhands-review` was applied through the repository
+  labels API. This documentation-only handoff records publication; request review
+  of the resulting current head. Hosted Docker/CI and independent exact-head review
+  must confirm it; #48 remains
+  open for owner deployed acceptance. No merge, deployment or Git Sync performed.
+
+### PR #53 review evidence correction
+
+The review of `c64f381a0cf73d6762b42e030be747be59275ba6` found no material
+calculation/security defect and requested retained production UI evidence. This
+revision changes only the existing browser acceptance harness and evidence/docs;
+financial and application code remain unchanged.
+
+Run after `npm run build`:
+`CAREER_EVIDENCE_DIR=docs/screenshots/issue-52 node --import tsx tests/employment-income-browser.ts`.
+The harness runs the production standalone server and Chromium, intercepting only
+baseline/config reads with named synthetic fixtures. Projection POSTs use the real
+production route. Captures are panel crops, retaining the entire panel beyond the
+viewport; viewport widths are 390 and 1440 pixels. No private config is loaded.
+
+| State | Mobile income | Desktop income | Mobile FIRE | Desktop FIRE |
+|---|---|---|---|---|
+| Busy during edits | [Capture](../docs/screenshots/issue-52/income-390-busy-edited.png) | [Capture](../docs/screenshots/issue-52/income-1440-busy-edited.png) | [Capture](../docs/screenshots/issue-52/fire-390-busy-edited.png) | [Capture](../docs/screenshots/issue-52/fire-1440-busy-edited.png) |
+| Completed | [Capture](../docs/screenshots/issue-52/income-390-completed.png) | [Capture](../docs/screenshots/issue-52/income-1440-completed.png) | [Capture](../docs/screenshots/issue-52/fire-390-completed.png) | [Capture](../docs/screenshots/issue-52/fire-1440-completed.png) |
+| Stale after edit | [Capture](../docs/screenshots/issue-52/income-390-stale.png) | [Capture](../docs/screenshots/issue-52/income-1440-stale.png) | [Capture](../docs/screenshots/issue-52/fire-390-stale.png) | [Capture](../docs/screenshots/issue-52/fire-1440-stale.png) |
+| Expanded failure evidence | [Capture](../docs/screenshots/issue-52/income-390-failure.png) | [Capture](../docs/screenshots/issue-52/income-1440-failure.png) | [Capture](../docs/screenshots/issue-52/fire-390-failure.png) | [Capture](../docs/screenshots/issue-52/fire-1440-failure.png) |
+
+[Capture transcript and HTTP response statuses](../docs/screenshots/issue-52/evidence.json)
+record rendered synthetic text and projection request counts. The executable
+assertions check one submission per analysis despite edits, stale-result removal,
+26 income rows, responsive browser heartbeat, failure disclosure and no runtime
+exceptions. FIRE failure captures expand candidate evidence; missing Coast/Barista
+templates are explicitly unavailable in that negative fixture.
+
+Validation: 805 tests/48 files passed on rerun; typecheck, lint, production build,
+Compose configuration and eight production HTTP export/privacy checks passed.
+The first full-suite run alongside build/browser workloads failed a dashboard
+view-switch assertion; the subsequent full run passed without code changes.
+Local Docker build remains denied at the Docker socket; hosted checks must verify
+the new head. Firefox is unavailable. Independent exact-head review and owner
+acceptance under #48 remain pending; no merge or deployment is authorized here.

@@ -16,34 +16,33 @@ export function FireMilestones({ inputs, definitions, onResult }: {
 }) {
   const initial = (): FireMilestoneRequest => ({ retirementAge: inputs.person.retirementAge, stepMonths: 12,
     fullCppBenefitMultiplier: 1,
-    coast: structuredClone(definitions.find(s => s.careerTransition?.phases.length === 1 && s.careerTransition.phases[0].kind === "coast")?.careerTransition ?? null),
-    barista: structuredClone(definitions.find(s => s.careerTransition?.phases.length === 1 && s.careerTransition.phases[0].kind === "barista")?.careerTransition ?? null) });
+    coast: structuredClone(definitions.find(s => s.careerTransition?.phases.every(p => p.kind === "coast"))?.careerTransition ?? null),
+    barista: structuredClone(definitions.find(s => s.careerTransition?.phases.every(p => p.kind === "barista"))?.careerTransition ?? null) });
   const [request, setRequest] = useState(initial);
   const [enabled, setEnabled] = useState(false);
+  const [submission, setSubmission] = useState<{ key: string } | null>(null);
+  const [busy, setBusy] = useState(false);
   const [response, setResponse] = useState<{ key: string; result?: FireMilestoneResult; error?: string } | null>(null);
   const activePaths = inputs as ProjectionInputsWithReturnPaths;
   const inputKey = JSON.stringify(inputs);
   const key = JSON.stringify({ inputs, fireMilestones: request });
   useEffect(() => {
-    onResult(inputKey, null);
-    if (!enabled) return;
+    onResult(inputKey, enabled && response?.key === key ? response.result ?? null : null);
+  }, [key, inputKey, enabled, response, onResult]);
+  useEffect(() => {
+    if (!submission) return;
     const controller = new AbortController();
-    // Debounce edits: no repeated full search while typing an amount.
-    const timer = setTimeout(() => {
-      void fetch("/api/v1/projections", { method: "POST", headers: { "Content-Type": "application/json" }, body: key, signal: controller.signal })
-        .then(async res => {
-          const body = await res.json();
-          if (!res.ok) throw new Error(body.message ?? "Milestones unavailable.");
-          if (controller.signal.aborted) return;
-          setResponse({ key, result: body });
-          onResult(inputKey, body);
-        }).catch((error: unknown) => {
-          if (controller.signal.aborted) return;
-          setResponse({ key, error: error instanceof Error ? error.message : "Milestones unavailable." });
-        });
-    }, 300);
-    return () => { clearTimeout(timer); controller.abort(); };
-  }, [key, enabled, inputKey, onResult]);
+    const submittedKey = submission.key;
+    void fetch("/api/v1/projections", { method: "POST", headers: { "Content-Type": "application/json" }, body: submittedKey, signal: controller.signal })
+      .then(async res => {
+        const body = await res.json();
+        if (!res.ok) throw new Error(body.message ?? "Milestones unavailable.");
+        if (!controller.signal.aborted) setResponse({ key: submittedKey, result: body });
+      }).catch((error: unknown) => {
+        if (!controller.signal.aborted) setResponse({ key: submittedKey, error: error instanceof Error ? error.message : "Milestones unavailable." });
+      }).finally(() => { if (!controller.signal.aborted) setBusy(false); });
+    return () => controller.abort();
+  }, [submission]);
   const current = enabled && response?.key === key ? response : null;
   return <section className="comparison-panel fire-panel" aria-labelledby="fire-heading">
     <h2 id="fire-heading">Conditional FIRE milestones</h2>
@@ -57,14 +56,15 @@ export function FireMilestones({ inputs, definitions, onResult }: {
       </div>
       <p>Search starts in the baseline month and ends at the earlier of baseline retirement and chosen full retirement. Spacing is explicit; no dates between tested points are certified. CPP entitlement is not recomputed from earnings. Baseline uses constant fallback returns/inflation; stress uses only your explicitly configured dated paths, which need not be adverse.</p>
       {(["coast", "barista"] as const).map(kind => <details key={kind}><summary>{kind === "coast" ? "Coast" : "Barista"} employment assumptions and sources</summary>
-        <p>Source: {JSON.stringify(request[kind]) === JSON.stringify(initial()[kind]) && request[kind] ? "Configured scenarioComparison template" : "Temporary explicit selection or edits"}. The selected single interval supplies job terms from each candidate until the milestone full retirement age; its original dates are replaced.</p>
-        <label>{kind} configured template<select value="" onChange={e => { const selected = definitions.find(s => s.id === e.target.value); if (selected?.careerTransition) setRequest({ ...request, [kind]: structuredClone(selected.careerTransition) }); }}><option value="">Select configured terms</option>{definitions.filter(s => s.careerTransition?.phases.length === 1 && s.careerTransition.phases[0].kind === kind).map(s => <option key={s.id} value={s.id}>{s.label}</option>)}</select></label>
+        <p>Source: {JSON.stringify(request[kind]) === JSON.stringify(initial()[kind]) && request[kind] ? "Configured scenarioComparison template" : "Temporary explicit selection or edits"}. Selected intervals supply dated job and spending terms. Internal phase ages stay fixed; edge terms extend when the candidate or full retirement age moves.</p>
+        <label>{kind} configured template<select value="" onChange={e => { const selected = definitions.find(s => s.id === e.target.value); if (selected?.careerTransition) setRequest({ ...request, [kind]: structuredClone(selected.careerTransition) }); }}><option value="">Select configured terms</option>{definitions.filter(s => s.careerTransition?.phases.every(p => p.kind === kind)).map(s => <option key={s.id} value={s.id}>{s.label}</option>)}</select></label>
         <button type="button" onClick={() => setRequest({ ...request, [kind]: careerPreset(inputs, kind).careerTransition! })}>Use illustrative {kind} terms</button>
         <p>Illustrations use half the first configured income and no employer match. They are editable placeholders, not known future job terms. Coast must fund living costs without withdrawals or retirement saving, including surplus saving. Barista may withdraw for spending but must meet required contributions and liquidity.</p>
         {request[kind] && <CareerTransitionEditor milestoneTemplate value={request[kind]} inputs={inputs} onChange={value => setRequest({ ...request, [kind]: value })} />}
       </details>)}
       <button type="button" onClick={() => setRequest(initial())}>Reset milestone assumptions</button>
-      {!current && <p role="status">Calculating candidate months…</p>}
+      <button type="button" disabled={busy} onClick={() => { setBusy(true); setSubmission({ key }); }}>Calculate FIRE milestones</button>
+      {!current && <p role="status">{busy ? "Calculating candidate months…" : "Assumptions changed or not calculated. Calculate to update milestones."}</p>}
       {current?.error && <p role="alert">{current.error}</p>}
       {current?.result && <div aria-live="polite">
         <p>Effective {current.result.effectiveDate}; {request.stepMonths}-month grid through age {current.result.lastCandidateAge}. Horizon {inputs.endAge}; terminal financial asset floor {inputs.retirementRequirement.minimumEndingFinancialAssetsToday} today ({inputs.retirementRequirement.activeValueSource}). Home equity is excluded. Tax model: {inputs.tax.mode}; existing tax coverage limitations apply.</p>

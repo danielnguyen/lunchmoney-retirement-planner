@@ -55,10 +55,10 @@ export function cloneCanadianTaxYearState(
 ): CanadianTaxYearState {
   return {
     calendarYear: state.calendarYear,
-    openingIncome: copy(state.openingIncome),
-    projectionIncome: copy(state.projectionIncome),
-    totalIncome: copy(state.totalIncome),
-    embeddedIncome: copy(state.embeddedIncome),
+    openingIncome: { ...state.openingIncome },
+    projectionIncome: { ...state.projectionIncome },
+    totalIncome: { ...state.totalIncome },
+    embeddedIncome: { ...state.embeddedIncome },
     recognizedProjectionFundedTax: state.recognizedProjectionFundedTax,
     recognizedOasRecoveryTax: state.recognizedOasRecoveryTax,
     referenceSet: state.referenceSet,
@@ -98,6 +98,8 @@ export function canadianTaxPosition(input: {
   tax: Extract<TaxAssumptions, { mode: "canadian_annual" }>;
   ageAtYearEnd: number;
   pensionIncomeCreditEligible: boolean;
+  /** Withdrawal previews change only non-embedded income in the same tax year. */
+  unchangedEmbeddedTax?: AnnualCanadianTaxResult;
 }): CanadianTaxPosition {
   const rrifCreditEligible = input.ageAtYearEnd >= 65;
   const eligibleFull =
@@ -122,7 +124,7 @@ export function canadianTaxPosition(input: {
     incomeBySource: copy(input.state.totalIncome) as CanadianTaxIncomeBySource,
     eligiblePensionIncome: eligibleFull,
   });
-  const embedded = calculateAnnualCanadianTax({
+  const embedded = input.unchangedEmbeddedTax ?? calculateAnnualCanadianTax({
     ...common,
     incomeBySource: copy(input.state.embeddedIncome) as CanadianTaxIncomeBySource,
     eligiblePensionIncome: eligibleEmbedded,

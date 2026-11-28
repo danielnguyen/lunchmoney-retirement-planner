@@ -588,8 +588,8 @@ search remain out of scope until predecessor acceptance and merge.
 ## Conditional FIRE milestones (#47)
 
 Opt-in dashboard analysis tests dated career transitions through the existing
-monthly engine. Coast and Barista reuse explicitly selected single-interval
-`scenarioComparison` career definitions or editable illustrative presets; Full
+monthly engine. Coast and Barista reuse explicitly selected dated
+`scenarioComparison` career definitions of one strategy or editable illustrative presets; Full
 FIRE has zero employment and saving from its candidate month. The chosen full
 retirement age and CPP assumptions are explicit. No income inverse search,
 optimization, private configuration, new dependency or deployment is included.
@@ -632,7 +632,7 @@ required; only the owner may mark ready, merge or deploy.
 Add an opt-in income-by-transition-age curve beside the existing dashboard
 analyses. Reuse the career materializer and monthly funding checks, with explicit
 full retirement, growth, spending, contribution/benefit and CPP assumptions. A
-single accumulation interval may continue saving; only a selected Barista interval
+set of accumulation intervals may continue saving; only a selected Barista interval
 authorizes working-life spending withdrawals. This is not a Coast/FIRE threshold.
 
 Solve annual gross income in today's dollars only where the existing Ontario
@@ -662,11 +662,36 @@ For both income and FIRE candidates, optional personal saving capped by cash or
 registered room is not an unfunded required outflow. Preserve ordinary accumulation
 flows, mandatory withholding and required career contributions. Per the resolved
 #48 owner decision, historical reserve buildup may recover before transition;
-require funded reserves at transition and throughout the subsequent horizon,
-including retirement. At projection start, check opening balances before the first
+require funded reserves at transition and throughout the remaining working life.
+Per #52, full retirement then uses ordinary drawdown: cash reserves can fund
+required spending, tax and debt, subject to the configured terminal asset floor. At projection start, check opening balances before the first
 salary, return or event; first-month replenishment is not pre-transition recovery.
 Do not waive a later deficit because an earlier one recovered.
 Carry each trial's first failing month, category, today-dollar shortfall or
 disallowed funding, and actionable explanation through the API and collapsed
 evidence. Keep core results and retirement controls prominent; ordinary salary
 scenario controls remain discoverable separately from the inverse salary result.
+
+
+## FIRE and career-income acceptance correction (#52)
+
+Preserve configured working spending in illustrative presets through existing
+dated career phases. Preserve personal cash-funded saving and its indexing/routing
+unless an interval overrides that account; a zero override stops it. Preserve
+simple reserve-building plans during remaining employment. Workplace withholding
+and employer match require explicit terms. Coast removes baseline saving and still
+passes the strict no-saving counterfactual; no new config schema is introduced.
+
+Income templates may contain multiple dated intervals of the same strategy. Each
+candidate keeps internal phase boundaries and extends only the edge terms to the
+selected transition/retirement dates. Its single searched today-dollar gross is
+applied to each interval; estimated net shown is for the transition interval.
+
+Keep the full annual grid, sampling, fresh passing/adjacent checks, cent-accurate
+withdrawal solver and request budgets. Profile and remove redundant report work,
+liquidation previews and duplicate embedded-tax calculations. Return compact range
+and boundary evidence with sample counts; unavailable/budget-limited work must not
+be reported as financial failure. Explicit Calculate buttons submit edits together
+and prevent overlapping submissions within each analysis. Ordinary projections and
+exports retain their contracts. Separate pages remain deferred. #48 stays open for
+owner acceptance after deployment; independent exact-head review is required.

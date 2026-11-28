@@ -1,6 +1,8 @@
-import type { CareerTransitionConfig, ComparisonScenarioConfig } from "@/src/config/types";
+import type { CareerPhaseConfig, CareerTransitionConfig, ComparisonScenarioConfig } from "@/src/config/types";
 import { parseCareerTransition } from "@/src/config/scenario-comparison";
 import type { ProjectionInputs } from "@/src/domain/projection/types";
+import { buildInflationFactors } from "@/src/domain/projection/return-path";
+import type { ProjectionInputsWithReturnPaths } from "@/src/domain/projection/return-path-model";
 import { estimateOntarioEmployment } from "./payroll";
 
 export function applyCareerTransition(inputs: ProjectionInputs, raw: CareerTransitionConfig): void {
@@ -22,8 +24,14 @@ export function applyCareerTransition(inputs: ProjectionInputs, raw: CareerTrans
   inputs.spendingPhases = prefix(inputs.spendingPhases);
   const fundingByAccount = new Map(inputs.accounts.map(a => [a.id, a.contributionPhases[0]?.funding ??
     (inputs.savingsPolicy.mode === "simple" && a.id === inputs.savingsPolicy.workplaceRrspAccountId ? "income_withheld" : "cash")]));
+  const personalPlans = new Map(inputs.accounts.map(a => [a.id, a.contributionPhases.filter(p => p.funding === "cash")]));
+  const inflation = buildInflationFactors({ fallbackAnnualInflation: inputs.annualInflation,
+    path: (inputs as ProjectionInputsWithReturnPaths).returnScenario?.inflationPath,
+    startYear: Number(inputs.startDate.slice(0, 4)), startMonth: Number(inputs.startDate.slice(5, 7)),
+    totalMonths: Math.round((inputs.endAge - inputs.person.currentAge) * 12) });
   for (const account of inputs.accounts) account.contributionPhases = prefix(account.contributionPhases);
-  if (inputs.savingsPolicy.mode === "simple") inputs.savingsPolicy.reserveBuildingPhases = prefix(inputs.savingsPolicy.reserveBuildingPhases);
+  const reservePlans = inputs.savingsPolicy.mode === "simple" ? inputs.savingsPolicy.reserveBuildingPhases : [];
+  if (inputs.savingsPolicy.mode === "simple") inputs.savingsPolicy.reserveBuildingPhases = prefix(reservePlans);
   for (const p of career.phases) {
     if (p.employment.mode === "gross_estimate" && (p.startAge < 18 || p.endAge > 65)) throw new Error("Gross estimate supports employment ages 18–64 only; use explicit overrides.");
     const employment = p.employment.mode === "gross_estimate" ? estimateOntarioEmployment(p.employment.annualGrossToday) : p.employment;
@@ -39,6 +47,30 @@ export function applyCareerTransition(inputs: ProjectionInputs, raw: CareerTrans
         annualPensionAdjustmentToday: p.annualPensionAdjustmentToday, annualOtherRoomReductionToday: p.annualOtherRoomReductionToday, annualGrowth: p.annualGrowth } });
     inputs.spendingPhases.push({ id: `career:${p.id}`, label: p.label, startAge: p.startAge, endAge: p.endAge,
       essentialMultiplier: p.essentialMultiplier, discretionaryMultiplier: p.discretionaryMultiplier, source: "explicit_configuration" });
+    if (p.kind !== "coast" && inputs.savingsPolicy.mode === "simple") {
+      for (const original of reservePlans) {
+        const startAge = Math.max(p.startAge, original.startAge), endAge = Math.min(p.endAge, original.endAge);
+        if (endAge > startAge) inputs.savingsPolicy.reserveBuildingPhases.push({ ...original,
+          id: `${original.id}:${p.id}`, startAge, endAge,
+          monthlyAmountToday: original.monthlyAmountToday * Math.pow(1 + original.indexingRate, startAge - original.startAge) });
+      }
+    }
+    // Personal saving is not an assumed employer benefit. Keep its dated plan
+    // and existing routing unless this interval explicitly overrides the account.
+    // Coast deliberately removes all saving, including these optional plans.
+    if (p.kind !== "coast") for (const account of inputs.accounts) {
+      if (p.contributions.some(c => c.accountId === account.id)) continue;
+      for (const original of personalPlans.get(account.id)!) {
+        const startAge = Math.max(p.startAge, original.startAge);
+        const endAge = Math.min(p.endAge, original.endAge);
+        if (endAge <= startAge) continue;
+        const originalMonth = Math.round((original.startAge - inputs.person.currentAge) * 12);
+        const startMonth = Math.round((startAge - inputs.person.currentAge) * 12);
+        account.contributionPhases.push({ ...original, id: `${original.id}:${p.id}`, startAge, endAge,
+          monthlyAmountToday: original.monthlyAmountToday * Math.pow(1 + original.indexingRate, startAge - original.startAge) *
+            (original.phaseLocalIndexing ? inflation[originalMonth] / inflation[startMonth] : 1) });
+      }
+    }
     for (const c of p.contributions) {
       const account = inputs.accounts.find(a => a.id === c.accountId);
       if (!account) throw new Error("Career contribution must select an existing account.");
@@ -58,20 +90,43 @@ export function applyCareerTransition(inputs: ProjectionInputs, raw: CareerTrans
   inputs.person.cpp.monthlyAmountAt65Today *= career.cppBenefitMultiplier;
 }
 
+/** Reuse a dated template across the candidate grid. Internal phase boundaries
+ * remain at their configured ages; the edge terms extend if retirement moves. */
+export function careerPhasesForInterval(career: CareerTransitionConfig, start: number, end: number) {
+  const phases = career.phases.map((p, i) => ({ ...structuredClone(p),
+    startAge: i === 0 ? start : Math.max(start, p.startAge),
+    endAge: i === career.phases.length - 1 ? end : Math.min(end, p.endAge),
+  })).filter(p => p.endAge > p.startAge);
+  if (phases.length) { phases[0].startAge = start; phases[phases.length - 1].endAge = end; }
+  return phases;
+}
+
 /** Editable illustrative starters, deliberately not affordability forecasts. */
 export function careerPreset(inputs: ProjectionInputs, kind: "reduced_income" | "coast" | "barista" | "coast_to_barista"): ComparisonScenarioConfig {
   const start = inputs.person.currentAge;
   const end = inputs.person.retirementAge;
   const baseline = inputs.person.employmentIncomePhases[0];
   const middle = start + Math.floor((end - start) * 6) / 12;
-  const phases = (kind === "coast_to_barista" && middle > start ? [[start, middle, "coast"], [middle, end, "barista"]] : [[start, end, kind === "reduced_income" ? "accumulation" : kind === "coast_to_barista" ? "coast" : kind]]).map(([from, to, strategy], i) => ({
-    id: `career-${i + 1}`, label: `${strategy} (editable illustration)`, kind: strategy as "accumulation" | "coast" | "barista", startAge: Number(from), endAge: Number(to), annualGrowth: inputs.annualInflation,
-    employment: { mode: "net_override" as const, annualNetCashToday: baseline.annualNetCashToday * .5,
-      annualTaxableEmploymentIncomeToday: (baseline.annualTaxableEmploymentIncomeToday ?? 0) * .5,
-      annualEligibleEarnedIncomeToday: (baseline.rrspRoomGeneration?.annualEligibleEarnedIncomeToday ?? 0) * .5 },
-    annualPensionAdjustmentToday: 0, annualOtherRoomReductionToday: 0, essentialMultiplier: 1, discretionaryMultiplier: 1,
-    surplusInvesting: "retain_as_cash" as const, contributions: [],
-  }));
+  // Keep the existing spending schedule using the existing career-phase schema.
+  // No actual future employer benefit or workplace withholding is inferred.
+  const boundaries = [...new Set([start, end,
+    ...inputs.spendingPhases.flatMap(p => [p.startAge, p.endAge]).filter(age => age > start && age < end),
+    ...(kind === "coast_to_barista" && middle > start ? [middle] : []),
+  ])].sort((a, b) => a - b);
+  const phases = boundaries.slice(0, -1).map((from, i): CareerPhaseConfig => {
+    const strategy = kind === "reduced_income" ? "accumulation" : kind === "coast_to_barista" ? from < middle ? "coast" : "barista" : kind;
+    const spending = inputs.spendingPhases.find(p => p.startAge <= from && p.endAge > from)!;
+    return {
+      id: `career-${i + 1}`, label: `${strategy}: ${spending.label} (editable illustration)`, kind: strategy,
+      startAge: from, endAge: boundaries[i + 1], annualGrowth: inputs.annualInflation,
+      employment: { mode: "net_override" as const, annualNetCashToday: baseline.annualNetCashToday * .5,
+        annualTaxableEmploymentIncomeToday: (baseline.annualTaxableEmploymentIncomeToday ?? 0) * .5,
+        annualEligibleEarnedIncomeToday: (baseline.rrspRoomGeneration?.annualEligibleEarnedIncomeToday ?? 0) * .5 },
+      annualPensionAdjustmentToday: 0, annualOtherRoomReductionToday: 0,
+      essentialMultiplier: spending.essentialMultiplier, discretionaryMultiplier: spending.discretionaryMultiplier,
+      surplusInvesting: strategy === "coast" ? "retain_as_cash" as const : "configured" as const, contributions: [],
+    };
+  });
   return { id: `career-${kind}`, label: kind.replaceAll("_", " "), spending: [], personalContributions: [], contributionPolicy: "cash_constrained",
     careerTransition: { transitionAge: start, retirementAge: end, cppBenefitMultiplier: 1, phases } };
 }

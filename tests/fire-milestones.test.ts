@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { calculateFireMilestones, evaluateFireCandidate, materializeFireCandidate, parseFireMilestoneRequest, searchFireCandidates } from "@/src/domain/projection/fire-milestones";
 import { calculateProjection, evaluateMilestoneFunding, type ComparisonProjectionOptions } from "@/src/domain/projection/calculate";
 import { fireInputs, fireRequest } from "./fixtures/fire-milestones";
@@ -229,8 +229,8 @@ describe("shared funding acceptance corrections", () => {
       expect(ordinary.slice(1).every(m => m.reserveShortfall === 0)).toBe(true);
       expect(evaluateFireCandidate(p, r, "full", 40).passes).toBe(false);
       expect(evaluateFireCandidate(p, r, "full", 40 + 1 / 12).failure).toMatchObject({ date: "2026-02", category: "reserve", shortfallToday: 4000 });
-      // Recovery does not waive a later retirement reserve breach.
-      expect(evaluateFireCandidate(p, r, "full", 40 + 2 / 12).failure).toMatchObject({ date: "2026-05", category: "reserve", shortfallToday: 1000 });
+      // Recovery permits retirement cash drawdown; the terminal floor still binds.
+      expect(evaluateFireCandidate(p, r, "full", 40 + 2 / 12).failure).toMatchObject({ date: "2029-12", category: "terminal_floor", shortfallToday: 24000 });
       expect(evaluateFireCandidate(p, r, "full", 41).passes).toBe(true);
     } else {
       if (mode === "room") {
@@ -245,7 +245,7 @@ describe("shared funding acceptance corrections", () => {
     expect(p).toEqual(before);
   });
 
-  it("retains mandatory baseline withholding, actual outflow and retirement reserve failures", async () => {
+  it("retains mandatory baseline withholding, actual outflow and transition reserve failures", async () => {
     const { constrainedSavingInputs } = await import("./fixtures/fire-milestones");
     const p = constrainedSavingInputs("room"), r = fireRequest(p);
     p.accounts[1].contributionPhases[0].funding = "income_withheld";
@@ -298,4 +298,40 @@ it.each([true, false])("uses the same opening operating-cash protection when res
   const expected = shared ? 2000 : 3000;
   expect(openingReserveShortfall(p)).toBe(expected);
   expect(evaluateFireCandidate(p, fireRequest(p), "barista", 40).failure).toMatchObject({ category: "reserve", shortfallToday: expected });
+});
+
+it("permits ordinary retirement reserve drawdown and spend-down, but retains outflow and floor failures", async () => {
+  const { evaluateCareerFunding } = await import("@/src/domain/projection/fire-milestones");
+  const p = fireInputs(), r = fireRequest(p);
+  p.surplusAllocation.targetCashReserveToday = 20000;
+  p.surplusAllocation.reserveIndexingRate = 0;
+  p.retirementRequirement.minimumEndingFinancialAssetsToday = 90000;
+  r.barista!.phases[0].employment = { mode: "net_override", annualNetCashToday: 12000, annualTaxableEmploymentIncomeToday: 12000, annualEligibleEarnedIncomeToday: 12000 };
+  const active = materializeFireCandidate(p, r, "barista", 40);
+  expect(evaluateFireCandidate(p, r, "barista", 40)).toMatchObject({ passes: true, terminalFinancialAssetsToday: 96000 });
+  expect(calculateProjection(active).summary.endingFinancialAssetsToday).toBe(96000);
+  expect(evaluateCareerFunding(active, 40, 42, "barista", r.barista!.phases[0]).passes).toBe(true);
+  p.retirementRequirement.minimumEndingFinancialAssetsToday = 0;
+  p.accounts[1].openingBalance = 4000;
+  expect(evaluateFireCandidate(p, r, "barista", 40)).toMatchObject({ passes: true, terminalFinancialAssetsToday: 0 });
+  p.retirementRequirement.minimumEndingFinancialAssetsToday = 100;
+  expect(evaluateFireCandidate(p, r, "barista", 40).failure).toMatchObject({ category: "terminal_floor", shortfallToday: 100 });
+  p.retirementRequirement.minimumEndingFinancialAssetsToday = 0;
+  p.accounts[1].openingBalance = 3000;
+  expect(evaluateFireCandidate(p, r, "barista", 40).failure).toMatchObject({ category: "required_outflow" });
+  p.accounts[1].openingBalance = 100000;
+  r.barista!.phases[0].employment.annualNetCashToday = 0;
+  expect(evaluateFireCandidate(p, r, "barista", 40).failure).toMatchObject({ category: "reserve", date: "2026-01" });
+  // Immediate Full FIRE still needs its opening reserve, then may spend it.
+  p.accounts[1].openingBalance = 28000;
+  expect(evaluateFireCandidate(p, r, "full", 40)).toMatchObject({ passes: true, terminalFinancialAssetsToday: 0 });
+});
+
+
+it("reports budget-limited FIRE searches as unfinished, never financially infeasible", () => {
+  const now = vi.spyOn(Date, "now").mockReturnValueOnce(0).mockReturnValue(30001);
+  try {
+    const result = calculateFireMilestones(fireInputs(), fireRequest());
+    expect(result.results.every(r => r.status === "unavailable" && r.reason.includes("not computed") && r.tested.length === 0)).toBe(true);
+  } finally { now.mockRestore(); }
 });
