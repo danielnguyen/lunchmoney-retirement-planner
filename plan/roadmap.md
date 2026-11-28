@@ -626,3 +626,34 @@ candidate failures, non-monotonic grids, different ordering, engine parity,
 benefits/debt/reserves/tax/floor/path changes, controls/API and export privacy,
 plus all repository checks. Independent exact-head review and hosted Docker remain
 required; only the owner may mark ready, merge or deploy.
+
+## Career independence income curve (#48)
+
+Add an opt-in income-by-transition-age curve beside the existing dashboard
+analyses. Reuse the career materializer and monthly funding checks, with explicit
+full retirement, growth, spending, contribution/benefit and CPP assumptions. A
+single accumulation interval may continue saving; only a selected Barista interval
+authorizes working-life spending withdrawals. This is not a Coast/FIRE threshold.
+
+Solve annual gross income in today's dollars only where the existing Ontario
+estimate supplies a consistent net/taxable/room-eligible relation. Independent
+net overrides, employer matching tax treatment and unsupported payroll ages are
+unavailable, not inferred. Preserve actual pre-transition cash and tax inputs,
+including the existing guard against retroactive CPP multiplier changes.
+
+Show estimated deposited net, a monthly living-cost funding comparator, separate
+constant-baseline and explicit stress curves, unavailable points, active assumptions,
+search bounds and tested evidence. Use bounded sampled numerical search with an
+explicit annual gross resolution, passing candidate and adjacent lower failure.
+Detect observed feasibility reversals; do not claim a global minimum across
+unsampled islands or probabilistic safety. Zero, cap exhaustion and unavailable
+results remain distinct. Existing projection/export behavior stays unchanged.
+
+Scope: affected projection domain, existing projection route, dashboard components
+and styles, synthetic tests, example configuration and existing README/docs/plan.
+The shared FIRE forward-check extraction is directly implicated to avoid duplicating
+funding constraints. No dependencies, payroll engine, optimization of other inputs,
+private data, deployment or workflow changes. Validate analytical boundaries,
+full-engine parity, taxes/room/withholding, debt/reserves/floors, explicit stress,
+real-dollar semantics, UI/API overrides, browser responsiveness and export privacy,
+plus npm test/typecheck/lint/build, Docker and Compose. Owner retains merge/deploy.

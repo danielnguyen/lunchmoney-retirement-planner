@@ -6,18 +6,14 @@ Public tracking must remain generic and must not contain private financial value
 
 ## Current position
 
-- Active implementation: conditional FIRE milestones (#47), branch `openhands/issue-47`.
-- Clean main baseline `4ff755971aac8345a854bdbca40fbe427b4fcb3b`; PR #49 merged
-  2026-11-28 with independent exact-head approval and successful CI/Docker checks.
-- No open PR at execution start. #46 is complete; #48 remains held.
-- Scope: existing monthly engine/configured career assumptions, projection API,
-  dashboard/charts/controls, synthetic tests and existing documentation.
-- Excluded: inverse income solver, new financial engine, optimization, private data,
+- Active implementation: required employment income by transition age (#48), branch `openhands/issue-48`.
+- Clean main baseline `429a5f4a26e0e7e584658f3a4dcc4fdf25339091`; PR #50 merged.
+  #46/#47 are complete; no open PR at execution start.
+- Scope: career income inverse search through existing monthly funding checks,
+  projection API/dashboard/styles, synthetic tests and existing documentation.
+- Excluded: independent payroll engine, unrelated optimization, private data,
   dependencies, CI permissions, merge and deployment.
-- Draft PR: [#50](https://github.com/danielnguyen/lunchmoney-retirement-planner/pull/50).
-  Independent exact-head review and hosted validation are requested on the final
-  head; only the owner may mark ready, merge or deploy. #47 browser evidence is
-  recorded below; #46 had not verified real-browser geometry.
+- Draft publication, independent exact-head review and hosted checks pending.
 
 ## Planned implementation sequence
 
@@ -37,7 +33,8 @@ Public tracking must remain generic and must not contain private financial value
 | 12 | Structured housing transitions | Net-worth, debt, spending, and event models | Planned | — |
 
 | — | Inverse retirement spending capacity (#35) | Shared monthly engine and retirement requirement | Completed | [#41](https://github.com/danielnguyen/lunchmoney-retirement-planner/pull/41) |
-| — | Conditional FIRE milestones (#47) | Career transitions and shared monthly engine | In progress | [#50](https://github.com/danielnguyen/lunchmoney-retirement-planner/pull/50) |
+| — | Required employment income (#48) | Career scenarios and conditional funding checks | In progress | Pending |
+| — | Conditional FIRE milestones (#47) | Career transitions and shared monthly engine | Completed | [#50](https://github.com/danielnguyen/lunchmoney-retirement-planner/pull/50) |
 | — | Career transitions and editable FIRE presets (#46) | Scenario comparison and shared monthly engine | Completed | [#49](https://github.com/danielnguyen/lunchmoney-retirement-planner/pull/49) |
 | — | Configurable scenario comparison (#37) | Shared monthly projection and configured phases | Completed | [#38](https://github.com/danielnguyen/lunchmoney-retirement-planner/pull/38) |
 
@@ -74,8 +71,8 @@ Planning order is project-management shorthand only. Production names must descr
 
 ## New-conversation handoff
 
-Resume #47 on its existing branch/PR. Recover current GitHub head, checks and
-independent review; #46 merged in #49. Do not begin #48.
+Resume #48 on its existing branch/PR. Recover current GitHub head, checks and
+independent review. #46 merged in #49; #47 merged in #50.
 
 ## Issue #36 execution record
 
@@ -322,3 +319,43 @@ independent review; #46 merged in #49. Do not begin #48.
 - Next: push this correction to the existing draft, reply to the inline finding,
   and remove/reapply `openhands-review` for independent review of the new head.
   Owner-only ready/merge/deploy restrictions remain in force.
+
+
+## Issue #48 execution record
+
+- Verified live issue SHA-256 `3dcf26529648fab6dd71a5885692a42749be9a86cba5753af4ba06df4e0fd100`.
+- Read shared AGENTS, WORKFLOW, AUTHORITY, ENGINEERING and ChatGPT/OpenHands
+  integration rules at `f3e619116a87fa872269460aa70c74ef9157ee4f`.
+- Read target AGENTS, roadmap/index, plan guide, architecture/strategy, #46/#47,
+  PR #50 merge/review/checks, career/payroll, milestone/inverse/funding engine,
+  route/dashboard and synthetic fixtures. No nested instructions found.
+- Separate clean checkout from main `429a5f4a26e0e7e584658f3a4dcc4fdf25339091`,
+  credential-free origin and expected branch verified. Automation bundle untouched.
+  Storage: 136 GB and more than 11 million inodes free. No private config read.
+- Reuse the career materializer and extract shared forward constraints from FIRE
+  evaluation; existing milestone response shape is preserved. No new payroll model.
+- Bound search to supported gross relations, explicit cap/resolution, 61 dates,
+  2 million simulated months and 30 seconds. Report unavailable remaining points,
+  sampled reversals, cap exhaustion and adjacent lower failures without global claims.
+- Initial focused checks exposed floating-point assertion precision and incomplete
+  synthetic stress metadata; corrected the fixtures/assertions without weakening
+  cent reconciliation or product constraints. Export tests target new analysis
+  fields rather than the pre-existing exported employment-income ledger field.
+- Validation and independent review pending; owner-only readiness/merge/deploy.
+- Final validation: 783 tests in 48 files, typecheck, lint, production build,
+  Compose config and all eight production HTTP export checks passed.
+- Production Chromium passed at 390px and 1440px with synthetic baseline
+  interception and real projection HTTP: opt-in calculation, expanded job controls,
+  chart/accessible table, no panel/control overflow, opt-out and no runtime exceptions.
+  The reproducible test uses a temporary browser profile/config/cache, cleaned on exit.
+- Analytical and full-engine fixtures cover zero/capped/unavailable boundaries,
+  fresh adjacent failure checks, tax/CPP/EI thresholds, RRSP earned room/withholding,
+  unchanged prefixes, CPP guard, debt/reserves/terminal floor, adverse return paths,
+  month-end real-dollar indexing, temporary overrides and export privacy.
+  Nonmonotonic counterexamples are evaluator-grid tests, not a financial proof of
+  monotonicity. The UI explicitly disclaims a global minimum across unsampled islands.
+- Local Docker build failed with permission denied at the Docker socket. No
+  escalation; hosted exact-head Docker/CI and independent review remain required.
+- Generated next-env build changes were restored; no unignored build/scratch output
+  retained. Git author metadata is supplied per command using existing OpenHands
+  attribution because the checkout has no configured identity; Git config unchanged.

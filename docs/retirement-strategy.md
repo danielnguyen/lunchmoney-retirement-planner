@@ -256,7 +256,7 @@ existing Save config action where enabled; no automatic writes or sync occur.
 The commented example in `config/planner.example.yaml` shows the complete shape.
 Comparison definitions and free-text employment/savings descriptions remain outside
 the existing export allowlist. No new export or storage mechanism is introduced.
-Automatic FIRE-date and minimum-income searches remain follow-up work.
+Conditional FIRE-date and required-income analyses are described below.
 
 ## Conditional milestone search
 
@@ -288,7 +288,65 @@ boundary), that milestone is unavailable. Set the multiplier to 1 to preserve
 baseline CPP; dated CPP adjustments are not supported. Opening-month transitions
 and candidates before CPP becomes payable still support changed multipliers.
 
-No independent financial engine or inverse income solver is added. Forward checks
+The milestone search adds no independent financial engine or inverse income solver. Forward checks
 skip the unrelated inverse asset-requirement search. A simulation error makes the
 milestone unavailable rather than producing a date. Existing exports do not include
 these temporary definitions, candidate results or free-text job assumptions.
+
+## Career independence: required employment income
+
+Select **Calculate income by transition age** to compare lower-paid employment
+against lifetime funding needs. Choose the full-retirement age and a single
+accumulation or Barista job template. The explicit Ontario illustration starts
+with no match or required savings; edit the assumptions before relying on it.
+Configured single-interval `scenarioComparison` career templates are reusable.
+Dates and salary are replaced for each candidate; growth, spending, pension
+adjustments, savings, CPP and surplus treatment remain selected assumptions.
+
+The curve uses annual gross and estimated deposited net in today's dollars,
+even when the main report shows future dollars. The existing dated 2026 Ontario
+estimate supplies taxable and room-eligible earnings alongside net cash. Net
+is after payroll and employee withholding, before incremental tax on other
+income. Independent net/taxable/eligible overrides cannot establish a salary
+relation and are unavailable. Gross estimates with employer matches or employment
+outside ages 18–64 are also unavailable; no new payroll model is introduced.
+Future net is indexed to transition then grown locally, rather than recomputing
+future tax brackets or payroll rules. The existing payroll limitations apply.
+
+Each trial uses the same monthly engine and funding constraints as career/FIRE
+analysis: debt, taxes, spending, reserves, required contributions, authorized
+withdrawals and the terminal financial-asset floor. Accumulation forbids working
+withdrawals; Barista permits spending withdrawals during its interval only.
+Cash-funded investment cannot depend on asset withdrawals. Actual accumulation
+before the candidate is retained; the CPP timing guard still applies. Career
+independence can precede Coast while still depending on ongoing saving.
+
+The dashed living-cost comparator is the gross income needed for every selected
+career month's expenses from current income, after payroll/employee withholding,
+with other income offsets. It includes essential/discretionary spending, debt,
+events and incremental tax, but excludes extra saving, reserve building and
+retirement funding. It observes the same actual candidate flows, including taxes
+from those flows; it is not a separate optimized budget. It may be higher than
+the lifetime requirement when Barista spending withdrawals are authorized.
+
+Each path/date samples 17 evenly spaced salaries within the selected cap before
+binary refinement. A positive result is a tested passing boundary whose adjacent
+lower grid salary fails, conditional on monotone feasibility. Observed reversals
+make the result unavailable; unsampled feasible islands are not ruled out and
+no global minimum is certified. Zero is the non-negative lower bound. No passing
+sample under the cap does not prove impossibility or an unbounded requirement.
+Resolution is 1, 10, 100 or 1,000 annual gross dollars, with a maximum cap of
+1,000,000. The visible initial cap of 200,000 and resolution of 100 are editable
+computational settings, not employment forecasts.
+
+Transition grids are 1, 3 or 12 months, include the last eligible month, and stop
+before chosen full retirement and no later than baseline retirement. At most 61
+dates, 2 million simulated months and 30 seconds are allowed per request. Exhausted
+work is shown as unavailable points rather than silently omitted. Constant fallback
+returns/inflation and configured dated stress paths are separate; no stress path
+is invented. These are deterministic comparisons, not probability guarantees.
+
+The dashboard exposes exact amounts, tested boundaries, source/limitations and
+active baseline overrides. Refresh and edits clear stale curves. This temporary
+analysis adds no persistence or export schema: ordinary anonymized JSON/CSV still
+describe the configured forward projection, excluding temporary job terms/results.
